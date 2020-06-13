@@ -1169,7 +1169,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_wujiyang_Face_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ArcMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
 
@@ -1217,3 +1216,4 @@ class Test_wujiyang_Face_Pytorch(_paritybench_base):
 
     def test_015(self):
         self._check(AgentCenterLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+

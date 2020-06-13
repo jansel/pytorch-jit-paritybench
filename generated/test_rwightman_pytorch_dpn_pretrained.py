@@ -307,11 +307,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rwightman_pytorch_dpn_pretrained(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -320,7 +319,8 @@ class Test_rwightman_pytorch_dpn_pretrained(_paritybench_base):
 
     def test_003(self):
         self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(DPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

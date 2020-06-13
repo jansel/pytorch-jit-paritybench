@@ -333,13 +333,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yu45020_Text_Segmentation_Image_Inpainting(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(DoubleAvdPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

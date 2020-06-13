@@ -236,6 +236,10 @@ class DataParallelCriterion(DataParallel):
         return Reduce.apply(*outputs) / len(outputs)
 
 
+def _assert_no_grad(tensor):
+    assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
+
+
 _global_config['output_shape'] = 4
 
 
@@ -266,10 +270,6 @@ def soft_argmax(heatmaps, joint_num):
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
     coord_out = torch.cat((accu_x, accu_y, accu_z), dim=2)
     return coord_out
-
-
-def _assert_no_grad(tensor):
-    assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
 
 
 class JointLocationLoss(nn.Module):
@@ -409,6 +409,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_mks0601_Integral_Human_Pose_Regression_for_3D_Human_Pose_Estimation(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
+

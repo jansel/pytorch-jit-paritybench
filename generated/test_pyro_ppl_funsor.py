@@ -129,10 +129,6 @@ import inspect
 import re
 
 
-def _log_det_tri(x):
-    return ops.log(ops.diagonal(x, -1, -2)).sum(-1)
-
-
 class Encoder(nn.Module):
 
     def __init__(self):
@@ -167,6 +163,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pyro_ppl_funsor(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Decoder(*[], **{}), [torch.rand([20, 20])], {})
+

@@ -403,7 +403,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Jongchan_attention_module(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -418,3 +417,4 @@ class Test_Jongchan_attention_module(_paritybench_base):
 
     def test_004(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

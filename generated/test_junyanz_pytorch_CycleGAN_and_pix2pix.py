@@ -448,7 +448,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_junyanz_pytorch_CycleGAN_and_pix2pix(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -460,3 +459,4 @@ class Test_junyanz_pytorch_CycleGAN_and_pix2pix(_paritybench_base):
 
     def test_003(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+

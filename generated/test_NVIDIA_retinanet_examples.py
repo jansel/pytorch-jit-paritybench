@@ -168,96 +168,6 @@ def rotate_boxes(boxes, points=False):
     return boxes_axis, boxes_rotated
 
 
-def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
-    """Non Maximum Suppression"""
-    if torch.cuda.is_available():
-        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.
-            float(), nms, ndetections, True)
-    device = all_scores.device
-    batch_size = all_scores.size()[0]
-    out_scores = torch.zeros((batch_size, ndetections), device=device)
-    out_boxes = torch.zeros((batch_size, ndetections, 6), device=device)
-    out_classes = torch.zeros((batch_size, ndetections), device=device)
-    for batch in range(batch_size):
-        keep = (all_scores[(batch), :].view(-1) > 0).nonzero()
-        scores = all_scores[batch, keep].view(-1)
-        boxes = all_boxes[(batch), (keep), :].view(-1, 6)
-        classes = all_classes[batch, keep].view(-1)
-        theta = torch.atan2(boxes[:, (-2)], boxes[:, (-1)])
-        boxes_theta = torch.cat([boxes[:, :-2], theta[:, (None)]], dim=1)
-        if scores.nelement() == 0:
-            continue
-        scores, indices = torch.sort(scores, descending=True)
-        boxes, boxes_theta, classes = boxes[indices], boxes_theta[indices
-            ], classes[indices]
-        areas = (boxes_theta[:, (2)] - boxes_theta[:, (0)] + 1) * (
-            boxes_theta[:, (3)] - boxes_theta[:, (1)] + 1).view(-1)
-        keep = torch.ones(scores.nelement(), device=device, dtype=torch.uint8
-            ).view(-1)
-        for i in range(ndetections):
-            if i >= keep.nonzero().nelement() or i >= scores.nelement():
-                i -= 1
-                break
-            boxes_axis, boxes_rotated = rotate_boxes(boxes_theta, points=True)
-            overlap, inter = iou(boxes_rotated.contiguous().view(-1),
-                boxes_rotated[(i), :].contiguous().view(-1))
-            inter = inter.squeeze()
-            criterion = (scores > scores[i]) | (inter / (areas + areas[i] -
-                inter) <= nms) | (classes != classes[i])
-            criterion[i] = 1
-            scores = scores[criterion.nonzero()].view(-1)
-            boxes = boxes[(criterion.nonzero()), :].view(-1, 6)
-            boxes_theta = boxes_theta[(criterion.nonzero()), :].view(-1, 5)
-            classes = classes[criterion.nonzero()].view(-1)
-            areas = areas[criterion.nonzero()].view(-1)
-            keep[(~criterion).nonzero()] = 0
-        out_scores[(batch), :i + 1] = scores[:i + 1]
-        out_boxes[(batch), :i + 1, :] = boxes[:i + 1, :]
-        out_classes[(batch), :i + 1] = classes[:i + 1]
-    return out_scores, out_boxes, out_classes
-
-
-def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
-    """Generate anchors coordinates from scales/ratios/angles"""
-    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
-    scales = scales.transpose(0, 1).contiguous().view(-1, 1)
-    ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
-    wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
-    ws = torch.round(torch.sqrt(wh[:, (0)] * wh[:, (1)] / ratios))
-    dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
-    xy0 = 0.5 * (wh - dwh * scales)
-    xy2 = 0.5 * (wh + dwh * scales) - 1
-    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0, 1])
-    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1, 0])
-    angles = torch.FloatTensor(angles_vals)
-    theta = angles.repeat(xy0.size(0), 1)
-    theta = theta.transpose(0, 1).contiguous().view(-1, 1)
-    xmin_ymin = xy0.repeat(int(theta.size(0) / xy0.size(0)), 1)
-    xmax_ymax = xy2.repeat(int(theta.size(0) / xy2.size(0)), 1)
-    widths_heights = dwh * scales
-    widths_heights = widths_heights.repeat(int(theta.size(0) /
-        widths_heights.size(0)), 1)
-    u = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
-    l = torch.stack([-torch.sin(angles), torch.cos(angles)], dim=1)
-    R = torch.stack([u, l], dim=1)
-    xy0R = torch.matmul(R, xy0.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy1R = torch.matmul(R, xy1.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy2R = torch.matmul(R, xy2.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy3R = torch.matmul(R, xy3.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy0R = xy0R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy1R = xy1R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy2R = xy2R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy3R = xy3R.permute(0, 2, 1).contiguous().view(-1, 2)
-    anchors_axis = torch.cat([xmin_ymin, xmax_ymax], dim=1)
-    anchors_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)
-        ).view(-1, 8)
-    return anchors_axis, anchors_rotated
-
-
 def box2delta_rotated(boxes, anchors):
     """Convert boxes to deltas from anchors"""
     anchors_wh = anchors[:, 2:4] - anchors[:, :2] + 1
@@ -329,6 +239,47 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes,
         num_anchors, 1, height, width)
 
 
+def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
+    """Generate anchors coordinates from scales/ratios/angles"""
+    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
+    scales = scales.transpose(0, 1).contiguous().view(-1, 1)
+    ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
+    wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
+    ws = torch.round(torch.sqrt(wh[:, (0)] * wh[:, (1)] / ratios))
+    dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
+    xy0 = 0.5 * (wh - dwh * scales)
+    xy2 = 0.5 * (wh + dwh * scales) - 1
+    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0, 1])
+    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1, 0])
+    angles = torch.FloatTensor(angles_vals)
+    theta = angles.repeat(xy0.size(0), 1)
+    theta = theta.transpose(0, 1).contiguous().view(-1, 1)
+    xmin_ymin = xy0.repeat(int(theta.size(0) / xy0.size(0)), 1)
+    xmax_ymax = xy2.repeat(int(theta.size(0) / xy2.size(0)), 1)
+    widths_heights = dwh * scales
+    widths_heights = widths_heights.repeat(int(theta.size(0) /
+        widths_heights.size(0)), 1)
+    u = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
+    l = torch.stack([-torch.sin(angles), torch.cos(angles)], dim=1)
+    R = torch.stack([u, l], dim=1)
+    xy0R = torch.matmul(R, xy0.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy1R = torch.matmul(R, xy1.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy2R = torch.matmul(R, xy2.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy3R = torch.matmul(R, xy3.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy0R = xy0R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy1R = xy1R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy2R = xy2R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy3R = xy3R.permute(0, 2, 1).contiguous().view(-1, 2)
+    anchors_axis = torch.cat([xmin_ymin, xmax_ymax], dim=1)
+    anchors_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)
+        ).view(-1, 8)
+    return anchors_axis, anchors_rotated
+
+
 def delta2box(deltas, anchors, size, stride):
     """Convert deltas from anchors to boxes"""
     anchors_wh = anchors[:, 2:] - anchors[:, :2] + 1
@@ -388,12 +339,60 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000,
     return out_scores, out_boxes, out_classes
 
 
+def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
+    """Non Maximum Suppression"""
+    if torch.cuda.is_available():
+        return nms_cuda(all_scores.float(), all_boxes.float(), all_classes.
+            float(), nms, ndetections, True)
+    device = all_scores.device
+    batch_size = all_scores.size()[0]
+    out_scores = torch.zeros((batch_size, ndetections), device=device)
+    out_boxes = torch.zeros((batch_size, ndetections, 6), device=device)
+    out_classes = torch.zeros((batch_size, ndetections), device=device)
+    for batch in range(batch_size):
+        keep = (all_scores[(batch), :].view(-1) > 0).nonzero()
+        scores = all_scores[batch, keep].view(-1)
+        boxes = all_boxes[(batch), (keep), :].view(-1, 6)
+        classes = all_classes[batch, keep].view(-1)
+        theta = torch.atan2(boxes[:, (-2)], boxes[:, (-1)])
+        boxes_theta = torch.cat([boxes[:, :-2], theta[:, (None)]], dim=1)
+        if scores.nelement() == 0:
+            continue
+        scores, indices = torch.sort(scores, descending=True)
+        boxes, boxes_theta, classes = boxes[indices], boxes_theta[indices
+            ], classes[indices]
+        areas = (boxes_theta[:, (2)] - boxes_theta[:, (0)] + 1) * (
+            boxes_theta[:, (3)] - boxes_theta[:, (1)] + 1).view(-1)
+        keep = torch.ones(scores.nelement(), device=device, dtype=torch.uint8
+            ).view(-1)
+        for i in range(ndetections):
+            if i >= keep.nonzero().nelement() or i >= scores.nelement():
+                i -= 1
+                break
+            boxes_axis, boxes_rotated = rotate_boxes(boxes_theta, points=True)
+            overlap, inter = iou(boxes_rotated.contiguous().view(-1),
+                boxes_rotated[(i), :].contiguous().view(-1))
+            inter = inter.squeeze()
+            criterion = (scores > scores[i]) | (inter / (areas + areas[i] -
+                inter) <= nms) | (classes != classes[i])
+            criterion[i] = 1
+            scores = scores[criterion.nonzero()].view(-1)
+            boxes = boxes[(criterion.nonzero()), :].view(-1, 6)
+            boxes_theta = boxes_theta[(criterion.nonzero()), :].view(-1, 5)
+            classes = classes[criterion.nonzero()].view(-1)
+            areas = areas[criterion.nonzero()].view(-1)
+            keep[(~criterion).nonzero()] = 0
+        out_scores[(batch), :i + 1] = scores[:i + 1]
+        out_boxes[(batch), :i + 1, :] = boxes[:i + 1, :]
+        out_classes[(batch), :i + 1] = classes[:i + 1]
+    return out_scores, out_boxes, out_classes
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVIDIA_retinanet_examples(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FixedBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -402,3 +401,4 @@ class Test_NVIDIA_retinanet_examples(_paritybench_base):
 
     def test_002(self):
         self._check(SmoothL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

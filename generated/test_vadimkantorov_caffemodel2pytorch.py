@@ -31,20 +31,34 @@ import torch.nn.functional as F
 from functools import reduce
 
 
-def first_or(param, key, default):
-    return param[key] if isinstance(param.get(key), int) else (param.get(
-        key, []) + [default])[0]
+TEST = 1
 
 
-modules = dict(Convolution=lambda param: Convolution(param), InnerProduct=
-    lambda param: InnerProduct(param), Pooling=lambda param: [nn.MaxPool2d,
-    nn.AvgPool2d][param['pool']](kernel_size=first_or(param, 'kernel_size',
-    1), stride=first_or(param, 'stride', 1), padding=first_or(param, 'pad',
-    0)), Softmax=lambda param: nn.Softmax(dim=param.get('axis', -1)), ReLU=
-    lambda param: nn.ReLU(), Dropout=lambda param: nn.Dropout(p=param[
-    'dropout_ratio']), Eltwise=lambda param: [torch.mul, torch.add, torch.
-    max][param.get('operation', 1)], LRN=lambda param: nn.LocalResponseNorm
-    (size=param['local_size'], alpha=param['alpha'], beta=param['beta']))
+def convert_to_gpu_if_enabled(obj):
+    return obj
+
+
+def to_dict(obj):
+    return list(map(to_dict, obj)) if isinstance(obj, collections.Iterable
+        ) else {} if obj is None else {f.name: (converter(v) if f.label !=
+        FD.LABEL_REPEATED else list(map(converter, v))) for f, v in obj.
+        ListFields() for converter in [{FD.TYPE_DOUBLE: float, FD.
+        TYPE_SFIXED32: float, FD.TYPE_SFIXED64: float, FD.TYPE_SINT32: int,
+        FD.TYPE_SINT64: int, FD.TYPE_FLOAT: float, FD.TYPE_ENUM: int, FD.
+        TYPE_UINT32: int, FD.TYPE_INT64: int, FD.TYPE_UINT64: int, FD.
+        TYPE_INT32: int, FD.TYPE_FIXED64: float, FD.TYPE_FIXED32: float, FD
+        .TYPE_BOOL: bool, FD.TYPE_STRING: str, FD.TYPE_BYTES: lambda x: x.
+        encode('string_escape'), FD.TYPE_MESSAGE: to_dict}[f.type]]}
+
+
+class FunctionModule(nn.Module):
+
+    def __init__(self, forward):
+        super(FunctionModule, self).__init__()
+        self.forward_func = forward
+
+    def forward(self, *inputs):
+        return self.forward_func(*inputs)
 
 
 class Blob(object):
@@ -96,20 +110,6 @@ class Blob(object):
     @property
     def width(self):
         return self.shape[3]
-
-
-def convert_to_gpu_if_enabled(obj):
-    return obj
-
-
-class FunctionModule(nn.Module):
-
-    def __init__(self, forward):
-        super(FunctionModule, self).__init__()
-        self.forward_func = forward
-
-    def forward(self, *inputs):
-        return self.forward_func(*inputs)
 
 
 class Layer(torch.autograd.Function):
@@ -180,6 +180,11 @@ def init_weight_bias(self, weight=None, bias=None, requires_grad=[]):
         elif init.get('type') == 'constant':
             nn.init.constant_(param, val=init['value'])
         param.requires_grad = requires_grad
+
+
+def first_or(param, key, default):
+    return param[key] if isinstance(param.get(key), int) else (param.get(
+        key, []) + [default])[0]
 
 
 class Convolution(nn.Conv2d):

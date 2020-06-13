@@ -538,7 +538,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ShangtongZhang_DeepRL(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DDPGConvBody(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
@@ -553,11 +552,12 @@ class Test_ShangtongZhang_DeepRL(_paritybench_base):
 
     def test_004(self):
         self._check(DummyBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(GaussianActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(CategoricalActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -137,21 +137,6 @@ class ConvSentEncoder(nn.Module):
 INI = 0.01
 
 
-def reorder_lstm_states(lstm_states, order):
-    """
-    lstm_states: (H, C) of tensor [layer, batch, hidden]
-    order: list of sequence length
-    """
-    assert isinstance(lstm_states, tuple)
-    assert len(lstm_states) == 2
-    assert lstm_states[0].size() == lstm_states[1].size()
-    assert len(order) == lstm_states[0].size()[1]
-    order = torch.LongTensor(order).to(lstm_states[0].device)
-    sorted_states = lstm_states[0].index_select(index=order, dim=1
-        ), lstm_states[1].index_select(index=order, dim=1)
-    return sorted_states
-
-
 def init_lstm_states(lstm, batch_size, device):
     n_layer = lstm.num_layers * (2 if lstm.bidirectional else 1)
     n_hidden = lstm.hidden_size
@@ -170,6 +155,21 @@ def reorder_sequence(sequence_emb, order, batch_first=False):
     order = torch.LongTensor(order).to(sequence_emb.device)
     sorted_ = sequence_emb.index_select(index=order, dim=batch_dim)
     return sorted_
+
+
+def reorder_lstm_states(lstm_states, order):
+    """
+    lstm_states: (H, C) of tensor [layer, batch, hidden]
+    order: list of sequence length
+    """
+    assert isinstance(lstm_states, tuple)
+    assert len(lstm_states) == 2
+    assert lstm_states[0].size() == lstm_states[1].size()
+    assert len(order) == lstm_states[0].size()[1]
+    order = torch.LongTensor(order).to(lstm_states[0].device)
+    sorted_states = lstm_states[0].index_select(index=order, dim=1
+        ), lstm_states[1].index_select(index=order, dim=1)
+    return sorted_states
 
 
 def lstm_encoder(sequence, lstm, seq_lens=None, init_states=None, embedding
@@ -315,6 +315,14 @@ class ExtractSumm(nn.Module):
 
     def set_embedding(self, embedding):
         self._sent_enc.set_embedding(embedding)
+
+
+def prob_normalize(score, mask):
+    """ [(...), T]
+    user should handle mask shape"""
+    score = score.masked_fill(mask == 0, -1e+18)
+    norm_score = F.softmax(score, dim=-1)
+    return norm_score
 
 
 def len_mask(lens, device):
@@ -618,23 +626,15 @@ class StackedLSTMCells(nn.Module):
         return self._cells[0].bidirectional
 
 
+def dot_attention_score(key, query):
+    """[B, Tk, D], [(Bs), B, Tq, D] -> [(Bs), B, Tq, Tk]"""
+    return query.matmul(key.transpose(1, 2))
+
+
 def attention_aggregate(value, score):
     """[B, Tv, D], [(Bs), B, Tq, Tv] -> [(Bs), B, Tq, D]"""
     output = score.matmul(value)
     return output
-
-
-def prob_normalize(score, mask):
-    """ [(...), T]
-    user should handle mask shape"""
-    score = score.masked_fill(mask == 0, -1e+18)
-    norm_score = F.softmax(score, dim=-1)
-    return norm_score
-
-
-def dot_attention_score(key, query):
-    """[B, Tk, D], [(Bs), B, Tq, D] -> [(Bs), B, Tq, Tk]"""
-    return query.matmul(key.transpose(1, 2))
 
 
 def step_attention(query, key, value, mem_mask=None):
@@ -783,6 +783,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ChenRocks_fast_abs_rl(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_CopyLinear(*[], **{'context_dim': 4, 'state_dim': 4, 'input_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

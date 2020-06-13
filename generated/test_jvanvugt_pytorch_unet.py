@@ -136,6 +136,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jvanvugt_pytorch_unet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4, 'padding': 4, 'batch_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+

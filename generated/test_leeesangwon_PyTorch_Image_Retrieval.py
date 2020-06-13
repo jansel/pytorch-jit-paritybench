@@ -131,18 +131,6 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
 
 
-def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'
-        ], 'num_classes should be {}, but is {}'.format(settings[
-        'num_classes'], num_classes)
-    model.load_state_dict(model_zoo.load_url(settings['url']))
-    model.input_space = settings['input_space']
-    model.input_size = settings['input_size']
-    model.input_range = settings['input_range']
-    model.mean = settings['mean']
-    model.std = settings['std']
-
-
 class SelfAttention(nn.Module):
     """ Self attention Layer
     https://github.com/heykeetae/Self-Attention-GAN"""
@@ -353,9 +341,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_leeesangwon_PyTorch_Image_Retrieval(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SelfAttention(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_001(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+

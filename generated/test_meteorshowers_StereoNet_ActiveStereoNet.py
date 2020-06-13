@@ -214,13 +214,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_meteorshowers_StereoNet_ActiveStereoNet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(FeatureExtraction(*[], **{'k': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(disparityregression(*[], **{'maxdisp': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(StereoNet(*[], **{'k': 4, 'r': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+

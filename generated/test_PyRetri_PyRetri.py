@@ -156,6 +156,13 @@ class BackboneBase(nn.Module):
         pass
 
 
+def weights_init_classifier(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        init.normal_(m.weight.data, std=0.001)
+        init.constant_(m.bias.data, 0.0)
+
+
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -165,13 +172,6 @@ def weights_init_kaiming(m):
         init.constant_(m.bias.data, 0.0)
     elif classname.find('BatchNorm1d') != -1:
         init.normal_(m.weight.data, 1.0, 0.02)
-        init.constant_(m.bias.data, 0.0)
-
-
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        init.normal_(m.weight.data, std=0.001)
         init.constant_(m.bias.data, 0.0)
 
 
@@ -427,6 +427,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_PyRetri_PyRetri(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -65,6 +65,15 @@ class SpeechEmbedder(nn.Module):
         return x
 
 
+def calc_loss(sim_matrix):
+    same_idx = list(range(sim_matrix.size(0)))
+    pos = sim_matrix[(same_idx), :, (same_idx)]
+    neg = (torch.exp(sim_matrix).sum(dim=2) + 1e-06).log_()
+    per_embedding_loss = -1 * (pos - neg)
+    loss = per_embedding_loss.sum()
+    return loss, per_embedding_loss
+
+
 def get_centroids(embeddings):
     centroids = embeddings.mean(dim=1)
     return centroids
@@ -108,15 +117,6 @@ def get_cossim(embeddings, centroids):
         num_utterances)
     cos_diff = cos_diff + 1e-06
     return cos_diff
-
-
-def calc_loss(sim_matrix):
-    same_idx = list(range(sim_matrix.size(0)))
-    pos = sim_matrix[(same_idx), :, (same_idx)]
-    neg = (torch.exp(sim_matrix).sum(dim=2) + 1e-06).log_()
-    per_embedding_loss = -1 * (pos - neg)
-    loss = per_embedding_loss.sum()
-    return loss, per_embedding_loss
 
 
 class GE2ELoss(nn.Module):

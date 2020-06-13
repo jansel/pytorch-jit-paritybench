@@ -228,22 +228,6 @@ from collections import defaultdict
 from torch.autograd import Variable
 
 
-def _hack_imports():
-    sys.modules['pythia'] = importlib.import_module('mmf')
-    sys.modules['pythia.utils.configuration'] = importlib.import_module(
-        'mmf.utils.configuration')
-
-
-def get_mmf_root():
-    from mmf.common.registry import registry
-    mmf_root = registry.get('mmf_root', no_warning=True)
-    if mmf_root is None:
-        mmf_root = os.path.dirname(os.path.abspath(__file__))
-        mmf_root = os.path.abspath(os.path.join(mmf_root, '..'))
-        registry.register('mmf_root', mmf_root)
-    return mmf_root
-
-
 class OcrPtrNet(nn.Module):
 
     def __init__(self, hidden_size, query_key_size=None):
@@ -1139,27 +1123,14 @@ class BertImageFeatureEmbeddings(nn.Module):
         return embeddings
 
 
-def get_default_config_path():
-    directory = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
-
-
-def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
-    try:
-        from torch.hub import _get_torch_home
-        torch_cache_home = _get_torch_home()
-    except ImportError:
-        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
-            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
-    default_cache_path = os.path.join(torch_cache_home, default)
-    cache_path = os.getenv(env_variable, default_cache_path)
-    if not PathManager.exists(cache_path):
-        try:
-            PathManager.mkdirs(cache_path)
-        except PermissionError:
-            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
-            PathManager.mkdirs(cache_path)
-    return cache_path
+def get_mmf_root():
+    from mmf.common.registry import registry
+    mmf_root = registry.get('mmf_root', no_warning=True)
+    if mmf_root is None:
+        mmf_root = os.path.dirname(os.path.abspath(__file__))
+        mmf_root = os.path.abspath(os.path.join(mmf_root, '..'))
+        registry.register('mmf_root', mmf_root)
+    return mmf_root
 
 
 class Registry:
@@ -1501,6 +1472,91 @@ class Registry:
 registry = Registry()
 
 
+def get_absolute_path(paths):
+    if isinstance(paths, str):
+        if os.path.isabs(paths):
+            return paths
+        possible_paths = [paths]
+        from mmf.utils.configuration import get_mmf_env
+        user_dir = get_mmf_env(key='user_dir')
+        if user_dir:
+            possible_paths.append(os.path.join(user_dir, paths))
+        mmf_root = get_mmf_root()
+        possible_paths.append(os.path.join(mmf_root, '..', paths))
+        possible_paths.append(os.path.join(mmf_root, paths))
+        for path in possible_paths:
+            if PathManager.exists(path):
+                if path.find('://') == -1:
+                    return os.path.abspath(path)
+                else:
+                    return path
+        return paths
+    elif isinstance(paths, collections.abc.Iterable):
+        return [get_absolute_path(path) for path in paths]
+    else:
+        raise TypeError(
+            'Paths passed to dataset should either be string or list')
+
+
+def load_yaml(f):
+    abs_f = get_absolute_path(f)
+    try:
+        mapping = OmegaConf.load(abs_f)
+        f = abs_f
+    except FileNotFoundError as e:
+        relative = os.path.abspath(os.path.join(get_mmf_root(), f))
+        if not PathManager.isfile(relative):
+            raise e
+        else:
+            f = relative
+            mapping = OmegaConf.load(f)
+    if mapping is None:
+        mapping = OmegaConf.create()
+    includes = mapping.get('includes', [])
+    if not isinstance(includes, collections.abc.Sequence):
+        raise AttributeError('Includes must be a list, {} provided'.format(
+            type(includes)))
+    include_mapping = OmegaConf.create()
+    mmf_root_dir = get_mmf_root()
+    for include in includes:
+        original_include_path = include
+        include = os.path.join(mmf_root_dir, include)
+        if not PathManager.exists(include):
+            include = os.path.join(os.path.dirname(f), original_include_path)
+        current_include_mapping = load_yaml(include)
+        include_mapping = OmegaConf.merge(include_mapping,
+            current_include_mapping)
+    mapping.pop('includes', None)
+    mapping = OmegaConf.merge(include_mapping, mapping)
+    return mapping
+
+
+def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
+    try:
+        from torch.hub import _get_torch_home
+        torch_cache_home = _get_torch_home()
+    except ImportError:
+        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
+            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
+    default_cache_path = os.path.join(torch_cache_home, default)
+    cache_path = os.getenv(env_variable, default_cache_path)
+    if not PathManager.exists(cache_path):
+        try:
+            PathManager.mkdirs(cache_path)
+        except PermissionError:
+            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
+            PathManager.mkdirs(cache_path)
+    return cache_path
+
+
+def resolve_dir(env_variable, default='data'):
+    default_dir = os.path.join(resolve_cache_dir(), default)
+    dir_path = os.getenv(env_variable, default_dir)
+    if not PathManager.exists(dir_path):
+        PathManager.mkdirs(dir_path)
+    return dir_path
+
+
 def import_user_module(user_dir: str, no_print: bool=False):
     """Given a user dir, this function imports it as a module.
 
@@ -1523,12 +1579,9 @@ def import_user_module(user_dir: str, no_print: bool=False):
             sys.path.pop(0)
 
 
-def resolve_dir(env_variable, default='data'):
-    default_dir = os.path.join(resolve_cache_dir(), default)
-    dir_path = os.getenv(env_variable, default_dir)
-    if not PathManager.exists(dir_path):
-        PathManager.mkdirs(dir_path)
-    return dir_path
+def get_default_config_path():
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
 
 
 class Configuration:
@@ -2166,6 +2219,18 @@ class TextEmbedding(nn.Module):
         return self.module(*args, **kwargs)
 
 
+def get_rank():
+    if not dist.is_nccl_available():
+        return 0
+    if not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_master():
+    return get_rank() == 0
+
+
 class BaseVocab:
     PAD_TOKEN = '<pad>'
     SOS_TOKEN = '<s>'
@@ -2284,50 +2349,6 @@ class BaseVocab:
                 vector_dim, embedding_dim)])
 
 
-class CustomVocab(BaseVocab):
-
-    def __init__(self, vocab_file, embedding_file, data_dir=None, *args, **
-        kwargs):
-        """Use this vocab class when you have a custom vocab as well as a
-        custom embeddings file.
-
-        This will inherit vocab class, so you will get predefined tokens with
-        this one.
-
-        IMPORTANT: To init your embedding, get your vectors from this class's
-        object by calling `get_vectors` function
-
-        Parameters
-        ----------
-        vocab_file : str
-            Path of custom vocabulary
-        embedding_file : str
-            Path to custom embedding inititalization file
-        data_dir : str
-            Path to data directory if embedding file is not an absolute path.
-            Default: None
-        """
-        super().__init__(vocab_file)
-        self.type = 'custom'
-        if not os.path.isabs(embedding_file) and data_dir is not None:
-            mmf_root = get_mmf_root()
-            embedding_file = os.path.join(mmf_root, data_dir, embedding_file)
-        if not PathManager.exists(embedding_file):
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = "Embedding file path %s doesn't exist" % embedding_file
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        embedding_vectors = torch.from_numpy(np.load(embedding_file))
-        self.vectors = torch.FloatTensor(self.get_size(), len(
-            embedding_vectors[0]))
-        for i in range(0, 4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        for i in range(4, self.get_size()):
-            self.vectors[i] = embedding_vectors[i - 4]
-
-
 def synchronize():
     if not dist.is_nccl_available():
         return
@@ -2337,18 +2358,6 @@ def synchronize():
     if world_size == 1:
         return
     dist.barrier()
-
-
-def get_rank():
-    if not dist.is_nccl_available():
-        return 0
-    if not dist.is_initialized():
-        return 0
-    return dist.get_rank()
-
-
-def is_master():
-    return get_rank() == 0
 
 
 class PretrainedVocab(BaseVocab):
@@ -2399,6 +2408,50 @@ class PretrainedVocab(BaseVocab):
             actual_index = embedding.stoi[word]
             self.vectors[index] = embedding.vectors[actual_index]
             index += 1
+
+
+class CustomVocab(BaseVocab):
+
+    def __init__(self, vocab_file, embedding_file, data_dir=None, *args, **
+        kwargs):
+        """Use this vocab class when you have a custom vocab as well as a
+        custom embeddings file.
+
+        This will inherit vocab class, so you will get predefined tokens with
+        this one.
+
+        IMPORTANT: To init your embedding, get your vectors from this class's
+        object by calling `get_vectors` function
+
+        Parameters
+        ----------
+        vocab_file : str
+            Path of custom vocabulary
+        embedding_file : str
+            Path to custom embedding inititalization file
+        data_dir : str
+            Path to data directory if embedding file is not an absolute path.
+            Default: None
+        """
+        super().__init__(vocab_file)
+        self.type = 'custom'
+        if not os.path.isabs(embedding_file) and data_dir is not None:
+            mmf_root = get_mmf_root()
+            embedding_file = os.path.join(mmf_root, data_dir, embedding_file)
+        if not PathManager.exists(embedding_file):
+            from mmf.common.registry import registry
+            writer = registry.get('writer')
+            error = "Embedding file path %s doesn't exist" % embedding_file
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        embedding_vectors = torch.from_numpy(np.load(embedding_file))
+        self.vectors = torch.FloatTensor(self.get_size(), len(
+            embedding_vectors[0]))
+        for i in range(0, 4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        for i in range(4, self.get_size()):
+            self.vectors[i] = embedding_vectors[i - 4]
 
 
 EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
@@ -2807,379 +2860,6 @@ class ImageFeatureEncoder(nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.module(*args, **kwargs)
-
-
-def make_dir(path):
-    """
-    Make the directory and any nonexistent parent directories (`mkdir -p`).
-    """
-    if path != '':
-        PathManager.mkdirs(path)
-
-
-def mark_done(path, version_string=None):
-    """
-    Mark this path as prebuilt.
-
-    Marks the path as done by adding a '.built' file with the current timestamp
-    plus a version description string if specified.
-
-    Args:
-        path (str): The file path to mark as built
-        version_string (str): The version of this dataset
-    """
-    data = {}
-    data['created_at'] = str(datetime.datetime.today())
-    data['version'] = version_string
-    with PathManager.open(os.path.join(path, '.built.json'), 'w') as f:
-        json.dump(data, f)
-
-
-def built(path, version_string=None):
-    """
-    Check if '.built' flag has been set for that task.
-
-    If a version_string is provided, this has to match, or the version
-    is regarded as not built.
-
-    Version_string are generally the dataset version + the date the file was
-    last updated. If this doesn't match, dataset will be mark not built. This makes
-    sure that if we update our features or anything else features are updated
-    for the end user.
-    """
-    if version_string:
-        fname = os.path.join(path, '.built.json')
-        if not PathManager.isfile(fname):
-            return False
-        else:
-            with PathManager.open(fname, 'r') as read:
-                text = json.load(read)
-            return text.get('version', None) == version_string
-    else:
-        return PathManager.isfile(os.path.join(path, '.built.json'))
-
-
-def move(path1, path2):
-    """
-    Rename the given file.
-    """
-    shutil.move(path1, path2)
-
-
-def check_header(url, from_google=False):
-    """
-    Performs a HEAD request to check if the URL / Google Drive ID is live.
-    """
-    session = requests.Session()
-    if from_google:
-        URL = 'https://docs.google.com/uc?export=download'
-        response = session.head(URL, params={'id': url}, stream=True)
-    else:
-        headers = {'User-Agent': 
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) ' +
-            'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-            'Chrome/77.0.3865.90 Safari/537.36'}
-        response = session.head(url, allow_redirects=True, headers=headers)
-    status = response.status_code
-    session.close()
-    assert status == 200, ('The url {} is broken. If this is not your own url,'
-         + ' please open up an issue on GitHub').format(url)
-
-
-def download(url, path, fname, redownload=True):
-    """
-    Download file using `requests`.
-
-    If ``redownload`` is set to false, then will not download tar file again if it is
-    present (default ``True``).
-
-    Returns whether download actually happened or not
-    """
-    outfile = os.path.join(path, fname)
-    download = not PathManager.isfile(outfile) or redownload
-    retry = 5
-    exp_backoff = [(2 ** r) for r in reversed(range(retry))]
-    pbar = None
-    if download:
-        check_header(url)
-        print('[ Downloading: ' + url + ' to ' + outfile + ' ]')
-        pbar = tqdm.tqdm(unit='B', unit_scale=True, desc=f'Downloading {fname}'
-            )
-    while download and retry >= 0:
-        resume_file = outfile + '.part'
-        resume = PathManager.isfile(resume_file)
-        if resume:
-            resume_pos = os.path.getsize(resume_file)
-            mode = 'ab'
-        else:
-            resume_pos = 0
-            mode = 'wb'
-        response = None
-        with requests.Session() as session:
-            try:
-                header = {'Range': 'bytes=%d-' % resume_pos,
-                    'Accept-Encoding': 'identity'} if resume else {}
-                response = session.get(url, stream=True, timeout=5, headers
-                    =header)
-                if resume and response.headers.get('Accept-Ranges', 'none'
-                    ) == 'none':
-                    resume_pos = 0
-                    mode = 'wb'
-                CHUNK_SIZE = 32768
-                total_size = int(response.headers.get('Content-Length', -1))
-                total_size += resume_pos
-                pbar.total = total_size
-                done = resume_pos
-                with PathManager.open(resume_file, mode) as f:
-                    for chunk in response.iter_content(CHUNK_SIZE):
-                        if chunk:
-                            f.write(chunk)
-                        if total_size > 0:
-                            done += len(chunk)
-                            if total_size < done:
-                                total_size = done
-                                pbar.total = total_size
-                            pbar.update(len(chunk))
-                    break
-            except (requests.exceptions.ConnectionError, requests.
-                exceptions.ReadTimeout):
-                retry -= 1
-                pbar.clear()
-                if retry >= 0:
-                    print('Connection error, retrying. (%d retries left)' %
-                        retry)
-                    time.sleep(exp_backoff[retry])
-                else:
-                    print('Retried too many times, stopped retrying.')
-            finally:
-                if response:
-                    response.close()
-    if retry < 0:
-        raise RuntimeWarning(
-            'Connection broken too many times. Stopped retrying.')
-    if download and retry > 0:
-        pbar.update(done - pbar.n)
-        if done < total_size:
-            raise RuntimeWarning('Received less data than specified in ' +
-                'Content-Length header for ' + url +
-                '. There may be a download problem.')
-        move(resume_file, outfile)
-    if pbar:
-        pbar.close()
-    return download
-
-
-def decompress(path, fname, delete_original=True):
-    """
-    Unpack the given archive file to the same directory.
-
-    Args:
-        path(str): The folder containing the archive. Will contain the contents.
-        fname (str): The filename of the archive file.
-        delete_original (bool, optional): If true, the archive will be deleted
-                                          after extraction. Default to True.
-    """
-    print('Unpacking ' + fname)
-    fullpath = os.path.join(path, fname)
-    shutil.unpack_archive(fullpath, path)
-    if delete_original:
-        os.remove(fullpath)
-
-
-def _get_confirm_token(response):
-    for key, value in response.cookies.items():
-        if key.startswith('download_warning'):
-            return value
-    return None
-
-
-def download_from_google_drive(gd_id, destination, redownload=True):
-    """
-    Use the requests package to download a file from Google Drive.
-    """
-    download = not PathManager.isfile(destination) or redownload
-    URL = 'https://docs.google.com/uc?export=download'
-    if not download:
-        return download
-    else:
-        check_header(gd_id, from_google=True)
-    with requests.Session() as session:
-        response = session.get(URL, params={'id': gd_id}, stream=True)
-        token = _get_confirm_token(response)
-        if token:
-            response.close()
-            params = {'id': gd_id, 'confirm': token}
-            response = session.get(URL, params=params, stream=True)
-        CHUNK_SIZE = 32768
-        with PathManager.open(destination, 'wb') as f:
-            for chunk in response.iter_content(CHUNK_SIZE):
-                if chunk:
-                    f.write(chunk)
-        response.close()
-    return download
-
-
-class DownloadableFile:
-    """
-    A class used to abstract any file that has to be downloaded online.
-
-    Originally taken from ParlAI, this file has been modified for MMF specific
-    use cases.
-
-    Any dataset/model that needs to download a file needs to have a list RESOURCES
-    that have objects of this class as elements.
-
-    The class automatically figures out if the file is from Google Drive.
-
-    This class provides the following functionality:
-
-    - Download a file from a URL / Google Drive
-    - Decompress the file if compressed
-    - Checksum for the downloaded file
-    - Send HEAD request to validate URL or Google Drive link
-    - If the file is present and checksum is same, it won't be redownloaded
-
-    Raises:
-        AssertionError: If while downloading checksum of the files fails.
-    """
-    GOOGLE_DRIVE_SUBSTR = 'drive.google'
-    MMF_PREFIX = 'mmf://'
-    MMF_PREFIX_REPLACEMENT = 'https://dl.fbaipublicfiles.com/mmf/data/'
-
-    def __init__(self, url, file_name, hashcode=None, compressed=True,
-        delete_original=False):
-        """
-        An object of this class needs to be created with:
-
-        Args:
-            url (string): URL or Google Drive id to download from
-            file_name (string): File name that the file should be named
-            hashcode (string, optional): SHA256 hashcode of the downloaded file.
-                                         Defaults to None. Won't be checked if not
-                                         passed.
-            compressed (bool, optional): False if the file is not compressed.
-                                         Defaults to True.
-            delete_original (bool, optional): If compressed whether to delete original.
-                                              Defaults to False.
-        """
-        self._url = self._parse_url(url)
-        self._file_name = file_name
-        self._hashcode = hashcode
-        self._compressed = compressed
-        self._from_google = self._url.find(self.GOOGLE_DRIVE_SUBSTR) != -1
-        self._delete_original = delete_original
-
-    def _parse_url(self, url):
-        if url.find(self.MMF_PREFIX) == -1:
-            return url
-        else:
-            return self.MMF_PREFIX_REPLACEMENT + url[len(self.MMF_PREFIX):]
-
-    def checksum(self, download_path):
-        """
-        Checksum on a given file.
-
-        Args:
-            download_path (string): path to the downloaded file.
-        """
-        if self._hashcode is None:
-            print(f'[ Checksum not provided, skipping for {self._file_name}]')
-            return
-        sha256_hash = hashlib.sha256()
-        destination = os.path.join(download_path, self._file_name)
-        if not PathManager.isfile(destination):
-            return
-        with PathManager.open(destination, 'rb') as f:
-            print(f'[ Starting checksum for {self._file_name}]')
-            for byte_block in iter(lambda : f.read(65536), b''):
-                sha256_hash.update(byte_block)
-            if sha256_hash.hexdigest() != self._hashcode:
-                raise AssertionError(
-                    f"""[ Checksum for {self._file_name} from 
-{self._url}
-does not match the expected checksum. Please try again. ]"""
-                    )
-            else:
-                print(f'[ Checksum successful for {self._file_name}]')
-
-    def download_file(self, download_path):
-        downloaded = False
-        redownload = False
-        try:
-            self.checksum(download_path)
-        except AssertionError:
-            print('[ Checksum changed for {}. Redownloading')
-            redownload = True
-        if self._from_google:
-            downloaded = download_from_google_drive(self._url, os.path.join
-                (download_path, self._file_name), redownload=redownload)
-        else:
-            downloaded = download(self._url, download_path, self._file_name,
-                redownload=redownload)
-        if downloaded:
-            self.checksum(download_path)
-            if self._compressed:
-                decompress(download_path, self._file_name, self.
-                    _delete_original)
-
-
-def download_resource(resource, download_path):
-    if isinstance(resource, collections.abc.Mapping):
-        resource = DownloadableFile(**resource)
-    assert isinstance(resource, DownloadableFile)
-    resource.download_file(download_path)
-
-
-def download_resources(resources, download_path, version):
-    is_built = built(download_path, version_string=version)
-    if not is_built:
-        make_dir(download_path)
-        if not isinstance(resources, collections.abc.Sequence):
-            resources = [resources]
-        if len(resources) == 0:
-            return
-        for resource in resources:
-            download_resource(resource, download_path)
-        mark_done(download_path, version_string=version)
-
-
-def download_pretrained_model(model_name, *args, **kwargs):
-    import omegaconf
-    from omegaconf import OmegaConf
-    from mmf.utils.configuration import load_yaml, get_mmf_env
-    model_zoo = load_yaml(get_mmf_env(key='model_zoo'))
-    OmegaConf.set_struct(model_zoo, True)
-    OmegaConf.set_readonly(model_zoo, True)
-    data_dir = get_absolute_path(get_mmf_env('data_dir'))
-    model_data_dir = os.path.join(data_dir, 'models')
-    download_path = os.path.join(model_data_dir, model_name)
-    try:
-        model_config = OmegaConf.select(model_zoo, model_name)
-    except omegaconf.errors.OmegaConfBaseException as e:
-        print(f'No such model name {model_name} defined in mmf zoo')
-        raise e
-    if 'version' not in model_config or 'resources' not in model_config:
-        try:
-            model_config = model_config.defaults
-            download_path = os.path.join(model_data_dir, model_name +
-                '.defaults')
-        except omegaconf.errors.OmegaConfBaseException as e:
-            print(
-                f"Model name {model_name} doesn't specify 'resources' and 'version' while no defaults have been provided"
-                )
-            raise e
-    if 'zoo_requirements' in model_config:
-        requirements = model_config.zoo_requirements
-        if isinstance(requirements, str):
-            requirements = [requirements]
-        for item in requirements:
-            download_pretrained_model(item, *args, **kwargs)
-    version = model_config.version
-    resources = model_config.resources
-    if is_master():
-        download_resources(resources, download_path, version)
-    synchronize()
-    return download_path
 
 
 class FinetuneFasterRcnnFpnFc7(nn.Module):
@@ -4996,7 +4676,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_facebookresearch_mmf(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
@@ -5008,27 +4687,27 @@ class Test_facebookresearch_mmf(_paritybench_base):
 
     def test_003(self):
         self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_005(self):
         self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5055,10 +4734,11 @@ class Test_facebookresearch_mmf(_paritybench_base):
 
     def test_017(self):
         self._check(LinearTransform(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_018(self):
         self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
 
     def test_019(self):
         self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -253,29 +253,6 @@ class SolveSchedulingQP(nn.Module):
         return out
 
 
-class GLinearApprox(Function):
-    """ Linear (gradient) approximation of G function at z"""
-
-    def __init__(self, gamma_under, gamma_over):
-        self.gamma_under = gamma_under
-        self.gamma_over = gamma_over
-
-    def forward(self, z, mu, sig):
-        self.save_for_backward(z, mu, sig)
-        p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.
-            cdf(z.cpu().numpy()) - self.gamma_under).cuda()
-
-    def backward(self, grad_output):
-        z, mu, sig = self.saved_tensors
-        p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy())).cuda()
-        dz = (self.gamma_under + self.gamma_over) * pz
-        dmu = -dz
-        dsig = -(self.gamma_under + self.gamma_over) * (z - mu) / sig * pz
-        return grad_output * dz, grad_output * dmu, grad_output * dsig
-
-
 class GQuadraticApprox(Function):
     """ Quadratic (gradient) approximation of G function at z"""
 
@@ -297,6 +274,29 @@ class GQuadraticApprox(Function):
         dmu = -dz
         dsig = (self.gamma_under + self.gamma_over) * ((z - mu) ** 2 - sig ** 2
             ) / sig ** 3 * pz
+        return grad_output * dz, grad_output * dmu, grad_output * dsig
+
+
+class GLinearApprox(Function):
+    """ Linear (gradient) approximation of G function at z"""
+
+    def __init__(self, gamma_under, gamma_over):
+        self.gamma_under = gamma_under
+        self.gamma_over = gamma_over
+
+    def forward(self, z, mu, sig):
+        self.save_for_backward(z, mu, sig)
+        p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
+        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.
+            cdf(z.cpu().numpy()) - self.gamma_under).cuda()
+
+    def backward(self, grad_output):
+        z, mu, sig = self.saved_tensors
+        p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
+        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy())).cuda()
+        dz = (self.gamma_under + self.gamma_over) * pz
+        dmu = -dz
+        dsig = -(self.gamma_under + self.gamma_over) * (z - mu) / sig * pz
         return grad_output * dz, grad_output * dmu, grad_output * dsig
 
 

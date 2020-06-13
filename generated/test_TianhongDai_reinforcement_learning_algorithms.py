@@ -390,14 +390,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_TianhongDai_reinforcement_learning_algorithms(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(actor(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(critic(*[], **{'num_states': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(flatten_mlp(*[], **{'input_dims': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -406,3 +405,4 @@ class Test_TianhongDai_reinforcement_learning_algorithms(_paritybench_base):
 
     def test_004(self):
         self._check(network(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+

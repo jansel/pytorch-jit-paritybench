@@ -696,21 +696,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_PetrochukM_PyTorch_NLP(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(Attention(*[], **{'dimensions': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(WeightDropLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [], {'input': torch.rand([4, 4, 4])})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(WeightDropGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [], {'input': torch.rand([4, 4, 4])})
+

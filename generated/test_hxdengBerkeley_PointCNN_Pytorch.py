@@ -82,6 +82,27 @@ from typing import Optional
 from typing import Union
 
 
+NUM_CLASS = 40
+
+
+def EndChannels(f, make_contiguous=False):
+    """ Class decorator to apply 2D convolution along end channels. """
+
+
+    class WrappedLayer(nn.Module):
+
+        def __init__(self):
+            super(WrappedLayer, self).__init__()
+            self.f = f
+
+        def forward(self, x):
+            x = x.permute(0, 3, 1, 2)
+            x = self.f(x)
+            x = x.permute(0, 2, 3, 1)
+            return x
+    return WrappedLayer()
+
+
 class LayerNorm(nn.Module):
     """
     Batch Normalization over ONLY the mini-batch layer (suitable for nn.Linear layers).

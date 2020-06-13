@@ -1280,14 +1280,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_szymonmaszke_torchlayers(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConcatenateProxy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1296,8 +1295,8 @@ class Test_szymonmaszke_torchlayers(_paritybench_base):
 
     def test_004(self):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1312,3 +1311,4 @@ class Test_szymonmaszke_torchlayers(_paritybench_base):
 
     def test_009(self):
         self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -127,22 +127,28 @@ def similarity_matrix(x):
     return R
 
 
+_global_config['momentum'] = 4
+
+
 _global_config['dropout'] = 0.5
 
 
-_global_config['target_proj_size'] = 4
+_global_config['weight_decay'] = 4
+
+
+_global_config['no_print_stats'] = 4
+
+
+_global_config['no_batch_norm'] = 4
 
 
 _global_config['optim'] = 4
 
 
+_global_config['beta'] = 4
+
+
 _global_config['alpha'] = 4
-
-
-_global_config['no_detach'] = 4
-
-
-_global_config['no_print_stats'] = 4
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -545,10 +551,7 @@ class LocalLossBlockConv(nn.Module):
 _global_config['pre_act'] = 4
 
 
-_global_config['weight_decay'] = 4
-
-
-_global_config['momentum'] = 4
+_global_config['no_detach'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -1106,6 +1109,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_anokland_local_loss(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LinearFA(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

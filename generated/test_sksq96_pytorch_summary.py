@@ -99,10 +99,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sksq96_pytorch_summary(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MultipleInputNet(*[], **{}), [torch.rand([300, 300]), torch.rand([300, 300])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MultipleInputNetDifferentDtypes(*[], **{}), [torch.rand([300, 300]), torch.rand([300, 300])], {})
+

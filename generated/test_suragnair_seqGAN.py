@@ -217,6 +217,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_suragnair_seqGAN(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Generator(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4])], {})
+

@@ -2935,8 +2935,13 @@ class DownsamplerBlock(nn.Module):
         return output
 
 
-def Merge(x1, x2):
-    return torch.cat((x1, x2), 1)
+def Channel_shuffle(x, groups):
+    batchsize, num_channels, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x
 
 
 def Split(x):
@@ -2947,13 +2952,8 @@ def Split(x):
     return x1, x2
 
 
-def Channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
-    return x
+def Merge(x1, x2):
+    return torch.cat((x1, x2), 1)
 
 
 class SS_nbt_module_paper(nn.Module):
@@ -3922,6 +3922,24 @@ class CrossEntropy2d(nn.Module):
         return loss
 
 
+def flatten_probas(probas, labels, ignore=None):
+    """
+    Flattens predictions in the batch
+    """
+    if probas.dim() == 3:
+        B, H, W = probas.size()
+        probas = probas.view(B, 1, H, W)
+    B, C, H, W = probas.size()
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
+    labels = labels.view(-1)
+    if ignore is None:
+        return probas, labels
+    valid = labels != ignore
+    vprobas = probas[valid.nonzero().squeeze()]
+    vlabels = labels[valid]
+    return vprobas, vlabels
+
+
 def isnan(x):
     return x != x
 
@@ -3945,24 +3963,6 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def flatten_probas(probas, labels, ignore=None):
-    """
-    Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = labels != ignore
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
 
 
 def lovasz_grad(gt_sorted):
@@ -4063,35 +4063,34 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ContextNet(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DABNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ESNet(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(FPENet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(FastSCNN(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(LEDNet(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(LinkNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -4100,8 +4099,8 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_009(self):
         self._check(SegNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(UNet(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -4113,8 +4112,8 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_013(self):
         self._check(ConvBN(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(Conv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4150,12 +4149,12 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_025(self):
         self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_026(self):
         self._check(DABModule(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_027(self):
         self._check(DownSamplingBlock(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4167,8 +4166,8 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_030(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_031(self):
         self._check(Decoder(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -4198,16 +4197,16 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_040(self):
         self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_041(self):
         self._check(ESPNet_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_042(self):
         self._check(EESP(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_043(self):
         self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -4216,8 +4215,8 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_045(self):
         self._check(CDilatedB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_046(self):
         self._check(FPEBlock(*[], **{'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4232,15 +4231,15 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_050(self):
         self._check(_DWConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_051(self):
         self._check(PyramidPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_052(self):
         self._check(LearningToDownsample(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_053(self):
         self._check(GlobalFeatureExtractor(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
@@ -4267,8 +4266,8 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_061(self):
         self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_062(self):
         self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
@@ -4292,3 +4291,4 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_069(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

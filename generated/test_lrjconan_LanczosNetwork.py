@@ -81,14 +81,14 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
 
+EPS = float(np.finfo(np.float32).eps)
+
+
 def check_dist(dist):
     for dd in dist:
         if not isinstance(dd, int) and dd != 'inf':
             raise ValueError('Non-supported value of diffusion distance')
     return dist
-
-
-EPS = float(np.finfo(np.float32).eps)
 
 
 class AdaLanczosNet(nn.Module):
@@ -2027,7 +2027,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lrjconan_LanczosNetwork(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Set2SetLSTM(*[], **{'hidden_dim': 4}), [torch.rand([8, 8]), torch.rand([4, 4, 8, 4])], {})
 
@@ -2036,3 +2035,4 @@ class Test_lrjconan_LanczosNetwork(_paritybench_base):
 
     def test_002(self):
         self._check(Set2Set(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
+

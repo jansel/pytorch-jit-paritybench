@@ -590,14 +590,14 @@ class MishAuto(nn.Module):
 
 
 @torch.jit.script
-def swish_jit_bwd(x, grad_output):
-    x_sigmoid = torch.sigmoid(x)
-    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+def swish_jit_fwd(x):
+    return x.mul(torch.sigmoid(x))
 
 
 @torch.jit.script
-def swish_jit_fwd(x):
-    return x.mul(torch.sigmoid(x))
+def swish_jit_bwd(x, grad_output):
+    x_sigmoid = torch.sigmoid(x)
+    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
 
 
 class SwishJitAutoFn(torch.autograd.Function):
@@ -5590,23 +5590,17 @@ class MultiWay(nn.Module):
         return out
 
 
-class InceptionResNetCPoly3(InceptionResNetCPoly):
-
-    def __init__(self, scale):
-        super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetB2Way(MultiWay):
-
-    def __init__(self, scale):
-        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
-            num_blocks=2)
-
-
 class InceptionResNetBPoly3(InceptionResNetBPoly):
 
     def __init__(self, scale):
         super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
+
+
+class InceptionResNetA2Way(MultiWay):
+
+    def __init__(self, scale):
+        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
+            num_blocks=2)
 
 
 class InceptionResNetC2Way(MultiWay):
@@ -5616,11 +5610,17 @@ class InceptionResNetC2Way(MultiWay):
             num_blocks=2)
 
 
-class InceptionResNetA2Way(MultiWay):
+class InceptionResNetB2Way(MultiWay):
 
     def __init__(self, scale):
-        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
+        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
             num_blocks=2)
+
+
+class InceptionResNetCPoly3(InceptionResNetCPoly):
+
+    def __init__(self, scale):
+        super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
 
 
 class PolyNet(nn.Module):
@@ -5713,15 +5713,15 @@ class BasicBlock(nn.Module):
         return out
 
 
-def make_linear_bn_relu(in_channels, out_channels):
-    return [nn.Linear(in_channels, out_channels, bias=False), nn.
-        BatchNorm1d(out_channels), nn.ReLU(inplace=True)]
-
-
 def make_max_flat(out):
     flat = F.adaptive_max_pool2d(out, output_size=1)
     flat = flat.view(flat.size(0), -1)
     return flat
+
+
+def make_linear_bn_relu(in_channels, out_channels):
+    return [nn.Linear(in_channels, out_channels, bias=False), nn.
+        BatchNorm1d(out_channels), nn.ReLU(inplace=True)]
 
 
 class PyResNet(nn.Module):
@@ -8659,11 +8659,11 @@ class ResNetV1b(nn.Module):
         return x
 
 
-def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
+def resnet101_v1s(pretrained=False, root='~/.torch/models', **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True, **kwargs)
     if pretrained:
         from .model_store import get_resnet_file
-        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
+        model.load_state_dict(torch.load(get_resnet_file('resnet101', root=
             root)), strict=False)
     return model
 
@@ -8677,11 +8677,11 @@ def resnet50_v1s(pretrained=False, model_root='~/.torch/models', **kwargs):
     return model
 
 
-def resnet101_v1s(pretrained=False, root='~/.torch/models', **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True, **kwargs)
+def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
     if pretrained:
         from .model_store import get_resnet_file
-        model.load_state_dict(torch.load(get_resnet_file('resnet101', root=
+        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
             root)), strict=False)
     return model
 
@@ -9324,11 +9324,6 @@ class DeepLabv3_plus(nn.Module):
         return x
 
 
-densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
-    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
-    32])}
-
-
 class DilatedDenseNet(DenseNet):
 
     def __init__(self, growth_rate=12, block_config=(6, 12, 24, 16),
@@ -9358,6 +9353,11 @@ class DilatedDenseNet(DenseNet):
                 m.dilation = dilate, dilate
 
 
+densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
+    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
+    32])}
+
+
 def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
     model = DilatedDenseNet(growth_rate, block_config, num_init_features,
@@ -9381,12 +9381,12 @@ def dilated_densenet169(dilate_scale, **kwargs):
     return get_dilated_densenet(169, dilate_scale, **kwargs)
 
 
-def dilated_densenet161(dilate_scale, **kwargs):
-    return get_dilated_densenet(161, dilate_scale, **kwargs)
-
-
 def dilated_densenet121(dilate_scale, **kwargs):
     return get_dilated_densenet(121, dilate_scale, **kwargs)
+
+
+def dilated_densenet161(dilate_scale, **kwargs):
+    return get_dilated_densenet(161, dilate_scale, **kwargs)
 
 
 def dilated_densenet201(dilate_scale, **kwargs):
@@ -9706,6 +9706,34 @@ class DRN(nn.Module):
             return x
 
 
+def drn_d_105(pretrained=False, **kwargs):
+    model = DRN(Bottleneck, [1, 1, 3, 4, 23, 3, 1, 1], arch='D', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-105']))
+    return model
+
+
+def drn_c_58(pretrained=False, **kwargs):
+    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='C', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-c-58']))
+    return model
+
+
+def drn_c_42(pretrained=False, **kwargs):
+    model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='C', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-c-42']))
+    return model
+
+
+def drn_d_38(pretrained=False, **kwargs):
+    model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-38']))
+    return model
+
+
 def drn_d_54(pretrained=False, **kwargs):
     model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
     if pretrained:
@@ -9723,34 +9751,6 @@ def fill_up_weights(up):
                 f - c))
     for c in range(1, w.size(0)):
         w[(c), (0), :, :] = w[(0), (0), :, :]
-
-
-def drn_c_42(pretrained=False, **kwargs):
-    model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='C', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-c-42']))
-    return model
-
-
-def drn_d_38(pretrained=False, **kwargs):
-    model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-38']))
-    return model
-
-
-def drn_d_105(pretrained=False, **kwargs):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 23, 3, 1, 1], arch='D', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-105']))
-    return model
-
-
-def drn_c_58(pretrained=False, **kwargs):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='C', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-c-58']))
-    return model
 
 
 class DRNSeg(nn.Module):
@@ -12297,6 +12297,14 @@ class PSPUpsample(nn.Module):
         return self.conv(p)
 
 
+def resnet34(pretrained=True):
+    model = ResNet(BasicBlock, [3, 4, 6, 3])
+    if pretrained:
+        load_weights_sequential(model, model_zoo.load_url(model_urls[
+            'resnet34']))
+    return model
+
+
 def resnet101(pretrained=False, root='./pretrain_models', **kwargs):
     """Constructs a ResNet-101 model.
 
@@ -12310,26 +12318,6 @@ def resnet101(pretrained=False, root='./pretrain_models', **kwargs):
         from .model_store import get_model_file
         model.load_state_dict(torch.load(get_model_file('resnet101', root=
             root)), strict=False)
-    return model
-
-
-def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNet-152 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DilatedResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
-    return model
-
-
-def resnet34(pretrained=True):
-    model = ResNet(BasicBlock, [3, 4, 6, 3])
-    if pretrained:
-        load_weights_sequential(model, model_zoo.load_url(model_urls[
-            'resnet34']))
     return model
 
 
@@ -12350,6 +12338,18 @@ def resnet50(pretrained=False, root='./pretrain_models', **kwargs):
         from .model_store import get_model_file
         model.load_state_dict(torch.load(get_model_file('resnet50', root=
             root)), strict=False)
+    return model
+
+
+def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNet-152 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = DilatedResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
     return model
 
 
@@ -21063,6 +21063,10 @@ class UNet960(nn.Module):
         return x
 
 
+def th_iterproduct(*args):
+    return th.from_numpy(np.indices(args).reshape((len(args), -1)).T)
+
+
 def F_bilinear_interp2d(input, coords):
     """
     bilinear interpolation of 2d torch Tensor
@@ -21090,10 +21094,6 @@ def F_bilinear_interp2d(input, coords):
     x_mapped = vals_00.mul(xm).mul(ym) + vals_10.mul(xd).mul(ym) + vals_01.mul(
         xm).mul(yd) + vals_11.mul(xd).mul(yd)
     return x_mapped.view_as(input)
-
-
-def th_iterproduct(*args):
-    return th.from_numpy(np.indices(args).reshape((len(args), -1)).T)
 
 
 def F_affine2d(x, matrix, center=True):
@@ -21179,202 +21179,3 @@ def F_trilinear_interp3d(input, coords):
         zd) + vals_110.mul(xd).mul(yd).mul(zm) + vals_111.mul(xd).mul(yd).mul(
         zd)
     return x_mapped.view_as(input)
-
-
-def F_affine3d(x, matrix, center=True):
-    A = matrix[:3, :3]
-    b = matrix[:3, (3)]
-    with torch.no_grad:
-        coords = th_iterproduct(x.size(1), x.size(2), x.size(3)).float()
-    if center:
-        coords[:, (0)] = coords[:, (0)] - (x.size(1) / 2.0 + 0.5)
-        coords[:, (1)] = coords[:, (1)] - (x.size(2) / 2.0 + 0.5)
-        coords[:, (2)] = coords[:, (2)] - (x.size(3) / 2.0 + 0.5)
-    new_coords = F.linear(coords, A, b)
-    if center:
-        new_coords[:, (0)] = new_coords[:, (0)] + (x.size(1) / 2.0 + 0.5)
-        new_coords[:, (1)] = new_coords[:, (1)] + (x.size(2) / 2.0 + 0.5)
-        new_coords[:, (2)] = new_coords[:, (2)] + (x.size(3) / 2.0 + 0.5)
-    x_transformed = F_trilinear_interp3d(x, new_coords)
-    return x_transformed
-
-
-class STN3d(nn.Module):
-
-    def __init__(self, local_net):
-        self.local_net = local_net
-
-    def forward(self, x):
-        params = self.local_net(x)
-        x_transformed = F_affine3d(x, params.view(3, 4))
-        return x_transformed
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x, y, z):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x), F.log_softmax(x), F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x), F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x, y, z):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x), F.log_softmax(x), F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 1)
-
-    def forward(self, x, y, z):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return th.abs(10 - x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x, y, z):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x), F.log_softmax(x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 1)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return th.abs(10 - x)
-
-
-class Network(nn.Module):
-
-    def __init__(self):
-        super(Network, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3)
-        self.fc1 = nn.Linear(1600, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
-        x = x.view(-1, 1600)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x)
-

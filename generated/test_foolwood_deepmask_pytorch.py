@@ -235,6 +235,13 @@ class RefineModule(nn.Module):
 logger = logging.getLogger('global')
 
 
+def remove_prefix(state_dict, prefix):
+    """ Old style model is stored with all names of parameters share common prefix 'module.' """
+    logger.info("remove prefix '{}'".format(prefix))
+    f = lambda x: x.split(prefix, 1)[-1] if x.startswith(prefix) else x
+    return {f(key): value for key, value in state_dict.items()}
+
+
 def check_keys(model, pretrained_state_dict):
     ckpt_keys = set(pretrained_state_dict.keys())
     model_keys = set(model.state_dict().keys())
@@ -248,13 +255,6 @@ def check_keys(model, pretrained_state_dict):
     assert len(used_pretrained_keys
         ) > 0, 'load NONE from pretrained checkpoint'
     return True
-
-
-def remove_prefix(state_dict, prefix):
-    """ Old style model is stored with all names of parameters share common prefix 'module.' """
-    logger.info("remove prefix '{}'".format(prefix))
-    f = lambda x: x.split(prefix, 1)[-1] if x.startswith(prefix) else x
-    return {f(key): value for key, value in state_dict.items()}
 
 
 def load_pretrain(model, pretrained_path):
@@ -388,9 +388,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_foolwood_deepmask_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Reshape(*[], **{'oSz': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(SymmetricPad2d(*[], **{'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+

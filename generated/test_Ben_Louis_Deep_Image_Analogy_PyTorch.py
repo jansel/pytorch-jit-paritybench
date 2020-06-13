@@ -58,6 +58,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Ben_Louis_Deep_Image_Analogy_PyTorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(FeatureExtractor(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

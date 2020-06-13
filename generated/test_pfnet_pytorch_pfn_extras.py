@@ -535,29 +535,29 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pfnet_pytorch_pfn_extras(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ExtendedSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(LazyConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LazyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(LazyConv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(LazyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(_MyFunc(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(_StateDictModel(*[], **{}), [], {})
+

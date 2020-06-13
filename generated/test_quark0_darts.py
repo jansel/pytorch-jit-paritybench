@@ -534,9 +534,6 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
-STEPS = 8
-
-
 INITRANGE = 0.04
 
 
@@ -546,6 +543,9 @@ def mask2d(B, D, keep_prob, cuda=True):
     if cuda:
         m = m.cuda()
     return m
+
+
+STEPS = 8
 
 
 class DARTSCell(nn.Module):
@@ -726,11 +726,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_quark0_darts(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Network(*[], **{'C': 4, 'num_classes': 4, 'layers': 1, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -754,7 +753,8 @@ class Test_quark0_darts(_paritybench_base):
 
     def test_008(self):
         self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

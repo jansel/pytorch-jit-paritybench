@@ -116,23 +116,6 @@ import numpy.random as npr
 from torch.utils.data.sampler import Sampler
 
 
-def _affine_grid_gen(rois, input_size, grid_size):
-    rois = rois.detach()
-    x1 = rois[:, 1::4] / 16.0
-    y1 = rois[:, 2::4] / 16.0
-    x2 = rois[:, 3::4] / 16.0
-    y2 = rois[:, 4::4] / 16.0
-    height = input_size[0]
-    width = input_size[1]
-    zero = Variable(rois.data.new(rois.size(0), 1).zero_())
-    theta = torch.cat([(x2 - x1) / (width - 1), zero, (x1 + x2 - width + 1) /
-        (width - 1), zero, (y2 - y1) / (height - 1), (y1 + y2 - height + 1) /
-        (height - 1)], 1).view(-1, 2, 3)
-    grid = F.affine_grid(theta, torch.Size((rois.size(0), 1, grid_size,
-        grid_size)))
-    return grid
-
-
 def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     bbox_outside_weights, sigma=1.0, dim=[1]):
     sigma_2 = sigma ** 2
@@ -151,16 +134,33 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
+def _affine_grid_gen(rois, input_size, grid_size):
+    rois = rois.detach()
+    x1 = rois[:, 1::4] / 16.0
+    y1 = rois[:, 2::4] / 16.0
+    x2 = rois[:, 3::4] / 16.0
+    y2 = rois[:, 4::4] / 16.0
+    height = input_size[0]
+    width = input_size[1]
+    zero = Variable(rois.data.new(rois.size(0), 1).zero_())
+    theta = torch.cat([(x2 - x1) / (width - 1), zero, (x1 + x2 - width + 1) /
+        (width - 1), zero, (y2 - y1) / (height - 1), (y1 + y2 - height + 1) /
+        (height - 1)], 1).view(-1, 2, 3)
+    grid = F.affine_grid(theta, torch.Size((rois.size(0), 1, grid_size,
+        grid_size)))
+    return grid
+
+
 _global_config['TRAIN'] = 4
 
 
 _global_config['POOLING_MODE'] = 4
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['POOLING_SIZE'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class _fasterRCNN(nn.Module):
@@ -853,7 +853,7 @@ class Depth3DGridGen_with_mask(Module):
 sources = []
 
 
-defines = []
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 with_cuda = False
@@ -862,7 +862,7 @@ with_cuda = False
 headers = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+defines = []
 
 
 class RoIPoolFunction(Function):
@@ -971,66 +971,6 @@ def _compute_targets_batch(ex_rois, gt_rois):
     return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
 
 
-def _whctrs(anchor):
-    """
-    Return width, height, x center, and y center for an anchor (window).
-    """
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
-def _mkanchors(ws, hs, x_ctr, y_ctr):
-    """
-    Given a vector of widths (ws) and heights (hs) around a center
-    (x_ctr, y_ctr), output a set of anchors (windows).
-    """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
-        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
-    return anchors
-
-
-def _ratio_enum(anchor, ratios):
-    """
-    Enumerate a set of anchors for each aspect ratio wrt an anchor.
-    """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    size = w * h
-    size_ratios = size / ratios
-    ws = np.round(np.sqrt(size_ratios))
-    hs = np.round(ws * ratios)
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _scale_enum(anchor, scales):
-    """
-    Enumerate a set of anchors for each scale wrt an anchor.
-    """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
-    arange(3, 6)):
-    """
-    Generate anchor (reference) windows by enumerating aspect ratios X
-    scales wrt a reference (0, 0, 15, 15) window.
-    """
-    base_anchor = np.array([1, 1, base_size, base_size]) - 1
-    ratio_anchors = _ratio_enum(base_anchor, ratios)
-    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
-        xrange(ratio_anchors.shape[0])])
-    return anchors
-
-
 def bbox_overlaps_batch(anchors, gt_boxes):
     """
     anchors: (N, 4) ndarray of float
@@ -1103,6 +1043,66 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     else:
         raise ValueError('anchors input dimension is not correct.')
     return overlaps
+
+
+def _whctrs(anchor):
+    """
+    Return width, height, x center, and y center for an anchor (window).
+    """
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
+
+
+def _mkanchors(ws, hs, x_ctr, y_ctr):
+    """
+    Given a vector of widths (ws) and heights (hs) around a center
+    (x_ctr, y_ctr), output a set of anchors (windows).
+    """
+    ws = ws[:, (np.newaxis)]
+    hs = hs[:, (np.newaxis)]
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
+        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    return anchors
+
+
+def _scale_enum(anchor, scales):
+    """
+    Enumerate a set of anchors for each scale wrt an anchor.
+    """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _ratio_enum(anchor, ratios):
+    """
+    Enumerate a set of anchors for each aspect ratio wrt an anchor.
+    """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    size = w * h
+    size_ratios = size / ratios
+    ws = np.round(np.sqrt(size_ratios))
+    hs = np.round(ws * ratios)
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
+    arange(3, 6)):
+    """
+    Generate anchor (reference) windows by enumerating aspect ratios X
+    scales wrt a reference (0, 0, 15, 15) window.
+    """
+    base_anchor = np.array([1, 1, base_size, base_size]) - 1
+    ratio_anchors = _ratio_enum(base_anchor, ratios)
+    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
+        xrange(ratio_anchors.shape[0])])
+    return anchors
 
 
 class _AnchorTargetLayer(nn.Module):
@@ -1546,13 +1546,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
+_global_config['FEAT_STRIDE'] = 4
+
+
 _global_config['ANCHOR_SCALES'] = 4
 
 
 _global_config['ANCHOR_RATIOS'] = 4
-
-
-_global_config['FEAT_STRIDE'] = 4
 
 
 class _RPN(nn.Module):
@@ -1629,14 +1629,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jwyang_faster_rcnn_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

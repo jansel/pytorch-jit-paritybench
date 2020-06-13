@@ -193,30 +193,13 @@ def _ntuple(n):
 _pair = _ntuple(2)
 
 
-def _calc_same_pad(i: int, k: int, s: int, d: int):
-    return max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0)
-
-
-def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
-    stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0),
-    dilation: Tuple[int, int]=(1, 1), groups: int=1):
-    ih, iw = x.size()[-2:]
-    kh, kw = weight.size()[-2:]
-    pad_h = _calc_same_pad(ih, kh, stride[0], dilation[0])
-    pad_w = _calc_same_pad(iw, kw, stride[1], dilation[1])
-    if pad_h > 0 or pad_w > 0:
-        x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - 
-            pad_h // 2])
-    return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
-
-
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def get_padding_value(padding, kernel_size, **kwargs):
@@ -234,6 +217,23 @@ def get_padding_value(padding, kernel_size, **kwargs):
         else:
             padding = _get_padding(kernel_size, **kwargs)
     return padding, dynamic
+
+
+def _calc_same_pad(i: int, k: int, s: int, d: int):
+    return max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0)
+
+
+def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
+    stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0),
+    dilation: Tuple[int, int]=(1, 1), groups: int=1):
+    ih, iw = x.size()[-2:]
+    kh, kw = weight.size()[-2:]
+    pad_h = _calc_same_pad(ih, kh, stride[0], dilation[0])
+    pad_w = _calc_same_pad(iw, kw, stride[1], dilation[1])
+    if pad_h > 0 or pad_w > 0:
+        x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - 
+            pad_h // 2])
+    return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
 
 
 def get_condconv_initializer(initializer, num_experts, expert_shape):
@@ -486,58 +486,6 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish()
 
 
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
-    }
-
-
-def load_pretrained_weights(model, model_name, load_fc=True):
-    """ Loads pretrained weights, and downloads if loading for the first time. """
-    state_dict = model_zoo.load_url(url_map[model_name])
-    if load_fc:
-        model.load_state_dict(state_dict)
-    else:
-        state_dict.pop('_fc.weight')
-        state_dict.pop('_fc.bias')
-        res = model.load_state_dict(state_dict, strict=False)
-        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
-    return params_dict[model_name]
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio', 'condconv_num_expert'])
@@ -637,6 +585,17 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
     return blocks_args, global_params
 
 
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
+    return params_dict[model_name]
+
+
 def get_model_params(model_name, override_params, condconv_num_expert=1):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
@@ -650,6 +609,47 @@ def get_model_params(model_name, override_params, condconv_num_expert=1):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+url_map = {'efficientnet-b0':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
+    , 'efficientnet-b1':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
+    , 'efficientnet-b2':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
+    , 'efficientnet-b3':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
+    , 'efficientnet-b4':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
+    , 'efficientnet-b5':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
+    , 'efficientnet-b6':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
+    , 'efficientnet-b7':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
+    }
+
+
+def load_pretrained_weights(model, model_name, load_fc=True):
+    """ Loads pretrained weights, and downloads if loading for the first time. """
+    state_dict = model_zoo.load_url(url_map[model_name])
+    if load_fc:
+        model.load_state_dict(state_dict)
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        res = model.load_state_dict(state_dict, strict=False)
+        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
+            ), 'issue loading pretrained weights'
+    print('Loaded pretrained weights for {}'.format(model_name))
 
 
 def round_filters(filters, global_params):
@@ -1580,14 +1580,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kakaobrain_fast_autoaugment(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(RoutingFn(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1599,19 +1598,19 @@ class Test_kakaobrain_fast_autoaugment(_paritybench_base):
 
     def test_005(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(ShakeBottleNeck(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4, 'cardinary': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1623,7 +1622,8 @@ class Test_kakaobrain_fast_autoaugment(_paritybench_base):
 
     def test_012(self):
         self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(TpuBatchNormalization(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

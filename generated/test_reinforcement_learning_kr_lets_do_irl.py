@@ -200,7 +200,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_reinforcement_learning_kr_lets_do_irl(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Actor(*[], **{'num_inputs': 4, 'num_outputs': 4, 'args': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -212,3 +211,4 @@ class Test_reinforcement_learning_kr_lets_do_irl(_paritybench_base):
 
     def test_003(self):
         self._check(VDB(*[], **{'num_inputs': 4, 'args': _mock_config(hidden_size=4, z_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+

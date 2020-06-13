@@ -1624,18 +1624,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lorenmt_mtan(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(DeepLabHead(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ASPP(*[], **{'in_channels': 4, 'atrous_rates': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1644,7 +1643,8 @@ class Test_lorenmt_mtan(_paritybench_base):
 
     def test_005(self):
         self._check(wide_basic(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(WideResNet(*[], **{'depth': 1, 'widen_factor': 4, 'num_classes': [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64]), 0], {})
+

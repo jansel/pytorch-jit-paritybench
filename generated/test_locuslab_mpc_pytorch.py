@@ -437,12 +437,6 @@ class GradMethods(Enum):
 LinDx = namedtuple('LinDx', 'F f')
 
 
-QuadCost = namedtuple('QuadCost', 'C c')
-
-
-LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
-
-
 def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
     GAMMA = 0.1
     n_batch, n, _ = H.size()
@@ -502,6 +496,9 @@ def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
         x = maybe_x
     print('[WARNING] pnqp warning: Did not converge')
     return x, H_ if n == 1 else H_lu_, If, i
+
+
+LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
 
 
 LqrForOut = namedtuple('lqrForOut',
@@ -829,6 +826,9 @@ class LQRStep(Function):
             return v
         else:
             return v[t]
+
+
+QuadCost = namedtuple('QuadCost', 'C c')
 
 
 class MPC(Module):
@@ -1250,6 +1250,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_locuslab_mpc_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(NNDynamics(*[], **{'n_state': 4, 'n_ctrl': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+

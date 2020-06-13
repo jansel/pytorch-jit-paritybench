@@ -223,16 +223,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
-    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
-    if use_batch_norm:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(oup), ReLU(inplace=True))
-    else:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            ReLU(inplace=True))
-
-
 def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
     if use_batch_norm:
@@ -241,6 +231,16 @@ def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     else:
         return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), ReLU
             (inplace=True))
+
+
+def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
+    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
+    if use_batch_norm:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(oup), ReLU(inplace=True))
+    else:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            ReLU(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -664,16 +664,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_qfgaohao_pytorch_ssd(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

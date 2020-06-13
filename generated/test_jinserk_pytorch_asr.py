@@ -1646,10 +1646,10 @@ class Bottleneck(nn.Module):
         return out
 
 
-WIDTH = 31
-
-
 HEIGHT = 129
+
+
+WIDTH = 31
 
 
 class ResNet(nn.Module):
@@ -2026,18 +2026,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jinserk_pytorch_asr(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(ConvCapsule(*[], **{'in_channel': 4, 'in_dim': 4, 'out_channel': 4, 'out_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 20, 64, 64])], {})
 
     def test_002(self):
         self._check(InferenceBatchSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(LSTMCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4])], {})
 
@@ -2046,12 +2045,12 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
 
     def test_005(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(MaskedSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(Attention(*[], **{'state_vec_size': 4, 'listen_vec_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
@@ -2060,10 +2059,11 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
 
     def test_009(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(MultiOut(*[], **{'modules': [ReLU()]}), [], {})
 
     def test_011(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

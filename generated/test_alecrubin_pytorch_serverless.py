@@ -84,9 +84,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_alecrubin_pytorch_serverless(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

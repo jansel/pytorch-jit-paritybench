@@ -459,7 +459,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dr_costas_mad_twinnet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AffineTransform(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -477,3 +476,4 @@ class Test_dr_costas_mad_twinnet(_paritybench_base):
 
     def test_005(self):
         self._check(TwinRNNDec(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})
+

@@ -225,22 +225,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_fxia22_pointnet_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(STN3d(*[], **{}), [torch.rand([4, 3, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(PointNetfeat(*[], **{}), [torch.rand([4, 3, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(PointNetCls(*[], **{}), [torch.rand([4, 3, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(PointNetDenseCls(*[], **{}), [torch.rand([4, 3, 64])], {})
+

@@ -238,13 +238,7 @@ class Generator(nn.Module):
         return z
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'biggan-deep-128':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin'
-    , 'biggan-deep-256':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-pytorch_model.bin'
-    , 'biggan-deep-512':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-pytorch_model.bin'
-    }
+CONFIG_NAME = 'config.json'
 
 
 PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
@@ -256,7 +250,20 @@ PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
     }
 
 
-CONFIG_NAME = 'config.json'
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
 
 
 def s3_request(func):
@@ -294,6 +301,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_huggingface_pytorch_pretrained_BigGAN(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+

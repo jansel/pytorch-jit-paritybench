@@ -57,33 +57,6 @@ class MeanShift(nn.Conv2d):
             p.requires_grad = False
 
 
-def sequential(*args):
-    if len(args) == 1:
-        if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                '[ERROR] %s.sequential() does not support OrderedDict' %
-                sys.modules[__name__])
-        else:
-            return args[0]
-    modules = []
-    for module in args:
-        if isinstance(module, nn.Sequential):
-            for submodule in module:
-                modules.append(submodule)
-        elif isinstance(module, nn.Module):
-            modules.append(module)
-    return nn.Sequential(*modules)
-
-
-def get_valid_padding(kernel_size, dilation):
-    """
-    Padding value to remain feature size.
-    """
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
-
-
 def activation(act_type='relu', inplace=True, slope=0.2, n_prelu=1):
     act_type = act_type.lower()
     layer = None
@@ -96,6 +69,17 @@ def activation(act_type='relu', inplace=True, slope=0.2, n_prelu=1):
     else:
         raise NotImplementedError(
             '[ERROR] Activation layer [%s] is not implemented!' % act_type)
+    return layer
+
+
+def norm(n_feature, norm_type='bn'):
+    norm_type = norm_type.lower()
+    layer = None
+    if norm_type == 'bn':
+        layer = nn.BatchNorm2d(n_feature)
+    else:
+        raise NotImplementedError(
+            '[ERROR] Normalization layer [%s] is not implemented!' % norm_type)
     return layer
 
 
@@ -114,15 +98,31 @@ def pad(pad_type, padding):
     return layer
 
 
-def norm(n_feature, norm_type='bn'):
-    norm_type = norm_type.lower()
-    layer = None
-    if norm_type == 'bn':
-        layer = nn.BatchNorm2d(n_feature)
-    else:
-        raise NotImplementedError(
-            '[ERROR] Normalization layer [%s] is not implemented!' % norm_type)
-    return layer
+def get_valid_padding(kernel_size, dilation):
+    """
+    Padding value to remain feature size.
+    """
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def sequential(*args):
+    if len(args) == 1:
+        if isinstance(args[0], OrderedDict):
+            raise NotImplementedError(
+                '[ERROR] %s.sequential() does not support OrderedDict' %
+                sys.modules[__name__])
+        else:
+            return args[0]
+    modules = []
+    for module in args:
+        if isinstance(module, nn.Sequential):
+            for submodule in module:
+                modules.append(submodule)
+        elif isinstance(module, nn.Module):
+            modules.append(module)
+    return nn.Sequential(*modules)
 
 
 def ConvBlock(in_channels, out_channels, kernel_size, stride=1, dilation=1,
@@ -844,7 +844,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Paper99_SRFBN_CVPR19(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -856,8 +855,8 @@ class Test_Paper99_SRFBN_CVPR19(_paritybench_base):
 
     def test_003(self):
         self._check(D_DownprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(DensebackprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'bp_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -869,3 +868,4 @@ class Test_Paper99_SRFBN_CVPR19(_paritybench_base):
 
     def test_007(self):
         self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+

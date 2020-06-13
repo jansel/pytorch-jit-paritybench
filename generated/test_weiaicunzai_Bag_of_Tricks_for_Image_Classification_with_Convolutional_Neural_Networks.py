@@ -176,9 +176,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_weiaicunzai_Bag_of_Tricks_for_Image_Classification_with_Convolutional_Neural_Networks(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LSR(*[], **{}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
         self._check(BasicConv(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

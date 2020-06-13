@@ -194,11 +194,6 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-def clones(module, N):
-    """Produce N identical layers."""
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
 def attention(query, key, value, mask=None, dropout=None):
     """
         Compute 'Scaled Dot Product Attention'
@@ -212,6 +207,11 @@ def attention(query, key, value, mask=None, dropout=None):
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
+
+
+def clones(module, N):
+    """Produce N identical layers."""
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class MHPooling(nn.Module):
@@ -344,32 +344,32 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_DSE_MSU_R_transformer(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(RTransformer(*[], **{'d_model': 4, 'rnn_type': 4, 'ksize': 4, 'n_level': 4, 'n': 4, 'h': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 
     def test_003(self):
         self._check(PositionwiseFeedForward(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MHPooling(*[], **{'d_model': 4, 'h': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(LocalRNN(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(LocalRNNLayer(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(Block(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'N': 4, 'h': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+

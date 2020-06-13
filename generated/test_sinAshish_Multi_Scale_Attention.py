@@ -529,7 +529,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -550,3 +549,4 @@ class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
 
     def test_006(self):
         self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+

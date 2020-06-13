@@ -105,13 +105,13 @@ class BalancedLoss(nn.Module):
             reduction='sum')
 
 
-def log_minus_sigmoid(x):
-    return torch.clamp(-x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
+def log_sigmoid(x):
+    return torch.clamp(x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
         ) + 0.5 * torch.clamp(x, min=0, max=0)
 
 
-def log_sigmoid(x):
-    return torch.clamp(x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
+def log_minus_sigmoid(x):
+    return torch.clamp(-x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
         ) + 0.5 * torch.clamp(x, min=0, max=0)
 
 
@@ -209,7 +209,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_huanglianghua_siamfc_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_BatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -224,3 +223,4 @@ class Test_huanglianghua_siamfc_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(GHMCLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

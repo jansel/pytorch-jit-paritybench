@@ -817,9 +817,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hugochan_BAMnet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(EntRomHop(*[], **{'query_embed_size': 4, 'in_memory_embed_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 16, 4])], {})
 
     def test_001(self):
         self._check(GRUStep(*[], **{'hidden_size': 4, 'input_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

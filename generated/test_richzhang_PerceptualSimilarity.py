@@ -434,10 +434,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_richzhang_PerceptualSimilarity(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ScalingLayer(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Dist2LogitLayer(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {})
+

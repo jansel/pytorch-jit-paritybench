@@ -598,7 +598,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_StacyYang_gluoncv_torch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -607,3 +606,4 @@ class Test_StacyYang_gluoncv_torch(_paritybench_base):
 
     def test_002(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

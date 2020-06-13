@@ -571,22 +571,6 @@ class ROIPool(nn.Module):
         return tmpstr
 
 
-def sigmoid_focal_loss_cpu(logits, targets, gamma, alpha):
-    num_classes = logits.shape[1]
-    gamma = gamma[0]
-    alpha = alpha[0]
-    dtype = targets.dtype
-    device = targets.device
-    class_range = torch.arange(1, num_classes + 1, dtype=dtype, device=device
-        ).unsqueeze(0)
-    t = targets.unsqueeze(1)
-    p = torch.sigmoid(logits)
-    term1 = (1 - p) ** gamma * torch.log(p)
-    term2 = p ** gamma * torch.log(1 - p)
-    return -(t == class_range).float() * term1 * alpha - ((t != class_range
-        ) * (t >= 0)).float() * term2 * (1 - alpha)
-
-
 class _SigmoidFocalLoss(Function):
 
     @staticmethod
@@ -614,6 +598,22 @@ class _SigmoidFocalLoss(Function):
 
 
 sigmoid_focal_loss_cuda = _SigmoidFocalLoss.apply
+
+
+def sigmoid_focal_loss_cpu(logits, targets, gamma, alpha):
+    num_classes = logits.shape[1]
+    gamma = gamma[0]
+    alpha = alpha[0]
+    dtype = targets.dtype
+    device = targets.device
+    class_range = torch.arange(1, num_classes + 1, dtype=dtype, device=device
+        ).unsqueeze(0)
+    t = targets.unsqueeze(1)
+    p = torch.sigmoid(logits)
+    term1 = (1 - p) ** gamma * torch.log(p)
+    term2 = p ** gamma * torch.log(1 - p)
+    return -(t == class_range).float() * term1 * alpha - ((t != class_range
+        ) * (t >= 0)).float() * term2 * (1 - alpha)
 
 
 class SigmoidFocalLoss(nn.Module):
@@ -697,10 +697,6 @@ class FBNetRPNHead(nn.Module):
         return x
 
 
-ARCH_CFG_NAME_MAPPING = {'bbox': 'ROI_BOX_HEAD', 'kpts':
-    'ROI_KEYPOINT_HEAD', 'mask': 'ROI_MASK_HEAD'}
-
-
 def _get_head_stage(arch, head_name, blocks):
     if head_name not in arch:
         head_name = 'head'
@@ -708,6 +704,10 @@ def _get_head_stage(arch, head_name, blocks):
     ret = mbuilder.get_blocks(arch, stage_indices=head_stage, block_indices
         =blocks)
     return ret['stages']
+
+
+ARCH_CFG_NAME_MAPPING = {'bbox': 'ROI_BOX_HEAD', 'kpts':
+    'ROI_KEYPOINT_HEAD', 'mask': 'ROI_MASK_HEAD'}
 
 
 class FBNetROIHead(nn.Module):
@@ -1100,122 +1100,6 @@ class LastLevelP6P7(nn.Module):
         return [p6, p7]
 
 
-def _register_generic(module_dict, module_name, module):
-    assert module_name not in module_dict
-    module_dict[module_name] = module
-
-
-class Registry(dict):
-    """
-    A helper class for managing registering modules, it extends a dictionary
-    and provides a register functions.
-
-    Eg. creeting a registry:
-        some_registry = Registry({"default": default_module})
-
-    There're two ways of registering new modules:
-    1): normal way is just calling register function:
-        def foo():
-            ...
-        some_registry.register("foo_module", foo)
-    2): used as decorator when declaring the module:
-        @some_registry.register("foo_module")
-        @some_registry.register("foo_modeul_nickname")
-        def foo():
-            ...
-
-    Access of module is just like using a dictionary, eg:
-        f = some_registry["foo_modeul"]
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Registry, self).__init__(*args, **kwargs)
-
-    def register(self, module_name, module=None):
-        if module is not None:
-            _register_generic(self, module_name, module)
-            return
-
-        def register_fn(fn):
-            _register_generic(self, module_name, fn)
-            return fn
-        return register_fn
-
-
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
-
-
-_global_config['MODEL'] = 4
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
-
-
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
-    dilation=1, dcn_config={}):
-    blocks = []
-    stride = first_stride
-    for _ in range(block_count):
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride, dilation=dilation, dcn_config=dcn_config))
-        stride = 1
-        in_channels = out_channels
-    return nn.Sequential(*blocks)
-
-
-class ResNetHead(nn.Module):
-
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
-        dilation=1, dcn_config={}):
-        super(ResNetHead, self).__init__()
-        stage2_relative_factor = 2 ** (stages[0].index - 1)
-        stage2_bottleneck_channels = num_groups * width_per_group
-        out_channels = res2_out_channels * stage2_relative_factor
-        in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
-        block_module = _TRANSFORMATION_MODULES[block_module]
-        self.stages = []
-        stride = stride_init
-        for stage in stages:
-            name = 'layer' + str(stage.index)
-            if not stride:
-                stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride, dilation=
-                dilation, dcn_config=dcn_config)
-            stride = None
-            self.add_module(name, module)
-            self.stages.append(name)
-        self.out_channels = out_channels
-
-    def forward(self, x):
-        for stage in self.stages:
-            x = getattr(self, stage)(x)
-        return x
-
-
 class Bottleneck(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -1293,6 +1177,45 @@ class BaseStem(nn.Module):
         return x
 
 
+def build_retinanet(cfg, in_channels):
+    return RetinaNetModule(cfg, in_channels)
+
+
+def build_rpn(cfg, in_channels):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    if cfg.MODEL.RETINANET_ON:
+        return build_retinanet(cfg, in_channels)
+    return RPNModule(cfg, in_channels)
+
+
+def build_backbone(cfg):
+    assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(
+        cfg.MODEL.BACKBONE.CONV_BODY)
+    return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
+
+
+def build_roi_box_head(cfg, in_channels):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg, in_channels)
+
+
+def build_roi_heads(cfg, in_channels):
+    roi_heads = []
+    if cfg.MODEL.RETINANET_ON:
+        return []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
+
+
 class ImageList(object):
     """
     Structure that holds a list of images (of possibly
@@ -1351,45 +1274,6 @@ def to_image_list(tensors, size_divisible=0):
     else:
         raise TypeError('Unsupported type for to_image_list: {}'.format(
             type(tensors)))
-
-
-def build_roi_box_head(cfg, in_channels):
-    """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg, in_channels)
-
-
-def build_roi_heads(cfg, in_channels):
-    roi_heads = []
-    if cfg.MODEL.RETINANET_ON:
-        return []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
-
-
-def build_retinanet(cfg, in_channels):
-    return RetinaNetModule(cfg, in_channels)
-
-
-def build_rpn(cfg, in_channels):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    if cfg.MODEL.RETINANET_ON:
-        return build_retinanet(cfg, in_channels)
-    return RPNModule(cfg, in_channels)
-
-
-def build_backbone(cfg):
-    assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(
-        cfg.MODEL.BACKBONE.CONV_BODY)
-    return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
 
 
 class GeneralizedRCNN(nn.Module):
@@ -2243,65 +2127,6 @@ class BoxCoder(object):
         return pred_boxes
 
 
-def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores'):
-    """
-    Performs non-maximum suppression on a boxlist, with scores specified
-    in a boxlist field via score_field.
-
-    Arguments:
-        boxlist(BoxList)
-        nms_thresh (float)
-        max_proposals (int): if > 0, then only the top max_proposals are kept
-            after non-maximum suppression
-        score_field (str)
-    """
-    if nms_thresh <= 0:
-        return boxlist
-    mode = boxlist.mode
-    boxlist = boxlist.convert('xyxy')
-    boxes = boxlist.bbox
-    score = boxlist.get_field(score_field)
-    keep = _box_nms(boxes, score, nms_thresh)
-    if max_proposals > 0:
-        keep = keep[:max_proposals]
-    boxlist = boxlist[keep]
-    return boxlist.convert(mode)
-
-
-def _cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
-
-
-def cat_boxlist(bboxes):
-    """
-    Concatenates a list of BoxList (having the same image size) into a
-    single BoxList
-
-    Arguments:
-        bboxes (list[BoxList])
-    """
-    assert isinstance(bboxes, (list, tuple))
-    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
-    size = bboxes[0].size
-    assert all(bbox.size == size for bbox in bboxes)
-    mode = bboxes[0].mode
-    assert all(bbox.mode == mode for bbox in bboxes)
-    fields = set(bboxes[0].fields())
-    assert all(set(bbox.fields()) == fields for bbox in bboxes)
-    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
-        )
-    for field in fields:
-        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
-        cat_boxes.add_field(field, data)
-    return cat_boxes
-
-
 class BoxPairList(object):
     """
     This class represents a set of bounding boxes.
@@ -2544,6 +2369,65 @@ class BoxPairList(object):
         return s
 
 
+def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores'):
+    """
+    Performs non-maximum suppression on a boxlist, with scores specified
+    in a boxlist field via score_field.
+
+    Arguments:
+        boxlist(BoxList)
+        nms_thresh (float)
+        max_proposals (int): if > 0, then only the top max_proposals are kept
+            after non-maximum suppression
+        score_field (str)
+    """
+    if nms_thresh <= 0:
+        return boxlist
+    mode = boxlist.mode
+    boxlist = boxlist.convert('xyxy')
+    boxes = boxlist.bbox
+    score = boxlist.get_field(score_field)
+    keep = _box_nms(boxes, score, nms_thresh)
+    if max_proposals > 0:
+        keep = keep[:max_proposals]
+    boxlist = boxlist[keep]
+    return boxlist.convert(mode)
+
+
+def _cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def cat_boxlist(bboxes):
+    """
+    Concatenates a list of BoxList (having the same image size) into a
+    single BoxList
+
+    Arguments:
+        bboxes (list[BoxList])
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+    size = bboxes[0].size
+    assert all(bbox.size == size for bbox in bboxes)
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+    fields = set(bboxes[0].fields())
+    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
+        )
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+    return cat_boxes
+
+
 class PostProcessor(nn.Module):
     """
     From a set of classification scores, box regression and proposals,
@@ -2756,60 +2640,158 @@ class MSDN_BASE(nn.Module):
         return torch.stack(feature_data, 0)
 
 
-class BalancedPositiveNegativePairSampler(object):
+class MSDN(MSDN_BASE):
+
+    def __init__(self, cfg, in_channels, dim=1024, dropout=False,
+        gate_width=128, use_kernel_function=False):
+        super(MSDN, self).__init__(dim, dropout, gate_width, use_region=
+            True, use_kernel_function=use_kernel_function)
+        self.cfg = cfg
+        self.dim = dim
+        self.update_step = cfg.MODEL.ROI_RELATION_HEAD.MSDN_FEATURE_UPDATE_STEP
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.pred_feature_extractor = make_roi_relation_feature_extractor(cfg,
+            in_channels)
+        self.obj_embedding = nn.Sequential(nn.Linear(self.
+            pred_feature_extractor.out_channels, self.dim), nn.ReLU(True),
+            nn.Linear(self.dim, self.dim))
+        self.rel_embedding = nn.Sequential(nn.Linear(self.
+            pred_feature_extractor.out_channels, self.dim), nn.ReLU(True),
+            nn.Linear(self.dim, self.dim))
+        self.obj_predictor = make_roi_relation_box_predictor(cfg, dim)
+        self.pred_predictor = make_roi_relation_predictor(cfg, dim)
+
+    def _get_map_idxs(self, proposals, proposal_pairs):
+        rel_inds = []
+        offset = 0
+        for proposal, proposal_pair in zip(proposals, proposal_pairs):
+            rel_ind_i = proposal_pair.get_field('idx_pairs').detach()
+            rel_ind_i += offset
+            offset += len(proposal)
+            rel_inds.append(rel_ind_i)
+        rel_inds = torch.cat(rel_inds, 0)
+        subj_pred_map = rel_inds.new(sum([len(proposal) for proposal in
+            proposals]), rel_inds.shape[0]).fill_(0).float().detach()
+        obj_pred_map = rel_inds.new(sum([len(proposal) for proposal in
+            proposals]), rel_inds.shape[0]).fill_(0).float().detach()
+        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
+        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
+        return rel_inds, subj_pred_map, obj_pred_map
+
+    def forward(self, features, proposals, proposal_pairs):
+        rel_inds, subj_pred_map, obj_pred_map = self._get_map_idxs(proposals,
+            proposal_pairs)
+        x_obj = torch.cat([proposal.get_field('features').detach() for
+            proposal in proposals], 0)
+        x_pred, _ = self.pred_feature_extractor(features, proposals,
+            proposal_pairs)
+        x_pred = self.avgpool(x_pred)
+        x_obj = x_obj.view(x_obj.size(0), -1)
+        x_pred = x_pred.view(x_pred.size(0), -1)
+        x_obj = self.obj_embedding(x_obj)
+        x_pred = self.rel_embedding(x_pred)
+        x_obj = [x_obj]
+        x_pred = [x_pred]
+        for t in range(self.update_step):
+            """update object features"""
+            object_sub = self.prepare_message(x_obj[t], x_pred[t],
+                subj_pred_map, self.gate_pred2sub)
+            object_obj = self.prepare_message(x_obj[t], x_pred[t],
+                obj_pred_map, self.gate_pred2obj)
+            GRU_input_feature_object = (object_sub + object_obj) / 2.0
+            x_obj.append(x_obj[t] + self.GRU_object(
+                GRU_input_feature_object, x_obj[t]))
+            """update predicate features"""
+            indices_sub = rel_inds[:, (0)]
+            indices_obj = rel_inds[:, (1)]
+            feat_sub2pred = torch.index_select(x_obj[t], 0, indices_sub)
+            feat_obj2pred = torch.index_select(x_obj[t], 0, indices_obj)
+            phrase_sub = self.gate_sub2pred(x_pred[t], feat_sub2pred)
+            phrase_obj = self.gate_obj2pred(x_pred[t], feat_obj2pred)
+            GRU_input_feature_phrase = phrase_sub / 2.0 + phrase_obj / 2.0
+            x_pred.append(x_pred[t] + self.GRU_pred(
+                GRU_input_feature_phrase, x_pred[t]))
+        """compute results and losses"""
+        obj_class_logits = self.obj_predictor(x_obj[-1].unsqueeze(2).
+            unsqueeze(3))
+        pred_class_logits = self.pred_predictor(x_pred[-1].unsqueeze(2).
+            unsqueeze(3))
+        if obj_class_logits is None:
+            logits = torch.cat([proposal.get_field('logits') for proposal in
+                proposals], 0)
+            obj_class_labels = logits[:, 1:].max(1)[1] + 1
+        else:
+            obj_class_labels = obj_class_logits[:, 1:].max(1)[1] + 1
+        return (x_obj[-1], x_pred[-1]
+            ), obj_class_logits, pred_class_logits, obj_class_labels, rel_inds
+
+
+def build_msdn_model(cfg, in_channels):
+    return MSDN(cfg, in_channels)
+
+
+def build_baseline_model(cfg, in_channels):
+    return Baseline(cfg, in_channels)
+
+
+def build_imp_model(cfg, in_channels):
+    return IMP(cfg, in_channels)
+
+
+def build_reldn_model(cfg, in_channels):
+    return RelDN(cfg, in_channels)
+
+
+def boxlist_iou(boxlist1, boxlist2):
+    """Compute the intersection over union of two set of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Arguments:
+      box1: (BoxList) bounding boxes, sized [N,4].
+      box2: (BoxList) bounding boxes, sized [M,4].
+
+    Returns:
+      (tensor) iou, sized [N,M].
+
+    Reference:
+      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
     """
-    This class samples batches, ensuring that they contain a fixed proportion of positives
-    """
+    if boxlist1.size != boxlist2.size:
+        raise RuntimeError('boxlists should have same image size, got {}, {}'
+            .format(boxlist1, boxlist2))
+    boxlist1 = boxlist1.convert('xyxy')
+    boxlist2 = boxlist2.convert('xyxy')
+    N = len(boxlist1)
+    M = len(boxlist2)
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    lt = torch.max(box1[:, (None), :2], box2[:, :2])
+    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    TO_REMOVE = 1
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)
+    inter = wh[:, :, (0)] * wh[:, :, (1)]
+    iou = inter / (area1[:, (None)] + area2 - inter)
+    return iou
 
-    def __init__(self, batch_size_per_image, positive_fraction):
-        """
-        Arguments:
-            batch_size_per_image (int): number of elements to be selected per image
-            positive_fraction (float): percentage of positive elements per batch
-        """
-        self.batch_size_per_image = batch_size_per_image
-        self.positive_fraction = positive_fraction
 
-    def __call__(self, matched_idxs):
-        """
-        Arguments:
-            matched idxs: list of tensors containing -1, 0 or positive values.
-                Each tensor corresponds to a specific image.
-                -1 values are ignored, 0 are considered as negatives and > 0 as
-                positives.
-
-        Returns:
-            pos_idx (list[tensor])
-            neg_idx (list[tensor])
-
-        Returns two lists of binary masks for each image.
-        The first list contains the positive elements that were selected,
-        and the second list the negative example.
-        """
-        pos_idx = []
-        neg_idx = []
-        for matched_idxs_per_image in matched_idxs:
-            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
-            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
-            num_pos = int(self.batch_size_per_image * self.positive_fraction)
-            num_pos = min(positive.numel(), num_pos)
-            num_neg = self.batch_size_per_image - num_pos
-            num_neg = min(negative.numel(), num_neg)
-            perm1 = torch.randperm(positive.numel(), device=positive.device)[:
-                num_pos]
-            perm2 = torch.randperm(negative.numel(), device=negative.device)[:
-                num_neg]
-            pos_idx_per_image = positive[perm1]
-            neg_idx_per_image = negative[perm2]
-            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.uint8)
-            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.uint8)
-            pos_idx_per_image_mask[pos_idx_per_image] = 1
-            neg_idx_per_image_mask[neg_idx_per_image] = 1
-            pos_idx.append(pos_idx_per_image_mask)
-            neg_idx.append(neg_idx_per_image_mask)
-        return pos_idx, neg_idx
+def _get_tensor_from_boxlist(proposals, field='labels'):
+    assert proposals[0].extra_fields[field] is not None
+    for im_ind, prop_per_im in enumerate(proposals):
+        if im_ind == 0:
+            num_proposals_im = prop_per_im.bbox.size(0)
+            bbox_batch = prop_per_im.bbox
+            output_batch = prop_per_im.extra_fields[field]
+            im_inds = im_ind * torch.ones(num_proposals_im, 1)
+        else:
+            num_proposals_im = prop_per_im.bbox.size(0)
+            bbox_batch = torch.cat((bbox_batch, prop_per_im.bbox), dim=0)
+            output_batch = torch.cat((output_batch, prop_per_im.
+                extra_fields[field]), dim=0)
+            im_inds = torch.cat((im_inds, im_ind * torch.ones(
+                num_proposals_im, 1)), dim=0)
+    im_inds_batch = torch.Tensor(im_inds).long().cuda()
+    return bbox_batch, output_batch, im_inds_batch
 
 
 class PairMatcher(object):
@@ -2898,6 +2880,62 @@ class PairMatcher(object):
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
+class BalancedPositiveNegativePairSampler(object):
+    """
+    This class samples batches, ensuring that they contain a fixed proportion of positives
+    """
+
+    def __init__(self, batch_size_per_image, positive_fraction):
+        """
+        Arguments:
+            batch_size_per_image (int): number of elements to be selected per image
+            positive_fraction (float): percentage of positive elements per batch
+        """
+        self.batch_size_per_image = batch_size_per_image
+        self.positive_fraction = positive_fraction
+
+    def __call__(self, matched_idxs):
+        """
+        Arguments:
+            matched idxs: list of tensors containing -1, 0 or positive values.
+                Each tensor corresponds to a specific image.
+                -1 values are ignored, 0 are considered as negatives and > 0 as
+                positives.
+
+        Returns:
+            pos_idx (list[tensor])
+            neg_idx (list[tensor])
+
+        Returns two lists of binary masks for each image.
+        The first list contains the positive elements that were selected,
+        and the second list the negative example.
+        """
+        pos_idx = []
+        neg_idx = []
+        for matched_idxs_per_image in matched_idxs:
+            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
+            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
+            num_pos = int(self.batch_size_per_image * self.positive_fraction)
+            num_pos = min(positive.numel(), num_pos)
+            num_neg = self.batch_size_per_image - num_pos
+            num_neg = min(negative.numel(), num_neg)
+            perm1 = torch.randperm(positive.numel(), device=positive.device)[:
+                num_pos]
+            perm2 = torch.randperm(negative.numel(), device=negative.device)[:
+                num_neg]
+            pos_idx_per_image = positive[perm1]
+            neg_idx_per_image = negative[perm2]
+            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.uint8)
+            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.uint8)
+            pos_idx_per_image_mask[pos_idx_per_image] = 1
+            neg_idx_per_image_mask[neg_idx_per_image] = 1
+            pos_idx.append(pos_idx_per_image_mask)
+            neg_idx.append(neg_idx_per_image_mask)
+        return pos_idx, neg_idx
+
+
 def make_relation_proposal_network(cfg):
     matcher = PairMatcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
         ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
@@ -2912,74 +2950,8 @@ def make_relation_proposal_network(cfg):
     return relpn
 
 
-def boxlist_iou(boxlist1, boxlist2):
-    """Compute the intersection over union of two set of boxes.
-    The box order must be (xmin, ymin, xmax, ymax).
-
-    Arguments:
-      box1: (BoxList) bounding boxes, sized [N,4].
-      box2: (BoxList) bounding boxes, sized [M,4].
-
-    Returns:
-      (tensor) iou, sized [N,M].
-
-    Reference:
-      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
-    """
-    if boxlist1.size != boxlist2.size:
-        raise RuntimeError('boxlists should have same image size, got {}, {}'
-            .format(boxlist1, boxlist2))
-    boxlist1 = boxlist1.convert('xyxy')
-    boxlist2 = boxlist2.convert('xyxy')
-    N = len(boxlist1)
-    M = len(boxlist2)
-    area1 = boxlist1.area()
-    area2 = boxlist2.area()
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
-    return iou
-
-
-def build_imp_model(cfg, in_channels):
-    return IMP(cfg, in_channels)
-
-
-def make_roi_relation_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
-    postprocessor = PostProcessor(score_thresh, nms_thresh,
-        detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
-    return postprocessor
-
-
-def make_roi_box_feature_extractor(cfg, in_channels):
-    func = registry.ROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.
-        FEATURE_EXTRACTOR]
-    return func(cfg, in_channels)
-
-
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
+def build_grcnn_model(cfg, in_channels):
+    return GRCNN(cfg, in_channels)
 
 
 class Matcher(object):
@@ -3066,6 +3038,19 @@ class Matcher(object):
             match_quality_matrix == highest_quality_foreach_gt[:, (None)])
         pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
 
 
 class FastRCNNLossComputation(object):
@@ -3212,8 +3197,18 @@ def make_roi_relation_loss_evaluator(cfg):
     return loss_evaluator
 
 
-def build_baseline_model(cfg, in_channels):
-    return Baseline(cfg, in_channels)
+def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
+    rel_ind_sub = proposal_idx_pairs[:, (0)]
+    rel_ind_obj = proposal_idx_pairs[:, (1)]
+    num_obj_im = torch.unique(im_inds)
+    num_obj_im = torch.cumsum(num_obj_im, dim=0)
+    rel_ind_offset_im = num_obj_im[im_inds_pairs - 1]
+    num_rels_im = torch.unique(im_inds_pairs)
+    rel_ind_offset_im[:num_rels_im[0]] = 0
+    rel_ind_offset_im = torch.squeeze(rel_ind_offset_im)
+    rel_ind_sub += rel_ind_offset_im
+    rel_ind_obj += rel_ind_offset_im
+    return torch.cat((rel_ind_sub[:, (None)], rel_ind_obj[:, (None)]), 1)
 
 
 def make_roi_box_predictor(cfg, in_channels):
@@ -3221,31 +3216,18 @@ def make_roi_box_predictor(cfg, in_channels):
     return func(cfg, in_channels)
 
 
-def _get_tensor_from_boxlist(proposals, field='labels'):
-    assert proposals[0].extra_fields[field] is not None
-    for im_ind, prop_per_im in enumerate(proposals):
-        if im_ind == 0:
-            num_proposals_im = prop_per_im.bbox.size(0)
-            bbox_batch = prop_per_im.bbox
-            output_batch = prop_per_im.extra_fields[field]
-            im_inds = im_ind * torch.ones(num_proposals_im, 1)
-        else:
-            num_proposals_im = prop_per_im.bbox.size(0)
-            bbox_batch = torch.cat((bbox_batch, prop_per_im.bbox), dim=0)
-            output_batch = torch.cat((output_batch, prop_per_im.
-                extra_fields[field]), dim=0)
-            im_inds = torch.cat((im_inds, im_ind * torch.ones(
-                num_proposals_im, 1)), dim=0)
-    im_inds_batch = torch.Tensor(im_inds).long().cuda()
-    return bbox_batch, output_batch, im_inds_batch
-
-
-def build_grcnn_model(cfg, in_channels):
-    return GRCNN(cfg, in_channels)
-
-
-def build_reldn_model(cfg, in_channels):
-    return RelDN(cfg, in_channels)
+def make_roi_relation_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
+    postprocessor = PostProcessor(score_thresh, nms_thresh,
+        detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
+    return postprocessor
 
 
 def make_roi_box_post_processor(cfg):
@@ -3265,108 +3247,10 @@ def make_roi_box_post_processor(cfg):
     return postprocessor
 
 
-def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
-    rel_ind_sub = proposal_idx_pairs[:, (0)]
-    rel_ind_obj = proposal_idx_pairs[:, (1)]
-    num_obj_im = torch.unique(im_inds)
-    num_obj_im = torch.cumsum(num_obj_im, dim=0)
-    rel_ind_offset_im = num_obj_im[im_inds_pairs - 1]
-    num_rels_im = torch.unique(im_inds_pairs)
-    rel_ind_offset_im[:num_rels_im[0]] = 0
-    rel_ind_offset_im = torch.squeeze(rel_ind_offset_im)
-    rel_ind_sub += rel_ind_offset_im
-    rel_ind_obj += rel_ind_offset_im
-    return torch.cat((rel_ind_sub[:, (None)], rel_ind_obj[:, (None)]), 1)
-
-
-class MSDN(MSDN_BASE):
-
-    def __init__(self, cfg, in_channels, dim=1024, dropout=False,
-        gate_width=128, use_kernel_function=False):
-        super(MSDN, self).__init__(dim, dropout, gate_width, use_region=
-            True, use_kernel_function=use_kernel_function)
-        self.cfg = cfg
-        self.dim = dim
-        self.update_step = cfg.MODEL.ROI_RELATION_HEAD.MSDN_FEATURE_UPDATE_STEP
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.pred_feature_extractor = make_roi_relation_feature_extractor(cfg,
-            in_channels)
-        self.obj_embedding = nn.Sequential(nn.Linear(self.
-            pred_feature_extractor.out_channels, self.dim), nn.ReLU(True),
-            nn.Linear(self.dim, self.dim))
-        self.rel_embedding = nn.Sequential(nn.Linear(self.
-            pred_feature_extractor.out_channels, self.dim), nn.ReLU(True),
-            nn.Linear(self.dim, self.dim))
-        self.obj_predictor = make_roi_relation_box_predictor(cfg, dim)
-        self.pred_predictor = make_roi_relation_predictor(cfg, dim)
-
-    def _get_map_idxs(self, proposals, proposal_pairs):
-        rel_inds = []
-        offset = 0
-        for proposal, proposal_pair in zip(proposals, proposal_pairs):
-            rel_ind_i = proposal_pair.get_field('idx_pairs').detach()
-            rel_ind_i += offset
-            offset += len(proposal)
-            rel_inds.append(rel_ind_i)
-        rel_inds = torch.cat(rel_inds, 0)
-        subj_pred_map = rel_inds.new(sum([len(proposal) for proposal in
-            proposals]), rel_inds.shape[0]).fill_(0).float().detach()
-        obj_pred_map = rel_inds.new(sum([len(proposal) for proposal in
-            proposals]), rel_inds.shape[0]).fill_(0).float().detach()
-        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
-        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
-        return rel_inds, subj_pred_map, obj_pred_map
-
-    def forward(self, features, proposals, proposal_pairs):
-        rel_inds, subj_pred_map, obj_pred_map = self._get_map_idxs(proposals,
-            proposal_pairs)
-        x_obj = torch.cat([proposal.get_field('features').detach() for
-            proposal in proposals], 0)
-        x_pred, _ = self.pred_feature_extractor(features, proposals,
-            proposal_pairs)
-        x_pred = self.avgpool(x_pred)
-        x_obj = x_obj.view(x_obj.size(0), -1)
-        x_pred = x_pred.view(x_pred.size(0), -1)
-        x_obj = self.obj_embedding(x_obj)
-        x_pred = self.rel_embedding(x_pred)
-        x_obj = [x_obj]
-        x_pred = [x_pred]
-        for t in range(self.update_step):
-            """update object features"""
-            object_sub = self.prepare_message(x_obj[t], x_pred[t],
-                subj_pred_map, self.gate_pred2sub)
-            object_obj = self.prepare_message(x_obj[t], x_pred[t],
-                obj_pred_map, self.gate_pred2obj)
-            GRU_input_feature_object = (object_sub + object_obj) / 2.0
-            x_obj.append(x_obj[t] + self.GRU_object(
-                GRU_input_feature_object, x_obj[t]))
-            """update predicate features"""
-            indices_sub = rel_inds[:, (0)]
-            indices_obj = rel_inds[:, (1)]
-            feat_sub2pred = torch.index_select(x_obj[t], 0, indices_sub)
-            feat_obj2pred = torch.index_select(x_obj[t], 0, indices_obj)
-            phrase_sub = self.gate_sub2pred(x_pred[t], feat_sub2pred)
-            phrase_obj = self.gate_obj2pred(x_pred[t], feat_obj2pred)
-            GRU_input_feature_phrase = phrase_sub / 2.0 + phrase_obj / 2.0
-            x_pred.append(x_pred[t] + self.GRU_pred(
-                GRU_input_feature_phrase, x_pred[t]))
-        """compute results and losses"""
-        obj_class_logits = self.obj_predictor(x_obj[-1].unsqueeze(2).
-            unsqueeze(3))
-        pred_class_logits = self.pred_predictor(x_pred[-1].unsqueeze(2).
-            unsqueeze(3))
-        if obj_class_logits is None:
-            logits = torch.cat([proposal.get_field('logits') for proposal in
-                proposals], 0)
-            obj_class_labels = logits[:, 1:].max(1)[1] + 1
-        else:
-            obj_class_labels = obj_class_logits[:, 1:].max(1)[1] + 1
-        return (x_obj[-1], x_pred[-1]
-            ), obj_class_logits, pred_class_logits, obj_class_labels, rel_inds
-
-
-def build_msdn_model(cfg, in_channels):
-    return MSDN(cfg, in_channels)
+def make_roi_box_feature_extractor(cfg, in_channels):
+    func = registry.ROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.
+        FEATURE_EXTRACTOR]
+    return func(cfg, in_channels)
 
 
 class ROIRelationHead(torch.nn.Module):
@@ -3640,6 +3524,15 @@ class RelDN(nn.Module):
             ), obj_class_logits, rel_class_logits, obj_class_labels, rel_inds
 
 
+def boxes_union(boxes1, boxes2):
+    assert boxes1.shape == boxes2.shape
+    xmin = np.minimum(boxes1[:, (0)], boxes2[:, (0)])
+    ymin = np.minimum(boxes1[:, (1)], boxes2[:, (1)])
+    xmax = np.maximum(boxes1[:, (2)], boxes2[:, (2)])
+    ymax = np.maximum(boxes1[:, (3)], boxes2[:, (3)])
+    return np.vstack((xmin, ymin, xmax, ymax)).transpose()
+
+
 def bbox_transform_inv(boxes, gt_boxes, weights=(1.0, 1.0, 1.0, 1.0)):
     """Inverse transform that computes target bounding-box regression deltas
     given proposal boxes and ground-truth boxes. The weights argument should be
@@ -3669,15 +3562,6 @@ def bbox_transform_inv(boxes, gt_boxes, weights=(1.0, 1.0, 1.0, 1.0)):
     targets = np.vstack((targets_dx, targets_dy, targets_dw, targets_dh)
         ).transpose()
     return targets
-
-
-def boxes_union(boxes1, boxes2):
-    assert boxes1.shape == boxes2.shape
-    xmin = np.minimum(boxes1[:, (0)], boxes2[:, (0)])
-    ymin = np.minimum(boxes1[:, (1)], boxes2[:, (1)])
-    xmax = np.maximum(boxes1[:, (2)], boxes2[:, (2)])
-    ymax = np.maximum(boxes1[:, (3)], boxes2[:, (3)])
-    return np.vstack((xmin, ymin, xmax, ymax)).transpose()
 
 
 class SpatialFeature(nn.Module):
@@ -4046,6 +3930,32 @@ class RelPN(nn.Module):
         classification_loss = F.cross_entropy(class_logits, labels, weight=
             ce_weights)
         return classification_loss
+
+
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
 
 
 def make_fc(dim_in, hidden_dim, use_gn=False):
@@ -4803,157 +4713,6 @@ class RetinaNetHead(torch.nn.Module):
         return logits, bbox_reg
 
 
-class RetinaNetPostProcessor(RPNPostProcessor):
-    """
-    Performs post-processing on the outputs of the RetinaNet boxes.
-    This is only used in the testing.
-    """
-
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh,
-        fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
-        """
-        Arguments:
-            pre_nms_thresh (float)
-            pre_nms_top_n (int)
-            nms_thresh (float)
-            fpn_post_nms_top_n (int)
-            min_size (int)
-            num_classes (int)
-            box_coder (BoxCoder)
-        """
-        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0,
-            nms_thresh, min_size)
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        self.box_coder = box_coder
-
-    def add_gt_proposals(self, proposals, targets):
-        """
-        This function is not used in RetinaNet
-        """
-        pass
-
-    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            box_cls: tensor of size N, A * C, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        device = box_cls.device
-        N, _, H, W = box_cls.shape
-        A = box_regression.size(1) // 4
-        C = box_cls.size(1) // A
-        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
-        box_cls = box_cls.sigmoid()
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        box_regression = box_regression.reshape(N, -1, 4)
-        num_anchors = A * H * W
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
-        results = []
-        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(
-            box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
-            per_box_cls = per_box_cls[per_candidate_inds]
-            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n,
-                sorted=False)
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[(
-                top_k_indices), :]
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
-            per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(
-                per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc
-                ), :].view(-1, 4))
-            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
-            boxlist.add_field('labels', per_class)
-            boxlist.add_field('scores', per_box_cls)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-        return results
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            scores = boxlists[i].get_field('scores')
-            labels = boxlists[i].get_field('labels')
-            boxes = boxlists[i].bbox
-            boxlist = boxlists[i]
-            result = []
-            for j in range(1, self.num_classes):
-                inds = (labels == j).nonzero().view(-1)
-                scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
-                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
-                boxlist_for_class.add_field('scores', scores_j)
-                boxlist_for_class = boxlist_nms(boxlist_for_class, self.
-                    nms_thresh, score_field='scores')
-                num_labels = len(boxlist_for_class)
-                boxlist_for_class.add_field('labels', torch.full((
-                    num_labels,), j, dtype=torch.int64, device=scores.device))
-                result.append(boxlist_for_class)
-            result = cat_boxlist(result)
-            number_of_detections = len(result)
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.get_field('scores')
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), 
-                    number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
-                result = result[keep]
-            results.append(result)
-        return results
-
-
-def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
-    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
-    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
-    nms_thresh = config.MODEL.RETINANET.NMS_TH
-    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
-    min_size = 0
-    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
-        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
-        fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size,
-        num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder
-        )
-    return box_selector
-
-
-def make_anchor_generator_retinanet(config):
-    anchor_sizes = config.MODEL.RETINANET.ANCHOR_SIZES
-    aspect_ratios = config.MODEL.RETINANET.ASPECT_RATIOS
-    anchor_strides = config.MODEL.RETINANET.ANCHOR_STRIDES
-    straddle_thresh = config.MODEL.RETINANET.STRADDLE_THRESH
-    octave = config.MODEL.RETINANET.OCTAVE
-    scales_per_octave = config.MODEL.RETINANET.SCALES_PER_OCTAVE
-    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
-    new_anchor_sizes = []
-    for size in anchor_sizes:
-        per_layer_anchor_sizes = []
-        for scale_per_octave in range(scales_per_octave):
-            octave_scale = octave ** (scale_per_octave / float(
-                scales_per_octave))
-            per_layer_anchor_sizes.append(octave_scale * size)
-        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
-    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes),
-        aspect_ratios, anchor_strides, straddle_thresh)
-    return anchor_generator
-
-
-def generate_retinanet_labels(matched_targets):
-    labels_per_image = matched_targets.get_field('labels')
-    return labels_per_image
-
-
 def concat_box_prediction_layers(box_cls, box_regression):
     box_cls_flattened = []
     box_regression_flattened = []
@@ -5110,6 +4869,11 @@ class RetinaNetLossComputation(RPNLossComputation):
         return retinanet_cls_loss, retinanet_regression_loss
 
 
+def generate_retinanet_labels(matched_targets):
+    labels_per_image = matched_targets.get_field('labels')
+    return labels_per_image
+
+
 def make_retinanet_loss_evaluator(cfg, box_coder):
     matcher = Matcher(cfg.MODEL.RETINANET.FG_IOU_THRESHOLD, cfg.MODEL.
         RETINANET.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
@@ -5120,6 +4884,152 @@ def make_retinanet_loss_evaluator(cfg, box_coder):
         MODEL.RETINANET.BBOX_REG_BETA, regress_norm=cfg.MODEL.RETINANET.
         BBOX_REG_WEIGHT)
     return loss_evaluator
+
+
+def make_anchor_generator_retinanet(config):
+    anchor_sizes = config.MODEL.RETINANET.ANCHOR_SIZES
+    aspect_ratios = config.MODEL.RETINANET.ASPECT_RATIOS
+    anchor_strides = config.MODEL.RETINANET.ANCHOR_STRIDES
+    straddle_thresh = config.MODEL.RETINANET.STRADDLE_THRESH
+    octave = config.MODEL.RETINANET.OCTAVE
+    scales_per_octave = config.MODEL.RETINANET.SCALES_PER_OCTAVE
+    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
+    new_anchor_sizes = []
+    for size in anchor_sizes:
+        per_layer_anchor_sizes = []
+        for scale_per_octave in range(scales_per_octave):
+            octave_scale = octave ** (scale_per_octave / float(
+                scales_per_octave))
+            per_layer_anchor_sizes.append(octave_scale * size)
+        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
+    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes),
+        aspect_ratios, anchor_strides, straddle_thresh)
+    return anchor_generator
+
+
+class RetinaNetPostProcessor(RPNPostProcessor):
+    """
+    Performs post-processing on the outputs of the RetinaNet boxes.
+    This is only used in the testing.
+    """
+
+    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh,
+        fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
+        """
+        Arguments:
+            pre_nms_thresh (float)
+            pre_nms_top_n (int)
+            nms_thresh (float)
+            fpn_post_nms_top_n (int)
+            min_size (int)
+            num_classes (int)
+            box_coder (BoxCoder)
+        """
+        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0,
+            nms_thresh, min_size)
+        self.pre_nms_thresh = pre_nms_thresh
+        self.pre_nms_top_n = pre_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+        self.min_size = min_size
+        self.num_classes = num_classes
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        self.box_coder = box_coder
+
+    def add_gt_proposals(self, proposals, targets):
+        """
+        This function is not used in RetinaNet
+        """
+        pass
+
+    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            box_cls: tensor of size N, A * C, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        device = box_cls.device
+        N, _, H, W = box_cls.shape
+        A = box_regression.size(1) // 4
+        C = box_cls.size(1) // A
+        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
+        box_cls = box_cls.sigmoid()
+        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+        box_regression = box_regression.reshape(N, -1, 4)
+        num_anchors = A * H * W
+        candidate_inds = box_cls > self.pre_nms_thresh
+        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
+        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
+        results = []
+        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(
+            box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
+            per_box_cls = per_box_cls[per_candidate_inds]
+            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n,
+                sorted=False)
+            per_candidate_nonzeros = per_candidate_inds.nonzero()[(
+                top_k_indices), :]
+            per_box_loc = per_candidate_nonzeros[:, (0)]
+            per_class = per_candidate_nonzeros[:, (1)]
+            per_class += 1
+            detections = self.box_coder.decode(per_box_regression[(
+                per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc
+                ), :].view(-1, 4))
+            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
+            boxlist.add_field('labels', per_class)
+            boxlist.add_field('scores', per_box_cls)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            results.append(boxlist)
+        return results
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        results = []
+        for i in range(num_images):
+            scores = boxlists[i].get_field('scores')
+            labels = boxlists[i].get_field('labels')
+            boxes = boxlists[i].bbox
+            boxlist = boxlists[i]
+            result = []
+            for j in range(1, self.num_classes):
+                inds = (labels == j).nonzero().view(-1)
+                scores_j = scores[inds]
+                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
+                boxlist_for_class.add_field('scores', scores_j)
+                boxlist_for_class = boxlist_nms(boxlist_for_class, self.
+                    nms_thresh, score_field='scores')
+                num_labels = len(boxlist_for_class)
+                boxlist_for_class.add_field('labels', torch.full((
+                    num_labels,), j, dtype=torch.int64, device=scores.device))
+                result.append(boxlist_for_class)
+            result = cat_boxlist(result)
+            number_of_detections = len(result)
+            if number_of_detections > self.fpn_post_nms_top_n > 0:
+                cls_scores = result.get_field('scores')
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), 
+                    number_of_detections - self.fpn_post_nms_top_n + 1)
+                keep = cls_scores >= image_thresh.item()
+                keep = torch.nonzero(keep).squeeze(1)
+                result = result[keep]
+            results.append(result)
+        return results
+
+
+def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
+    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
+    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
+    nms_thresh = config.MODEL.RETINANET.NMS_TH
+    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
+    min_size = 0
+    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
+        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
+        fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size,
+        num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder
+        )
+    return box_selector
 
 
 class RetinaNetModule(torch.nn.Module):
@@ -5230,6 +5140,25 @@ class RPNHeadFeatureSingleConv(nn.Module):
         return x
 
 
+def make_rpn_postprocessor(config, rpn_box_coder, is_train):
+    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
+    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
+    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
+        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
+    fpn_post_nms_per_batch = config.MODEL.RPN.FPN_POST_NMS_PER_BATCH
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
+        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
+        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
+        fpn_post_nms_top_n, fpn_post_nms_per_batch=fpn_post_nms_per_batch)
+    return box_selector
+
+
 def make_anchor_generator(config):
     anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
     aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
@@ -5260,25 +5189,6 @@ def make_rpn_loss_evaluator(cfg, box_coder):
     loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder,
         generate_rpn_labels)
     return loss_evaluator
-
-
-def make_rpn_postprocessor(config, rpn_box_coder, is_train):
-    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
-    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
-    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
-        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
-    fpn_post_nms_per_batch = config.MODEL.RPN.FPN_POST_NMS_PER_BATCH
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
-        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
-        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
-        fpn_post_nms_top_n, fpn_post_nms_per_batch=fpn_post_nms_per_batch)
-    return box_selector
 
 
 class RPNModule(torch.nn.Module):
@@ -5368,46 +5278,45 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(BatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(CascadeConv3x3(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
@@ -5416,8 +5325,8 @@ class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
 
     def test_012(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(MultiHeadAttention(*[], **{'heads': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -5426,8 +5335,8 @@ class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
 
     def test_015(self):
         self._check(_Update_Unit(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(_GraphConvolutionLayer_Update(*[], **{'dim_obj': 4, 'dim_rel': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), 0], {})
 
@@ -5439,14 +5348,15 @@ class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
 
     def test_019(self):
         self._check(Gated_Recurrent_Unit(*[], **{'fea_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_020(self):
         self._check(Relationshipness(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_021(self):
         self._check(Relationshipnessv2(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
 
     def test_022(self):
         self._check(Flattener(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -181,6 +181,15 @@ from torch._utils import _unflatten_dense_tensors
 from torch.nn.utils import parameters_to_vector
 
 
+def register_middle(cls, name=None):
+    global REGISTERED_MIDDLE_CLASSES
+    if name is None:
+        name = cls.__name__
+    assert name not in REGISTERED_MIDDLE_CLASSES, f'exist class: {REGISTERED_MIDDLE_CLASSES}'
+    REGISTERED_MIDDLE_CLASSES[name] = cls
+    return cls
+
+
 def get_pos_to_kw_map(func):
     pos_to_kw = {}
     fsig = inspect.signature(func)
@@ -208,15 +217,6 @@ def change_default_args(**kwargs):
                 super().__init__(*args, **kw)
         return DefaultArgLayer
     return layer_wrapper
-
-
-def register_middle(cls, name=None):
-    global REGISTERED_MIDDLE_CLASSES
-    if name is None:
-        name = cls.__name__
-    assert name not in REGISTERED_MIDDLE_CLASSES, f'exist class: {REGISTERED_MIDDLE_CLASSES}'
-    REGISTERED_MIDDLE_CLASSES[name] = cls
-    return cls
 
 
 class SmallObjectHead(nn.Module):
@@ -527,78 +527,6 @@ class VFELayer(nn.Module):
         return concatenated
 
 
-def add_sin_difference(boxes1, boxes2, boxes1_rot, boxes2_rot, factor=1.0):
-    if factor != 1.0:
-        boxes1_rot = factor * boxes1_rot
-        boxes2_rot = factor * boxes2_rot
-    rad_pred_encoding = torch.sin(boxes1_rot) * torch.cos(boxes2_rot)
-    rad_tg_encoding = torch.cos(boxes1_rot) * torch.sin(boxes2_rot)
-    boxes1 = torch.cat([boxes1[(...), :6], rad_pred_encoding, boxes1[(...),
-        7:]], dim=-1)
-    boxes2 = torch.cat([boxes2[(...), :6], rad_tg_encoding, boxes2[(...), 7
-        :]], dim=-1)
-    return boxes1, boxes2
-
-
-def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds,
-    cls_targets, cls_weights, reg_targets, reg_weights, num_class,
-    encode_background_as_zeros=True, encode_rad_error_by_sin=True,
-    sin_error_factor=1.0, box_code_size=7, num_direction_bins=2):
-    batch_size = int(box_preds.shape[0])
-    box_preds = box_preds.view(batch_size, -1, box_code_size)
-    if encode_background_as_zeros:
-        cls_preds = cls_preds.view(batch_size, -1, num_class)
-    else:
-        cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
-    cls_targets = cls_targets.squeeze(-1)
-    one_hot_targets = torchplus.nn.one_hot(cls_targets, depth=num_class + 1,
-        dtype=box_preds.dtype)
-    if encode_background_as_zeros:
-        one_hot_targets = one_hot_targets[(...), 1:]
-    if encode_rad_error_by_sin:
-        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets,
-            box_preds[(...), 6:7], reg_targets[(...), 6:7], sin_error_factor)
-    loc_losses = loc_loss_ftor(box_preds, reg_targets, weights=reg_weights)
-    cls_losses = cls_loss_ftor(cls_preds, one_hot_targets, weights=cls_weights)
-    return loc_losses, cls_losses
-
-
-class LossNormType(Enum):
-    NormByNumPositives = 'norm_by_num_positives'
-    NormByNumExamples = 'norm_by_num_examples'
-    NormByNumPosNeg = 'norm_by_num_pos_neg'
-    DontNorm = 'dont_norm'
-
-
-def _get_pos_neg_loss(cls_loss, labels):
-    batch_size = cls_loss.shape[0]
-    if cls_loss.shape[-1] == 1 or len(cls_loss.shape) == 2:
-        cls_pos_loss = (labels > 0).type_as(cls_loss) * cls_loss.view(
-            batch_size, -1)
-        cls_neg_loss = (labels == 0).type_as(cls_loss) * cls_loss.view(
-            batch_size, -1)
-        cls_pos_loss = cls_pos_loss.sum() / batch_size
-        cls_neg_loss = cls_neg_loss.sum() / batch_size
-    else:
-        cls_pos_loss = cls_loss[(...), 1:].sum() / batch_size
-        cls_neg_loss = cls_loss[..., 0].sum() / batch_size
-    return cls_pos_loss, cls_neg_loss
-
-
-def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0,
-    num_bins=2):
-    batch_size = reg_targets.shape[0]
-    anchors = anchors.view(batch_size, -1, anchors.shape[-1])
-    rot_gt = reg_targets[..., 6] + anchors[..., 6]
-    offset_rot = box_torch_ops.limit_period(rot_gt - dir_offset, 0, 2 * np.pi)
-    dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)).long()
-    dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=num_bins - 1)
-    if one_hot:
-        dir_cls_targets = torchplus.nn.one_hot(dir_cls_targets, num_bins,
-            dtype=anchors.dtype)
-    return dir_cls_targets
-
-
 class Loss(object):
     """Abstract base class for loss functions."""
     __metaclass__ = ABCMeta
@@ -698,41 +626,85 @@ class WeightedSmoothL1LocalizationLoss(Loss):
         return anchorwise_smooth_l1norm
 
 
-def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0,
-    loss_norm_type=LossNormType.NormByNumPositives, dtype=torch.float32):
-    """get cls_weights and reg_weights from labels.
-    """
-    cared = labels >= 0
-    positives = labels > 0
-    negatives = labels == 0
-    negative_cls_weights = negatives.type(dtype) * neg_cls_weight
-    cls_weights = negative_cls_weights + pos_cls_weight * positives.type(dtype)
-    reg_weights = positives.type(dtype)
-    if loss_norm_type == LossNormType.NormByNumExamples:
-        num_examples = cared.type(dtype).sum(1, keepdim=True)
-        num_examples = torch.clamp(num_examples, min=1.0)
-        cls_weights /= num_examples
-        bbox_normalizer = positives.sum(1, keepdim=True).type(dtype)
-        reg_weights /= torch.clamp(bbox_normalizer, min=1.0)
-    elif loss_norm_type == LossNormType.NormByNumPositives:
-        pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
-        reg_weights /= torch.clamp(pos_normalizer, min=1.0)
-        cls_weights /= torch.clamp(pos_normalizer, min=1.0)
-    elif loss_norm_type == LossNormType.NormByNumPosNeg:
-        pos_neg = torch.stack([positives, negatives], dim=-1).type(dtype)
-        normalizer = pos_neg.sum(1, keepdim=True)
-        cls_normalizer = (pos_neg * normalizer).sum(-1)
-        cls_normalizer = torch.clamp(cls_normalizer, min=1.0)
-        normalizer = torch.clamp(normalizer, min=1.0)
-        reg_weights /= normalizer[:, 0:1, (0)]
-        cls_weights /= cls_normalizer
-    elif loss_norm_type == LossNormType.DontNorm:
-        pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
-        reg_weights /= torch.clamp(pos_normalizer, min=1.0)
+class LossNormType(Enum):
+    NormByNumPositives = 'norm_by_num_positives'
+    NormByNumExamples = 'norm_by_num_examples'
+    NormByNumPosNeg = 'norm_by_num_pos_neg'
+    DontNorm = 'dont_norm'
+
+
+def _get_pos_neg_loss(cls_loss, labels):
+    batch_size = cls_loss.shape[0]
+    if cls_loss.shape[-1] == 1 or len(cls_loss.shape) == 2:
+        cls_pos_loss = (labels > 0).type_as(cls_loss) * cls_loss.view(
+            batch_size, -1)
+        cls_neg_loss = (labels == 0).type_as(cls_loss) * cls_loss.view(
+            batch_size, -1)
+        cls_pos_loss = cls_pos_loss.sum() / batch_size
+        cls_neg_loss = cls_neg_loss.sum() / batch_size
     else:
-        raise ValueError(
-            f'unknown loss norm type. available: {list(LossNormType)}')
-    return cls_weights, reg_weights, cared
+        cls_pos_loss = cls_loss[(...), 1:].sum() / batch_size
+        cls_neg_loss = cls_loss[..., 0].sum() / batch_size
+    return cls_pos_loss, cls_neg_loss
+
+
+def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0,
+    num_bins=2):
+    batch_size = reg_targets.shape[0]
+    anchors = anchors.view(batch_size, -1, anchors.shape[-1])
+    rot_gt = reg_targets[..., 6] + anchors[..., 6]
+    offset_rot = box_torch_ops.limit_period(rot_gt - dir_offset, 0, 2 * np.pi)
+    dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)).long()
+    dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=num_bins - 1)
+    if one_hot:
+        dir_cls_targets = torchplus.nn.one_hot(dir_cls_targets, num_bins,
+            dtype=anchors.dtype)
+    return dir_cls_targets
+
+
+def register_voxelnet(cls, name=None):
+    global REGISTERED_NETWORK_CLASSES
+    if name is None:
+        name = cls.__name__
+    assert name not in REGISTERED_NETWORK_CLASSES, f'exist class: {REGISTERED_NETWORK_CLASSES}'
+    REGISTERED_NETWORK_CLASSES[name] = cls
+    return cls
+
+
+def add_sin_difference(boxes1, boxes2, boxes1_rot, boxes2_rot, factor=1.0):
+    if factor != 1.0:
+        boxes1_rot = factor * boxes1_rot
+        boxes2_rot = factor * boxes2_rot
+    rad_pred_encoding = torch.sin(boxes1_rot) * torch.cos(boxes2_rot)
+    rad_tg_encoding = torch.cos(boxes1_rot) * torch.sin(boxes2_rot)
+    boxes1 = torch.cat([boxes1[(...), :6], rad_pred_encoding, boxes1[(...),
+        7:]], dim=-1)
+    boxes2 = torch.cat([boxes2[(...), :6], rad_tg_encoding, boxes2[(...), 7
+        :]], dim=-1)
+    return boxes1, boxes2
+
+
+def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds,
+    cls_targets, cls_weights, reg_targets, reg_weights, num_class,
+    encode_background_as_zeros=True, encode_rad_error_by_sin=True,
+    sin_error_factor=1.0, box_code_size=7, num_direction_bins=2):
+    batch_size = int(box_preds.shape[0])
+    box_preds = box_preds.view(batch_size, -1, box_code_size)
+    if encode_background_as_zeros:
+        cls_preds = cls_preds.view(batch_size, -1, num_class)
+    else:
+        cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
+    cls_targets = cls_targets.squeeze(-1)
+    one_hot_targets = torchplus.nn.one_hot(cls_targets, depth=num_class + 1,
+        dtype=box_preds.dtype)
+    if encode_background_as_zeros:
+        one_hot_targets = one_hot_targets[(...), 1:]
+    if encode_rad_error_by_sin:
+        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets,
+            box_preds[(...), 6:7], reg_targets[(...), 6:7], sin_error_factor)
+    loc_losses = loc_loss_ftor(box_preds, reg_targets, weights=reg_weights)
+    cls_losses = cls_loss_ftor(cls_preds, one_hot_targets, weights=cls_weights)
+    return loc_losses, cls_losses
 
 
 def _softmax_cross_entropy_with_logits(logits, labels):
@@ -780,13 +752,41 @@ class WeightedSoftmaxClassificationLoss(Loss):
         return per_row_cross_ent.view(weights.shape) * weights
 
 
-def register_voxelnet(cls, name=None):
-    global REGISTERED_NETWORK_CLASSES
-    if name is None:
-        name = cls.__name__
-    assert name not in REGISTERED_NETWORK_CLASSES, f'exist class: {REGISTERED_NETWORK_CLASSES}'
-    REGISTERED_NETWORK_CLASSES[name] = cls
-    return cls
+def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0,
+    loss_norm_type=LossNormType.NormByNumPositives, dtype=torch.float32):
+    """get cls_weights and reg_weights from labels.
+    """
+    cared = labels >= 0
+    positives = labels > 0
+    negatives = labels == 0
+    negative_cls_weights = negatives.type(dtype) * neg_cls_weight
+    cls_weights = negative_cls_weights + pos_cls_weight * positives.type(dtype)
+    reg_weights = positives.type(dtype)
+    if loss_norm_type == LossNormType.NormByNumExamples:
+        num_examples = cared.type(dtype).sum(1, keepdim=True)
+        num_examples = torch.clamp(num_examples, min=1.0)
+        cls_weights /= num_examples
+        bbox_normalizer = positives.sum(1, keepdim=True).type(dtype)
+        reg_weights /= torch.clamp(bbox_normalizer, min=1.0)
+    elif loss_norm_type == LossNormType.NormByNumPositives:
+        pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
+        reg_weights /= torch.clamp(pos_normalizer, min=1.0)
+        cls_weights /= torch.clamp(pos_normalizer, min=1.0)
+    elif loss_norm_type == LossNormType.NormByNumPosNeg:
+        pos_neg = torch.stack([positives, negatives], dim=-1).type(dtype)
+        normalizer = pos_neg.sum(1, keepdim=True)
+        cls_normalizer = (pos_neg * normalizer).sum(-1)
+        cls_normalizer = torch.clamp(cls_normalizer, min=1.0)
+        normalizer = torch.clamp(normalizer, min=1.0)
+        reg_weights /= normalizer[:, 0:1, (0)]
+        cls_weights /= cls_normalizer
+    elif loss_norm_type == LossNormType.DontNorm:
+        pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
+        reg_weights /= torch.clamp(pos_normalizer, min=1.0)
+    else:
+        raise ValueError(
+            f'unknown loss norm type. available: {list(LossNormType)}')
+    return cls_weights, reg_weights, cared
 
 
 class Scalar(nn.Module):
@@ -1143,20 +1143,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_traveller59_second_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SmallObjectHead(*[], **{'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(DefaultHead(*[], **{'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Empty(*[], **{}), [], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+

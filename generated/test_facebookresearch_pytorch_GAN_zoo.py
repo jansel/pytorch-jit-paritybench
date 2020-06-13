@@ -458,6 +458,25 @@ class EqualizedLinear(ConstrainedLayer):
             nChannels, bias=bias), **kwargs)
 
 
+def Upscale2d(x, factor=2):
+    assert isinstance(factor, int) and factor >= 1
+    if factor == 1:
+        return x
+    s = x.size()
+    x = x.view(-1, s[1], s[2], 1, s[3], 1)
+    x = x.expand(-1, s[1], s[2], factor, s[3], factor)
+    x = x.contiguous().view(-1, s[1], s[2] * factor, s[3] * factor)
+    return x
+
+
+def num_flat_features(x):
+    size = x.size()[1:]
+    num_features = 1
+    for s in size:
+        num_features *= s
+    return num_features
+
+
 class EqualizedConv2d(ConstrainedLayer):
 
     def __init__(self, nChannelsPrevious, nChannels, kernelSize, padding=0,
@@ -473,25 +492,6 @@ class EqualizedConv2d(ConstrainedLayer):
         """
         ConstrainedLayer.__init__(self, nn.Conv2d(nChannelsPrevious,
             nChannels, kernelSize, padding=padding, bias=bias), **kwargs)
-
-
-def num_flat_features(x):
-    size = x.size()[1:]
-    num_features = 1
-    for s in size:
-        num_features *= s
-    return num_features
-
-
-def Upscale2d(x, factor=2):
-    assert isinstance(factor, int) and factor >= 1
-    if factor == 1:
-        return x
-    s = x.size()
-    x = x.view(-1, s[1], s[2], 1, s[3], 1)
-    x = x.expand(-1, s[1], s[2], factor, s[3], factor)
-    x = x.contiguous().view(-1, s[1], s[2] * factor, s[3] * factor)
-    return x
 
 
 class GNet(nn.Module):
@@ -933,7 +933,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_facebookresearch_pytorch_GAN_zoo(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(IDModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -945,8 +944,8 @@ class Test_facebookresearch_pytorch_GAN_zoo(_paritybench_base):
 
     def test_003(self):
         self._check(FeatureTransform(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(NormalizationLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -964,3 +963,4 @@ class Test_facebookresearch_pytorch_GAN_zoo(_paritybench_base):
 
     def test_009(self):
         self._check(MappingLayer(*[], **{'dimIn': 4, 'dimLatent': 4, 'nLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+

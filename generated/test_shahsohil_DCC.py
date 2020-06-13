@@ -392,21 +392,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_shahsohil_DCC(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SDAE(*[], **{'dim': [4, 4]}), [torch.rand([4, 4, 4, 4]), 0], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(extractSDAE(*[], **{'dim': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(extractconvSDAE(*[], **{'dim': [4, 4], 'output_padding': 4, 'numpen': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(DCCWeightedELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(IdentityNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

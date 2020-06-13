@@ -277,6 +277,9 @@ class LM_LSTM_CRF(nn.Module):
                 char_sort_ind)
 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 def log_sum_exp(tensor, dim):
     """
     Calculates the log-sum-exponent of a tensor's dimension in a numerically stable way.
@@ -288,9 +291,6 @@ def log_sum_exp(tensor, dim):
     m, _ = torch.max(tensor, dim)
     m_expanded = m.unsqueeze(dim).expand_as(tensor)
     return m + torch.log(torch.sum(torch.exp(tensor - m_expanded), dim))
-
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class ViterbiLoss(nn.Module):
@@ -346,9 +346,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_sgrvinod_a_PyTorch_Tutorial_to_Sequence_Labeling(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Highway(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(CRF(*[], **{'hidden_dim': 4, 'tagset_size': 4}), [torch.rand([4, 4])], {})
+

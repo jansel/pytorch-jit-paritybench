@@ -436,6 +436,13 @@ class ResNetBase(nn.Module):
         return x
 
 
+def make_resnet101_base(**kwargs):
+    """Constructs a ResNet-101 model.
+    """
+    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
+    return model
+
+
 def make_resnet18_base(**kwargs):
     """Constructs a ResNet-18 model.
     """
@@ -443,10 +450,10 @@ def make_resnet18_base(**kwargs):
     return model
 
 
-def make_resnet101_base(**kwargs):
-    """Constructs a ResNet-101 model.
+def make_resnet152_base(**kwargs):
+    """Constructs a ResNet-152 model.
     """
-    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
+    model = ResNetBase(Bottleneck, [3, 8, 36, 3], **kwargs)
     return model
 
 
@@ -461,13 +468,6 @@ def make_resnet34_base(**kwargs):
     """Constructs a ResNet-34 model.
     """
     model = ResNetBase(BasicBlock, [3, 4, 6, 3], **kwargs)
-    return model
-
-
-def make_resnet152_base(**kwargs):
-    """Constructs a ResNet-152 model.
-    """
-    model = ResNetBase(Bottleneck, [3, 8, 36, 3], **kwargs)
     return model
 
 
@@ -506,6 +506,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_cyvius96_DGP(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

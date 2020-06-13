@@ -198,17 +198,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_adambielski_CapsNet_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AgreementRouting(*[], **{'input_caps': 4, 'output_caps': 4, 'n_iterations': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(PrimaryCapsLayer(*[], **{'input_channels': 4, 'output_caps': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ReconstructionNet(*[], **{}), [torch.rand([4, 4, 10, 4]), torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MarginLoss(*[], **{'m_pos': 4, 'm_neg': 4, 'lambda_': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+

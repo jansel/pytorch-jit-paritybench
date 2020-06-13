@@ -125,6 +125,32 @@ def init_tri_complex(width, height):
     return unique_simplices(tri.simplices, 2)
 
 
+def init_freudenthal_2d(width, height):
+    """
+    Freudenthal triangulation of 2d grid
+    """
+    s = d.Filtration()
+    for i in range(height):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind]))
+    for i in range(height):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + 1]))
+    for i in range(height - 1):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width]))
+    for i in range(height - 1):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
+    return s
+
+
 def init_grid_2d(width, height):
     """
     initialize 2d grid with diagonal and anti-diagonal
@@ -154,32 +180,6 @@ def init_grid_2d(width, height):
             s.append([ind + 1, ind + width])
             s.append([ind + 1, ind + width, ind + width + 1])
             s.append([ind, ind + 1, ind + width])
-    return s
-
-
-def init_freudenthal_2d(width, height):
-    """
-    Freudenthal triangulation of 2d grid
-    """
-    s = d.Filtration()
-    for i in range(height):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind]))
-    for i in range(height):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + 1]))
-    for i in range(height - 1):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width]))
-    for i in range(height - 1):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
     return s
 
 
@@ -789,7 +789,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Generator(*[], **{}), [torch.rand([100, 100])], {})
 
@@ -798,3 +797,4 @@ class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):
 
     def test_002(self):
         self._check(NormLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+

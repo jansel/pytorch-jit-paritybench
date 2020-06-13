@@ -328,6 +328,180 @@ class DecoderUnit(nn.Module):
         return output, state
 
 
+def _normalize_text(text):
+    text = ''.join(filter(lambda x: x in string.digits + string.
+        ascii_letters, text))
+    return text.lower()
+
+
+def to_numpy(tensor):
+    if torch.is_tensor(tensor):
+        return tensor.cpu().numpy()
+    elif type(tensor).__module__ != 'numpy':
+        raise ValueError('Cannot convert {} to numpy array'.format(type(
+            tensor)))
+    return tensor
+
+
+def get_str_list(output, target, dataset=None):
+    assert output.dim() == 2 and target.dim() == 2
+    end_label = dataset.char2id[dataset.EOS]
+    unknown_label = dataset.char2id[dataset.UNKNOWN]
+    num_samples, max_len_labels = output.size()
+    num_classes = len(dataset.char2id.keys())
+    assert num_samples == target.size(0) and max_len_labels == target.size(1)
+    output = to_numpy(output)
+    target = to_numpy(target)
+    pred_list, targ_list = [], []
+    for i in range(num_samples):
+        pred_list_i = []
+        for j in range(max_len_labels):
+            if output[i, j] != end_label:
+                if output[i, j] != unknown_label:
+                    pred_list_i.append(dataset.id2char[output[i, j]])
+            else:
+                break
+        pred_list.append(pred_list_i)
+    for i in range(num_samples):
+        targ_list_i = []
+        for j in range(max_len_labels):
+            if target[i, j] != end_label:
+                if target[i, j] != unknown_label:
+                    targ_list_i.append(dataset.id2char[target[i, j]])
+            else:
+                break
+        targ_list.append(targ_list_i)
+    if True:
+        pred_list = [_normalize_text(pred) for pred in pred_list]
+        targ_list = [_normalize_text(targ) for targ in targ_list]
+    else:
+        pred_list = [''.join(pred) for pred in pred_list]
+        targ_list = [''.join(targ) for targ in targ_list]
+    return pred_list, targ_list
+
+
+def _lexicon_search(lexicon, word):
+    edit_distances = []
+    for lex_word in lexicon:
+        edit_distances.append(editdistance.eval(_normalize_text(lex_word),
+            _normalize_text(word)))
+    edit_distances = np.asarray(edit_distances, dtype=np.int)
+    argmin = np.argmin(edit_distances)
+    return lexicon[argmin]
+
+
+def EditDistance_with_lexicon(output, target, dataset=None, file_names=None):
+    pred_list, targ_list = get_str_list(output, target, dataset)
+    eds = []
+    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
+        pred_list, targ_list)]
+    ed = sum(ed_list)
+    eds.append(ed)
+    if len(file_names) == 0 or len(dataset.lexicons50[file_names[0]]) == 0:
+        eds.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name],
+            pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
+            refined_pred_list, targ_list)]
+        ed = sum(ed_list)
+        eds.append(ed)
+    if len(file_names) == 0 or len(dataset.lexicons1k[file_names[0]]) == 0:
+        eds.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name],
+            pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
+            refined_pred_list, targ_list)]
+        ed = sum(ed_list)
+        eds.append(ed)
+    if len(file_names) == 0 or len(dataset.lexiconsfull[file_names[0]]) == 0:
+        eds.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name
+            ], pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
+            refined_pred_list, targ_list)]
+        ed = sum(ed_list)
+        eds.append(ed)
+    return eds
+
+
+def Accuracy(output, target, dataset=None):
+    pred_list, targ_list = get_str_list(output, target, dataset)
+    acc_list = [(pred == targ) for pred, targ in zip(pred_list, targ_list)]
+    accuracy = 1.0 * sum(acc_list) / len(acc_list)
+    return accuracy
+
+
+def Accuracy_with_lexicon(output, target, dataset=None, file_names=None):
+    pred_list, targ_list = get_str_list(output, target, dataset)
+    accuracys = []
+    acc_list = [(pred == targ) for pred, targ in zip(pred_list, targ_list)]
+    accuracy = 1.0 * sum(acc_list) / len(acc_list)
+    accuracys.append(accuracy)
+    if len(file_names) == 0 or len(dataset.lexicons50[file_names[0]]) == 0:
+        accuracys.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name],
+            pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
+            targ_list)]
+        accuracy = 1.0 * sum(acc_list) / len(acc_list)
+        accuracys.append(accuracy)
+    if len(file_names) == 0 or len(dataset.lexicons1k[file_names[0]]) == 0:
+        accuracys.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name],
+            pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
+            targ_list)]
+        accuracy = 1.0 * sum(acc_list) / len(acc_list)
+        accuracys.append(accuracy)
+    if len(file_names) == 0 or len(dataset.lexiconsfull[file_names[0]]) == 0:
+        accuracys.append(0)
+    else:
+        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name
+            ], pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
+            targ_list)]
+        accuracy = 1.0 * sum(acc_list) / len(acc_list)
+        accuracys.append(accuracy)
+    return accuracys
+
+
+def EditDistance(output, target, dataset=None):
+    pred_list, targ_list = get_str_list(output, target, dataset)
+    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
+        pred_list, targ_list)]
+    eds = sum(ed_list)
+    return eds
+
+
+__factory = {'accuracy': Accuracy, 'editdistance': EditDistance,
+    'accuracy_with_lexicon': Accuracy_with_lexicon,
+    'editdistance_with_lexicon': EditDistance_with_lexicon}
+
+
+def create(name, *args, **kwargs):
+    """Create a model instance.
+  
+  Parameters
+  ----------
+  name: str
+    Model name. One of __factory
+  pretrained: bool, optional
+    If True, will use ImageNet pretrained model. Default: True
+  num_classes: int, optional
+    If positive, will change the original classifier the fit the new classifier with num_classes. Default: True
+  with_words: bool, optional
+    If True, the input of this model is the combination of image and word. Default: False
+  """
+    if name not in __factory:
+        raise KeyError('Unknown model:', name)
+    return __factory[name](*args, **kwargs)
+
+
 parser = argparse.ArgumentParser(description='Softmax loss classification')
 
 
@@ -336,16 +510,16 @@ def get_args(sys_args):
     return global_args
 
 
-def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
-
-
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
+
+
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
+        bias=False)
 
 
 class AsterBlock(nn.Module):
@@ -505,6 +679,19 @@ class STNHead(nn.Module):
         return img_feat, x
 
 
+def compute_partial_repr(input_points, control_points):
+    N = input_points.size(0)
+    M = control_points.size(0)
+    pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
+    pairwise_diff_square = pairwise_diff * pairwise_diff
+    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:,
+        :, (1)]
+    repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
+    mask = repr_matrix != repr_matrix
+    repr_matrix.masked_fill_(mask, 0)
+    return repr_matrix
+
+
 def build_output_control_points(num_control_points, margins):
     margin_x, margin_y = margins
     num_ctrl_pts_per_side = num_control_points // 2
@@ -517,19 +704,6 @@ def build_output_control_points(num_control_points, margins):
         axis=0)
     output_ctrl_pts = torch.Tensor(output_ctrl_pts_arr)
     return output_ctrl_pts
-
-
-def compute_partial_repr(input_points, control_points):
-    N = input_points.size(0)
-    M = control_points.size(0)
-    pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
-    pairwise_diff_square = pairwise_diff * pairwise_diff
-    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:,
-        :, (1)]
-    repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
-    mask = repr_matrix != repr_matrix
-    repr_matrix.masked_fill_(mask, 0)
-    return repr_matrix
 
 
 def grid_sample(input, grid, canvas=None):
@@ -604,13 +778,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ayumiymk_aster_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AttentionUnit(*[], **{'sDim': 4, 'xDim': 4, 'attDim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(AsterBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ResNet_ASTER(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

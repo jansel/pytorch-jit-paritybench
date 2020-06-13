@@ -241,7 +241,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -253,3 +252,4 @@ class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
 
     def test_003(self):
         self._check(HeatmapLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

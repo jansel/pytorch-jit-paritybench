@@ -529,18 +529,18 @@ class LabelSmoothingLoss(nn.Module):
             average_across_batch=False, sum_over_timesteps=False)
 
 
+def MultivariateNormalDiag(loc, scale_diag):
+    if loc.dim() < 1:
+        raise ValueError('loc must be at least one-dimensional.')
+    return Independent(Normal(loc, scale_diag), 1)
+
+
 def kl_divergence(means: Tensor, logvars: Tensor) ->Tensor:
     """Compute the KL divergence between Gaussian distribution
     """
     kl_cost = -0.5 * (logvars - means ** 2 - torch.exp(logvars) + 1.0)
     kl_cost = torch.mean(kl_cost, 0)
     return torch.sum(kl_cost)
-
-
-def MultivariateNormalDiag(loc, scale_diag):
-    if loc.dim() < 1:
-        raise ValueError('loc must be at least one-dimensional.')
-    return Independent(Normal(loc, scale_diag), 1)
 
 
 State = TypeVar('State')
@@ -641,13 +641,6 @@ class AvgReducePool1d(nn.Module):
 
     def forward(self, input: torch.Tensor) ->torch.Tensor:
         return torch.mean(input, dim=2)
-
-
-def is_str(x):
-    """Returns `True` if :attr:`x` is either a str or unicode.
-    Returns `False` otherwise.
-    """
-    return isinstance(x, str)
 
 
 def _type_name(value):
@@ -959,6 +952,13 @@ class HParams:
             if isinstance(value, HParams):
                 dict_[name] = value.todict()
         return dict_
+
+
+def is_str(x):
+    """Returns `True` if :attr:`x` is either a str or unicode.
+    Returns `False` otherwise.
+    """
+    return isinstance(x, str)
 
 
 def get_layer(hparams: Union[HParams, Dict[str, Any]]) ->nn.Module:
@@ -1306,14 +1306,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_asyml_texar_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MaxReducePool1d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(AvgReducePool1d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MergeLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1331,3 +1330,4 @@ class Test_asyml_texar_pytorch(_paritybench_base):
 
     def test_007(self):
         self._check(T5LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

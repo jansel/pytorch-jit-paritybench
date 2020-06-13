@@ -336,6 +336,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yongxuUSTC_sednn(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DNN(*[], **{'stack_num': 4, 'n_freq': 4}), [torch.rand([4, 4, 4])], {})
+

@@ -338,9 +338,6 @@ class DNC(nn.Module):
         return s.format(name=self.__class__.__name__, **self.__dict__)
 
 
-δ = 1e-06
-
-
 def σ(input, axis=1):
     """Softmax on an axis
 
@@ -362,6 +359,9 @@ def σ(input, axis=1):
     soft_max_2d = F.softmax(input_2d, -1)
     soft_max_nd = soft_max_2d.view(*trans_size)
     return soft_max_nd.transpose(axis, len(input_size) - 1)
+
+
+δ = 1e-06
 
 
 def θ(a, b, dimA=2, dimB=2, normBy=2):

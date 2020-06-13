@@ -116,7 +116,46 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 NULL_REPR = '_nan_'
 
 
-NA_COOCCUR_FV = 0
+class Estimator:
+    """
+    Estimator is an abstract class for posterior estimators that estimate
+    the posterior of p(value | other values) for the purpose of domain generation
+    and weak labelling.
+    """
+    __metaclass__ = ABCMeta
+
+    def __init__(self, env, dataset):
+        """
+        :param env: (dict) dict containing environment/parameters settings.
+        :param dataset: (Dataset)
+        """
+        self.env = env
+        self.ds = dataset
+        self.attrs = self.ds.get_attributes()
+
+    @abstractmethod
+    def train(self, **kwargs):
+        raise NotImplementedError
+
+    @abstractmethod
+    def predict_pp(self, row, attr, values):
+        """
+        :param row: (namedtuple) current values of the target row.
+        :param attr: (str) attribute of row (i.e. cell) to generate posteriors for.
+        :param values: (list[str]) list of values (for this attr) to generate posteriors for.
+
+        :return: iterator of tuples (value, proba) for each value in :param values:
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def predict_pp_batch(self):
+        """
+        predict_pp_batch is like predict_pp but with a batch of cells.
+
+        :return: iterator of iterator of tuples (value, proba) (one iterator per cell/row in cell_domain_rows)
+        """
+        raise NotImplementedError
 
 
 class Featurizer:
@@ -138,6 +177,9 @@ class Featurizer:
     @abstractmethod
     def create_tensor(self, row, attr, values):
         raise NotImplementedError
+
+
+NA_COOCCUR_FV = 0
 
 
 class CooccurAttrFeaturizer(Featurizer):
@@ -195,48 +237,6 @@ class CooccurAttrFeaturizer(Featurizer):
                     ] * self.n_attrs + other_attr_idx
                 tensor[val_idx, feat_idx] = fv
         return tensor
-
-
-class Estimator:
-    """
-    Estimator is an abstract class for posterior estimators that estimate
-    the posterior of p(value | other values) for the purpose of domain generation
-    and weak labelling.
-    """
-    __metaclass__ = ABCMeta
-
-    def __init__(self, env, dataset):
-        """
-        :param env: (dict) dict containing environment/parameters settings.
-        :param dataset: (Dataset)
-        """
-        self.env = env
-        self.ds = dataset
-        self.attrs = self.ds.get_attributes()
-
-    @abstractmethod
-    def train(self, **kwargs):
-        raise NotImplementedError
-
-    @abstractmethod
-    def predict_pp(self, row, attr, values):
-        """
-        :param row: (namedtuple) current values of the target row.
-        :param attr: (str) attribute of row (i.e. cell) to generate posteriors for.
-        :param values: (list[str]) list of values (for this attr) to generate posteriors for.
-
-        :return: iterator of tuples (value, proba) for each value in :param values:
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def predict_pp_batch(self):
-        """
-        predict_pp_batch is like predict_pp but with a batch of cells.
-
-        :return: iterator of iterator of tuples (value, proba) (one iterator per cell/row in cell_domain_rows)
-        """
-        raise NotImplementedError
 
 
 class Logistic(Estimator, torch.nn.Module):

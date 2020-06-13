@@ -1708,7 +1708,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Conv2dBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1732,8 +1731,8 @@ class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
 
     def test_007(self):
         self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(PSPUpsample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1751,3 +1750,4 @@ class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
 
     def test_013(self):
         self._check(DecoderBlockV2(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

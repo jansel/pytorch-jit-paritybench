@@ -307,9 +307,6 @@ class CNNEncoder(nn.Module):
         return self.fc_out(x)
 
 
-_EPS = 1e-10
-
-
 def get_offdiag_indices(num_nodes):
     """Linear off-diagonal indices."""
     ones = torch.ones(num_nodes, num_nodes)
@@ -317,6 +314,9 @@ def get_offdiag_indices(num_nodes):
     offdiag_indices = (ones - eye).nonzero().t()
     offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
     return offdiag_indices
+
+
+_EPS = 1e-10
 
 
 class SimulationDecoder(nn.Module):
@@ -692,6 +692,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ethanfetaya_NRI(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(CNN(*[], **{'n_in': 4, 'n_hid': 4, 'n_out': 4}), [torch.rand([4, 4, 64])], {})
+

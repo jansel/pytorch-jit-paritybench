@@ -91,32 +91,6 @@ class FakeSynset:
         return '(generated)'
 
 
-DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
-    200, 'Imagenet1000': 1000}
-
-
-DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
-
-
-def dataset_to_dummy_classes(dataset):
-    assert dataset in DATASETS
-    num_classes = DATASET_TO_NUM_CLASSES[dataset]
-    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
-
-
-def fwd():
-    """Get file's working directory"""
-    return Path(__file__).parent.absolute()
-
-
-def dataset_to_default_path_wnids(dataset):
-    return os.path.join(fwd(), f'wnids/{dataset}.txt')
-
-
-def synset_to_name(synset):
-    return synset.name().split('.')[0]
-
-
 def wnid_to_synset(wnid):
     from nltk.corpus import wordnet as wn
     offset = int(wnid[1:])
@@ -125,6 +99,10 @@ def wnid_to_synset(wnid):
         return wn.synset_from_pos_and_offset(wnid[0], offset)
     except:
         return FakeSynset(wnid)
+
+
+def synset_to_name(synset):
+    return synset.name().split('.')[0]
 
 
 def wnid_to_name(wnid):
@@ -143,27 +121,26 @@ def get_root(G):
     return roots[0]
 
 
-def hierarchy_to_path_graph(dataset, hierarchy):
-    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
+def fwd():
+    """Get file's working directory"""
+    return Path(__file__).parent.absolute()
 
 
-def dataset_to_default_path_graph(dataset):
-    return hierarchy_to_path_graph(dataset, 'induced')
+def dataset_to_default_path_wnids(dataset):
+    return os.path.join(fwd(), f'wnids/{dataset}.txt')
 
 
-def get_non_leaves(G):
-    for node in G.nodes:
-        if len(G.succ[node]) > 0:
-            yield node
+DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
+    200, 'Imagenet1000': 1000}
 
 
-def read_graph(path):
-    if not os.path.exists(path):
-        parent = Path(fwd()).parent
-        print(f'No such file or directory: {path}. Looking in {str(parent)}')
-        path = parent / path
-    with open(path) as f:
-        return node_link_graph(json.load(f))
+DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
+
+
+def dataset_to_dummy_classes(dataset):
+    assert dataset in DATASETS
+    num_classes = DATASET_TO_NUM_CLASSES[dataset]
+    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
 
 
 def get_wnids(path_wnids):
@@ -176,6 +153,29 @@ def get_wnids(path_wnids):
     with open(path_wnids) as f:
         wnids = [wnid.strip() for wnid in f.readlines()]
     return wnids
+
+
+def hierarchy_to_path_graph(dataset, hierarchy):
+    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
+
+
+def dataset_to_default_path_graph(dataset):
+    return hierarchy_to_path_graph(dataset, 'induced')
+
+
+def read_graph(path):
+    if not os.path.exists(path):
+        parent = Path(fwd()).parent
+        print(f'No such file or directory: {path}. Looking in {str(parent)}')
+        path = parent / path
+    with open(path) as f:
+        return node_link_graph(json.load(f))
+
+
+def get_non_leaves(G):
+    for node in G.nodes:
+        if len(G.succ[node]) > 0:
+            yield node
 
 
 class Node:
@@ -375,17 +375,6 @@ model_urls = {('wrn28_10', 'TinyImagenet200'):
     }
 
 
-def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=
-    True, root='.cache/torch/checkpoints', device='cpu'):
-    valid_keys = [key for key in keys if key in model_urls]
-    if not valid_keys:
-        raise UserWarning(
-            f'None of the keys {keys} correspond to a pretrained model.')
-    return load_state_dict_from_url(model_urls[valid_keys[-1]], Path.home() /
-        root, progress=progress, check_hash=False, map_location=torch.
-        device(device))
-
-
 def coerce_state_dict(state_dict, reference_state_dict):
     if 'net' in state_dict:
         state_dict = state_dict['net']
@@ -398,6 +387,17 @@ def coerce_state_dict(state_dict, reference_state_dict):
         state_dict = {('module.' + key): value for key, value in state_dict
             .items()}
     return state_dict
+
+
+def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=
+    True, root='.cache/torch/checkpoints', device='cpu'):
+    valid_keys = [key for key in keys if key in model_urls]
+    if not valid_keys:
+        raise UserWarning(
+            f'None of the keys {keys} correspond to a pretrained model.')
+    return load_state_dict_from_url(model_urls[valid_keys[-1]], Path.home() /
+        root, progress=progress, check_hash=False, map_location=torch.
+        device(device))
 
 
 class BasicBlock(nn.Module):
@@ -496,9 +496,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_alvinwan_neural_backed_decision_trees(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

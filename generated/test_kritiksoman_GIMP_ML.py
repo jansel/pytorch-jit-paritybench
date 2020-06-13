@@ -1584,13 +1584,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
@@ -1647,6 +1647,14 @@ class MobileNetV2(nn.Module):
                 m.bias.data.zero_()
 
 
+def PSNR(img1, img2):
+    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
+    if mse == 0:
+        return 100
+    PIXEL_MAX = 1
+    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
+
+
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
         sigma ** 2)) for x in range(window_size)])
@@ -1685,14 +1693,6 @@ def SSIM(img1, img2):
     ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
         C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean()
-
-
-def PSNR(img1, img2):
-    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
-    if mse == 0:
-        return 100
-    PIXEL_MAX = 1
-    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
 
 
 class DeblurModel(nn.Module):
@@ -2533,13 +2533,13 @@ class BiSeNet(nn.Module):
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
 
 
 class ABN(nn.Module):
@@ -3260,11 +3260,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kritiksoman_GIMP_ML(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3273,15 +3272,15 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_003(self):
         self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(SFTLayer(*[], **{}), [torch.rand([4, 4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3311,8 +3310,8 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_015(self):
         self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -3342,23 +3341,23 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_025(self):
         self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_026(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_027(self):
         self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_028(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_029(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_030(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3373,8 +3372,8 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_034(self):
         self._check(Project3D(*[], **{'batch_size': 4, 'height': 4, 'width': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_035(self):
         self._check(PoseCNN(*[], **{'num_input_frames': 4}), [torch.rand([4, 12, 64, 64])], {})
 
@@ -3389,3 +3388,4 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_039(self):
         self._check(_NetG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

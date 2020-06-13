@@ -449,6 +449,20 @@ class AsyncTFBase(nn.Module):
             vo_t, sv_t)
 
 
+def gtmat(sizes, target):
+    out = torch.zeros(*sizes)
+    for i, t in enumerate(target):
+        t = t.data[0] if type(t) is torch.Tensor else t
+        if len(sizes) == 3:
+            out[(i), (t), :] = 1
+        else:
+            out[i, t] = 1
+    if type(target) is Variable:
+        return Variable(out.cuda())
+    else:
+        return out.cuda()
+
+
 def winsmooth(mat, kernelsize=1):
     mat.detach()
     n = mat.shape[0]

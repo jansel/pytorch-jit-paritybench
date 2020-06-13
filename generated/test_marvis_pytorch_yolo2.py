@@ -191,75 +191,6 @@ class EmptyModule(nn.Module):
         return x
 
 
-def parse_cfg(cfgfile):
-    blocks = []
-    fp = open(cfgfile, 'r')
-    block = None
-    line = fp.readline()
-    while line != '':
-        line = line.rstrip()
-        if line == '' or line[0] == '#':
-            line = fp.readline()
-            continue
-        elif line[0] == '[':
-            if block:
-                blocks.append(block)
-            block = dict()
-            block['type'] = line.lstrip('[').rstrip(']')
-            if block['type'] == 'convolutional':
-                block['batch_normalize'] = 0
-        else:
-            key, value = line.split('=')
-            key = key.strip()
-            if key == 'type':
-                key = '_type'
-            value = value.strip()
-            block[key] = value
-        line = fp.readline()
-    if block:
-        blocks.append(block)
-    fp.close()
-    return blocks
-
-
-def load_fc(buf, start, fc_model):
-    num_w = fc_model.weight.numel()
-    num_b = fc_model.bias.numel()
-    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
-
-
-def load_conv(buf, start, conv_model):
-    num_w = conv_model.weight.numel()
-    num_b = conv_model.bias.numel()
-    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
-
-
-def convert2cpu(gpu_matrix):
-    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
-
-
-def save_conv(fp, conv_model):
-    if conv_model.bias.is_cuda:
-        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        conv_model.bias.data.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
-
-
-def save_fc(fp, fc_model):
-    fc_model.bias.data.numpy().tofile(fp)
-    fc_model.weight.data.numpy().tofile(fp)
-
-
 def print_cfg(blocks):
     print('layer     filters    size              input                output')
     prev_width = 416
@@ -392,20 +323,63 @@ def print_cfg(blocks):
             print('unknown type %s' % block['type'])
 
 
-def load_conv_bn(buf, start, conv_model, bn_model):
-    num_w = conv_model.weight.numel()
-    num_b = bn_model.bias.numel()
-    bn_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+def convert2cpu(gpu_matrix):
+    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
+
+
+def save_conv(fp, conv_model):
+    if conv_model.bias.is_cuda:
+        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
+        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
+    else:
+        conv_model.bias.data.numpy().tofile(fp)
+        conv_model.weight.data.numpy().tofile(fp)
+
+
+def save_fc(fp, fc_model):
+    fc_model.bias.data.numpy().tofile(fp)
+    fc_model.weight.data.numpy().tofile(fp)
+
+
+def load_fc(buf, start, fc_model):
+    num_w = fc_model.weight.numel()
+    num_b = fc_model.bias.numel()
+    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
     start = start + num_b
-    bn_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    bn_model.running_mean.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
     start = start + num_w
     return start
+
+
+def parse_cfg(cfgfile):
+    blocks = []
+    fp = open(cfgfile, 'r')
+    block = None
+    line = fp.readline()
+    while line != '':
+        line = line.rstrip()
+        if line == '' or line[0] == '#':
+            line = fp.readline()
+            continue
+        elif line[0] == '[':
+            if block:
+                blocks.append(block)
+            block = dict()
+            block['type'] = line.lstrip('[').rstrip(']')
+            if block['type'] == 'convolutional':
+                block['batch_normalize'] = 0
+        else:
+            key, value = line.split('=')
+            key = key.strip()
+            if key == 'type':
+                key = '_type'
+            value = value.strip()
+            block[key] = value
+        line = fp.readline()
+    if block:
+        blocks.append(block)
+    fp.close()
+    return blocks
 
 
 def save_conv_bn(fp, conv_model, bn_model):
@@ -421,6 +395,32 @@ def save_conv_bn(fp, conv_model, bn_model):
         bn_model.running_mean.numpy().tofile(fp)
         bn_model.running_var.numpy().tofile(fp)
         conv_model.weight.data.numpy().tofile(fp)
+
+
+def load_conv(buf, start, conv_model):
+    num_w = conv_model.weight.numel()
+    num_b = conv_model.bias.numel()
+    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    start = start + num_w
+    return start
+
+
+def load_conv_bn(buf, start, conv_model, bn_model):
+    num_w = conv_model.weight.numel()
+    num_b = bn_model.bias.numel()
+    bn_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.running_mean.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    start = start + num_w
+    return start
 
 
 class Darknet(nn.Module):
@@ -1299,39 +1299,6 @@ class TinyYoloNet(nn.Module):
         start = load_conv(buf, start, self.cnn[30])
 
 
-def bbox_iou(box1, box2, x1y1x2y2=True):
-    if x1y1x2y2:
-        mx = min(box1[0], box2[0])
-        Mx = max(box1[2], box2[2])
-        my = min(box1[1], box2[1])
-        My = max(box1[3], box2[3])
-        w1 = box1[2] - box1[0]
-        h1 = box1[3] - box1[1]
-        w2 = box2[2] - box2[0]
-        h2 = box2[3] - box2[1]
-    else:
-        mx = min(box1[0] - box1[2] / 2.0, box2[0] - box2[2] / 2.0)
-        Mx = max(box1[0] + box1[2] / 2.0, box2[0] + box2[2] / 2.0)
-        my = min(box1[1] - box1[3] / 2.0, box2[1] - box2[3] / 2.0)
-        My = max(box1[1] + box1[3] / 2.0, box2[1] + box2[3] / 2.0)
-        w1 = box1[2]
-        h1 = box1[3]
-        w2 = box2[2]
-        h2 = box2[3]
-    uw = Mx - mx
-    uh = My - my
-    cw = w1 + w2 - uw
-    ch = h1 + h2 - uh
-    carea = 0
-    if cw <= 0 or ch <= 0:
-        return 0.0
-    area1 = w1 * h1
-    area2 = w2 * h2
-    carea = cw * ch
-    uarea = area1 + area2 - carea
-    return carea / uarea
-
-
 def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     if x1y1x2y2:
         mx = torch.min(boxes1[0], boxes2[0])
@@ -1364,6 +1331,39 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     area2 = w2 * h2
     carea = cw * ch
     carea[mask] = 0
+    uarea = area1 + area2 - carea
+    return carea / uarea
+
+
+def bbox_iou(box1, box2, x1y1x2y2=True):
+    if x1y1x2y2:
+        mx = min(box1[0], box2[0])
+        Mx = max(box1[2], box2[2])
+        my = min(box1[1], box2[1])
+        My = max(box1[3], box2[3])
+        w1 = box1[2] - box1[0]
+        h1 = box1[3] - box1[1]
+        w2 = box2[2] - box2[0]
+        h2 = box2[3] - box2[1]
+    else:
+        mx = min(box1[0] - box1[2] / 2.0, box2[0] - box2[2] / 2.0)
+        Mx = max(box1[0] + box1[2] / 2.0, box2[0] + box2[2] / 2.0)
+        my = min(box1[1] - box1[3] / 2.0, box2[1] - box2[3] / 2.0)
+        My = max(box1[1] + box1[3] / 2.0, box2[1] + box2[3] / 2.0)
+        w1 = box1[2]
+        h1 = box1[3]
+        w2 = box2[2]
+        h2 = box2[3]
+    uw = Mx - mx
+    uh = My - my
+    cw = w1 + w2 - uw
+    ch = h1 + h2 - uh
+    carea = 0
+    if cw <= 0 or ch <= 0:
+        return 0.0
+    area1 = w1 * h1
+    area2 = w2 * h2
+    carea = cw * ch
     uarea = area1 + area2 - carea
     return carea / uarea
 
@@ -1573,7 +1573,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_marvis_pytorch_yolo2(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1582,8 +1581,8 @@ class Test_marvis_pytorch_yolo2(_paritybench_base):
 
     def test_002(self):
         self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(BN2d_slow(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1592,3 +1591,4 @@ class Test_marvis_pytorch_yolo2(_paritybench_base):
 
     def test_005(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

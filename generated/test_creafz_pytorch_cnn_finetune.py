@@ -94,11 +94,11 @@ class ModelWrapperMeta(ABCMeta, ModelRegistryMeta):
     pass
 
 
-default = object()
-
-
 def product(iterable):
     return functools.reduce(operator.mul, iterable)
+
+
+default = object()
 
 
 class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):

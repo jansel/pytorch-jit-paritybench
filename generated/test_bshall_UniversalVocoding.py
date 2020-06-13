@@ -39,6 +39,12 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 
+def mulaw_decode(y, mu):
+    mu = mu - 1
+    x = np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
+    return x
+
+
 def get_gru_cell(gru):
     gru_cell = nn.GRUCell(gru.input_size, gru.hidden_size)
     gru_cell.weight_hh.data = gru.weight_hh_l0.data
@@ -46,12 +52,6 @@ def get_gru_cell(gru):
     gru_cell.bias_hh.data = gru.bias_hh_l0.data
     gru_cell.bias_ih.data = gru.bias_ih_l0.data
     return gru_cell
-
-
-def mulaw_decode(y, mu):
-    mu = mu - 1
-    x = np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
-    return x
 
 
 class Vocoder(nn.Module):
@@ -121,6 +121,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_bshall_UniversalVocoding(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Vocoder(*[], **{'mel_channels': 4, 'conditioning_channels': 4, 'embedding_dim': 4, 'rnn_channels': 4, 'fc_channels': 4, 'bits': 4, 'hop_length': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {})
+

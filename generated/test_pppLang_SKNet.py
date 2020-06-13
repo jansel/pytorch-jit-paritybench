@@ -198,18 +198,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pppLang_SKNet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ResNeXtUnit(*[], **{'in_features': 64, 'out_features': 64}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SKConv(*[], **{'features': 4, 'WH': 4, 'M': 4, 'G': 4, 'r': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(SKUnit(*[], **{'in_features': 64, 'out_features': 64, 'WH': 4, 'M': 4, 'G': 4, 'r': 4}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(SKNet(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+

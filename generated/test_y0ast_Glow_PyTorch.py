@@ -44,6 +44,25 @@ import torch.optim as optim
 import torch.utils.data as data
 
 
+def get_block(in_channels, out_channels, hidden_channels):
+    block = nn.Sequential(Conv2d(in_channels, hidden_channels), nn.ReLU(
+        inplace=False), Conv2d(hidden_channels, hidden_channels,
+        kernel_size=(1, 1)), nn.ReLU(inplace=False), Conv2dZeros(
+        hidden_channels, out_channels))
+    return block
+
+
+def split_feature(tensor, type='split'):
+    """
+    type = ["split", "cross"]
+    """
+    C = tensor.size(1)
+    if type == 'split':
+        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
+    elif type == 'cross':
+        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
+
+
 class FlowNet(nn.Module):
 
     def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale,
@@ -90,6 +109,11 @@ class FlowNet(nn.Module):
         return z
 
 
+def gaussian_sample(mean, logs, temperature=1):
+    z = torch.normal(mean, torch.exp(logs) * temperature)
+    return z
+
+
 def uniform_binning_correction(x, n_bits=8):
     """Replaces x^i with q^i(x) = U(x, x + 1.0 / 256.0).
 
@@ -106,22 +130,6 @@ def uniform_binning_correction(x, n_bits=8):
     x += torch.zeros_like(x).uniform_(0, 1.0 / n_bins)
     objective = -math.log(n_bins) * chw * torch.ones(b, device=x.device)
     return x, objective
-
-
-def gaussian_sample(mean, logs, temperature=1):
-    z = torch.normal(mean, torch.exp(logs) * temperature)
-    return z
-
-
-def split_feature(tensor, type='split'):
-    """
-    type = ["split", "cross"]
-    """
-    C = tensor.size(1)
-    if type == 'split':
-        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
-    elif type == 'cross':
-        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
 
 
 def gaussian_p(mean, logs, x):
@@ -400,6 +408,17 @@ class Split2d(nn.Module):
             return z1, logdet
 
 
+def squeeze2d(input, factor):
+    if factor == 1:
+        return input
+    B, C, H, W = input.size()
+    assert H % factor == 0 and W % factor == 0, 'H or W modulo factor is not 0'
+    x = input.view(B, C, H // factor, factor, W // factor, factor)
+    x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+    x = x.view(B, C * factor * factor, H // factor, W // factor)
+    return x
+
+
 def unsqueeze2d(input, factor):
     if factor == 1:
         return input
@@ -409,17 +428,6 @@ def unsqueeze2d(input, factor):
     x = input.view(B, C // factor2, factor, factor, H, W)
     x = x.permute(0, 1, 4, 2, 5, 3).contiguous()
     x = x.view(B, C // factor2, H * factor, W * factor)
-    return x
-
-
-def squeeze2d(input, factor):
-    if factor == 1:
-        return input
-    B, C, H, W = input.size()
-    assert H % factor == 0 and W % factor == 0, 'H or W modulo factor is not 0'
-    x = input.view(B, C, H // factor, factor, W // factor, factor)
-    x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-    x = x.view(B, C * factor * factor, H // factor, W // factor)
     return x
 
 
@@ -509,25 +517,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_y0ast_Glow_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Split2d(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(InvertibleConv1x1(*[], **{'num_channels': 4, 'LU_decomposed': 4}), [torch.rand([4, 4, 4, 4])], {})
+

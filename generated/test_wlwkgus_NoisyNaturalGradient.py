@@ -219,10 +219,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_wlwkgus_NoisyNaturalGradient(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BayesianLinear(*[], **{'in_features': 4, 'out_features': 4, 'n': 4, 'gpu_ids': False}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BayesianMultilayer(*[], **{'gpu_ids': False, 'n': 4, 'eps': 4}), [torch.rand([784, 784])], {})
+

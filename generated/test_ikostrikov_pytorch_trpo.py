@@ -76,9 +76,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ikostrikov_pytorch_trpo(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Policy(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Value(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+

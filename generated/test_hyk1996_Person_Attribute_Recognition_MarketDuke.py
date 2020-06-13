@@ -293,6 +293,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hyk1996_Person_Attribute_Recognition_MarketDuke(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ClassBlock(*[], **{'input_dim': 4}), [torch.rand([4, 4])], {})
+

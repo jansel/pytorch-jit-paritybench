@@ -169,21 +169,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Kaixhin_spinning_up_basic(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Actor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SoftActor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 
     def test_004(self):
         self._check(DQN(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+

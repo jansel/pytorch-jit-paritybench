@@ -426,14 +426,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_npuichigo_waveglow(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(InvertibleConv1d(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(UpsampleNet(*[], **{'upsample_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+

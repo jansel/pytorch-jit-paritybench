@@ -1618,18 +1618,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ginobilinie_medSynthesisV1(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(residualUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(UNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(UNet_LRes(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 64, 64])], {})
 
@@ -1653,8 +1652,8 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
 
     def test_010(self):
         self._check(convTranspose23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(dropout23DUnit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1675,3 +1674,4 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
 
     def test_017(self):
         self._check(RelativeThreshold_RegLoss(*[], **{'threshold': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

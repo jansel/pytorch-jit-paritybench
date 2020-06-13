@@ -67,6 +67,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hichenway_stock_predict_with_LSTM(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Net(*[], **{'config': _mock_config(input_size=4, hidden_size=4, lstm_layers=1, dropout_rate=0.5, output_size=4)}), [torch.rand([4, 4, 4])], {})
+

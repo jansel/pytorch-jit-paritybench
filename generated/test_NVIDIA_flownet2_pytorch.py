@@ -362,17 +362,6 @@ class FlowNet2CSS(nn.Module):
         return flownets2_flow
 
 
-def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
-
-
-def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
-
-
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
@@ -383,6 +372,17 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
             kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
             bias=True), nn.LeakyReLU(0.1, inplace=True))
+
+
+def deconv(in_planes, out_planes):
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
+        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
+        inplace=True))
+
+
+def predict_flow(in_planes):
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
+        =True)
 
 
 class FlowNetC(nn.Module):
@@ -842,15 +842,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_NVIDIA_flownet2_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
 
@@ -865,8 +864,8 @@ class Test_NVIDIA_flownet2_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(L2Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -875,3 +874,4 @@ class Test_NVIDIA_flownet2_pytorch(_paritybench_base):
 
     def test_009(self):
         self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

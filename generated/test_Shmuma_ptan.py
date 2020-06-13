@@ -463,13 +463,13 @@ class DuelingDQN(nn.Module):
         return val + adv - adv.mean()
 
 
+Vmin = -10
+
+
 N_ATOMS = 51
 
 
 Vmax = 10
-
-
-Vmin = -10
 
 
 DELTA_Z = (Vmax - Vmin) / (N_ATOMS - 1)
@@ -646,7 +646,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Shmuma_ptan(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -661,11 +660,12 @@ class Test_Shmuma_ptan(_paritybench_base):
 
     def test_004(self):
         self._check(ValueNet(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -466,9 +466,6 @@ class DataParallelModel(DataParallel):
 _ChildMessage = collections.namedtuple('Message', ['sum', 'ssum', 'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
 class SigmoidFocalLoss(nn.Module):
 
     def __init__(self, ignore_label, gamma=2.0, alpha=0.25, reduction='mean'):
@@ -801,10 +798,10 @@ def resnet101(pretrained_model=None, **kwargs):
     return model
 
 
-_global_config['bn_eps'] = 4
-
-
 _global_config['bn_momentum'] = 4
+
+
+_global_config['bn_eps'] = 4
 
 
 class BiSeNet(nn.Module):

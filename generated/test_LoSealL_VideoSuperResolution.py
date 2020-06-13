@@ -2423,6 +2423,18 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
+def norm(norm_type, nc):
+    norm_type = norm_type.lower()
+    if norm_type == 'batch':
+        layer = nn.BatchNorm2d(nc, affine=True)
+    elif norm_type == 'instance':
+        layer = nn.InstanceNorm2d(nc, affine=False)
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' %
+            norm_type)
+    return layer
+
+
 def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     act_type = act_type.lower()
     if act_type == 'relu':
@@ -2435,28 +2447,6 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
         raise NotImplementedError('activation layer [%s] is not found' %
             act_type)
     return layer
-
-
-def sequential(*args):
-    if len(args) == 1:
-        if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
-        return args[0]
-    modules = []
-    for module in args:
-        if isinstance(module, nn.Sequential):
-            for submodule in module.children():
-                modules.append(submodule)
-        elif isinstance(module, nn.Module):
-            modules.append(module)
-    return nn.Sequential(*modules)
-
-
-def get_valid_padding(kernel_size, dilation):
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
 
 
 def pad(pad_type, padding):
@@ -2473,16 +2463,26 @@ def pad(pad_type, padding):
     return layer
 
 
-def norm(norm_type, nc):
-    norm_type = norm_type.lower()
-    if norm_type == 'batch':
-        layer = nn.BatchNorm2d(nc, affine=True)
-    elif norm_type == 'instance':
-        layer = nn.InstanceNorm2d(nc, affine=False)
-    else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
-    return layer
+def get_valid_padding(kernel_size, dilation):
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def sequential(*args):
+    if len(args) == 1:
+        if isinstance(args[0], OrderedDict):
+            raise NotImplementedError(
+                'sequential does not support OrderedDict input.')
+        return args[0]
+    modules = []
+    for module in args:
+        if isinstance(module, nn.Sequential):
+            for submodule in module.children():
+                modules.append(submodule)
+        elif isinstance(module, nn.Module):
+            modules.append(module)
+    return nn.Sequential(*modules)
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
@@ -4574,7 +4574,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_LoSealL_VideoSuperResolution(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DnCnn(*[], **{'channel': 4, 'layers': 1, 'bn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4589,35 +4588,35 @@ class Test_LoSealL_VideoSuperResolution(_paritybench_base):
 
     def test_004(self):
         self._check(RB(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Rdb(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(Rcab(*[], **{'channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(CascadeRdn(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(_UpsampleNearest(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(_UpsampleLinear(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(SpaceToBatch(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(DBPNMaker(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
@@ -4626,16 +4625,16 @@ class Test_LoSealL_VideoSuperResolution(_paritybench_base):
 
     def test_014(self):
         self._check(NoiseShifter(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_015(self):
         self._check(NCL(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(CRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(Net(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
@@ -4650,8 +4649,8 @@ class Test_LoSealL_VideoSuperResolution(_paritybench_base):
 
     def test_021(self):
         self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_022(self):
         self._check(UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}), [torch.rand([4, 4, 4, 4]), 0], {})
 
@@ -4714,11 +4713,12 @@ class Test_LoSealL_VideoSuperResolution(_paritybench_base):
 
     def test_042(self):
         self._check(SRnet(*[], **{'s': 4, 'c': 4, 'd': 4}), [torch.rand([4, 144, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_043(self):
         self._check(MotionEstimation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_044(self):
         self._check(MotionCompensation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

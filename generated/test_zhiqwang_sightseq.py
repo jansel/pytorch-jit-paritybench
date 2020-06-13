@@ -549,18 +549,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhiqwang_sightseq(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(PositionalEncoding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -575,3 +574,4 @@ class Test_zhiqwang_sightseq(_paritybench_base):
 
     def test_007(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

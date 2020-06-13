@@ -313,6 +313,9 @@ class CharacterModel(nn.Module):
         return res
 
 
+UNK_ID = 1
+
+
 def unsort(sorted_list, oidx):
     """
     Unsort a sorted list, based on the original idx.
@@ -427,9 +430,6 @@ class CharVocab(BaseVocab):
         self._id2unit = VOCAB_PREFIX + list(sorted(list(counter.keys()),
             key=lambda k: (counter[k], k), reverse=True))
         self._unit2id = {w: i for i, w in enumerate(self._id2unit)}
-
-
-UNK_ID = 1
 
 
 class CharacterLanguageModel(nn.Module):
@@ -2152,22 +2152,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_stanfordnlp_stanza(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DeepBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(LockedDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(SequenceUnitDropout(*[], **{'dropprob': 4, 'replacement_id': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -110,19 +110,15 @@ class InvertedResidual(nn.Module):
             return x
 
 
-def conv_before_pooling(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), Hswish())
-
-
-def classifier(inp, nclass):
-    return nn.Linear(inp, nclass)
-
-
 def separable_conv(inp, oup):
     return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=
         False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp,
         oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+
+
+def conv_before_pooling(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), Hswish())
 
 
 def conv_head(inp, oup):
@@ -133,6 +129,10 @@ def conv_head(inp, oup):
 def stem(inp, oup, stride):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), Hswish())
+
+
+def classifier(inp, nclass):
+    return nn.Linear(inp, nclass)
 
 
 class MoGaA(nn.Module):
@@ -475,21 +475,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_xiaomi_automl_MoGA(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MoGaA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MoGaB(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MoGaC(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

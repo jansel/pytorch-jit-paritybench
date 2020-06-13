@@ -360,13 +360,6 @@ class FC(nn.Sequential):
                 self.add_module(name + 'activation', activation)
 
 
-NPOINTS = [4096, 1024, 256, 64]
-
-
-MLPS = [[[16, 16, 32], [32, 32, 64]], [[64, 64, 128], [64, 96, 128]], [[128,
-    196, 256], [128, 196, 256]], [[256, 256, 512], [256, 384, 512]]]
-
-
 class PointnetSAModuleMSG(_PointnetSAModuleBase):
     """Pointnet set abstraction layer with multiscale grouping"""
 
@@ -405,13 +398,20 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
 NSAMPLE = [[16, 32], [16, 32], [16, 32], [16, 32]]
 
 
-CLS_FC = [128]
+MLPS = [[[16, 16, 32], [32, 32, 64]], [[64, 64, 128], [64, 96, 128]], [[128,
+    196, 256], [128, 196, 256]], [[256, 256, 512], [256, 384, 512]]]
+
+
+RADIUS = [[0.1, 0.5], [0.5, 1.0], [1.0, 2.0], [2.0, 4.0]]
+
+
+NPOINTS = [4096, 1024, 256, 64]
 
 
 FP_MLPS = [[128, 128], [256, 256], [512, 512], [512, 512]]
 
 
-RADIUS = [[0.1, 0.5], [0.5, 1.0], [1.0, 2.0], [2.0, 4.0]]
+CLS_FC = [128]
 
 
 class Pointnet2MSG(nn.Module):
@@ -492,7 +492,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_sshaoshuai_Pointnet2_PyTorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(GroupAll(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -504,3 +503,4 @@ class Test_sshaoshuai_Pointnet2_PyTorch(_paritybench_base):
 
     def test_003(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

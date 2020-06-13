@@ -228,6 +228,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_deepsound_project_samplernn_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LearnedUpsampling1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
+

@@ -259,13 +259,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_andrewliao11_dni_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(dni_linear(*[], **{'input_dims': 4, 'num_classes': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(dni_Conv2d(*[], **{'input_dims': 4, 'input_size': [4, 4], 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -676,7 +676,7 @@ class Depth3DGridGen_with_mask(Module):
 sources = []
 
 
-defines = []
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 with_cuda = False
@@ -685,7 +685,7 @@ with_cuda = False
 headers = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+defines = []
 
 
 class RoIPoolFunction(Function):
@@ -739,26 +739,6 @@ class _RoIPooling(Module):
             spatial_scale)(features, rois)
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
-def check_inference(net_func):
-
-    @wraps(net_func)
-    def wrapper(self, *args, **kwargs):
-        if not self.training:
-            if cfg.PYTORCH_VERSION_LESS_THAN_040:
-                return net_func(self, *args, **kwargs)
-            else:
-                with torch.no_grad():
-                    return net_func(self, *args, **kwargs)
-        else:
-            raise ValueError(
-                'You should call this function only on inference.Set the network in inference mode by net.eval().'
-                )
-    return wrapper
-
-
 def setup_logging(name):
     FORMAT = '%(levelname)s %(filename)s:%(lineno)4d: %(message)s'
     logging.root.handlers = []
@@ -789,42 +769,27 @@ def get_func(func_name):
         raise
 
 
+_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
+
+
+def check_inference(net_func):
+
+    @wraps(net_func)
+    def wrapper(self, *args, **kwargs):
+        if not self.training:
+            if cfg.PYTORCH_VERSION_LESS_THAN_040:
+                return net_func(self, *args, **kwargs)
+            else:
+                with torch.no_grad():
+                    return net_func(self, *args, **kwargs)
+        else:
+            raise ValueError(
+                'You should call this function only on inference.Set the network in inference mode by net.eval().'
+                )
+    return wrapper
+
+
 _global_config['TRAIN'] = 4
-
-
-def _get_proposal_clusters(all_rois, proposals, im_labels, cls_prob):
-    """Generate a random sample of RoIs comprising foreground and background
-    examples.
-    """
-    num_images, num_classes = im_labels.shape
-    assert num_images == 1, 'batch size shoud be equal to 1'
-    gt_boxes = proposals['gt_boxes']
-    gt_labels = proposals['gt_classes']
-    gt_scores = proposals['gt_scores']
-    overlaps = box_utils.bbox_overlaps(all_rois.astype(dtype=np.float32,
-        copy=False), gt_boxes.astype(dtype=np.float32, copy=False))
-    gt_assignment = overlaps.argmax(axis=1)
-    max_overlaps = overlaps.max(axis=1)
-    labels = gt_labels[gt_assignment, 0]
-    cls_loss_weights = gt_scores[gt_assignment, 0]
-    fg_inds = np.where(max_overlaps >= cfg.TRAIN.FG_THRESH)[0]
-    bg_inds = np.where(max_overlaps < cfg.TRAIN.FG_THRESH)[0]
-    ig_inds = np.where(max_overlaps < cfg.TRAIN.BG_THRESH)[0]
-    cls_loss_weights[ig_inds] = 0.0
-    labels[bg_inds] = 0
-    gt_assignment[bg_inds] = -1
-    img_cls_loss_weights = np.zeros(gt_boxes.shape[0], dtype=np.float32)
-    pc_probs = np.zeros(gt_boxes.shape[0], dtype=np.float32)
-    pc_labels = np.zeros(gt_boxes.shape[0], dtype=np.int32)
-    pc_count = np.zeros(gt_boxes.shape[0], dtype=np.int32)
-    for i in xrange(gt_boxes.shape[0]):
-        po_index = np.where(gt_assignment == i)[0]
-        img_cls_loss_weights[i] = np.sum(cls_loss_weights[po_index])
-        pc_labels[i] = gt_labels[i, 0]
-        pc_count[i] = len(po_index)
-        pc_probs[i] = np.average(cls_prob[po_index, pc_labels[i]])
-    return (labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs,
-        pc_count, img_cls_loss_weights)
 
 
 _global_config['RNG_SEED'] = 4
@@ -898,6 +863,41 @@ def _get_graph_centers(boxes, cls_prob, im_labels):
     return proposals
 
 
+def _get_proposal_clusters(all_rois, proposals, im_labels, cls_prob):
+    """Generate a random sample of RoIs comprising foreground and background
+    examples.
+    """
+    num_images, num_classes = im_labels.shape
+    assert num_images == 1, 'batch size shoud be equal to 1'
+    gt_boxes = proposals['gt_boxes']
+    gt_labels = proposals['gt_classes']
+    gt_scores = proposals['gt_scores']
+    overlaps = box_utils.bbox_overlaps(all_rois.astype(dtype=np.float32,
+        copy=False), gt_boxes.astype(dtype=np.float32, copy=False))
+    gt_assignment = overlaps.argmax(axis=1)
+    max_overlaps = overlaps.max(axis=1)
+    labels = gt_labels[gt_assignment, 0]
+    cls_loss_weights = gt_scores[gt_assignment, 0]
+    fg_inds = np.where(max_overlaps >= cfg.TRAIN.FG_THRESH)[0]
+    bg_inds = np.where(max_overlaps < cfg.TRAIN.FG_THRESH)[0]
+    ig_inds = np.where(max_overlaps < cfg.TRAIN.BG_THRESH)[0]
+    cls_loss_weights[ig_inds] = 0.0
+    labels[bg_inds] = 0
+    gt_assignment[bg_inds] = -1
+    img_cls_loss_weights = np.zeros(gt_boxes.shape[0], dtype=np.float32)
+    pc_probs = np.zeros(gt_boxes.shape[0], dtype=np.float32)
+    pc_labels = np.zeros(gt_boxes.shape[0], dtype=np.int32)
+    pc_count = np.zeros(gt_boxes.shape[0], dtype=np.int32)
+    for i in xrange(gt_boxes.shape[0]):
+        po_index = np.where(gt_assignment == i)[0]
+        img_cls_loss_weights[i] = np.sum(cls_loss_weights[po_index])
+        pc_labels[i] = gt_labels[i, 0]
+        pc_count[i] = len(po_index)
+        pc_probs[i] = np.average(cls_prob[po_index, pc_labels[i]])
+    return (labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs,
+        pc_count, img_cls_loss_weights)
+
+
 def PCL(boxes, cls_prob, im_labels, cls_prob_new):
     cls_prob = cls_prob.data.cpu().numpy()
     cls_prob_new = cls_prob_new.data.cpu().numpy()
@@ -925,16 +925,16 @@ def PCL(boxes, cls_prob, im_labels, cls_prob_new):
         .float32).copy()}
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
-_global_config['FAST_RCNN'] = 4
-
-
 _global_config['REFINE_TIMES'] = 4
 
 
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
 _global_config['MODEL'] = 4
+
+
+_global_config['FAST_RCNN'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -1604,11 +1604,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ppengtang_pcl_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1620,3 +1619,4 @@ class Test_ppengtang_pcl_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

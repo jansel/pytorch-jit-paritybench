@@ -88,9 +88,6 @@ class DotProductAttention(nn.Module):
         return attention_output, attention_distribution
 
 
-IGNORE_ID = -1
-
-
 def pad_list(xs, pad_value):
     n_batch = len(xs)
     max_len = max(x.size(0) for x in xs)
@@ -98,6 +95,9 @@ def pad_list(xs, pad_value):
     for i in range(n_batch):
         pad[(i), :xs[i].size(0)] = xs[i]
     return pad
+
+
+IGNORE_ID = -1
 
 
 class Decoder(nn.Module):
@@ -380,6 +380,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kaituoxu_Listen_Attend_Spell(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DotProductAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

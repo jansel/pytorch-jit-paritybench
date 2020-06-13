@@ -37,10 +37,10 @@ import numpy as np
 import torch.nn.init
 
 
-_global_config['nChannel'] = 4
-
-
 _global_config['nConv'] = 4
+
+
+_global_config['nChannel'] = 4
 
 
 class MyNet(nn.Module):
@@ -79,6 +79,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kanezaki_pytorch_unsupervised_segmentation(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MyNet(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

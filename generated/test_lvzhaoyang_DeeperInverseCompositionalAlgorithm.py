@@ -257,19 +257,26 @@ class LeastSquareTracking(nn.Module):
             ).view(B, 1, H, W)
 
 
-def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
-    """ chained gradient of image w.r.t. the pose
-    :param the Jacobian of the feature map in x direction
-    :param the Jacobian of the feature map in y direction
-    :param the Jacobian of the x map to manifold p
-    :param the Jacobian of the y map to manifold p
-    ------------
-    :return the image jacobian in x, y, direction, Bx2x6 each
+def feature_gradient(img, normalize_gradient=True):
+    """ Calculate the gradient on the feature space using Sobel operator
+    :param the input image 
+    -----------
+    :return the gradient of the image in x, y direction
     """
-    B, C, H, W = Jf_x.shape
-    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
-        -1, 1) * Jy_p.view(B, 1, -1, 6)
-    return Jf_p.view(B, -1, 6)
+    B, C, H, W = img.shape
+    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1,
+        3, 3).type_as(img)
+    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1,
+        3, 3).type_as(img)
+    img_reshaped = img.view(-1, 1, H, W)
+    img_pad = func.pad(img_reshaped, (1, 1, 1, 1), mode='replicate')
+    img_dx = func.conv2d(img_pad, wx, stride=1, padding=0)
+    img_dy = func.conv2d(img_pad, wy, stride=1, padding=0)
+    if normalize_gradient:
+        mag = torch.sqrt(img_dx ** 2 + img_dy ** 2 + 1e-08)
+        img_dx = img_dx / mag
+        img_dy = img_dy / mag
+    return img_dx.view(B, C, H, W), img_dy.view(B, C, H, W)
 
 
 def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
@@ -301,26 +308,19 @@ def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
     return residuals, occ
 
 
-def feature_gradient(img, normalize_gradient=True):
-    """ Calculate the gradient on the feature space using Sobel operator
-    :param the input image 
-    -----------
-    :return the gradient of the image in x, y direction
+def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
+    """ chained gradient of image w.r.t. the pose
+    :param the Jacobian of the feature map in x direction
+    :param the Jacobian of the feature map in y direction
+    :param the Jacobian of the x map to manifold p
+    :param the Jacobian of the y map to manifold p
+    ------------
+    :return the image jacobian in x, y, direction, Bx2x6 each
     """
-    B, C, H, W = img.shape
-    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1,
-        3, 3).type_as(img)
-    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1,
-        3, 3).type_as(img)
-    img_reshaped = img.view(-1, 1, H, W)
-    img_pad = func.pad(img_reshaped, (1, 1, 1, 1), mode='replicate')
-    img_dx = func.conv2d(img_pad, wx, stride=1, padding=0)
-    img_dy = func.conv2d(img_pad, wy, stride=1, padding=0)
-    if normalize_gradient:
-        mag = torch.sqrt(img_dx ** 2 + img_dy ** 2 + 1e-08)
-        img_dx = img_dx / mag
-        img_dy = img_dy / mag
-    return img_dx.view(B, C, H, W), img_dy.view(B, C, H, W)
+    B, C, H, W = Jf_x.shape
+    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
+        -1, 1) * Jy_p.view(B, 1, -1, 6)
+    return Jf_p.view(B, -1, 6)
 
 
 def compute_jacobian_warping(p_invdepth, K, px, py):
@@ -566,20 +566,6 @@ class DeepRobustEstimator(nn.Module):
         return torch.ones(x.shape).type_as(x)
 
 
-def fcLayer(in_planes, out_planes, bias=True):
-    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(
-        inplace=True))
-
-
-def deep_damping_regressor(D):
-    """ Output a damping vector at each dimension
-    """
-    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True),
-        fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(
-        in_planes=256, out_planes=6, bias=True))
-    return net
-
-
 def invH(H):
     """ Generate (H+damp)^{-1}, with predicted damping values
     :param approximate Hessian matrix JtWJ
@@ -611,6 +597,20 @@ def inverse_update_pose(H, Rhs, pose):
     R, t = pose
     pose = geometry.batch_Rt_compose(R, t, d_R, d_t)
     return pose
+
+
+def fcLayer(in_planes, out_planes, bias=True):
+    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(
+        inplace=True))
+
+
+def deep_damping_regressor(D):
+    """ Output a damping vector at each dimension
+    """
+    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True),
+        fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(
+        in_planes=256, out_planes=6, bias=True))
+    return net
 
 
 class DirectSolverNet(nn.Module):

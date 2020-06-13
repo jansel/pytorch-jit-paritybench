@@ -218,10 +218,10 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['aspect_ratios'] = 4
-
-
 _global_config['num_classes'] = 4
+
+
+_global_config['aspect_ratios'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -302,10 +302,10 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['img_size'] = 4
-
-
 _global_config['use_square_anchors'] = 4
+
+
+_global_config['img_size'] = 4
 
 
 def make_anchors(conv_h, conv_w, scale):
@@ -326,13 +326,13 @@ def make_anchors(conv_h, conv_w, scale):
 _global_config['train_semantic'] = False
 
 
-_global_config['backbone'] = 4
+_global_config['scales'] = 1.0
 
 
 _global_config['freeze_bn'] = 4
 
 
-_global_config['scales'] = 1.0
+_global_config['backbone'] = 4
 
 
 class Yolact(nn.Module):
@@ -489,6 +489,16 @@ def crop(masks, boxes, padding: int=1):
     return masks * crop_mask.float()
 
 
+def encode(matched, priors):
+    variances = [0.1, 0.2]
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    offsets = torch.cat([g_cxcy, g_wh], 1)
+    return offsets
+
+
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
@@ -519,16 +529,6 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / union
     return out if use_batch else out.squeeze(0)
-
-
-def encode(matched, priors):
-    variances = [0.1, 0.2]
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    offsets = torch.cat([g_cxcy, g_wh], 1)
-    return offsets
 
 
 _global_config['crowd_iou_threshold'] = 4
@@ -576,19 +576,19 @@ def center_size(boxes):
         boxes[:, :2]), 1)
 
 
-_global_config['semantic_alpha'] = 4
+_global_config['mask_alpha'] = 4
+
+
+_global_config['bbox_alpha'] = 4
 
 
 _global_config['conf_alpha'] = 4
 
 
-_global_config['mask_alpha'] = 4
+_global_config['semantic_alpha'] = 4
 
 
 _global_config['masks_to_train'] = False
-
-
-_global_config['bbox_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):
@@ -785,6 +785,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_feiyuhuahuo_Yolact_minimal(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ResNetBackbone(*[], **{'layers': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+

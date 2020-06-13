@@ -144,16 +144,29 @@ class ABN(nn.Sequential):
             num_features, **kwargs)), ('act', activation)]))
 
 
-def _check(fn, *args, **kwargs):
-    success = fn(*args, **kwargs)
-    if not success:
-        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
+def _check_contiguous(*args):
+    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
+        raise ValueError('Non-contiguous input')
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
 
 
 ACT_NONE = 'none'
 
 
-ACT_LEAKY_RELU = 'leaky_relu'
+def _check(fn, *args, **kwargs):
+    success = fn(*args, **kwargs)
+    if not success:
+        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
 
 
 ACT_ELU = 'elu'
@@ -177,19 +190,6 @@ def _act_backward(ctx, x, dx):
         _check(_ext.elu_inv_cuda, x)
     elif ctx.activation == ACT_NONE:
         pass
-
-
-def _count_samples(x):
-    count = 1
-    for i, s in enumerate(x.size()):
-        if i != 1:
-            count *= s
-    return count
-
-
-def _check_contiguous(*args):
-    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
-        raise ValueError('Non-contiguous input')
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -370,13 +370,13 @@ class ASPPModule(nn.Module):
         return bottle
 
 
+affine_par = True
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-affine_par = True
 
 
 class ResNet(nn.Module):
@@ -868,11 +868,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_speedinghzl_pytorch_segmentation_toolbox(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -881,3 +880,4 @@ class Test_speedinghzl_pytorch_segmentation_toolbox(_paritybench_base):
 
     def test_003(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

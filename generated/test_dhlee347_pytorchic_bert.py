@@ -251,9 +251,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dhlee347_pytorchic_bert(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerNorm(*[], **{'cfg': _mock_config(dim=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(PositionWiseFeedForward(*[], **{'cfg': _mock_config(dim=4, dim_ff=4)}), [torch.rand([4, 4, 4, 4])], {})
+

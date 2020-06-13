@@ -953,16 +953,16 @@ class BertAttention(nn.Module):
         return attention_output
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
         0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -1114,23 +1114,6 @@ class BertPreTrainingHeads(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         seq_relationship_score = self.seq_relationship(pooled_output)
         return prediction_scores, seq_relationship_score
-
-
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    '/home/yunxuanxiao/xyx/data/BERT_Pretrained/bert-base-uncased.tar.gz',
-    'bert-base-cased':
-    '/home/yunxuanxiao/xyx/data/BERT_Pretrained/bert-base-cased.tar.gz',
-    'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
 
 
 CONFIG_NAME = 'bert_config.json'
@@ -1390,10 +1373,27 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
+    '/home/yunxuanxiao/xyx/data/BERT_Pretrained/bert-base-uncased.tar.gz',
+    'bert-base-cased':
+    '/home/yunxuanxiao/xyx/data/BERT_Pretrained/bert-base-cased.tar.gz',
+    'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
+    }
 
 
 logger = logging.getLogger(__name__)
+
+
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 class PreTrainedBertModel(nn.Module):
@@ -1911,7 +1911,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_woshiyyya_DFGN_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MeanPooling(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1920,8 +1919,8 @@ class Test_woshiyyya_DFGN_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(LSTMWrapper(*[], **{'input_dim': 4, 'hidden_dim': 4, 'n_layer': 1}), [torch.rand([4, 4, 4])], {})
 
@@ -1933,3 +1932,4 @@ class Test_woshiyyya_DFGN_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+

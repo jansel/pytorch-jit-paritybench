@@ -589,13 +589,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_crcrpar_pytorch_sngan_projection(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(OptimizedBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ResNetGenerator(*[], **{}), [torch.rand([128, 128])], {})
+

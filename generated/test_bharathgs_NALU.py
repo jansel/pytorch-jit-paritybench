@@ -127,7 +127,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_bharathgs_NALU(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(NacCell(*[], **{'in_shape': 4, 'out_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -136,3 +135,4 @@ class Test_bharathgs_NALU(_paritybench_base):
 
     def test_002(self):
         self._check(NaluLayer(*[], **{'input_shape': 4, 'output_shape': 4, 'n_layers': 1, 'hidden_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -285,14 +285,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_gitabcworld_MatchingNetworks(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(AttentionalClassify(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BidirectionalLSTM(*[], **{'layer_sizes': [4, 4], 'batch_size': 4, 'vector_dim': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Classifier(*[], **{'layer_size': 1}), [torch.rand([4, 1, 64, 64])], {})
+

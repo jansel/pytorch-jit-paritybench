@@ -361,6 +361,21 @@ class BasicConv2d(nn.Module):
         return F.relu(x, inplace=True)
 
 
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
+        sigma ** 2)) for x in range(window_size)])
+    return gauss / gauss.sum()
+
+
+def create_window(window_size, channel):
+    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
+        )
+    window = Variable(_2D_window.expand(channel, 1, window_size,
+        window_size).contiguous())
+    return window
+
+
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
     mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
@@ -381,21 +396,6 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
-
-
-def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
-    return gauss / gauss.sum()
-
-
-def create_window(window_size, channel):
-    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
-    return window
 
 
 class SSIM(torch.nn.Module):
@@ -1356,7 +1356,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1374,12 +1373,12 @@ class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MultiLayerVGG(*[], **{'features': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1391,8 +1390,8 @@ class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
 
     def test_010(self):
         self._check(SNGenLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(L1ReconLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1401,25 +1400,26 @@ class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
 
     def test_013(self):
         self._check(GatedConv2dWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(GatedDeConv2dWithActivation(*[], **{'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
         self._check(SNGatedConv2dWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(SNGatedDeConv2dWithActivation(*[], **{'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_017(self):
         self._check(SNConvWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_018(self):
         self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_019(self):
         self._check(InpaintSANet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {})
+

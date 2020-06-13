@@ -136,6 +136,14 @@ class BatchCrop(nn.Module):
         return x
 
 
+def weights_init_classifier(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        nn.init.normal_(m.weight, std=0.001)
+        if m.bias:
+            nn.init.constant_(m.bias, 0.0)
+
+
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
@@ -148,14 +156,6 @@ def weights_init_kaiming(m):
     elif classname.find('BatchNorm') != -1:
         if m.affine:
             nn.init.normal_(m.weight, 1.0, 0.02)
-            nn.init.constant_(m.bias, 0.0)
-
-
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        nn.init.normal_(m.weight, std=0.001)
-        if m.bias:
             nn.init.constant_(m.bias, 0.0)
 
 
@@ -483,6 +483,11 @@ class ResNet(nn.Module):
                 m.bias.data.zero_()
 
 
+def similarity(inputs_):
+    sim = torch.matmul(inputs_, inputs_.t())
+    return sim
+
+
 def GaussDistribution(data):
     """
     :param data:
@@ -492,11 +497,6 @@ def GaussDistribution(data):
     diff = data - mean_value
     std = torch.sqrt(torch.mean(torch.pow(diff, 2)))
     return mean_value, std
-
-
-def similarity(inputs_):
-    sim = torch.matmul(inputs_, inputs_.t())
-    return sim
 
 
 class DistWeightBinDevianceLoss(nn.Module):
@@ -649,11 +649,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BatchDrop(*[], **{'h_ratio': 4, 'w_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BatchCrop(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -668,3 +667,4 @@ class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
 
     def test_005(self):
         self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+

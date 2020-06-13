@@ -860,38 +860,38 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_CoinCheung_pytorch_loss(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(FocalLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(FocalLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LabelSmoothSoftmaxCEV1(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_003(self):
         self._check(MishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(SoftDiceLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(SoftDiceLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(SwishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(SwishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
         self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+

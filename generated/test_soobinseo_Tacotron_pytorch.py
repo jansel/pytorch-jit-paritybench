@@ -293,6 +293,9 @@ class AttentionDecoder(nn.Module):
         return attn_hidden, gru1_hidden, gru2_hidden
 
 
+_characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? "
+
+
 class MelDecoder(nn.Module):
     """
     Decoder
@@ -377,13 +380,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_soobinseo_Tacotron_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SeqLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Prenet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(CBHG(*[], **{'hidden_size': 4}), [torch.rand([4, 128, 64])], {})
+

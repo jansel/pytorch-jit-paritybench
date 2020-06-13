@@ -901,16 +901,16 @@ def import_flatten_impl():
     imported_flatten_impl = True
 
 
-def unflatten(coalesced, bucket):
-    if not imported_flatten_impl:
-        import_flatten_impl()
-    return unflatten_impl(coalesced, bucket)
-
-
 def flatten(bucket):
     if not imported_flatten_impl:
         import_flatten_impl()
     return flatten_impl(bucket)
+
+
+def unflatten(coalesced, bucket):
+    if not imported_flatten_impl:
+        import_flatten_impl()
+    return unflatten_impl(coalesced, bucket)
 
 
 def apply_flat_dist_call(bucket, call, extra_args=None):
@@ -1234,11 +1234,6 @@ class PositionEmbedding(nn.Module):
         return pos_emb
 
 
-def empty_cache():
-    gc.collect()
-    t.cuda.empty_cache()
-
-
 def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
         Args:
@@ -1266,6 +1261,19 @@ def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     return logits
 
 
+def split_chunks(length, chunk_size):
+    n_passes = (length + chunk_size - 1) // chunk_size
+    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) %
+        chunk_size + 1]
+    assert sum(chunk_sizes) == length
+    return chunk_sizes
+
+
+def empty_cache():
+    gc.collect()
+    t.cuda.empty_cache()
+
+
 def roll(x, n):
     return t.cat((x[:, -n:], x[:, :-n]), dim=1)
 
@@ -1280,14 +1288,6 @@ def get_range(x):
         return def_tqdm(x)
     else:
         return x
-
-
-def split_chunks(length, chunk_size):
-    n_passes = (length + chunk_size - 1) // chunk_size
-    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) %
-        chunk_size + 1]
-    assert sum(chunk_sizes) == length
-    return chunk_sizes
 
 
 class ConditionalAutoregressive2D(nn.Module):
@@ -1794,49 +1794,53 @@ class LabelConditioner(nn.Module):
         return start_emb, pos_emb
 
 
-def print_once(msg):
-    if not dist.is_available() or dist.get_rank() == 0:
-        print(msg)
+class TextProcessor:
+
+    def __init__(self, v3=False):
+        if v3:
+            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-'"()[] 	
+"""
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
+        else:
+            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+'"()[] 	
+"""
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
+        self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
+        self.vocab['<unk>'] = 0
+        self.n_vocab = len(vocab) + 1
+        self.tokens = {v: k for k, v in self.vocab.items()}
+        self.tokens[0] = ''
+        self.not_vocab = not_vocab
+
+    def clean(self, text):
+        text = unidecode(text)
+        text = text.replace('\\', '\n')
+        text = self.not_vocab.sub('', text)
+        return text
+
+    def tokenise(self, text):
+        return [self.vocab[char] for char in text]
+
+    def textise(self, tokens):
+        return ''.join([self.tokens[token] for token in tokens])
+
+    def characterise(self, tokens):
+        return [self.tokens[token] for token in tokens]
 
 
-def calculate_strides(strides, downs):
-    return [(stride ** down) for stride, down in zip(strides, downs)]
-
-
-def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset,
-    duration):
-    if len(full_tokens) < n_tokens:
-        tokens = [0] * (n_tokens - len(full_tokens)) + full_tokens
-        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(
-            full_tokens)))
-    else:
-        assert 0 <= offset < total_length
-        midpoint = int(len(full_tokens) * (offset + duration / 2.0) /
-            total_length)
-        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - 
-            n_tokens // 2)
-        tokens = full_tokens[midpoint - n_tokens // 2:midpoint + n_tokens // 2]
-        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens //
-            2))
-    assert len(tokens
-        ) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
-    assert len(indices
-        ) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
-    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in
-        indices]
-    return tokens, indices
-
-
-def create_reverse_lookup(atoi):
-    itoa = {}
-    for a, i in atoi.items():
-        if i not in itoa:
-            itoa[i] = []
-        itoa[i].append(a)
-    indices = sorted(list(itoa.keys()))
-    for i in indices:
-        itoa[i] = '_'.join(sorted(itoa[i]))
-    return itoa
+def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
+    if mask is None or q_l == 1:
+        return None
+    offset = sample_t - q_l if sample else max(kv_l - q_l, 0)
+    if mask == 'autoregressive':
+        mask = t.ones(q_l, kv_l, device=device).tril(offset)
+    elif mask == 'summary':
+        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().
+            view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0,
+            0, 1, 0), value=1).contiguous().view(q_l, kv_l)
+    elif mask == 'prime':
+        mask = t.ones(q_l, kv_l, device=device).tril(offset)
+    return mask.view(1, 1, q_l, kv_l)
 
 
 class CheckpointFunction(t.autograd.Function):
@@ -1871,21 +1875,6 @@ def checkpoint(func, inputs, params, flag):
         return CheckpointFunction.apply(func, len(inputs), *args)
     else:
         return func(*inputs)
-
-
-def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
-    if mask is None or q_l == 1:
-        return None
-    offset = sample_t - q_l if sample else max(kv_l - q_l, 0)
-    if mask == 'autoregressive':
-        mask = t.ones(q_l, kv_l, device=device).tril(offset)
-    elif mask == 'summary':
-        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().
-            view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0,
-            0, 1, 0), value=1).contiguous().view(q_l, kv_l)
-    elif mask == 'prime':
-        mask = t.ones(q_l, kv_l, device=device).tril(offset)
-    return mask.view(1, 1, q_l, kv_l)
 
 
 class FactoredAttention(nn.Module):
@@ -2398,9 +2387,8 @@ class Mask(nn.Module):
         return w
 
 
-def gelu(x):
-    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t
-        .pow(x, 3))))
+def swish(x):
+    return x * t.sigmoid(x)
 
 
 @t.jit.script
@@ -2430,8 +2418,9 @@ def memory_efficient_quick_gelu(x):
     return QuickGelu.apply(x)
 
 
-def swish(x):
-    return x * t.sigmoid(x)
+def gelu(x):
+    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t
+        .pow(x, 3))))
 
 
 ACT_FNS = {'relu': t.nn.functional.relu, 'swish': swish, 'gelu': gelu,
@@ -3038,14 +3027,21 @@ class Resnet1D(nn.Module):
             return self.model(x)
 
 
-def average_metrics(_metrics):
-    metrics = {}
-    for _metric in _metrics:
-        for key, val in _metric.items():
-            if key not in metrics:
-                metrics[key] = []
-            metrics[key].append(val)
-    return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
+def calculate_strides(strides, downs):
+    return [(stride ** down) for stride, down in zip(strides, downs)]
+
+
+def audio_postprocess(x, hps):
+    return x
+
+
+def stft(sig, hps):
+    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.
+        window_size, window=t.hann_window(hps.window_size, device=sig.device))
+
+
+def spec(x, hps):
+    return t.norm(stft(x, hps), p=2, dim=-1)
 
 
 def squeeze(x):
@@ -3066,13 +3062,33 @@ class DefaultSTFTValues:
         self.window_size = 6 * self.hop_length
 
 
-def stft(sig, hps):
-    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.
-        window_size, window=t.hann_window(hps.window_size, device=sig.device))
+def spectral_loss(x_in, x_out, hps):
+    hps = DefaultSTFTValues(hps)
+    spec_in = spec(squeeze(x_in.float()), hps)
+    spec_out = spec(squeeze(x_out.float()), hps)
+    return norm(spec_in - spec_out)
 
 
-def spec(x, hps):
-    return t.norm(stft(x, hps), p=2, dim=-1)
+def _loss_fn(loss_fn, x_target, x_pred, hps):
+    if loss_fn == 'l1':
+        return t.mean(t.abs(x_pred - x_target)) / hps.bandwidth['l1']
+    elif loss_fn == 'l2':
+        return t.mean((x_pred - x_target) ** 2) / hps.bandwidth['l2']
+    elif loss_fn == 'linf':
+        residual = ((x_pred - x_target) ** 2).reshape(x_target.shape[0], -1)
+        values, _ = t.topk(residual, hps.linf_k, dim=1)
+        return t.mean(values) / hps.bandwidth['l2']
+    elif loss_fn == 'lmix':
+        loss = 0.0
+        if hps.lmix_l1:
+            loss += hps.lmix_l1 * _loss_fn('l1', x_target, x_pred, hps)
+        if hps.lmix_l2:
+            loss += hps.lmix_l2 * _loss_fn('l2', x_target, x_pred, hps)
+        if hps.lmix_linf:
+            loss += hps.lmix_linf * _loss_fn('linf', x_target, x_pred, hps)
+        return loss
+    else:
+        assert False, f'Unknown loss_fn {loss_fn}'
 
 
 def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
@@ -3083,13 +3099,6 @@ def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
     residual_norm = norm(spec_in - spec_out)
     mask = (gt_norm > epsilon).float()
     return residual_norm * mask / t.clamp(gt_norm, min=epsilon)
-
-
-def spectral_loss(x_in, x_out, hps):
-    hps = DefaultSTFTValues(hps)
-    spec_in = spec(squeeze(x_in.float()), hps)
-    spec_out = spec(squeeze(x_out.float()), hps)
-    return norm(spec_in - spec_out)
 
 
 class STFTValues:
@@ -3115,30 +3124,14 @@ def multispectral_loss(x_in, x_out, hps):
     return sum(losses) / len(losses)
 
 
-def _loss_fn(loss_fn, x_target, x_pred, hps):
-    if loss_fn == 'l1':
-        return t.mean(t.abs(x_pred - x_target)) / hps.bandwidth['l1']
-    elif loss_fn == 'l2':
-        return t.mean((x_pred - x_target) ** 2) / hps.bandwidth['l2']
-    elif loss_fn == 'linf':
-        residual = ((x_pred - x_target) ** 2).reshape(x_target.shape[0], -1)
-        values, _ = t.topk(residual, hps.linf_k, dim=1)
-        return t.mean(values) / hps.bandwidth['l2']
-    elif loss_fn == 'lmix':
-        loss = 0.0
-        if hps.lmix_l1:
-            loss += hps.lmix_l1 * _loss_fn('l1', x_target, x_pred, hps)
-        if hps.lmix_l2:
-            loss += hps.lmix_l2 * _loss_fn('l2', x_target, x_pred, hps)
-        if hps.lmix_linf:
-            loss += hps.lmix_linf * _loss_fn('linf', x_target, x_pred, hps)
-        return loss
-    else:
-        assert False, f'Unknown loss_fn {loss_fn}'
-
-
-def audio_postprocess(x, hps):
-    return x
+def average_metrics(_metrics):
+    metrics = {}
+    for _metric in _metrics:
+        for key, val in _metric.items():
+            if key not in metrics:
+                metrics[key] = []
+            metrics[key].append(val)
+    return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
 
 
 class VQVAE(nn.Module):
@@ -3506,49 +3499,48 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_openai_jukebox(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(PositionEmbedding(*[], **{'input_shape': 4, 'width': 4}), [], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(FactoredAttention(*[], **{'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Conv1D(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(Mask(*[], **{'n_ctx': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MLP(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(Bottleneck(*[], **{'l_bins': 4, 'emb_width': 4, 'mu': 4, 'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(NoBottleneck(*[], **{'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(EncoderConvBlock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(DecoderConvBock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
 
@@ -3560,8 +3552,8 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_014(self):
         self._check(ResConv1DBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_015(self):
         self._check(Resnet1D(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 64])], {})
 
@@ -3579,3 +3571,4 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_020(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

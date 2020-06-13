@@ -950,7 +950,7 @@ class Depth3DGridGen_with_mask(Module):
 sources = []
 
 
-defines = []
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 with_cuda = False
@@ -959,7 +959,7 @@ with_cuda = False
 headers = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+defines = []
 
 
 class ROIAlign(nn.Module):
@@ -1134,66 +1134,6 @@ def _compute_targets_batch(ex_rois, gt_rois):
     return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
 
 
-def _whctrs(anchor):
-    """
-    Return width, height, x center, and y center for an anchor (window).
-    """
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
-def _mkanchors(ws, hs, x_ctr, y_ctr):
-    """
-    Given a vector of widths (ws) and heights (hs) around a center
-    (x_ctr, y_ctr), output a set of anchors (windows).
-    """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
-        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
-    return anchors
-
-
-def _ratio_enum(anchor, ratios):
-    """
-    Enumerate a set of anchors for each aspect ratio wrt an anchor.
-    """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    size = w * h
-    size_ratios = size / ratios
-    ws = np.round(np.sqrt(size_ratios))
-    hs = np.round(ws * ratios)
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _scale_enum(anchor, scales):
-    """
-    Enumerate a set of anchors for each scale wrt an anchor.
-    """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
-    arange(3, 6)):
-    """
-    Generate anchor (reference) windows by enumerating aspect ratios X
-    scales wrt a reference (0, 0, 15, 15) window.
-    """
-    base_anchor = np.array([1, 1, base_size, base_size]) - 1
-    ratio_anchors = _ratio_enum(base_anchor, ratios)
-    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
-        xrange(ratio_anchors.shape[0])])
-    return anchors
-
-
 def bbox_overlaps_batch(anchors, gt_boxes):
     """
     anchors: (N, 4) ndarray of float
@@ -1266,6 +1206,66 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     else:
         raise ValueError('anchors input dimension is not correct.')
     return overlaps
+
+
+def _whctrs(anchor):
+    """
+    Return width, height, x center, and y center for an anchor (window).
+    """
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
+
+
+def _mkanchors(ws, hs, x_ctr, y_ctr):
+    """
+    Given a vector of widths (ws) and heights (hs) around a center
+    (x_ctr, y_ctr), output a set of anchors (windows).
+    """
+    ws = ws[:, (np.newaxis)]
+    hs = hs[:, (np.newaxis)]
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
+        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    return anchors
+
+
+def _scale_enum(anchor, scales):
+    """
+    Enumerate a set of anchors for each scale wrt an anchor.
+    """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _ratio_enum(anchor, ratios):
+    """
+    Enumerate a set of anchors for each aspect ratio wrt an anchor.
+    """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    size = w * h
+    size_ratios = size / ratios
+    ws = np.round(np.sqrt(size_ratios))
+    hs = np.round(ws * ratios)
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
+    arange(3, 6)):
+    """
+    Generate anchor (reference) windows by enumerating aspect ratios X
+    scales wrt a reference (0, 0, 15, 15) window.
+    """
+    base_anchor = np.array([1, 1, base_size, base_size]) - 1
+    ratio_anchors = _ratio_enum(base_anchor, ratios)
+    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
+        xrange(ratio_anchors.shape[0])])
+    return anchors
 
 
 class _AnchorTargetLayer(nn.Module):
@@ -1706,13 +1706,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
+_global_config['FEAT_STRIDE'] = 4
+
+
 _global_config['ANCHOR_SCALES'] = 4
 
 
 _global_config['ANCHOR_RATIOS'] = 4
-
-
-_global_config['FEAT_STRIDE'] = 4
 
 
 class _RPN(nn.Module):
@@ -1870,15 +1870,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_timy90022_One_Shot_Object_Detection(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1887,3 +1886,4 @@ class Test_timy90022_One_Shot_Object_Detection(_paritybench_base):
 
     def test_004(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

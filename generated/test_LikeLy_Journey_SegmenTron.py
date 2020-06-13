@@ -3154,10 +3154,10 @@ class CRPBlock(nn.Module):
         return x
 
 
-_global_config['AUG'] = 4
-
-
 _global_config['ROOT_PATH'] = 4
+
+
+_global_config['AUG'] = 4
 
 
 class SegmentationDataset(object):
@@ -3261,6 +3261,551 @@ class SegmentationDataset(object):
     @property
     def pred_offset(self):
         return 0
+
+
+class COCOSegmentation(SegmentationDataset):
+    """COCO Semantic Segmentation Dataset for VOC Pre-training.
+
+    Parameters
+    ----------
+    root : string
+        Path to ADE20K folder. Default is './datasets/coco'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = COCOSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    CAT_LIST = [0, 5, 2, 16, 9, 44, 6, 3, 17, 62, 21, 67, 18, 19, 4, 1, 64,
+        20, 63, 7, 72]
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/coco', split='train', mode=None,
+        transform=None, **kwargs):
+        super(COCOSegmentation, self).__init__(root, split, mode, transform,
+            **kwargs)
+        from pycocotools.coco import COCO
+        from pycocotools import mask
+        if split == 'train':
+            print('train set')
+            ann_file = os.path.join(root,
+                'annotations/instances_train2017.json')
+            ids_file = os.path.join(root, 'annotations/train_ids.pkl')
+            self.root = os.path.join(root, 'train2017')
+        else:
+            print('val set')
+            ann_file = os.path.join(root, 'annotations/instances_val2017.json')
+            ids_file = os.path.join(root, 'annotations/val_ids.pkl')
+            self.root = os.path.join(root, 'val2017')
+        self.coco = COCO(ann_file)
+        self.coco_mask = mask
+        if os.path.exists(ids_file):
+            with open(ids_file, 'rb') as f:
+                self.ids = pickle.load(f)
+        else:
+            ids = list(self.coco.imgs.keys())
+            self.ids = self._preprocess(ids, ids_file)
+        self.transform = transform
+
+    def __getitem__(self, index):
+        coco = self.coco
+        img_id = self.ids[index]
+        img_metadata = coco.loadImgs(img_id)[0]
+        path = img_metadata['file_name']
+        img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        cocotarget = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+        mask = Image.fromarray(self._gen_seg_mask(cocotarget, img_metadata[
+            'height'], img_metadata['width']))
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(path)
+
+    def __len__(self):
+        return len(self.ids)
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32'))
+
+    def _gen_seg_mask(self, target, h, w):
+        mask = np.zeros((h, w), dtype=np.uint8)
+        coco_mask = self.coco_mask
+        for instance in target:
+            rle = coco_mask.frPyObjects(instance['segmentation'], h, w)
+            m = coco_mask.decode(rle)
+            cat = instance['category_id']
+            if cat in self.CAT_LIST:
+                c = self.CAT_LIST.index(cat)
+            else:
+                continue
+            if len(m.shape) < 3:
+                mask[:, :] += (mask == 0) * (m * c)
+            else:
+                mask[:, :] += (mask == 0) * ((np.sum(m, axis=2) > 0) * c
+                    ).astype(np.uint8)
+        return mask
+
+    def _preprocess(self, ids, ids_file):
+        print('Preprocessing mask, this will take a while.' +
+            "But don't worry, it only run once for each split.")
+        tbar = trange(len(ids))
+        new_ids = []
+        for i in tbar:
+            img_id = ids[i]
+            cocotarget = self.coco.loadAnns(self.coco.getAnnIds(imgIds=img_id))
+            img_metadata = self.coco.loadImgs(img_id)[0]
+            mask = self._gen_seg_mask(cocotarget, img_metadata['height'],
+                img_metadata['width'])
+            if (mask > 0).sum() > 1000:
+                new_ids.append(img_id)
+            tbar.set_description('Doing: {}/{}, got {} qualified images'.
+                format(i, len(ids), len(new_ids)))
+        print('Found number of qualified images: ', len(new_ids))
+        with open(ids_file, 'wb') as f:
+            pickle.dump(new_ids, f)
+        return new_ids
+
+    @property
+    def classes(self):
+        """Category names."""
+        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
+            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
+            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
+            'sofa', 'train', 'tv')
+
+
+def _get_sbu_pairs(folder, split='train'):
+
+    def get_path_pairs(img_folder, mask_folder):
+        img_paths = []
+        mask_paths = []
+        for root, _, files in os.walk(img_folder):
+            print(root)
+            for filename in files:
+                if filename.endswith('.jpg'):
+                    imgpath = os.path.join(root, filename)
+                    maskname = filename.replace('.jpg', '.png')
+                    maskpath = os.path.join(mask_folder, maskname)
+                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
+                        img_paths.append(imgpath)
+                        mask_paths.append(maskpath)
+                    else:
+                        print('cannot find the mask or image:', imgpath,
+                            maskpath)
+        print('Found {} images in the folder {}'.format(len(img_paths),
+            img_folder))
+        return img_paths, mask_paths
+    if split == 'train':
+        img_folder = os.path.join(folder,
+            'SBUTrain4KRecoveredSmall/ShadowImages')
+        mask_folder = os.path.join(folder,
+            'SBUTrain4KRecoveredSmall/ShadowMasks')
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+    else:
+        assert split in ('val', 'test')
+        img_folder = os.path.join(folder, 'SBU-Test/ShadowImages')
+        mask_folder = os.path.join(folder, 'SBU-Test/ShadowMasks')
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+    return img_paths, mask_paths
+
+
+class SBUSegmentation(SegmentationDataset):
+    """SBU Shadow Segmentation Dataset
+    """
+    NUM_CLASS = 2
+
+    def __init__(self, root='datasets/sbu', split='train', mode=None,
+        transform=None, **kwargs):
+        super(SBUSegmentation, self).__init__(root, split, mode, transform,
+            **kwargs)
+        assert os.path.exists(self.root)
+        self.images, self.masks = _get_sbu_pairs(self.root, self.split)
+        assert len(self.images) == len(self.masks)
+        if len(self.images) == 0:
+            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n'
+                )
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.masks[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        target = np.array(mask).astype('int32')
+        target[target > 0] = 1
+        return torch.from_numpy(target).long()
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def pred_offset(self):
+        return 0
+
+
+def _get_city_pairs(folder, split='train'):
+
+    def get_path_pairs(img_folder, mask_folder):
+        img_paths = []
+        mask_paths = []
+        for root, _, files in os.walk(img_folder):
+            for filename in files:
+                if filename.startswith('._'):
+                    continue
+                if filename.endswith('.png'):
+                    imgpath = os.path.join(root, filename)
+                    foldername = os.path.basename(os.path.dirname(imgpath))
+                    maskname = filename.replace('leftImg8bit',
+                        'gtFine_labelIds')
+                    maskpath = os.path.join(mask_folder, foldername, maskname)
+                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
+                        img_paths.append(imgpath)
+                        mask_paths.append(maskpath)
+                    else:
+                        logging.info('cannot find the mask or image:',
+                            imgpath, maskpath)
+        logging.info('Found {} images in the folder {}'.format(len(
+            img_paths), img_folder))
+        return img_paths, mask_paths
+    if split in ('train', 'val'):
+        img_folder = os.path.join(folder, 'leftImg8bit/' + split)
+        mask_folder = os.path.join(folder, 'gtFine/' + split)
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+        return img_paths, mask_paths
+    else:
+        assert split == 'trainval'
+        logging.info('trainval set')
+        train_img_folder = os.path.join(folder, 'leftImg8bit/train')
+        train_mask_folder = os.path.join(folder, 'gtFine/train')
+        val_img_folder = os.path.join(folder, 'leftImg8bit/val')
+        val_mask_folder = os.path.join(folder, 'gtFine/val')
+        train_img_paths, train_mask_paths = get_path_pairs(train_img_folder,
+            train_mask_folder)
+        val_img_paths, val_mask_paths = get_path_pairs(val_img_folder,
+            val_mask_folder)
+        img_paths = train_img_paths + val_img_paths
+        mask_paths = train_mask_paths + val_mask_paths
+    return img_paths, mask_paths
+
+
+class CitySegmentation(SegmentationDataset):
+    """Cityscapes Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to Cityscapes folder. Default is './datasets/cityscapes'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = CitySegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'cityscapes'
+    NUM_CLASS = 19
+
+    def __init__(self, root='datasets/cityscapes', split='train', mode=None,
+        transform=None, **kwargs):
+        super(CitySegmentation, self).__init__(root, split, mode, transform,
+            **kwargs)
+        assert os.path.exists(self.root
+            ), 'Please put dataset in {SEG_ROOT}/datasets/cityscapes'
+        self.images, self.mask_paths = _get_city_pairs(self.root, self.split)
+        assert len(self.images) == len(self.mask_paths)
+        if len(self.images) == 0:
+            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n'
+                )
+        self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 31, 32, 33]
+        self._key = np.array([-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, -1, -1,
+            2, 3, 4, -1, -1, -1, 5, -1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+            -1, -1, 16, 17, 18])
+        self._mapping = np.array(range(-1, len(self._key) - 1)).astype('int32')
+
+    def _class_to_index(self, mask):
+        values = np.unique(mask)
+        for value in values:
+            assert value in self._mapping
+        index = np.digitize(mask.ravel(), self._mapping, right=True)
+        return self._key[index].reshape(mask.shape)
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.mask_paths[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        target = self._class_to_index(np.array(mask).astype('int32'))
+        return torch.LongTensor(np.array(target).astype('int32'))
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def pred_offset(self):
+        return 0
+
+    @property
+    def classes(self):
+        """Category names."""
+        return ('road', 'sidewalk', 'building', 'wall', 'fence', 'pole',
+            'traffic light', 'traffic sign', 'vegetation', 'terrain', 'sky',
+            'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle',
+            'bicycle')
+
+
+class VOCAugSegmentation(SegmentationDataset):
+    """Pascal VOC Augmented Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to VOCdevkit folder. Default is './datasets/voc'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'VOCaug/dataset/'
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/voc', split='train', mode=None,
+        transform=None, **kwargs):
+        super(VOCAugSegmentation, self).__init__(root, split, mode,
+            transform, **kwargs)
+        _voc_root = os.path.join(root, self.BASE_DIR)
+        _mask_dir = os.path.join(_voc_root, 'cls')
+        _image_dir = os.path.join(_voc_root, 'img')
+        if split == 'train':
+            _split_f = os.path.join(_voc_root, 'trainval.txt')
+        elif split == 'val':
+            _split_f = os.path.join(_voc_root, 'val.txt')
+        else:
+            raise RuntimeError('Unknown dataset split: {}'.format(split))
+        self.images = []
+        self.masks = []
+        with open(os.path.join(_split_f), 'r') as lines:
+            for line in lines:
+                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
+                assert os.path.isfile(_image)
+                self.images.append(_image)
+                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
+                assert os.path.isfile(_mask)
+                self.masks.append(_mask)
+        assert len(self.images) == len(self.masks)
+        print('Found {} images in the folder {}'.format(len(self.images),
+            _voc_root))
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        target = self._load_mat(self.masks[index])
+        if self.mode == 'train':
+            img, target = self._sync_transform(img, target)
+        elif self.mode == 'val':
+            img, target = self._val_sync_transform(img, target)
+        elif self.mode == 'testval':
+            logging.warn('Use mode of testval, you should set batch size=1')
+            img, target = self._img_transform(img), self._mask_transform(target
+                )
+        else:
+            raise RuntimeError('unknown mode for dataloader: {}'.format(
+                self.mode))
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, target, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32'))
+
+    def _load_mat(self, filename):
+        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True,
+            struct_as_record=False)
+        mask = mat['GTcls'].Segmentation
+        return Image.fromarray(mask)
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def classes(self):
+        """Category names."""
+        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
+            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
+            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
+            'sofa', 'train', 'tv')
+
+
+class VOCSegmentation(SegmentationDataset):
+    """Pascal VOC Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to VOCdevkit folder. Default is './datasets/VOCdevkit'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = VOCSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'VOC2012'
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/voc', split='train', mode=None,
+        transform=None, **kwargs):
+        super(VOCSegmentation, self).__init__(root, split, mode, transform,
+            **kwargs)
+        _voc_root = os.path.join(root, self.BASE_DIR)
+        _mask_dir = os.path.join(_voc_root, 'SegmentationClass')
+        _image_dir = os.path.join(_voc_root, 'JPEGImages')
+        _splits_dir = os.path.join(_voc_root, 'ImageSets/Segmentation')
+        if split == 'train':
+            _split_f = os.path.join(_splits_dir, 'train.txt')
+        elif split == 'val':
+            _split_f = os.path.join(_splits_dir, 'val.txt')
+        elif split == 'test':
+            _split_f = os.path.join(_splits_dir, 'test.txt')
+        else:
+            raise RuntimeError('Unknown dataset split.')
+        self.images = []
+        self.masks = []
+        with open(os.path.join(_split_f), 'r') as lines:
+            for line in lines:
+                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
+                assert os.path.isfile(_image)
+                self.images.append(_image)
+                if split != 'test':
+                    _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.png')
+                    assert os.path.isfile(_mask)
+                    self.masks.append(_mask)
+        if split != 'test':
+            assert len(self.images) == len(self.masks)
+        print('Found {} images in the folder {}'.format(len(self.images),
+            _voc_root))
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            img = self._img_transform(img)
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.masks[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def __len__(self):
+        return len(self.images)
+
+    def _mask_transform(self, mask):
+        target = np.array(mask).astype('int32')
+        target[target == 255] = -1
+        return torch.from_numpy(target).long()
+
+    @property
+    def classes(self):
+        """Category names."""
+        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
+            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
+            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
+            'sofa', 'train', 'tv')
 
 
 def _get_ade20k_pairs(folder, mode='train'):
@@ -3428,577 +3973,124 @@ class ADE20KSegmentation(SegmentationDataset):
             'shower', 'radiator', 'glass, drinking glass', 'clock', 'flag')
 
 
-class VOCAugSegmentation(SegmentationDataset):
-    """Pascal VOC Augmented Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to VOCdevkit folder. Default is './datasets/voc'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'VOCaug/dataset/'
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/voc', split='train', mode=None,
-        transform=None, **kwargs):
-        super(VOCAugSegmentation, self).__init__(root, split, mode,
-            transform, **kwargs)
-        _voc_root = os.path.join(root, self.BASE_DIR)
-        _mask_dir = os.path.join(_voc_root, 'cls')
-        _image_dir = os.path.join(_voc_root, 'img')
-        if split == 'train':
-            _split_f = os.path.join(_voc_root, 'trainval.txt')
-        elif split == 'val':
-            _split_f = os.path.join(_voc_root, 'val.txt')
-        else:
-            raise RuntimeError('Unknown dataset split: {}'.format(split))
-        self.images = []
-        self.masks = []
-        with open(os.path.join(_split_f), 'r') as lines:
-            for line in lines:
-                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
-                assert os.path.isfile(_image)
-                self.images.append(_image)
-                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
-                assert os.path.isfile(_mask)
-                self.masks.append(_mask)
-        assert len(self.images) == len(self.masks)
-        print('Found {} images in the folder {}'.format(len(self.images),
-            _voc_root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        target = self._load_mat(self.masks[index])
-        if self.mode == 'train':
-            img, target = self._sync_transform(img, target)
-        elif self.mode == 'val':
-            img, target = self._val_sync_transform(img, target)
-        elif self.mode == 'testval':
-            logging.warn('Use mode of testval, you should set batch size=1')
-            img, target = self._img_transform(img), self._mask_transform(target
-                )
-        else:
-            raise RuntimeError('unknown mode for dataloader: {}'.format(
-                self.mode))
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, target, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32'))
-
-    def _load_mat(self, filename):
-        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True,
-            struct_as_record=False)
-        mask = mat['GTcls'].Segmentation
-        return Image.fromarray(mask)
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def classes(self):
-        """Category names."""
-        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
-            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
-            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
-            'sofa', 'train', 'tv')
-
-
-class COCOSegmentation(SegmentationDataset):
-    """COCO Semantic Segmentation Dataset for VOC Pre-training.
-
-    Parameters
-    ----------
-    root : string
-        Path to ADE20K folder. Default is './datasets/coco'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = COCOSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    CAT_LIST = [0, 5, 2, 16, 9, 44, 6, 3, 17, 62, 21, 67, 18, 19, 4, 1, 64,
-        20, 63, 7, 72]
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/coco', split='train', mode=None,
-        transform=None, **kwargs):
-        super(COCOSegmentation, self).__init__(root, split, mode, transform,
-            **kwargs)
-        from pycocotools.coco import COCO
-        from pycocotools import mask
-        if split == 'train':
-            print('train set')
-            ann_file = os.path.join(root,
-                'annotations/instances_train2017.json')
-            ids_file = os.path.join(root, 'annotations/train_ids.pkl')
-            self.root = os.path.join(root, 'train2017')
-        else:
-            print('val set')
-            ann_file = os.path.join(root, 'annotations/instances_val2017.json')
-            ids_file = os.path.join(root, 'annotations/val_ids.pkl')
-            self.root = os.path.join(root, 'val2017')
-        self.coco = COCO(ann_file)
-        self.coco_mask = mask
-        if os.path.exists(ids_file):
-            with open(ids_file, 'rb') as f:
-                self.ids = pickle.load(f)
-        else:
-            ids = list(self.coco.imgs.keys())
-            self.ids = self._preprocess(ids, ids_file)
-        self.transform = transform
-
-    def __getitem__(self, index):
-        coco = self.coco
-        img_id = self.ids[index]
-        img_metadata = coco.loadImgs(img_id)[0]
-        path = img_metadata['file_name']
-        img = Image.open(os.path.join(self.root, path)).convert('RGB')
-        cocotarget = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
-        mask = Image.fromarray(self._gen_seg_mask(cocotarget, img_metadata[
-            'height'], img_metadata['width']))
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(path)
-
-    def __len__(self):
-        return len(self.ids)
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32'))
-
-    def _gen_seg_mask(self, target, h, w):
-        mask = np.zeros((h, w), dtype=np.uint8)
-        coco_mask = self.coco_mask
-        for instance in target:
-            rle = coco_mask.frPyObjects(instance['segmentation'], h, w)
-            m = coco_mask.decode(rle)
-            cat = instance['category_id']
-            if cat in self.CAT_LIST:
-                c = self.CAT_LIST.index(cat)
-            else:
-                continue
-            if len(m.shape) < 3:
-                mask[:, :] += (mask == 0) * (m * c)
-            else:
-                mask[:, :] += (mask == 0) * ((np.sum(m, axis=2) > 0) * c
-                    ).astype(np.uint8)
-        return mask
-
-    def _preprocess(self, ids, ids_file):
-        print('Preprocessing mask, this will take a while.' +
-            "But don't worry, it only run once for each split.")
-        tbar = trange(len(ids))
-        new_ids = []
-        for i in tbar:
-            img_id = ids[i]
-            cocotarget = self.coco.loadAnns(self.coco.getAnnIds(imgIds=img_id))
-            img_metadata = self.coco.loadImgs(img_id)[0]
-            mask = self._gen_seg_mask(cocotarget, img_metadata['height'],
-                img_metadata['width'])
-            if (mask > 0).sum() > 1000:
-                new_ids.append(img_id)
-            tbar.set_description('Doing: {}/{}, got {} qualified images'.
-                format(i, len(ids), len(new_ids)))
-        print('Found number of qualified images: ', len(new_ids))
-        with open(ids_file, 'wb') as f:
-            pickle.dump(new_ids, f)
-        return new_ids
-
-    @property
-    def classes(self):
-        """Category names."""
-        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
-            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
-            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
-            'sofa', 'train', 'tv')
-
-
-class VOCSegmentation(SegmentationDataset):
-    """Pascal VOC Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to VOCdevkit folder. Default is './datasets/VOCdevkit'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = VOCSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'VOC2012'
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/voc', split='train', mode=None,
-        transform=None, **kwargs):
-        super(VOCSegmentation, self).__init__(root, split, mode, transform,
-            **kwargs)
-        _voc_root = os.path.join(root, self.BASE_DIR)
-        _mask_dir = os.path.join(_voc_root, 'SegmentationClass')
-        _image_dir = os.path.join(_voc_root, 'JPEGImages')
-        _splits_dir = os.path.join(_voc_root, 'ImageSets/Segmentation')
-        if split == 'train':
-            _split_f = os.path.join(_splits_dir, 'train.txt')
-        elif split == 'val':
-            _split_f = os.path.join(_splits_dir, 'val.txt')
-        elif split == 'test':
-            _split_f = os.path.join(_splits_dir, 'test.txt')
-        else:
-            raise RuntimeError('Unknown dataset split.')
-        self.images = []
-        self.masks = []
-        with open(os.path.join(_split_f), 'r') as lines:
-            for line in lines:
-                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
-                assert os.path.isfile(_image)
-                self.images.append(_image)
-                if split != 'test':
-                    _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.png')
-                    assert os.path.isfile(_mask)
-                    self.masks.append(_mask)
-        if split != 'test':
-            assert len(self.images) == len(self.masks)
-        print('Found {} images in the folder {}'.format(len(self.images),
-            _voc_root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            img = self._img_transform(img)
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.masks[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def __len__(self):
-        return len(self.images)
-
-    def _mask_transform(self, mask):
-        target = np.array(mask).astype('int32')
-        target[target == 255] = -1
-        return torch.from_numpy(target).long()
-
-    @property
-    def classes(self):
-        """Category names."""
-        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
-            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
-            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
-            'sofa', 'train', 'tv')
-
-
-def _get_city_pairs(folder, split='train'):
-
-    def get_path_pairs(img_folder, mask_folder):
-        img_paths = []
-        mask_paths = []
-        for root, _, files in os.walk(img_folder):
-            for filename in files:
-                if filename.startswith('._'):
-                    continue
-                if filename.endswith('.png'):
-                    imgpath = os.path.join(root, filename)
-                    foldername = os.path.basename(os.path.dirname(imgpath))
-                    maskname = filename.replace('leftImg8bit',
-                        'gtFine_labelIds')
-                    maskpath = os.path.join(mask_folder, foldername, maskname)
-                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
-                        img_paths.append(imgpath)
-                        mask_paths.append(maskpath)
-                    else:
-                        logging.info('cannot find the mask or image:',
-                            imgpath, maskpath)
-        logging.info('Found {} images in the folder {}'.format(len(
-            img_paths), img_folder))
-        return img_paths, mask_paths
-    if split in ('train', 'val'):
-        img_folder = os.path.join(folder, 'leftImg8bit/' + split)
-        mask_folder = os.path.join(folder, 'gtFine/' + split)
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-        return img_paths, mask_paths
-    else:
-        assert split == 'trainval'
-        logging.info('trainval set')
-        train_img_folder = os.path.join(folder, 'leftImg8bit/train')
-        train_mask_folder = os.path.join(folder, 'gtFine/train')
-        val_img_folder = os.path.join(folder, 'leftImg8bit/val')
-        val_mask_folder = os.path.join(folder, 'gtFine/val')
-        train_img_paths, train_mask_paths = get_path_pairs(train_img_folder,
-            train_mask_folder)
-        val_img_paths, val_mask_paths = get_path_pairs(val_img_folder,
-            val_mask_folder)
-        img_paths = train_img_paths + val_img_paths
-        mask_paths = train_mask_paths + val_mask_paths
-    return img_paths, mask_paths
-
-
-class CitySegmentation(SegmentationDataset):
-    """Cityscapes Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to Cityscapes folder. Default is './datasets/cityscapes'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = CitySegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'cityscapes'
-    NUM_CLASS = 19
-
-    def __init__(self, root='datasets/cityscapes', split='train', mode=None,
-        transform=None, **kwargs):
-        super(CitySegmentation, self).__init__(root, split, mode, transform,
-            **kwargs)
-        assert os.path.exists(self.root
-            ), 'Please put dataset in {SEG_ROOT}/datasets/cityscapes'
-        self.images, self.mask_paths = _get_city_pairs(self.root, self.split)
-        assert len(self.images) == len(self.mask_paths)
-        if len(self.images) == 0:
-            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n'
-                )
-        self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 31, 32, 33]
-        self._key = np.array([-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, -1, -1,
-            2, 3, 4, -1, -1, -1, 5, -1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-            -1, -1, 16, 17, 18])
-        self._mapping = np.array(range(-1, len(self._key) - 1)).astype('int32')
-
-    def _class_to_index(self, mask):
-        values = np.unique(mask)
-        for value in values:
-            assert value in self._mapping
-        index = np.digitize(mask.ravel(), self._mapping, right=True)
-        return self._key[index].reshape(mask.shape)
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.mask_paths[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        target = self._class_to_index(np.array(mask).astype('int32'))
-        return torch.LongTensor(np.array(target).astype('int32'))
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def pred_offset(self):
-        return 0
-
-    @property
-    def classes(self):
-        """Category names."""
-        return ('road', 'sidewalk', 'building', 'wall', 'fence', 'pole',
-            'traffic light', 'traffic sign', 'vegetation', 'terrain', 'sky',
-            'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle',
-            'bicycle')
-
-
-def _get_sbu_pairs(folder, split='train'):
-
-    def get_path_pairs(img_folder, mask_folder):
-        img_paths = []
-        mask_paths = []
-        for root, _, files in os.walk(img_folder):
-            print(root)
-            for filename in files:
-                if filename.endswith('.jpg'):
-                    imgpath = os.path.join(root, filename)
-                    maskname = filename.replace('.jpg', '.png')
-                    maskpath = os.path.join(mask_folder, maskname)
-                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
-                        img_paths.append(imgpath)
-                        mask_paths.append(maskpath)
-                    else:
-                        print('cannot find the mask or image:', imgpath,
-                            maskpath)
-        print('Found {} images in the folder {}'.format(len(img_paths),
-            img_folder))
-        return img_paths, mask_paths
-    if split == 'train':
-        img_folder = os.path.join(folder,
-            'SBUTrain4KRecoveredSmall/ShadowImages')
-        mask_folder = os.path.join(folder,
-            'SBUTrain4KRecoveredSmall/ShadowMasks')
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-    else:
-        assert split in ('val', 'test')
-        img_folder = os.path.join(folder, 'SBU-Test/ShadowImages')
-        mask_folder = os.path.join(folder, 'SBU-Test/ShadowMasks')
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-    return img_paths, mask_paths
-
-
-class SBUSegmentation(SegmentationDataset):
-    """SBU Shadow Segmentation Dataset
-    """
-    NUM_CLASS = 2
-
-    def __init__(self, root='datasets/sbu', split='train', mode=None,
-        transform=None, **kwargs):
-        super(SBUSegmentation, self).__init__(root, split, mode, transform,
-            **kwargs)
-        assert os.path.exists(self.root)
-        self.images, self.masks = _get_sbu_pairs(self.root, self.split)
-        assert len(self.images) == len(self.masks)
-        if len(self.images) == 0:
-            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n'
-                )
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.masks[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        target = np.array(mask).astype('int32')
-        target[target > 0] = 1
-        return torch.from_numpy(target).long()
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def pred_offset(self):
-        return 0
-
-
 datasets = {'ade20k': ADE20KSegmentation, 'pascal_voc': VOCSegmentation,
     'pascal_aug': VOCAugSegmentation, 'coco': COCOSegmentation, 'cityscape':
     CitySegmentation, 'sbu': SBUSegmentation}
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152':
-    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'resnet50c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth'
-    , 'resnet101c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth'
-    , 'resnet152c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth'
-    , 'xception65':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth'
-    , 'hrnet_w18_small_v1':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth'
-    , 'mobilenet_v2':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'
-    }
+def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
+    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps,
+        affine=affine)
+
+
+def get_norm(norm):
+    """
+    Args:
+        norm (str or callable):
+
+    Returns:
+        nn.Module or None: the normalization layer
+    """
+    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
+    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(
+        norm, support_norm_type)
+    if isinstance(norm, str):
+        if len(norm) == 0:
+            return None
+        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm,
+            'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.
+            SyncBatchNorm}[norm]
+    return norm
+
+
+def _to_tuple(size):
+    if isinstance(size, (list, tuple)):
+        assert len(size
+            ), 'Expect eval crop size contains two element, but received {}'.format(
+            len(size))
+        return tuple(size)
+    elif isinstance(size, numbers.Number):
+        return tuple((size, size))
+    else:
+        raise ValueError('Unsupport datatype: {}'.format(type(size)))
+
+
+def _flip_image(img):
+    assert img.ndim == 4
+    return img.flip(3)
+
+
+def _resize_image(img, h, w):
+    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
+
+
+class Registry(object):
+    """
+    The registry that provides name -> object mapping, to support third-party users' custom modules.
+
+    To create a registry (inside segmentron):
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY = Registry('BACKBONE')
+
+    To register an object:
+
+    .. code-block:: python
+
+        @BACKBONE_REGISTRY.register()
+        class MyBackbone():
+            ...
+
+    Or:
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY.register(MyBackbone)
+    """
+
+    def __init__(self, name):
+        """
+        Args:
+            name (str): the name of this registry
+        """
+        self._name = name
+        self._obj_map = {}
+
+    def _do_register(self, name, obj):
+        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(
+            name, self._name)
+        self._obj_map[name] = obj
+
+    def register(self, obj=None, name=None):
+        """
+        Register the given object under the the name `obj.__name__`.
+        Can be used as either a decorator or not. See docstring of this class for usage.
+        """
+        if obj is None:
+
+            def deco(func_or_class, name=name):
+                if name is None:
+                    name = func_or_class.__name__
+                self._do_register(name, func_or_class)
+                return func_or_class
+            return deco
+        if name is None:
+            name = obj.__name__
+        self._do_register(name, obj)
+
+    def get(self, name):
+        ret = self._obj_map.get(name)
+        if ret is None:
+            raise KeyError("No object named '{}' found in '{}' registry!".
+                format(name, self._name))
+        return ret
+
+    def get_list(self):
+        return list(self._obj_map.keys())
+
+
+BACKBONE_REGISTRY = Registry('BACKBONE')
 
 
 def check_sha1(filename, sha1_hash):
@@ -4081,6 +4173,29 @@ def download(url, path=None, overwrite=False, sha1_hash=None):
     return fname
 
 
+model_urls = {'resnet18':
+    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
+    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
+    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101':
+    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152':
+    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnet50c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth'
+    , 'resnet101c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth'
+    , 'resnet152c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth'
+    , 'xception65':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth'
+    , 'hrnet_w18_small_v1':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth'
+    , 'mobilenet_v2':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'
+    }
+
+
 _global_config['TRAIN'] = 4
 
 
@@ -4113,75 +4228,6 @@ def load_backbone_pretrained(model, backbone):
             logging.info(msg)
 
 
-class Registry(object):
-    """
-    The registry that provides name -> object mapping, to support third-party users' custom modules.
-
-    To create a registry (inside segmentron):
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY = Registry('BACKBONE')
-
-    To register an object:
-
-    .. code-block:: python
-
-        @BACKBONE_REGISTRY.register()
-        class MyBackbone():
-            ...
-
-    Or:
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY.register(MyBackbone)
-    """
-
-    def __init__(self, name):
-        """
-        Args:
-            name (str): the name of this registry
-        """
-        self._name = name
-        self._obj_map = {}
-
-    def _do_register(self, name, obj):
-        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(
-            name, self._name)
-        self._obj_map[name] = obj
-
-    def register(self, obj=None, name=None):
-        """
-        Register the given object under the the name `obj.__name__`.
-        Can be used as either a decorator or not. See docstring of this class for usage.
-        """
-        if obj is None:
-
-            def deco(func_or_class, name=name):
-                if name is None:
-                    name = func_or_class.__name__
-                self._do_register(name, func_or_class)
-                return func_or_class
-            return deco
-        if name is None:
-            name = obj.__name__
-        self._do_register(name, obj)
-
-    def get(self, name):
-        ret = self._obj_map.get(name)
-        if ret is None:
-            raise KeyError("No object named '{}' found in '{}' registry!".
-                format(name, self._name))
-        return ret
-
-    def get_list(self):
-        return list(self._obj_map.keys())
-
-
-BACKBONE_REGISTRY = Registry('BACKBONE')
-
-
 def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
     """
     Built the backbone model, defined by `cfg.MODEL.BACKBONE`.
@@ -4189,40 +4235,6 @@ def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
     model = BACKBONE_REGISTRY.get(backbone)(norm_layer)
     load_backbone_pretrained(model, backbone)
     return model
-
-
-def _flip_image(img):
-    assert img.ndim == 4
-    return img.flip(3)
-
-
-def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
-    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps,
-        affine=affine)
-
-
-def get_norm(norm):
-    """
-    Args:
-        norm (str or callable):
-
-    Returns:
-        nn.Module or None: the normalization layer
-    """
-    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
-    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(
-        norm, support_norm_type)
-    if isinstance(norm, str):
-        if len(norm) == 0:
-            return None
-        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm,
-            'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.
-            SyncBatchNorm}[norm]
-    return norm
-
-
-def _resize_image(img, h, w):
-    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
 
 
 def _pad_image(img, crop_size):
@@ -4236,25 +4248,13 @@ def _pad_image(img, crop_size):
     return img_pad
 
 
-def _to_tuple(size):
-    if isinstance(size, (list, tuple)):
-        assert len(size
-            ), 'Expect eval crop size contains two element, but received {}'.format(
-            len(size))
-        return tuple(size)
-    elif isinstance(size, numbers.Number):
-        return tuple((size, size))
-    else:
-        raise ValueError('Unsupport datatype: {}'.format(type(size)))
-
-
 _global_config['SOLVER'] = 4
 
 
-_global_config['TEST'] = 4
-
-
 _global_config['DATASET'] = 4
+
+
+_global_config['TEST'] = 4
 
 
 class SegBaseModel(nn.Module):
@@ -5171,6 +5171,24 @@ class EncNetLoss(nn.CrossEntropyLoss):
         return tvect
 
 
+def flatten_probas(probas, labels, ignore=None):
+    """
+    Flattens predictions in the batch
+    """
+    if probas.dim() == 3:
+        B, H, W = probas.size()
+        probas = probas.view(B, 1, H, W)
+    B, C, H, W = probas.size()
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
+    labels = labels.view(-1)
+    if ignore is None:
+        return probas, labels
+    valid = labels != ignore
+    vprobas = probas[valid.nonzero().squeeze()]
+    vlabels = labels[valid]
+    return vprobas, vlabels
+
+
 def isnan(x):
     return x != x
 
@@ -5194,24 +5212,6 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def flatten_probas(probas, labels, ignore=None):
-    """
-    Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = labels != ignore
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
 
 
 def lovasz_grad(gt_sorted):
@@ -5644,14 +5644,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Bottleneck(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5699,41 +5698,41 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_017(self):
         self._check(Shallow_net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_018(self):
         self._check(FeatureFusionModule(*[], **{'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
         self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_020(self):
         self._check(Conv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
         self._check(BNPReLU(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_022(self):
         self._check(DABModule(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_023(self):
         self._check(DownSamplingBlock(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_024(self):
         self._check(InputInjection(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_025(self):
         self._check(_DenseASPPHead(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_026(self):
         self._check(_DenseASPPConv(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4, 'atrous_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_027(self):
         self._check(_DenseASPPBlock(*[], **{'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5742,15 +5741,15 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_029(self):
         self._check(DUpsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_030(self):
         self._check(DownsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_031(self):
         self._check(EDABlock(*[], **{'ninput': 4, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_032(self):
         self._check(EncModule(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5774,23 +5773,23 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_039(self):
         self._check(SEModule(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_040(self):
         self._check(FPEBlock(*[], **{'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_041(self):
         self._check(MEUModule(*[], **{'channels_high': 4, 'channels_low': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_042(self):
         self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_043(self):
         self._check(HarDBlock(*[], **{'in_channels': 4, 'growth_rate': 4, 'grmul': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_044(self):
         self._check(TransitionUp(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -5799,35 +5798,35 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_046(self):
         self._check(Downsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_047(self):
         self._check(SSnbt(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_048(self):
         self._check(APNModule(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_049(self):
         self._check(BaseAttentionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_050(self):
         self._check(BaseOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_051(self):
         self._check(PyramidAttentionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_052(self):
         self._check(PyramidOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_053(self):
         self._check(ASPOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_054(self):
         self._check(CRPBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'n_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5836,8 +5835,8 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_056(self):
         self._check(Down(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_057(self):
         self._check(Up(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
@@ -5867,8 +5866,8 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_066(self):
         self._check(FrozenBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_067(self):
         self._check(NaiveSyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -5883,8 +5882,8 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_071(self):
         self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_072(self):
         self._check(EESP(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 
@@ -5893,3 +5892,4 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_074(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

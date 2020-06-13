@@ -77,6 +77,50 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
+VariationalParameter = namedtuple('VariationalParameter', ['mean', 'rho',
+    'eps'])
+
+
+def evaluate(variational_parameter):
+    """ Evaluates the current value of a variational parameter.
+
+    Returns mean + log(1 + e^rho) * eps
+    :args variational_parameter: the variational parameter
+    :returns: the value of the variational parameter
+    """
+    assert isinstance(variational_parameter, VariationalParameter
+        ), 'Incorrect type.'
+    return variational_parameter.mean + (1 + variational_parameter.rho.exp()
+        ).log() * variational_parameter.eps
+
+
+def sub_conjpriorknownmean(dico, mean, alpha_0, beta_0):
+    """ Compute an estimation of the KL divergence between the conjugate
+    prior when the mean is known and parameters for all Variational
+    Parameters in the tree dictionary dico.
+
+    :args dico: tree dictionary
+    :args mean: known mean for the conjugate prior
+    :args alpha_0: hyperparameter of the conjugate prior
+    :args beta_0: hyperparameter of the conjugate prior
+    :return: estimation of the KL divergence between prior and current
+    """
+    logprior = 0.0
+    for _, p in dico.items():
+        if isinstance(p, VariationalParameter):
+            theta = evaluate(p)
+            S = (theta - mean).norm() ** 2
+            n = np.prod(theta.size())
+            alpha_n = alpha_0 + n / 2
+            beta_n = beta_0 + S / 2
+            logprior += -beta_n.log() * alpha_n + gammaln(alpha_n) - gammaln(
+                alpha_0) + alpha_0 * np.log(beta_0) - 0.5 * n * np.log(2 *
+                np.pi)
+        else:
+            logprior += sub_conjpriorknownmean(p, mean, alpha_0, beta_0)
+    return logprior
+
+
 def prior_std(p):
     """ Compute a reasonable prior standard deviation for parameter p.
 
@@ -95,21 +139,24 @@ def prior_std(p):
     return stdv
 
 
-VariationalParameter = namedtuple('VariationalParameter', ['mean', 'rho',
-    'eps'])
+def sub_prior_loss(dico):
+    """ Compute the KL divergence between prior and parameters for
+    all Variational Parameters in the tree dictionary dico.
 
-
-def evaluate(variational_parameter):
-    """ Evaluates the current value of a variational parameter.
-
-    Returns mean + log(1 + e^rho) * eps
-    :args variational_parameter: the variational parameter
-    :returns: the value of the variational parameter
+    :args dico: tree dictionary
+    :return: KL divergence between prior and current
     """
-    assert isinstance(variational_parameter, VariationalParameter
-        ), 'Incorrect type.'
-    return variational_parameter.mean + (1 + variational_parameter.rho.exp()
-        ).log() * variational_parameter.eps
+    loss = 0
+    for p in dico.values():
+        if isinstance(p, VariationalParameter):
+            mean = p.mean
+            std = (1 + p.rho.exp()).log()
+            std_prior = prior_std(mean)
+            loss += (-(std / std_prior).log() + (std.pow(2) + mean.pow(2)) /
+                (2 * std_prior ** 2) - 1 / 2).sum()
+        else:
+            loss += sub_prior_loss(p)
+    return loss
 
 
 def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
@@ -142,6 +189,23 @@ def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
     return logprior
 
 
+def sub_entropy(dico):
+    """ Compute the entropy of the parameters for all Variational
+    Parameters in the tree dictionary dico.
+    :args dico: tree dictionary
+    :returns: Entropy of the current distribution
+    """
+    entropy = 0.0
+    for _, p in dico.items():
+        if isinstance(p, VariationalParameter):
+            std = (1 + p.rho.exp()).log()
+            n = np.prod(std.size())
+            entropy += std.log().sum() + 0.5 * n * (1 + np.log(2 * np.pi))
+        else:
+            entropy += sub_entropy(p)
+    return entropy
+
+
 def sub_mixtgaussprior(dico, sigma_1, sigma_2, pi):
     """ Compute an estimation of the KL divergence between the prior
     defined by the mixture of two gaussian distributions
@@ -169,43 +233,6 @@ def sub_mixtgaussprior(dico, sigma_1, sigma_2, pi):
         else:
             logprior += sub_mixtgaussprior(p, sigma_1, sigma_2, pi)
     return logprior
-
-
-def sub_prior_loss(dico):
-    """ Compute the KL divergence between prior and parameters for
-    all Variational Parameters in the tree dictionary dico.
-
-    :args dico: tree dictionary
-    :return: KL divergence between prior and current
-    """
-    loss = 0
-    for p in dico.values():
-        if isinstance(p, VariationalParameter):
-            mean = p.mean
-            std = (1 + p.rho.exp()).log()
-            std_prior = prior_std(mean)
-            loss += (-(std / std_prior).log() + (std.pow(2) + mean.pow(2)) /
-                (2 * std_prior ** 2) - 1 / 2).sum()
-        else:
-            loss += sub_prior_loss(p)
-    return loss
-
-
-def sub_entropy(dico):
-    """ Compute the entropy of the parameters for all Variational
-    Parameters in the tree dictionary dico.
-    :args dico: tree dictionary
-    :returns: Entropy of the current distribution
-    """
-    entropy = 0.0
-    for _, p in dico.items():
-        if isinstance(p, VariationalParameter):
-            std = (1 + p.rho.exp()).log()
-            n = np.prod(std.size())
-            entropy += std.log().sum() + 0.5 * n * (1 + np.log(2 * np.pi))
-        else:
-            entropy += sub_entropy(p)
-    return entropy
 
 
 def rebuild_parameters(dico, module, epsilon_setting):
@@ -239,33 +266,6 @@ def rebuild_parameters(dico, module, epsilon_setting):
             setattr(module, name, None)
         else:
             rebuild_parameters(p, getattr(module, name), epsilon_setting)
-
-
-def sub_conjpriorknownmean(dico, mean, alpha_0, beta_0):
-    """ Compute an estimation of the KL divergence between the conjugate
-    prior when the mean is known and parameters for all Variational
-    Parameters in the tree dictionary dico.
-
-    :args dico: tree dictionary
-    :args mean: known mean for the conjugate prior
-    :args alpha_0: hyperparameter of the conjugate prior
-    :args beta_0: hyperparameter of the conjugate prior
-    :return: estimation of the KL divergence between prior and current
-    """
-    logprior = 0.0
-    for _, p in dico.items():
-        if isinstance(p, VariationalParameter):
-            theta = evaluate(p)
-            S = (theta - mean).norm() ** 2
-            n = np.prod(theta.size())
-            alpha_n = alpha_0 + n / 2
-            beta_n = beta_0 + S / 2
-            logprior += -beta_n.log() * alpha_n + gammaln(alpha_n) - gammaln(
-                alpha_0) + alpha_0 * np.log(beta_0) - 0.5 * n * np.log(2 *
-                np.pi)
-        else:
-            logprior += sub_conjpriorknownmean(p, mean, alpha_0, beta_0)
-    return logprior
 
 
 class Variationalize(nn.Module):

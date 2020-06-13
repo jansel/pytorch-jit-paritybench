@@ -142,6 +142,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_xternalz_WideResNet_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+

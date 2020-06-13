@@ -128,10 +128,10 @@ class AttnDecoderRNN(nn.Module):
         return output, context, hidden, attn_weights
 
 
-EOS_token = 1
-
-
 SOS_token = 2
+
+
+EOS_token = 1
 
 
 class seq2seq(nn.Module):
@@ -455,6 +455,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yanwii_seq2seq(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {})
+

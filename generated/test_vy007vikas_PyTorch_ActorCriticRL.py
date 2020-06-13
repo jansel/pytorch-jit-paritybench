@@ -38,13 +38,13 @@ from torch.autograd import Variable
 import math
 
 
+EPS = 0.003
+
+
 def fanin_init(size, fanin=None):
     fanin = fanin or size[0]
     v = 1.0 / np.sqrt(fanin)
     return torch.Tensor(size).uniform_(-v, v)
-
-
-EPS = 0.003
 
 
 class Critic(nn.Module):
@@ -130,10 +130,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vy007vikas_PyTorch_ActorCriticRL(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Actor(*[], **{'state_dim': 4, 'action_dim': 4, 'action_lim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

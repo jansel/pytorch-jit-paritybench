@@ -347,15 +347,6 @@ def calculate_lm_score(seq, lm, id2label):
         ) + 1, oov_token
 
 
-def get_subsequent_mask(seq):
-    """ For masking out the subsequent info. """
-    sz_b, len_s = seq.size()
-    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.
-        device, dtype=torch.uint8), diagonal=1)
-    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
-    return subsequent_mask
-
-
 def pad_list(xs, pad_value):
     n_batch = len(xs)
     max_len = constant.args.tgt_max_len
@@ -363,6 +354,15 @@ def pad_list(xs, pad_value):
     for i in range(n_batch):
         pad[(i), :xs[i].size(0)] = xs[i]
     return pad
+
+
+def get_subsequent_mask(seq):
+    """ For masking out the subsequent info. """
+    sz_b, len_s = seq.size()
+    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.
+        device, dtype=torch.uint8), diagonal=1)
+    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
+    return subsequent_mask
 
 
 class Decoder(nn.Module):
@@ -907,7 +907,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_gentaiscool_end2end_asr_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Encoder(*[], **{'num_layers': 1, 'num_heads': 4, 'dim_model': 4, 'dim_key': 4, 'dim_value': 4, 'dim_input': 4, 'dim_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
@@ -919,14 +918,15 @@ class Test_gentaiscool_end2end_asr_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(PositionwiseFeedForwardWithConv(*[], **{'dim_model': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MultiHeadAttention(*[], **{'num_heads': 4, 'dim_model': 4, 'dim_key': 4, 'dim_value': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_006(self):
         self._check(DotProductAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

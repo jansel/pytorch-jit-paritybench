@@ -529,13 +529,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_xiaobaoonline_pytorch_in_action(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(autoencoder(*[], **{}), [torch.rand([784, 784])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Encoder(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
         self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+

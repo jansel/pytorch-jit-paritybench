@@ -650,6 +650,43 @@ class BaseAttention(nn.Module):
         raise NotImplementedError
 
 
+class FairseqIncrementalState(object):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.init_incremental_state()
+
+    def init_incremental_state(self):
+        self._incremental_state_id = str(uuid.uuid4())
+
+    def _get_full_incremental_state_key(self, key: str) ->str:
+        return '{}.{}'.format(self._incremental_state_id, key)
+
+    def get_incremental_state(self, incremental_state: Optional[Dict[str,
+        Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str,
+        Optional[Tensor]]]:
+        """Helper for getting incremental state for an nn.Module."""
+        full_key = self._get_full_incremental_state_key(key)
+        if incremental_state is None or full_key not in incremental_state:
+            return None
+        return incremental_state[full_key]
+
+    def set_incremental_state(self, incremental_state: Optional[Dict[str,
+        Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[
+        Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
+        """Helper for setting incremental state for an nn.Module."""
+        if incremental_state is not None:
+            full_key = self._get_full_incremental_state_key(key)
+            incremental_state[full_key] = value
+        return incremental_state
+
+
+def with_incremental_state(cls):
+    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.
+        __bases__ if b != FairseqIncrementalState)
+    return cls
+
+
 def safe_cumprod(tensor, dim: int, eps: float=1e-10):
     """
     An implementation of cumprod to prevent precision issue.
@@ -688,43 +725,6 @@ def exclusive_cumprod(tensor, dim: int, eps: float=1e-10):
     else:
         raise RuntimeError('Cumprod on dimension 3 and more is not implemented'
             )
-
-
-class FairseqIncrementalState(object):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.init_incremental_state()
-
-    def init_incremental_state(self):
-        self._incremental_state_id = str(uuid.uuid4())
-
-    def _get_full_incremental_state_key(self, key: str) ->str:
-        return '{}.{}'.format(self._incremental_state_id, key)
-
-    def get_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str,
-        Optional[Tensor]]]:
-        """Helper for getting incremental state for an nn.Module."""
-        full_key = self._get_full_incremental_state_key(key)
-        if incremental_state is None or full_key not in incremental_state:
-            return None
-        return incremental_state[full_key]
-
-    def set_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[
-        Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
-        """Helper for setting incremental state for an nn.Module."""
-        if incremental_state is not None:
-            full_key = self._get_full_incremental_state_key(key)
-            incremental_state[full_key] = value
-        return incremental_state
-
-
-def with_incremental_state(cls):
-    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.
-        __bases__ if b != FairseqIncrementalState)
-    return cls
 
 
 @with_incremental_state
@@ -973,62 +973,6 @@ class MeanPoolGatingNetwork(torch.nn.Module):
             x = self.dropout(x)
         x = self.fc2(x)
         return F.log_softmax(x, dim=-1, dtype=torch.float32).type_as(x)
-
-
-ARCH_CONFIG_REGISTRY = {}
-
-
-ARCH_MODEL_INV_REGISTRY = {}
-
-
-MODEL_REGISTRY = {}
-
-
-ARCH_MODEL_REGISTRY = {}
-
-
-def register_model_architecture(model_name, arch_name):
-    """
-    New model architectures can be added to fairseq with the
-    :func:`register_model_architecture` function decorator. After registration,
-    model architectures can be selected with the ``--arch`` command-line
-    argument.
-
-    For example::
-
-        @register_model_architecture('lstm', 'lstm_luong_wmt_en_de')
-        def lstm_luong_wmt_en_de(args):
-            args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 1000)
-            (...)
-
-    The decorated function should take a single argument *args*, which is a
-    :class:`argparse.Namespace` of arguments parsed from the command-line. The
-    decorated function should modify these arguments in-place to match the
-    desired architecture.
-
-    Args:
-        model_name (str): the name of the Model (Model must already be
-            registered)
-        arch_name (str): the name of the model architecture (``--arch``)
-    """
-
-    def register_model_arch_fn(fn):
-        if model_name not in MODEL_REGISTRY:
-            raise ValueError(
-                'Cannot register model architecture for unknown model type ({})'
-                .format(model_name))
-        if arch_name in ARCH_MODEL_REGISTRY:
-            raise ValueError(
-                'Cannot register duplicate model architecture ({})'.format(
-                arch_name))
-        if not callable(fn):
-            raise ValueError('Model architecture must be callable ({})'.
-                format(arch_name))
-        ARCH_MODEL_REGISTRY[arch_name] = MODEL_REGISTRY[model_name]
-        ARCH_MODEL_INV_REGISTRY.setdefault(model_name, []).append(arch_name)
-        ARCH_CONFIG_REGISTRY[arch_name] = fn
-        return fn
-    return register_model_arch_fn
 
 
 class FairseqCriterion(_Loss):
@@ -1915,6 +1859,21 @@ class SelfAttention(nn.Module):
         return self.ln(x + residual)
 
 
+def LightweightConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
+    weight_dropout=0.0, weight_softmax=False, bias=False):
+    if torch.cuda.is_available():
+        try:
+            from fairseq.modules.lightconv_layer import LightconvLayer
+            return LightconvLayer(input_size, kernel_size=kernel_size,
+                padding_l=padding_l, num_heads=num_heads, weight_dropout=
+                weight_dropout, weight_softmax=weight_softmax, bias=bias)
+        except ImportError as e:
+            print(e)
+    return LightweightConv1dTBC(input_size, kernel_size=kernel_size,
+        padding_l=padding_l, num_heads=num_heads, weight_dropout=
+        weight_dropout, weight_softmax=weight_softmax, bias=bias)
+
+
 def DynamicConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
     weight_dropout=0.0, weight_softmax=False, renorm_padding=False, bias=
     False, conv_bias=False, query_size=None, in_proj=False):
@@ -1929,21 +1888,6 @@ def DynamicConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
     return DynamicConv1dTBC(input_size, kernel_size=kernel_size, padding_l=
         padding_l, num_heads=num_heads, weight_dropout=weight_dropout,
         weight_softmax=weight_softmax, bias=bias)
-
-
-def LightweightConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
-    weight_dropout=0.0, weight_softmax=False, bias=False):
-    if torch.cuda.is_available():
-        try:
-            from fairseq.modules.lightconv_layer import LightconvLayer
-            return LightconvLayer(input_size, kernel_size=kernel_size,
-                padding_l=padding_l, num_heads=num_heads, weight_dropout=
-                weight_dropout, weight_softmax=weight_softmax, bias=bias)
-        except ImportError as e:
-            print(e)
-    return LightweightConv1dTBC(input_size, kernel_size=kernel_size,
-        padding_l=padding_l, num_heads=num_heads, weight_dropout=
-        weight_dropout, weight_softmax=weight_softmax, bias=bias)
 
 
 class LightConvEncoderLayer(nn.Module):
@@ -2815,6 +2759,12 @@ class BeamableMM(nn.Module):
         self.beam_size = beam_size
 
 
+CHAR_EOS_IDX = 257
+
+
+CHAR_PAD_IDX = 0
+
+
 SPACE_NORMALIZER = re.compile('\\s+')
 
 
@@ -3196,12 +3146,6 @@ class Dictionary(object):
         else:
             merge_result(Dictionary._add_file_to_dictionary_single_worker(
                 filename, tokenize, dict.eos_word))
-
-
-CHAR_EOS_IDX = 257
-
-
-CHAR_PAD_IDX = 0
 
 
 class CharacterTokenEmbedder(torch.nn.Module):
@@ -6391,21 +6335,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_freewym_espresso(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(TransposeLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ZeroPad1d(*[], **{'pad_left': 4, 'pad_right': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(AdaptiveSoftmax(*[], **{'vocab_size': 4, 'input_dim': 4, 'cutoff': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(BeamableMM(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -6414,8 +6357,8 @@ class Test_freewym_espresso(_paritybench_base):
 
     def test_006(self):
         self._check(Fp32GroupNorm(*[], **{'num_groups': 1, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(KmeansVectorQuantizer(*[], **{'dim': 4, 'num_vars': 4, 'groups': 1, 'combine_groups': 1, 'vq_dim': 4, 'time_first': 4}), [torch.rand([4, 4, 4])], {})
 
@@ -6424,14 +6367,15 @@ class Test_freewym_espresso(_paritybench_base):
 
     def test_009(self):
         self._check(LightweightConv1d(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(VGGBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'conv_kernel_size': 4, 'pooling_kernel_size': 4, 'num_conv_layers': 1, 'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(Model(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

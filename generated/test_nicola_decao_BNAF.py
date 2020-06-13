@@ -274,18 +274,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_nicola_decao_BNAF(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Permutation(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MaskedWeight(*[], **{'in_features': 4, 'out_features': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

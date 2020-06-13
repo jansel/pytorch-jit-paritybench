@@ -154,6 +154,10 @@ from collections import OrderedDict
 import torch.backends
 
 
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
+    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
+
+
 def network_layer_to_space(net_arch):
     for i, layer in enumerate(net_arch):
         if i == 0:
@@ -467,10 +471,6 @@ class Decoder(object):
         normalized_alphas = F.softmax(self._alphas, dim=-1).data.cpu().numpy()
         gene_cell = _parse(normalized_alphas, self._steps)
         return gene_cell
-
-
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
-    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
 
 
 OPS = {'none': lambda C, stride, affine, use_ABN: Zero(stride),
@@ -2118,13 +2118,13 @@ class DeepLab(nn.Module):
                             yield p
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
 
 
 class ABN(nn.Module):
@@ -2225,17 +2225,7 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class FutureResult(object):
@@ -2259,9 +2249,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -2349,6 +2336,19 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -3112,19 +3112,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_NoamRosenberg_autodeeplab(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3160,7 +3159,8 @@ class Test_NoamRosenberg_autodeeplab(_paritybench_base):
 
     def test_014(self):
         self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_015(self):
         self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -661,24 +661,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_github_pengge_PyTorch_progressive_growing_of_gans(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MinibatchStatConcatLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(MinibatchDiscriminationLayer(*[], **{'num_kernels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(GDropLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(ConcatLayer(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

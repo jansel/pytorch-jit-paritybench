@@ -261,13 +261,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hhb072_WaveletSRNet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_Residual_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_001(self):
         self._check(_Interim_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(NetSR(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

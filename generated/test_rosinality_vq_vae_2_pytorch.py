@@ -468,14 +468,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(WNConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(CausalConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Quantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -484,7 +483,8 @@ class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(Decoder(*[], **{'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 1, 'n_res_channel': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(VQVAE(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

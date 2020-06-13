@@ -303,18 +303,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_YirongMao_softmax_variants(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(COCOLoss(*[], **{'num_classes': 4, 'feat_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(LMCL_loss(*[], **{'num_classes': 4, 'feat_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LGMLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(LGMLoss_v0(*[], **{'num_classes': 4, 'feat_dim': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+

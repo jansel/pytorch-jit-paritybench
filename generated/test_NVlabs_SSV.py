@@ -563,7 +563,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_NVlabs_SSV(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -581,3 +580,4 @@ class Test_NVlabs_SSV(_paritybench_base):
 
     def test_005(self):
         self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+

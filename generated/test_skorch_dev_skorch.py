@@ -442,14 +442,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_skorch_dev_skorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ClassifierModule(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MLPClassifier(*[], **{}), [torch.rand([20, 20])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MLPModule(*[], **{}), [torch.rand([20, 20])], {})
+

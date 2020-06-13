@@ -102,6 +102,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ghliu_pytorch_ddpg(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Actor(*[], **{'nb_states': 4, 'nb_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+

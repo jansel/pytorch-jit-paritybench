@@ -275,13 +275,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ms_sharma_Adversarial_Semisupervised_Semantic_Segmentation(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Dis(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Classifier_Module(*[], **{'dilation_series': [4, 4], 'padding_series': [4, 4], 'NoLabels': 4}), [torch.rand([4, 2048, 64, 64])], {})
+

@@ -220,9 +220,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_luuuyi_CBAM_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ChannelAttention(*[], **{'in_planes': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
         self._check(SpatialAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

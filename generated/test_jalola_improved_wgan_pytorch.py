@@ -525,7 +525,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jalola_improved_wgan_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MyConvo2d(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -546,3 +545,4 @@ class Test_jalola_improved_wgan_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(FCGenerator(*[], **{}), [torch.rand([128, 128])], {})
+

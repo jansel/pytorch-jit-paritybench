@@ -63,19 +63,6 @@ def center_crop(x, height, width):
         crop_h.ceil()[0]), int(crop_h.floor()[0])])
 
 
-def make_layers_osvos(cfg, in_channels):
-    layers = []
-    for v in cfg:
-        if v == 'M':
-            layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
-                )
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            layers.extend([conv2d, nn.ReLU(inplace=True)])
-            in_channels = v
-    return nn.Sequential(*layers)
-
-
 class PathAbstract(object):
 
     @staticmethod
@@ -106,30 +93,6 @@ class Path(PathAbstract):
         return './models'
 
 
-def find_conv_layers(_vgg):
-    inds = []
-    for i in range(len(_vgg.features)):
-        if isinstance(_vgg.features[i], nn.Conv2d):
-            inds.append(i)
-    return inds
-
-
-def make_layers(cfg, batch_norm=False):
-    layers = []
-    in_channels = 3
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    return nn.Sequential(*layers)
-
-
 def upsample_filt(size):
     factor = (size + 1) // 2
     if size % 2 == 1:
@@ -153,6 +116,43 @@ def interp_surgery(lay):
     for i in range(m):
         lay.weight[(i), (i), :, :].data.copy_(torch.from_numpy(filt))
     return lay.weight.data
+
+
+def find_conv_layers(_vgg):
+    inds = []
+    for i in range(len(_vgg.features)):
+        if isinstance(_vgg.features[i], nn.Conv2d):
+            inds.append(i)
+    return inds
+
+
+def make_layers_osvos(cfg, in_channels):
+    layers = []
+    for v in cfg:
+        if v == 'M':
+            layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+                )
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            layers.extend([conv2d, nn.ReLU(inplace=True)])
+            in_channels = v
+    return nn.Sequential(*layers)
+
+
+def make_layers(cfg, batch_norm=False):
+    layers = []
+    in_channels = 3
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
 
 
 class OSVOS(nn.Module):

@@ -85,6 +85,30 @@ import torch.utils.data.distributed
 from collections import OrderedDict
 
 
+def drop_connect(inputs, p, training):
+    """Drop connect.
+       
+    Args:
+        input (tensor: BCWH): Input of this structure.
+        p (float: 0.0~1.0): Probability of drop connection.
+        training (bool): The running mode.
+
+    Returns:
+        output: Output after drop connection.
+    """
+    assert p >= 0 and p <= 1, 'p must be in range of [0,1]'
+    if not training:
+        return inputs
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
+        device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    output = inputs / keep_prob * binary_tensor
+    return output
+
+
 def get_width_and_height_from_size(x):
     """Obtain height and width from x.
 
@@ -121,30 +145,6 @@ def calculate_output_image_size(input_image_size, stride):
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
     return [image_height, image_width]
-
-
-def drop_connect(inputs, p, training):
-    """Drop connect.
-       
-    Args:
-        input (tensor: BCWH): Input of this structure.
-        p (float: 0.0~1.0): Probability of drop connection.
-        training (bool): The running mode.
-
-    Returns:
-        output: Output after drop connection.
-    """
-    assert p >= 0 and p <= 1, 'p must be in range of [0,1]'
-    if not training:
-        return inputs
-    batch_size = inputs.shape[0]
-    keep_prob = 1 - p
-    random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
-    binary_tensor = torch.floor(random_tensor)
-    output = inputs / keep_prob * binary_tensor
-    return output
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -260,114 +260,6 @@ class MBConvBlock(nn.Module):
             memory_efficient (bool): Whether to use memory-efficient version of swish.
         """
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
-
-
-url_map_advprop = {'efficientnet-b0':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b0-b64d5a18.pth'
-    , 'efficientnet-b1':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b1-0f3ce85a.pth'
-    , 'efficientnet-b2':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b2-6e9d97e5.pth'
-    , 'efficientnet-b3':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b3-cdd7c0f4.pth'
-    , 'efficientnet-b4':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b4-44fb3a87.pth'
-    , 'efficientnet-b5':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b5-86493f6b.pth'
-    , 'efficientnet-b6':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b6-ac80338e.pth'
-    , 'efficientnet-b7':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b7-4652b6dd.pth'
-    , 'efficientnet-b8':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b8-22a8fe65.pth'
-    }
-
-
-url_map = {'efficientnet-b0':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b7-dcc49843.pth'
-    }
-
-
-def load_pretrained_weights(model, model_name, weights_path=None, load_fc=
-    True, advprop=False):
-    """Loads pretrained weights from weights path or download using url.
-
-    Args:
-        model (Module): The whole model of efficientnet.
-        model_name (str): Model name of efficientnet.
-        weights_path (None or str): 
-            str: path to pretrained weights file on the local disk.
-            None: use pretrained weights downloaded from the Internet.
-        load_fc (bool): Whether to load pretrained weights for fc layer at the end of the model.
-        advprop (bool): Whether to load pretrained weights
-                        trained with advprop (valid when weights_path is None).
-    """
-    if isinstance(weights_path, str):
-        state_dict = torch.load(weights_path)
-    else:
-        url_map_ = url_map_advprop if advprop else url_map
-        state_dict = model_zoo.load_url(url_map_[model_name])
-    if load_fc:
-        ret = model.load_state_dict(state_dict, strict=False)
-        assert not ret.missing_keys, f'Missing keys when loading pretrained weights: {ret.missing_keys}'
-    else:
-        state_dict.pop('_fc.weight')
-        state_dict.pop('_fc.bias')
-        ret = model.load_state_dict(state_dict, strict=False)
-        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), f'Missing keys when loading pretrained weights: {ret.missing_keys}'
-    assert not ret.unexpected_keys, f'Missing keys when loading pretrained weights: {ret.unexpected_keys}'
-    print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def efficientnet_params(model_name):
-    """Map EfficientNet model name to parameter coefficients.
-
-    Args:
-        model_name (str): Model name to be queried.
-
-    Returns:
-        params_dict[model_name]: A (width,depth,res,dropout) tuple.
-    """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
-        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
-    return params_dict[model_name]
-
-
-def round_repeats(repeats, global_params):
-    """Calculate module's repeat number of a block based on depth multiplier.
-       Use depth_coefficient of global_params.
-
-    Args:
-        repeats (int): num_repeat to be calculated.
-        global_params (namedtuple): Global params of the model.
-
-    Returns:
-        new repeat: New repeat number after calculating.
-    """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['num_repeat',
@@ -495,6 +387,25 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
     return blocks_args, global_params
 
 
+def efficientnet_params(model_name):
+    """Map EfficientNet model name to parameter coefficients.
+
+    Args:
+        model_name (str): Model name to be queried.
+
+    Returns:
+        params_dict[model_name]: A (width,depth,res,dropout) tuple.
+    """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
+        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    return params_dict[model_name]
+
+
 def get_model_params(model_name, override_params):
     """Get the block args and global params for a given model name.
 
@@ -515,6 +426,95 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
+
+
+def round_repeats(repeats, global_params):
+    """Calculate module's repeat number of a block based on depth multiplier.
+       Use depth_coefficient of global_params.
+
+    Args:
+        repeats (int): num_repeat to be calculated.
+        global_params (namedtuple): Global params of the model.
+
+    Returns:
+        new repeat: New repeat number after calculating.
+    """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+url_map = {'efficientnet-b0':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b0-355c32eb.pth'
+    , 'efficientnet-b1':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b1-f1951068.pth'
+    , 'efficientnet-b2':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b2-8bb594d6.pth'
+    , 'efficientnet-b3':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b3-5fb5a3c3.pth'
+    , 'efficientnet-b4':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b4-6ed6700e.pth'
+    , 'efficientnet-b5':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b5-b6417697.pth'
+    , 'efficientnet-b6':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b6-c76e70fd.pth'
+    , 'efficientnet-b7':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b7-dcc49843.pth'
+    }
+
+
+url_map_advprop = {'efficientnet-b0':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b0-b64d5a18.pth'
+    , 'efficientnet-b1':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b1-0f3ce85a.pth'
+    , 'efficientnet-b2':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b2-6e9d97e5.pth'
+    , 'efficientnet-b3':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b3-cdd7c0f4.pth'
+    , 'efficientnet-b4':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b4-44fb3a87.pth'
+    , 'efficientnet-b5':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b5-86493f6b.pth'
+    , 'efficientnet-b6':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b6-ac80338e.pth'
+    , 'efficientnet-b7':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b7-4652b6dd.pth'
+    , 'efficientnet-b8':
+    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b8-22a8fe65.pth'
+    }
+
+
+def load_pretrained_weights(model, model_name, weights_path=None, load_fc=
+    True, advprop=False):
+    """Loads pretrained weights from weights path or download using url.
+
+    Args:
+        model (Module): The whole model of efficientnet.
+        model_name (str): Model name of efficientnet.
+        weights_path (None or str): 
+            str: path to pretrained weights file on the local disk.
+            None: use pretrained weights downloaded from the Internet.
+        load_fc (bool): Whether to load pretrained weights for fc layer at the end of the model.
+        advprop (bool): Whether to load pretrained weights
+                        trained with advprop (valid when weights_path is None).
+    """
+    if isinstance(weights_path, str):
+        state_dict = torch.load(weights_path)
+    else:
+        url_map_ = url_map_advprop if advprop else url_map
+        state_dict = model_zoo.load_url(url_map_[model_name])
+    if load_fc:
+        ret = model.load_state_dict(state_dict, strict=False)
+        assert not ret.missing_keys, f'Missing keys when loading pretrained weights: {ret.missing_keys}'
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        ret = model.load_state_dict(state_dict, strict=False)
+        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']
+            ), f'Missing keys when loading pretrained weights: {ret.missing_keys}'
+    assert not ret.unexpected_keys, f'Missing keys when loading pretrained weights: {ret.unexpected_keys}'
+    print('Loaded pretrained weights for {}'.format(model_name))
 
 
 def round_filters(filters, global_params):
@@ -936,11 +936,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -952,3 +951,4 @@ class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
 
     def test_004(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -230,7 +230,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pqhieu_jsis3d(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MTPNet(*[], **{'input_channels': 4, 'num_classes': 4, 'embedding_size': 4}), [torch.rand([4, 4, 4])], {})
 
@@ -239,3 +238,4 @@ class Test_pqhieu_jsis3d(_paritybench_base):
 
     def test_002(self):
         self._check(PointNet(*[], **{'input_channels': 4}), [torch.rand([4, 4, 4])], {})
+

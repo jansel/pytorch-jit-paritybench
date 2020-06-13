@@ -294,6 +294,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_raymon_tian_hourglass_facekeypoints_detection(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Lin(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+

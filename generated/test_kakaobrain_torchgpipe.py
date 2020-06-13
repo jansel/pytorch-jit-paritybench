@@ -223,6 +223,19 @@ class Stem(nn.Module):
         return x
 
 
+def relu_conv_bn(in_channels: int, out_channels: int, kernel_size: int=1,
+    stride: int=1, padding: int=0) ->nn.Module:
+    return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_channels,
+        out_channels, kernel_size, stride, padding, bias=False), nn.
+        BatchNorm2d(out_channels))
+
+
+NORMAL_CONCAT = [0, 3, 4, 6]
+
+
+REDUCTION_CONCAT = [4, 5, 6]
+
+
 class Operation(nn.Module):
     """Includes the operation name into the representation string for
     debugging.
@@ -304,13 +317,16 @@ class pop:
         self.name = name
 
 
+Tensors = Tuple[Tensor, ...]
+
+
+TensorOrTensors = Union[Tensor, Tensors]
+
+
 class Pass(nn.Module):
 
     def forward(self, input):
         return input
-
-
-TModule = TypeVar('TModule', bound=nn.Module)
 
 
 def is_recomputing() ->bool:
@@ -335,6 +351,9 @@ def is_recomputing() ->bool:
 
     """
     return thread_local.is_recomputing
+
+
+TModule = TypeVar('TModule', bound=nn.Module)
 
 
 class DeferredBatchNorm(_BatchNorm):
@@ -435,27 +454,23 @@ class DeferredBatchNorm(_BatchNorm):
         return cast(TModule, module_output)
 
 
-class CPUStreamType:
-    pass
+def recommend_auto_balance(message: str) ->str:
+    """Expands a message with recommendation to :mod:`torchgpipe.balance`."""
+    return f"""{message}
 
+If your model is still under development, its optimal balance would change
+frequently. In this case, we highly recommend 'torchgpipe.balance' for naive
+automatic balancing:
 
-CPUStream = CPUStreamType()
+  from torchgpipe import GPipe
+  from torchgpipe.balance import balance_by_time
 
+  partitions = torch.cuda.device_count()
+  sample = torch.empty(...)
+  balance = balance_by_time(partitions, model, sample)
 
-AbstractStream = Union[torch.cuda.Stream, CPUStreamType]
-
-
-def new_stream(device: torch.device) ->AbstractStream:
-    """Creates a new stream for either CPU or CUDA device."""
-    if device.type != 'cuda':
-        return CPUStream
-    return torch.cuda.Stream(device)
-
-
-Tensors = Tuple[Tensor, ...]
-
-
-TensorOrTensors = Union[Tensor, Tensors]
+  model = GPipe(model, balance, ...)
+"""
 
 
 import torch
@@ -463,7 +478,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kakaobrain_torchgpipe(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Stem(*[], **{'channels': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -472,7 +486,8 @@ class Test_kakaobrain_torchgpipe(_paritybench_base):
 
     def test_002(self):
         self._check(Pass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(DeferredBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

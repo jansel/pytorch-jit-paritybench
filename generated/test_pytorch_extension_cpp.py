@@ -42,14 +42,14 @@ import torch
 import torch.nn.functional as F
 
 
-def d_sigmoid(z):
-    s = torch.sigmoid(z)
-    return (1 - s) * s
-
-
 def d_tanh(z):
     t = torch.tanh(z)
     return 1 - t * t
+
+
+def d_sigmoid(z):
+    s = torch.sigmoid(z)
+    return (1 - s) * s
 
 
 def d_elu(z, alpha=1.0):

@@ -159,7 +159,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_iamhankai_ghostnet_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SELayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -168,3 +167,4 @@ class Test_iamhankai_ghostnet_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(GhostBottleneck(*[], **{'inp': 4, 'hidden_dim': 4, 'oup': 4, 'kernel_size': 4, 'stride': 1, 'use_se': 4}), [torch.rand([4, 4, 4, 4])], {})
+

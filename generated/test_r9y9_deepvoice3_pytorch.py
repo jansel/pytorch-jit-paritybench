@@ -243,6 +243,15 @@ class Conv1d(nn.Conv1d):
         self._linearized_weight = None
 
 
+def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
+    if speaker_embed is None:
+        return None
+    ss = speaker_embed.size()
+    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc
+        .size(tdim), ss[-1])
+    return speaker_embed_btc
+
+
 class GradMultiply(torch.autograd.Function):
 
     @staticmethod
@@ -263,15 +272,6 @@ def Linear(in_features, out_features, dropout=0):
     m.weight.data.normal_(mean=0, std=math.sqrt((1 - dropout) / in_features))
     m.bias.data.zero_()
     return nn.utils.weight_norm(m)
-
-
-def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
-    if speaker_embed is None:
-        return None
-    ss = speaker_embed.size()
-    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc
-        .size(tdim), ss[-1])
-    return speaker_embed_btc
 
 
 class Encoder(nn.Module):
@@ -730,13 +730,6 @@ class Converter(nn.Module):
         return torch.sigmoid(x)
 
 
-def sinusoidal_encode(x, w):
-    y = w * x
-    y[1:, 0::2] = torch.sin(y[1:, 0::2].clone())
-    y[1:, 1::2] = torch.cos(y[1:, 1::2].clone())
-    return y
-
-
 def position_encoding_init(n_position, d_pos_vec, position_rate=1.0,
     sinusoidal=True):
     """ Init the sinusoid position encoding table """
@@ -748,6 +741,13 @@ def position_encoding_init(n_position, d_pos_vec, position_rate=1.0,
         position_enc[1:, 0::2] = torch.sin(position_enc[1:, 0::2])
         position_enc[1:, 1::2] = torch.cos(position_enc[1:, 1::2])
     return position_enc
+
+
+def sinusoidal_encode(x, w):
+    y = w * x
+    y[1:, 0::2] = torch.sin(y[1:, 0::2].clone())
+    y[1:, 1::2] = torch.cos(y[1:, 1::2].clone())
+    return y
 
 
 class SinusoidalEncoding(nn.Embedding):
@@ -1193,10 +1193,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_r9y9_deepvoice3_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SinusoidalEncoding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+

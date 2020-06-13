@@ -367,13 +367,13 @@ class BiSeNet(nn.Module):
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
 
 
 class ABN(nn.Module):
@@ -736,7 +736,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -757,23 +756,23 @@ class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
 
     def test_006(self):
         self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -782,3 +781,4 @@ class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
 
     def test_013(self):
         self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

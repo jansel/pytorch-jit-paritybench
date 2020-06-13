@@ -115,13 +115,10 @@ class cross_entropy2d(nn.Module):
         return loss, Variable(torch.FloatTensor([total_valid_pixel]))
 
 
-dilation = {'16': 1, '8': 2}
-
-
-checkpoint = 'pretrained/SUNets'
-
-
 mom_bn = 0.01
+
+
+dilation = {'16': 1, '8': 2}
 
 
 def prediction_stat(outputs, labels, n_classes):
@@ -140,6 +137,9 @@ def prediction_stat(outputs, labels, n_classes):
             classwise_gtpixels += [torch.sum(mask1)]
             classwise_predpixels += [torch.sum(mask2)]
     return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+
+
+checkpoint = 'pretrained/SUNets'
 
 
 class UNetConv(nn.Sequential):
@@ -362,11 +362,6 @@ class Stackedunet_imagenet(nn.Module):
         out = out.view(out.size(0), -1)
         out = self.linear(out)
         return out
-
-
-def stackedunet64(output_stride='32'):
-    return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
-        64, num_classes=1000, depth=4, ost=output_stride)
 
 
 def stackedunet128(output_stride='32'):

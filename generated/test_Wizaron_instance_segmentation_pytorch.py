@@ -1102,24 +1102,16 @@ class DiceCoefficient(torch.nn.Module):
         return dice_coefficient(input, target, smooth=self.smooth)
 
 
-def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
-    """pred: bs, height * width, n_filters
-       gt: bs, height * width, n_instances
-       means: bs, n_instances, n_filters"""
-    bs, n_loc, n_filters = pred.size()
-    n_instances = gt.size(2)
-    means = means.unsqueeze(1).expand(bs, n_loc, n_instances, n_filters)
-    pred = pred.unsqueeze(2).expand(bs, n_loc, n_instances, n_filters)
-    gt = gt.unsqueeze(3).expand(bs, n_loc, n_instances, n_filters)
-    _var = torch.clamp(torch.norm(pred - means, norm, 3) - delta_v, min=0.0
-        ) ** 2 * gt[:, :, :, (0)]
-    var_term = 0.0
+def calculate_regularization_term(means, n_objects, norm):
+    """means: bs, n_instances, n_filters"""
+    bs, n_instances, n_filters = means.size()
+    reg_term = 0.0
     for i in range(bs):
-        _var_sample = _var[(i), :, :n_objects[i]]
-        _gt_sample = gt[(i), :, :n_objects[i], (0)]
-        var_term += torch.sum(_var_sample) / torch.sum(_gt_sample)
-    var_term = var_term / bs
-    return var_term
+        _mean_sample = means[(i), :n_objects[i], :]
+        _norm = torch.norm(_mean_sample, norm, 1)
+        reg_term += torch.mean(_norm)
+    reg_term = reg_term / bs
+    return reg_term
 
 
 def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
@@ -1149,6 +1141,26 @@ def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
     return dist_term
 
 
+def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
+    """pred: bs, height * width, n_filters
+       gt: bs, height * width, n_instances
+       means: bs, n_instances, n_filters"""
+    bs, n_loc, n_filters = pred.size()
+    n_instances = gt.size(2)
+    means = means.unsqueeze(1).expand(bs, n_loc, n_instances, n_filters)
+    pred = pred.unsqueeze(2).expand(bs, n_loc, n_instances, n_filters)
+    gt = gt.unsqueeze(3).expand(bs, n_loc, n_instances, n_filters)
+    _var = torch.clamp(torch.norm(pred - means, norm, 3) - delta_v, min=0.0
+        ) ** 2 * gt[:, :, :, (0)]
+    var_term = 0.0
+    for i in range(bs):
+        _var_sample = _var[(i), :, :n_objects[i]]
+        _gt_sample = gt[(i), :, :n_objects[i], (0)]
+        var_term += torch.sum(_var_sample) / torch.sum(_gt_sample)
+    var_term = var_term / bs
+    return var_term
+
+
 def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
     """pred: bs, height * width, n_filters
        gt: bs, height * width, n_instances"""
@@ -1173,18 +1185,6 @@ def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
         means.append(_mean_sample)
     means = torch.stack(means)
     return means
-
-
-def calculate_regularization_term(means, n_objects, norm):
-    """means: bs, n_instances, n_filters"""
-    bs, n_instances, n_filters = means.size()
-    reg_term = 0.0
-    for i in range(bs):
-        _mean_sample = means[(i), :n_objects[i], :]
-        _norm = torch.norm(_mean_sample, norm, 1)
-        reg_term += torch.mean(_norm)
-    reg_term = reg_term / bs
-    return reg_term
 
 
 def discriminative_loss(input, target, n_objects, max_n_objects, delta_v,
@@ -1236,18 +1236,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(InstanceCounter(*[], **{'input_n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(CoordConvTranspose(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ReNet(*[], **{'n_input': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4])], {})
+

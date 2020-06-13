@@ -685,13 +685,13 @@ class FilterResponseNormalization(nn.Module):
         return torch.max(self.gamma * x + self.beta, self.tau)
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
 
 
 class ABN(nn.Module):
@@ -1327,48 +1327,31 @@ class PacCRFLoose(nn.Module):
         return out
 
 
-def synchronize_stream(output, devices, streams):
-    if isinstance(output, list):
-        chunk_size = len(output) // len(devices)
-        for i in range(len(devices)):
-            for j in range(chunk_size):
-                synchronize_stream(output[i * chunk_size + j], [devices[i]],
-                    [streams[i]])
-    elif isinstance(output, torch.Tensor):
-        if output.numel() != 0:
-            with torch.cuda.device(devices[0]):
-                main_stream = torch.cuda.current_stream()
-                main_stream.wait_stream(streams[0])
-                output.record_stream(main_stream)
-    else:
-        raise Exception('Unknown type {}.'.format(type(output)))
+class CallbackContext(object):
+    pass
 
 
-def get_input_device(input):
-    if isinstance(input, list):
-        for item in input:
-            input_device = get_input_device(item)
-            if input_device != -1:
-                return input_device
-        return -1
-    elif isinstance(input, torch.Tensor):
-        return input.get_device() if input.is_cuda else -1
-    else:
-        raise Exception('Unknown type {}.'.format(type(input)))
+def execute_replication_callbacks(modules):
+    """
+    Execute an replication callback `__data_parallel_replicate__` on each module created
+    by original replication.
 
+    The callback will be invoked with arguments `__data_parallel_replicate__(ctx, copy_id)`
 
-class Scatter(object):
+    Note that, as all modules are isomorphism, we assign each sub-module with a context
+    (shared among multiple copies of this module on different devices).
+    Through this context, different copies can share some information.
 
-    @staticmethod
-    def forward(target_gpus, input):
-        input_device = get_input_device(input)
-        streams = None
-        if input_device == -1:
-            streams = [_get_stream(device) for device in target_gpus]
-        outputs = scatter(input, target_gpus, streams)
-        if streams is not None:
-            synchronize_stream(outputs, target_gpus, streams)
-        return tuple(outputs)
+    We guarantee that the callback on the master copy (the first copy) will be called ahead
+    of calling the callback of any slave copies.
+    """
+    master_copy = modules[0]
+    nr_modules = len(list(master_copy.modules()))
+    ctxs = [CallbackContext() for _ in range(nr_modules)]
+    for i, module in enumerate(modules):
+        for j, m in enumerate(module.modules()):
+            if hasattr(m, '__data_parallel_replicate__'):
+                m.__data_parallel_replicate__(ctxs[j], i)
 
 
 def assert_tensor_type(func):
@@ -1444,6 +1427,50 @@ class DataContainer(object):
         return self.data.numel()
 
 
+def synchronize_stream(output, devices, streams):
+    if isinstance(output, list):
+        chunk_size = len(output) // len(devices)
+        for i in range(len(devices)):
+            for j in range(chunk_size):
+                synchronize_stream(output[i * chunk_size + j], [devices[i]],
+                    [streams[i]])
+    elif isinstance(output, torch.Tensor):
+        if output.numel() != 0:
+            with torch.cuda.device(devices[0]):
+                main_stream = torch.cuda.current_stream()
+                main_stream.wait_stream(streams[0])
+                output.record_stream(main_stream)
+    else:
+        raise Exception('Unknown type {}.'.format(type(output)))
+
+
+def get_input_device(input):
+    if isinstance(input, list):
+        for item in input:
+            input_device = get_input_device(item)
+            if input_device != -1:
+                return input_device
+        return -1
+    elif isinstance(input, torch.Tensor):
+        return input.get_device() if input.is_cuda else -1
+    else:
+        raise Exception('Unknown type {}.'.format(type(input)))
+
+
+class Scatter(object):
+
+    @staticmethod
+    def forward(target_gpus, input):
+        input_device = get_input_device(input)
+        streams = None
+        if input_device == -1:
+            streams = [_get_stream(device) for device in target_gpus]
+        outputs = scatter(input, target_gpus, streams)
+        if streams is not None:
+            synchronize_stream(outputs, target_gpus, streams)
+        return tuple(outputs)
+
+
 def scatter(inputs, target_gpus, dim=0):
     """Scatter inputs to target gpus.
 
@@ -1485,33 +1512,6 @@ def scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
     inputs = tuple(inputs)
     kwargs = tuple(kwargs)
     return inputs, kwargs
-
-
-class CallbackContext(object):
-    pass
-
-
-def execute_replication_callbacks(modules):
-    """
-    Execute an replication callback `__data_parallel_replicate__` on each module created
-    by original replication.
-
-    The callback will be invoked with arguments `__data_parallel_replicate__(ctx, copy_id)`
-
-    Note that, as all modules are isomorphism, we assign each sub-module with a context
-    (shared among multiple copies of this module on different devices).
-    Through this context, different copies can share some information.
-
-    We guarantee that the callback on the master copy (the first copy) will be called ahead
-    of calling the callback of any slave copies.
-    """
-    master_copy = modules[0]
-    nr_modules = len(list(master_copy.modules()))
-    ctxs = [CallbackContext() for _ in range(nr_modules)]
-    for i, module in enumerate(modules):
-        for j, m in enumerate(module.modules()):
-            if hasattr(m, '__data_parallel_replicate__'):
-                m.__data_parallel_replicate__(ctxs[j], i)
 
 
 class DataParallelModel(DataParallel):
@@ -1562,6 +1562,19 @@ class DataParallelModel(DataParallel):
         modules = super(DataParallelModel, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
+
+
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 torch_ver = torch.__version__[:3]
@@ -1616,19 +1629,6 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):
@@ -1927,9 +1927,6 @@ class SwitchNorm3d(nn.Module):
 _ChildMessage = collections.namedtuple('Message', ['sum', 'ssum', 'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
 build_path = '/tmp/bulid/syncbn'
 
 
@@ -2119,12 +2116,6 @@ class FSAuxCELoss(nn.Module):
         return loss
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
-
-
 class ModuleHelper(object):
 
     @staticmethod
@@ -2305,6 +2296,12 @@ class ModuleHelper(object):
                 nonlinearity)
         if hasattr(module, 'bias') and module.bias is not None:
             nn.init.constant_(module.bias, bias)
+
+
+def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
@@ -4195,6 +4192,43 @@ class SpatialOCR_Context(nn.Module):
         return context
 
 
+class HRNetBackbone(object):
+
+    def __init__(self, configer):
+        self.configer = configer
+
+    def __call__(self):
+        arch = self.configer.get('network', 'backbone')
+        from lib.models.backbones.hrnet.hrnet_config import MODEL_CONFIGS
+        if arch == 'hrnet18':
+            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet18'], bn_type=
+                'inplace_abn', bn_momentum=0.1)
+            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
+                configer.get('network', 'pretrained'), all_match=False,
+                network='hrnet')
+        elif arch == 'hrnet32':
+            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet32'], bn_type=
+                'inplace_abn', bn_momentum=0.1)
+            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
+                configer.get('network', 'pretrained'), all_match=False,
+                network='hrnet')
+        elif arch == 'hrnet48':
+            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet48'], bn_type=
+                'inplace_abn', bn_momentum=0.1)
+            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
+                configer.get('network', 'pretrained'), all_match=False,
+                network='hrnet')
+        elif arch == 'hrnet64':
+            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet64'], bn_type=
+                'inplace_abn', bn_momentum=0.1)
+            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
+                configer.get('network', 'pretrained'), all_match=False,
+                network='hrnet')
+        else:
+            raise Exception('Architecture undefined!')
+        return arch_net
+
+
 class ResNetModels(object):
 
     def __init__(self, configer):
@@ -4629,43 +4663,6 @@ class ResNetBackbone(object):
         return arch_net
 
 
-class HRNetBackbone(object):
-
-    def __init__(self, configer):
-        self.configer = configer
-
-    def __call__(self):
-        arch = self.configer.get('network', 'backbone')
-        from lib.models.backbones.hrnet.hrnet_config import MODEL_CONFIGS
-        if arch == 'hrnet18':
-            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet18'], bn_type=
-                'inplace_abn', bn_momentum=0.1)
-            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
-                configer.get('network', 'pretrained'), all_match=False,
-                network='hrnet')
-        elif arch == 'hrnet32':
-            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet32'], bn_type=
-                'inplace_abn', bn_momentum=0.1)
-            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
-                configer.get('network', 'pretrained'), all_match=False,
-                network='hrnet')
-        elif arch == 'hrnet48':
-            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet48'], bn_type=
-                'inplace_abn', bn_momentum=0.1)
-            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
-                configer.get('network', 'pretrained'), all_match=False,
-                network='hrnet')
-        elif arch == 'hrnet64':
-            arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet64'], bn_type=
-                'inplace_abn', bn_momentum=0.1)
-            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.
-                configer.get('network', 'pretrained'), all_match=False,
-                network='hrnet')
-        else:
-            raise Exception('Architecture undefined!')
-        return arch_net
-
-
 class BackboneSelector(object):
 
     def __init__(self, configer):
@@ -4805,40 +4802,40 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_openseg_group_openseg_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(PacCRF(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(PacCRFLoose(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(SwitchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(PyramidSpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

@@ -64,15 +64,6 @@ class DepthSampler(nn.Module):
         return intersections, depth
 
 
-def lstm_forget_gate_init(lstm_layer):
-    for name, parameter in lstm_layer.named_parameters():
-        if not 'bias' in name:
-            continue
-        n = parameter.size(0)
-        start, end = n // 4, n // 2
-        parameter.data[start:end].fill_(1.0)
-
-
 def init_recurrent_weights(self):
     for m in self.modules():
         if type(m) in [nn.GRU, nn.LSTM, nn.RNN]:
@@ -83,6 +74,15 @@ def init_recurrent_weights(self):
                     nn.init.orthogonal_(param.data)
                 elif 'bias' in name:
                     param.data.fill_(0)
+
+
+def lstm_forget_gate_init(lstm_layer):
+    for name, parameter in lstm_layer.named_parameters():
+        if not 'bias' in name:
+            continue
+        n = parameter.size(0)
+        start, end = n // 4, n // 2
+        parameter.data[start:end].fill_(1.0)
 
 
 class Raymarcher(nn.Module):
@@ -597,14 +597,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vsitzmann_scene_representation_networks(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LookupLayer(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(LookupFC(*[], **{'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LookupLinear(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+

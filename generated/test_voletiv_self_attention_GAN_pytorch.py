@@ -297,24 +297,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_voletiv_self_attention_GAN_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Self_Attn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_001(self):
         self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Generator(*[], **{'z_dim': 4, 'g_conv_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([64], dtype=torch.int64)], {})
 
     def test_003(self):
         self._check(DiscOptBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(DiscBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Discriminator(*[], **{'d_conv_dim': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64]), torch.zeros([4], dtype=torch.int64)], {})
+

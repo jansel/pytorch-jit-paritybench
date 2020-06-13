@@ -130,21 +130,6 @@ class SparseFullyConnected(torch.nn.Module):
         return filtered_features
 
 
-def normalize_adjacency_matrix(A, I):
-    """
-    Creating a normalized adjacency matrix with self loops.
-    :param A: Sparse adjacency matrix.
-    :param I: Identity matrix.
-    :return A_tile_hat: Normalized adjacency matrix.
-    """
-    A_tilde = A + I
-    degrees = A_tilde.sum(axis=0)[0].tolist()
-    D = sparse.diags(degrees, [0])
-    D = D.power(-0.5)
-    A_tilde_hat = D.dot(A_tilde).dot(D)
-    return A_tilde_hat
-
-
 def create_adjacency_matrix(graph):
     """
     Creating a sparse adjacency matrix.
@@ -160,6 +145,21 @@ def create_adjacency_matrix(graph):
     A = sparse.coo_matrix((values, (index_1, index_2)), shape=(node_count,
         node_count), dtype=np.float32)
     return A
+
+
+def normalize_adjacency_matrix(A, I):
+    """
+    Creating a normalized adjacency matrix with self loops.
+    :param A: Sparse adjacency matrix.
+    :param I: Identity matrix.
+    :return A_tile_hat: Normalized adjacency matrix.
+    """
+    A_tilde = A + I
+    degrees = A_tilde.sum(axis=0)[0].tolist()
+    D = sparse.diags(degrees, [0])
+    D = D.power(-0.5)
+    A_tilde_hat = D.dot(A_tilde).dot(D)
+    return A_tilde_hat
 
 
 def create_propagator_matrix(graph, alpha, model):
@@ -270,6 +270,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_benedekrozemberczki_APPNP(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DenseFullyConnected(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4])], {})
+

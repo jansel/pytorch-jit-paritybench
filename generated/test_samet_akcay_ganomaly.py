@@ -195,10 +195,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_samet_akcay_ganomaly(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Encoder(*[], **{'isize': 16, 'nz': 4, 'nc': 4, 'ndf': 4, 'ngpu': False}), [torch.rand([4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Decoder(*[], **{'isize': 16, 'nz': 4, 'nc': 4, 'ngf': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -122,17 +122,17 @@ class BeautyNet(nn.Module):
         return classification
 
 
+def default_activation():
+    activation = nn.ReLU6(inplace=True)
+    return activation
+
+
 def sequential(*modules):
     """
     Returns an nn.Sequential object using modules with None's filtered
     """
     modules = [module for module in modules if module is not None]
     return nn.Sequential(*modules)
-
-
-def default_activation():
-    activation = nn.ReLU6(inplace=True)
-    return activation
 
 
 def get_perfect_padding(kernel_size, dilation=1):
@@ -173,9 +173,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_cmsflash_beauty_net(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+

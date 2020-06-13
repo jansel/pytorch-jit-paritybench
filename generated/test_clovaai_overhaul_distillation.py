@@ -109,6 +109,14 @@ import functools
 from torch.nn.parallel.data_parallel import DataParallel
 
 
+def distillation_loss(source, target, margin):
+    loss = (source - margin) ** 2 * ((source > margin) & (target <= margin)
+        ).float() + (source - target) ** 2 * ((source > target) & (target >
+        margin) & (target <= 0)).float() + (source - target) ** 2 * (target > 0
+        ).float()
+    return torch.abs(loss).sum()
+
+
 def get_margin_from_BN(bn):
     margin = []
     std = bn.weight.data
@@ -122,14 +130,6 @@ def get_margin_from_BN(bn):
         else:
             margin.append(-3 * s)
     return torch.FloatTensor(margin).to(std.device)
-
-
-def distillation_loss(source, target, margin):
-    loss = (source - margin) ** 2 * ((source > margin) & (target <= margin)
-        ).float() + (source - target) ** 2 * ((source > target) & (target >
-        margin) & (target <= 0)).float() + (source - target) ** 2 * (target > 0
-        ).float()
-    return torch.abs(loss).sum()
 
 
 def build_feature_connector(t_channel, s_channel):
@@ -1989,17 +1989,7 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class FutureResult(object):
@@ -2023,9 +2013,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -2113,6 +2100,19 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

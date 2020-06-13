@@ -349,7 +349,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_facebookresearch_higher(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -358,3 +357,4 @@ class Test_facebookresearch_higher(_paritybench_base):
 
     def test_002(self):
         self._check(_PartiallyUsed(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

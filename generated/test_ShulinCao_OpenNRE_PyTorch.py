@@ -242,6 +242,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ShulinCao_OpenNRE_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_CNN(*[], **{'config': _mock_config(max_length=4, word_size=4, pos_size=4, window_size=4, hidden_size=4)}), [torch.rand([4, 1, 64, 64])], {})
+

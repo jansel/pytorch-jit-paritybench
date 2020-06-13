@@ -606,7 +606,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pangwong_pytorch_multi_label_classifier(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(mfm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -618,3 +617,4 @@ class Test_pangwong_pytorch_multi_label_classifier(_paritybench_base):
 
     def test_003(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

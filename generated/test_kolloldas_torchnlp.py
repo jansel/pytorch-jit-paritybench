@@ -69,6 +69,35 @@ import torch.nn.functional as F
 import math
 
 
+def gen_model_dir(task_name, model_cls):
+    """
+    Generate the model directory from the task name and model class.
+    Creat if not exists. 
+    Parameters:
+        task_name: Name of the task. Gets prefixed to model directory
+        model_cls: The models class (derived from Model)
+    """
+    model_dir = os.path.join(os.getcwd(), '%s-%s' % (task_name, model_cls.
+        __name__))
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+    return model_dir
+
+
+HYPERPARAMS_FILE = 'hyperparams.pt'
+
+
+def xavier_uniform_init(m):
+    """
+    Xavier initializer to be used with model.apply
+    """
+    if type(m) == nn.Linear:
+        nn.init.xavier_uniform_(m.weight.data)
+
+
+CHECKPOINT_FILE = 'checkpoint-{}.pt'
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,36 +129,7 @@ def prepare_model_dir(model_dir, clear=False):
                 pass
 
 
-HYPERPARAMS_FILE = 'hyperparams.pt'
-
-
-CHECKPOINT_FILE = 'checkpoint-{}.pt'
-
-
-def xavier_uniform_init(m):
-    """
-    Xavier initializer to be used with model.apply
-    """
-    if type(m) == nn.Linear:
-        nn.init.xavier_uniform_(m.weight.data)
-
-
 CHECKPOINT_GLOB = 'checkpoint-*.pt'
-
-
-def gen_model_dir(task_name, model_cls):
-    """
-    Generate the model directory from the task name and model class.
-    Creat if not exists. 
-    Parameters:
-        task_name: Name of the task. Gets prefixed to model directory
-        model_cls: The models class (derived from Model)
-    """
-    model_dir = os.path.join(os.getcwd(), '%s-%s' % (task_name, model_cls.
-        __name__))
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    return model_dir
 
 
 class Model(nn.Module):
@@ -771,10 +771,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kolloldas_torchnlp(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(PositionwiseFeedForward(*[], **{'input_depth': 1, 'filter_size': 4, 'output_depth': 1}), [torch.rand([1, 1])], {})
+

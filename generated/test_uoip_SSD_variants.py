@@ -137,17 +137,17 @@ class L2Norm(nn.Module):
         return self.scale * x
 
 
-def bn_relu_conv(in_channels, out_channels, kernel_size, stride=1, padding=0):
-    return nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True),
-        nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding,
-        bias=False))
-
-
 def conv_bn_relu(in_channels, out_channels, kernel_size=1, stride=1, padding=0
     ):
     return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
         stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU
         (inplace=True))
+
+
+def bn_relu_conv(in_channels, out_channels, kernel_size, stride=1, padding=0):
+    return nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True),
+        nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding,
+        bias=False))
 
 
 class DSOD300(nn.Module):
@@ -492,7 +492,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_uoip_SSD_variants(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -504,3 +503,4 @@ class Test_uoip_SSD_variants(_paritybench_base):
 
     def test_003(self):
         self._check(TwoWay(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -264,6 +264,18 @@ class Bottleneck(nn.Module):
         return out
 
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+
+class NoisyMLPHandler:
+    """Includes methods to handle noisy linear."""
+
+    def reset_noise(self):
+        """Re-sample noise"""
+        for _, module in self.named_children():
+            module.reset_noise()
+
+
 HEADS = Registry('heads')
 
 
@@ -348,7 +360,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_medipixel_rl_algorithms(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CNNLayer(*[], **{'input_size': 4, 'output_size': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -360,3 +371,4 @@ class Test_medipixel_rl_algorithms(_paritybench_base):
 
     def test_003(self):
         self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

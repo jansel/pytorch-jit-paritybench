@@ -81,24 +81,6 @@ import functools
 from torch.nn import init
 
 
-def orthogonal(points, calibrations, transforms=None):
-    """
-    Compute the orthogonal projections of 3D points into the image plane by given projection matrix
-    :param points: [B, 3, N] Tensor of 3D points
-    :param calibrations: [B, 3, 4] Tensor of projection matrix
-    :param transforms: [B, 2, 3] Tensor of image transform matrix
-    :return: xyz: [B, 3, N] Tensor of xyz coordinates in the image plane
-    """
-    rot = calibrations[:, :3, :3]
-    trans = calibrations[:, :3, 3:4]
-    pts = torch.baddbmm(trans, rot, points)
-    if transforms is not None:
-        scale = transforms[:2, :2]
-        shift = transforms[:2, 2:3]
-        pts[:, :2, :] = torch.baddbmm(shift, scale, pts[:, :2, :])
-    return pts
-
-
 def perspective(points, calibrations, transforms=None):
     """
     Compute the perspective projections of 3D points into the image plane by given projection matrix
@@ -130,6 +112,24 @@ def index(feat, uv):
     uv = uv.unsqueeze(2)
     samples = torch.nn.functional.grid_sample(feat, uv, align_corners=True)
     return samples[:, :, :, (0)]
+
+
+def orthogonal(points, calibrations, transforms=None):
+    """
+    Compute the orthogonal projections of 3D points into the image plane by given projection matrix
+    :param points: [B, 3, N] Tensor of 3D points
+    :param calibrations: [B, 3, 4] Tensor of projection matrix
+    :param transforms: [B, 2, 3] Tensor of image transform matrix
+    :return: xyz: [B, 3, N] Tensor of xyz coordinates in the image plane
+    """
+    rot = calibrations[:, :3, :3]
+    trans = calibrations[:, :3, 3:4]
+    pts = torch.baddbmm(trans, rot, points)
+    if transforms is not None:
+        scale = transforms[:2, :2]
+        shift = transforms[:2, 2:3]
+        pts[:, :2, :] = torch.baddbmm(shift, scale, pts[:, :2, :])
+    return pts
 
 
 class BasePIFuNet(nn.Module):
@@ -661,19 +661,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_shunsukesaito_PIFu(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BasePIFuNet(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SurfaceClassifier(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MultiConv(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(HourGlass(*[], **{'num_modules': 4, 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -682,3 +681,4 @@ class Test_shunsukesaito_PIFu(_paritybench_base):
 
     def test_005(self):
         self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

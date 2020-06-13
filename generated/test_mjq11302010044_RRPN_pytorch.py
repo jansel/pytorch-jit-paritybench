@@ -394,10 +394,10 @@ class BufferList(nn.Module):
         return iter(self._buffers.values())
 
 
-FLIP_TOP_BOTTOM = 1
-
-
 FLIP_LEFT_RIGHT = 0
+
+
+FLIP_TOP_BOTTOM = 1
 
 
 class BoxList(object):
@@ -621,6 +621,13 @@ class BoxList(object):
         return s
 
 
+def _angle_enum(anchor, angle):
+    x_ctr, y_ctr, width, height, theta = anchor
+    ctr = np.tile([x_ctr, y_ctr, width, height], (len(angle), 1))
+    angle = [[ele] for ele in angle]
+    return np.hstack((ctr, angle))
+
+
 def _ratio_enum(anchor, ratios):
     x_ctr, y_ctr, width, height, theta = anchor
     size = width * height
@@ -634,13 +641,6 @@ def _ratio_enum(anchor, ratios):
     ctr = np.tile([x_ctr, y_ctr], (ws.shape[0], 1))
     theta = np.tile([theta], (ws.shape[0], 1))
     return np.hstack((ctr, ws, hs, theta))
-
-
-def _angle_enum(anchor, angle):
-    x_ctr, y_ctr, width, height, theta = anchor
-    ctr = np.tile([x_ctr, y_ctr, width, height], (len(angle), 1))
-    angle = [[ele] for ele in angle]
-    return np.hstack((ctr, angle))
 
 
 def _scale_enum(anchor, scales):
@@ -854,20 +854,6 @@ def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='score'):
     return boxlist.convert(mode)
 
 
-def remove_small_boxes(boxlist, min_size):
-    """
-    Only keep boxes with both sides >= min_size
-
-    Arguments:
-        boxlist (Boxlist)
-        min_size (int)
-    """
-    xywh_boxes = boxlist.convert('xywh').bbox
-    _, _, ws, hs = xywh_boxes.unbind(dim=1)
-    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
-    return boxlist[keep]
-
-
 def _cat(tensors, dim=0):
     """
     Efficient version of torch.cat that avoids a copy if there is only a single element in a list
@@ -900,6 +886,20 @@ def cat_boxlist(bboxes):
         data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
         cat_boxes.add_field(field, data)
     return cat_boxes
+
+
+def remove_small_boxes(boxlist, min_size):
+    """
+    Only keep boxes with both sides >= min_size
+
+    Arguments:
+        boxlist (Boxlist)
+        min_size (int)
+    """
+    xywh_boxes = boxlist.convert('xywh').bbox
+    _, _, ws, hs = xywh_boxes.unbind(dim=1)
+    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
+    return boxlist[keep]
 
 
 class RPNPostProcessor(torch.nn.Module):
@@ -1035,6 +1035,24 @@ class RPNPostProcessor(torch.nn.Module):
         return boxlists
 
 
+def make_rpn_postprocessor(config, rpn_box_coder, is_train):
+    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
+    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
+    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
+        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
+        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
+        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
+        fpn_post_nms_top_n)
+    return box_selector
+
+
 def make_anchor_generator(config):
     anchor_sizes = config.MODEL.RRPN.ANCHOR_SIZES
     aspect_ratios = config.MODEL.RRPN.ASPECT_RATIOS
@@ -1050,60 +1068,6 @@ def make_anchor_generator(config):
     anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios,
         anchor_stride, anchor_angle, straddle_thresh)
     return anchor_generator
-
-
-def cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
-
-
-def boxlist_iou(boxlist1, boxlist2):
-    """Compute the intersection over union of two set of boxes.
-    The box order must be (xmin, ymin, xmax, ymax).
-
-    Arguments:
-      box1: (BoxList) bounding boxes, sized [N,4].
-      box2: (BoxList) bounding boxes, sized [M,4].
-
-    Returns:
-      (tensor) iou, sized [N,M].
-
-    Reference:
-      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
-    """
-    if boxlist1.size != boxlist2.size:
-        raise RuntimeError('boxlists should have same image size, got {}, {}'
-            .format(boxlist1, boxlist2))
-    N = len(boxlist1)
-    M = len(boxlist2)
-    area1 = boxlist1.area()
-    area2 = boxlist2.area()
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
-    return iou
-
-
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
 
 
 class Matcher(object):
@@ -1190,6 +1154,60 @@ class Matcher(object):
             match_quality_matrix == highest_quality_foreach_gt[:, (None)])
         pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
+
+
+def cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
+
+
+def boxlist_iou(boxlist1, boxlist2):
+    """Compute the intersection over union of two set of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Arguments:
+      box1: (BoxList) bounding boxes, sized [N,4].
+      box2: (BoxList) bounding boxes, sized [M,4].
+
+    Returns:
+      (tensor) iou, sized [N,M].
+
+    Reference:
+      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
+    """
+    if boxlist1.size != boxlist2.size:
+        raise RuntimeError('boxlists should have same image size, got {}, {}'
+            .format(boxlist1, boxlist2))
+    N = len(boxlist1)
+    M = len(boxlist2)
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    lt = torch.max(box1[:, (None), :2], box2[:, :2])
+    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    TO_REMOVE = 1
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)
+    inter = wh[:, :, (0)] * wh[:, :, (1)]
+    iou = inter / (area1[:, (None)] + area2 - inter)
+    return iou
 
 
 class RPNLossComputation(object):
@@ -1365,24 +1383,6 @@ def make_rpn_loss_evaluator(cfg, box_coder):
     return loss_evaluator
 
 
-def make_rpn_postprocessor(config, rpn_box_coder, is_train):
-    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
-    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
-    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
-        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
-        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
-        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
-        fpn_post_nms_top_n)
-    return box_selector
-
-
 class RPNModule(torch.nn.Module):
     """
     Module for RPN computation. Takes feature maps from the backbone and RPN
@@ -1517,121 +1517,6 @@ class LastLevelMaxPool(nn.Module):
         return [F.max_pool2d(x, 1, 2, 0)]
 
 
-def _register_generic(module_dict, module_name, module):
-    assert module_name not in module_dict
-    module_dict[module_name] = module
-
-
-class Registry(dict):
-    """
-    A helper class for managing registering modules, it extends a dictionary
-    and provides a register functions.
-
-    Eg. creeting a registry:
-        some_registry = Registry({"default": default_module})
-
-    There're two ways of registering new modules:
-    1): normal way is just calling register function:
-        def foo():
-            ...
-        some_registry.register("foo_module", foo)
-    2): used as decorator when declaring the module:
-        @some_registry.register("foo_module")
-        @some_registry.register("foo_modeul_nickname")
-        def foo():
-            ...
-
-    Access of module is just like using a dictionary, eg:
-        f = some_registry["foo_modeul"]
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Registry, self).__init__(*args, **kwargs)
-
-    def register(self, module_name, module=None):
-        if module is not None:
-            _register_generic(self, module_name, module)
-            return
-
-        def register_fn(fn):
-            _register_generic(self, module_name, fn)
-            return fn
-        return register_fn
-
-
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
-
-
-_global_config['MODEL'] = 4
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
-
-
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
-    dilation=1):
-    blocks = []
-    stride = first_stride
-    for _ in range(block_count):
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride, dilation=dilation))
-        stride = 1
-        in_channels = out_channels
-    return nn.Sequential(*blocks)
-
-
-class ResNetHead(nn.Module):
-
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
-        dilation=1):
-        super(ResNetHead, self).__init__()
-        stage2_relative_factor = 2 ** (stages[0].index - 1)
-        stage2_bottleneck_channels = num_groups * width_per_group
-        out_channels = res2_out_channels * stage2_relative_factor
-        in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
-        block_module = _TRANSFORMATION_MODULES[block_module]
-        self.stages = []
-        stride = stride_init
-        for stage in stages:
-            name = 'layer' + str(stage.index)
-            if not stride:
-                stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride, dilation=
-                dilation)
-            stride = None
-            self.add_module(name, module)
-            self.stages.append(name)
-
-    def forward(self, x):
-        for stage in self.stages:
-            x = getattr(self, stage)(x)
-        return x
-
-
 class Bottleneck(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -1699,6 +1584,49 @@ class BaseStem(nn.Module):
         return x
 
 
+def build_rpn(cfg):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    return RPNModule(cfg)
+
+
+def build_backbone(cfg):
+    assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(
+        cfg.MODEL.BACKBONE.CONV_BODY)
+    return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
+
+
+def build_roi_mask_head(cfg):
+    return ROIMaskHead(cfg)
+
+
+def build_roi_rec_head(cfg):
+    return ROIRecHead(cfg)
+
+
+def build_roi_box_head(cfg):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg)
+
+
+def build_roi_heads(cfg):
+    roi_heads = []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg)))
+    if cfg.MODEL.REC_ON:
+        roi_heads.append(('rec', build_roi_rec_head(cfg)))
+    if cfg.MODEL.MASK_ON:
+        roi_heads.append(('mask', build_roi_mask_head(cfg)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
+
+
 class ImageList(object):
     """
     Structure that holds a list of images (of possibly
@@ -1755,49 +1683,6 @@ def to_image_list(tensors, size_divisible=0):
     else:
         raise TypeError('Unsupported type for to_image_list: {}'.format(
             type(tensors)))
-
-
-def build_roi_box_head(cfg):
-    """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg)
-
-
-def build_roi_mask_head(cfg):
-    return ROIMaskHead(cfg)
-
-
-def build_roi_rec_head(cfg):
-    return ROIRecHead(cfg)
-
-
-def build_roi_heads(cfg):
-    roi_heads = []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg)))
-    if cfg.MODEL.REC_ON:
-        roi_heads.append(('rec', build_roi_rec_head(cfg)))
-    if cfg.MODEL.MASK_ON:
-        roi_heads.append(('mask', build_roi_mask_head(cfg)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
-
-
-def build_rpn(cfg):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    return RPNModule(cfg)
-
-
-def build_backbone(cfg):
-    assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(
-        cfg.MODEL.BACKBONE.CONV_BODY)
-    return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
 
 
 class GeneralizedRCNN(nn.Module):
@@ -2172,6 +2057,32 @@ class PostProcessor(nn.Module):
         return result
 
 
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
+
+
 def make_fc(dim_in, hidden_dim, use_gn=False):
     """
         Caffe2 implementation uses XavierFill, which in fact
@@ -2365,12 +2276,6 @@ class MaskRCNNC4Predictor(nn.Module):
         return self.mask_fcn_logits(x)
 
 
-def make_roi_box_feature_extractor(cfg):
-    func = registry.RROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.
-        FEATURE_EXTRACTOR]
-    return func(cfg)
-
-
 class RBoxCoder(object):
     """
     This class encodes and decodes a set of bounding boxes into
@@ -2462,21 +2367,6 @@ class RBoxCoder(object):
         return pred_boxes
 
 
-def make_roi_box_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.RBBOX_REG_WEIGHTS
-    box_coder = RBoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    postprocessor = PostProcessor(score_thresh, nms_thresh,
-        detections_per_img, box_coder)
-    return postprocessor
-
-
-_DEBUG = True
-
-
 def vis_image(img, boxes, cls_prob=None, mode=0, font_file='./fonts/ARIAL.TTF'
     ):
     font = ImageFont.truetype(font_file, 32)
@@ -2540,6 +2430,9 @@ def vis_image(img, boxes, cls_prob=None, mode=0, font_file='./fonts/ARIAL.TTF'
                     1] + 30)), str(idx), fill=(255, 255, 255, 128), font=font)
     del draw
     return img
+
+
+_DEBUG = True
 
 
 class FastRCNNLossComputation(object):
@@ -2685,6 +2578,24 @@ def make_roi_box_loss_evaluator(cfg):
     loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler,
         box_coder, edge_punished)
     return loss_evaluator
+
+
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.RBBOX_REG_WEIGHTS
+    box_coder = RBoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    postprocessor = PostProcessor(score_thresh, nms_thresh,
+        detections_per_img, box_coder)
+    return postprocessor
+
+
+def make_roi_box_feature_extractor(cfg):
+    func = registry.RROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.
+        FEATURE_EXTRACTOR]
+    return func(cfg)
 
 
 class ROIBoxHead(torch.nn.Module):
@@ -3425,6 +3336,29 @@ def make_roi_mask_predictor(cfg):
     return func(cfg)
 
 
+def keep_only_positive_boxes(boxes):
+    """
+    Given a set of BoxList containing the `labels` field,
+    return a set of BoxList for which `labels > 0`.
+
+    Arguments:
+        boxes (list of BoxList)
+    """
+    assert isinstance(boxes, (list, tuple))
+    assert isinstance(boxes[0], RBoxList)
+    assert boxes[0].has_field('labels')
+    positive_boxes = []
+    positive_inds = []
+    num_boxes = 0
+    for boxes_per_image in boxes:
+        labels = boxes_per_image.get_field('labels')
+        inds_mask = labels > 0
+        inds = inds_mask.nonzero().squeeze(1)
+        positive_boxes.append(boxes_per_image[inds])
+        positive_inds.append(inds_mask)
+    return positive_boxes, positive_inds
+
+
 def expand_masks(mask, padding):
     N = mask.shape[0]
     M = mask.shape[-1]
@@ -3687,29 +3621,6 @@ def make_roi_mask_loss_evaluator(cfg):
     loss_evaluator = MaskRCNNLossComputation(matcher, cfg.MODEL.
         ROI_MASK_HEAD.RESOLUTION)
     return loss_evaluator
-
-
-def keep_only_positive_boxes(boxes):
-    """
-    Given a set of BoxList containing the `labels` field,
-    return a set of BoxList for which `labels > 0`.
-
-    Arguments:
-        boxes (list of BoxList)
-    """
-    assert isinstance(boxes, (list, tuple))
-    assert isinstance(boxes[0], RBoxList)
-    assert boxes[0].has_field('labels')
-    positive_boxes = []
-    positive_inds = []
-    num_boxes = 0
-    for boxes_per_image in boxes:
-        labels = boxes_per_image.get_field('labels')
-        inds_mask = labels > 0
-        inds = inds_mask.nonzero().squeeze(1)
-        positive_boxes.append(boxes_per_image[inds])
-        positive_inds.append(inds_mask)
-    return positive_boxes, positive_inds
 
 
 class ROIMaskHead(torch.nn.Module):
@@ -4500,15 +4411,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_mjq11302010044_RRPN_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4520,3 +4430,4 @@ class Test_mjq11302010044_RRPN_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(Conv2dGroup(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

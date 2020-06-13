@@ -1699,7 +1699,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ShuangXieIrene_ssds_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1744,3 +1743,4 @@ class Test_ShuangXieIrene_ssds_pytorch(_paritybench_base):
 
     def test_014(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

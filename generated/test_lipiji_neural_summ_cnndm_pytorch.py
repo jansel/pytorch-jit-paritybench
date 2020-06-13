@@ -57,12 +57,12 @@ import random
 from random import shuffle
 
 
-def init_bias(b):
-    nn.init.constant_(b, 0.0)
-
-
 def init_ortho_weight(w):
     nn.init.orthogonal_(w)
+
+
+def init_bias(b):
+    nn.init.constant_(b, 0.0)
 
 
 class GRUAttentionDecoder(nn.Module):
@@ -458,6 +458,18 @@ class LSTMAttentionDecoder(nn.Module):
             return (hs, cs), ss, atts
 
 
+def init_gru_weight(gru):
+    for param in gru.parameters():
+        if len(param.shape) >= 2:
+            init_ortho_weight(param.data)
+        else:
+            init_bias(param.data)
+
+
+def init_uniform_weight(w):
+    nn.init.uniform_(w, -0.1, 0.1)
+
+
 def init_xavier_weight(w):
     nn.init.xavier_normal_(w)
 
@@ -466,18 +478,6 @@ def init_linear_weight(linear):
     init_xavier_weight(linear.weight)
     if linear.bias is not None:
         init_bias(linear.bias)
-
-
-def init_uniform_weight(w):
-    nn.init.uniform_(w, -0.1, 0.1)
-
-
-def init_gru_weight(gru):
-    for param in gru.parameters():
-        if len(param.shape) >= 2:
-            init_ortho_weight(param.data)
-        else:
-            init_bias(param.data)
 
 
 class Model(nn.Module):

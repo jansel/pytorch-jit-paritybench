@@ -422,9 +422,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_philip_huang_PIXOR(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Header(*[], **{}), [torch.rand([4, 96, 64, 64])], {})
+

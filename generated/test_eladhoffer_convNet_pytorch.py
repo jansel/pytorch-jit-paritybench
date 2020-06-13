@@ -353,6 +353,11 @@ class MBConvBlock(nn.Sequential):
             out_channels, **kwargs) for _ in range(num - 1)])
 
 
+def weight_decay_config(value=0.0001, log=True):
+    return {'name': 'WeightDecay', 'value': value, 'log': log, 'filter': {
+        'parameter_name': lambda n: 'bias' not in n and 'multiplier' not in n}}
+
+
 def modify_drop_connect_rate(model, value, log=True):
     for m in model.modules():
         if hasattr(m, 'drop_prob'):
@@ -360,11 +365,6 @@ def modify_drop_connect_rate(model, value, log=True):
                 logging.debug('Modified drop-path rate from %s to %s' % (m.
                     drop_prob, value))
             m.drop_prob = value
-
-
-def weight_decay_config(value=0.0001, log=True):
-    return {'name': 'WeightDecay', 'value': value, 'log': log, 'filter': {
-        'parameter_name': lambda n: 'bias' not in n and 'multiplier' not in n}}
 
 
 class EfficientNet(nn.Module):
@@ -489,11 +489,6 @@ class AuxiliaryHeadImageNet(nn.Module):
         x = self.features(x)
         x = self.classifier(x.view(x.size(0), -1))
         return x
-
-
-def cosine_anneal_lr(epoch, base_lr=0.025, T_max=600.0, eta_min=0.0):
-    return eta_min + (base_lr - eta_min) * (1 + math.cos(math.pi * epoch /
-        T_max)) / 2
 
 
 def modify_drop_path_rate(model, value, log=True):
@@ -657,17 +652,17 @@ def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
         out_planes), nn.ReLU())
 
 
-class block8(block):
+class block17(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block8, self).__init__(in_planes, scale, activation)
+        super(block17, self).__init__(in_planes, scale, activation)
         self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
             in_planes, 192, 1))]))
         self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
-            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
-            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
-            3, 1), padding=(1, 0)))]))
-        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
+            conv_bn(in_planes, 128, 1)), ('Conv2d_0b_1x7', conv_bn(128, 160,
+            (1, 7), padding=(0, 3))), ('Conv2d_0c_7x1', conv_bn(160, 192, (
+            7, 1), padding=(3, 0)))]))
+        self.Conv2d_1x1 = conv_bn(384, in_planes, 1)
 
 
 class block35(block):
@@ -685,17 +680,17 @@ class block35(block):
         self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
 
 
-class block17(block):
+class block8(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block17, self).__init__(in_planes, scale, activation)
+        super(block8, self).__init__(in_planes, scale, activation)
         self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
             in_planes, 192, 1))]))
         self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
-            conv_bn(in_planes, 128, 1)), ('Conv2d_0b_1x7', conv_bn(128, 160,
-            (1, 7), padding=(0, 3))), ('Conv2d_0c_7x1', conv_bn(160, 192, (
-            7, 1), padding=(3, 0)))]))
-        self.Conv2d_1x1 = conv_bn(384, in_planes, 1)
+            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
+            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
+            3, 1), padding=(1, 0)))]))
+        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
 
 
 class InceptionResnetV2(nn.Module):
@@ -2417,11 +2412,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_eladhoffer_convNet_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2430,12 +2424,12 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(ConvBNAct(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MBConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(MBConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'num': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2443,13 +2437,13 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
         self._check(InceptionModule(*[], **{'in_channels': 4, 'n1x1_channels': 4, 'n3x3r_channels': 4, 'n3x3_channels': 4, 'dn3x3r_channels': 4, 'dn3x3_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(block35(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
         self._check(mnist_model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
@@ -2468,20 +2462,20 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_015(self):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(BatchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(BatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_018(self):
         self._check(MeanBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_019(self):
         self._check(BiReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2508,47 +2502,48 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_027(self):
         self._check(LinearFixed(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_028(self):
         self._check(ZIConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_029(self):
         self._check(ZILinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_030(self):
         self._check(LpBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_031(self):
         self._check(TopkBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_032(self):
         self._check(GhostTopkBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_033(self):
         self._check(L1BatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_034(self):
         self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_035(self):
         self._check(QConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_036(self):
         self._check(QLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_037(self):
         self._check(RangeBN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_038(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

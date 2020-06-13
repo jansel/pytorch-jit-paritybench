@@ -129,7 +129,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_iMoonLab_HGNN(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(HGNN(*[], **{'in_ch': 4, 'n_class': 4, 'n_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -144,3 +143,4 @@ class Test_iMoonLab_HGNN(_paritybench_base):
 
     def test_004(self):
         self._check(HGNN_classifier(*[], **{'n_hid': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -57,6 +57,13 @@ import logging
 import math
 
 
+_global_config['trunc_norm_init_std'] = 4
+
+
+def init_wt_normal(wt):
+    wt.data.normal_(std=config.trunc_norm_init_std)
+
+
 _global_config['rand_unif_init_mag'] = 4
 
 
@@ -75,20 +82,13 @@ def init_lstm_wt(lstm):
                 bias.data[start:end].fill_(1.0)
 
 
-_global_config['trunc_norm_init_std'] = 4
-
-
-def init_wt_normal(wt):
-    wt.data.normal_(std=config.trunc_norm_init_std)
+_global_config['emb_dim'] = 4
 
 
 _global_config['hidden_dim'] = 4
 
 
 _global_config['vocab_size'] = 4
-
-
-_global_config['emb_dim'] = 4
 
 
 class Encoder(nn.Module):
@@ -352,20 +352,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_atulkum_pointer_summarizer(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Encoder(*[], **{'N': 4, 'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MultiHeadedAttention(*[], **{'num_head': 4, 'd_model': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 1])], {})
 
     def test_003(self):
         self._check(AffineLayer(*[], **{'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(EncoderLayer(*[], **{'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 1])], {})
+

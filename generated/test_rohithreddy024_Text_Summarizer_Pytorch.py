@@ -71,10 +71,10 @@ def init_linear_wt(linear):
         linear.bias.data.normal_(std=config.trunc_norm_init_std)
 
 
-_global_config['hidden_dim'] = 4
-
-
 _global_config['emb_dim'] = 4
+
+
+_global_config['hidden_dim'] = 4
 
 
 class Encoder(nn.Module):
@@ -256,6 +256,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rohithreddy024_Text_Summarizer_Pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(decoder_attention(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+

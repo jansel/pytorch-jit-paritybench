@@ -517,7 +517,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_FriedRonaldo_SinGAN(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -529,11 +528,12 @@ class Test_FriedRonaldo_SinGAN(_paritybench_base):
 
     def test_003(self):
         self._check(MultiConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(SelfModulratedBatchNorm2d(*[], **{'num_features': 4, 'num_latent': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+

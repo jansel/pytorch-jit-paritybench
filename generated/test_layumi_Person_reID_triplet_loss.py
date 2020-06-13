@@ -51,6 +51,13 @@ import scipy.io
 import copy
 
 
+def weights_init_classifier(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        init.normal(m.weight.data, std=0.001)
+        init.constant(m.bias.data, 0.0)
+
+
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -60,13 +67,6 @@ def weights_init_kaiming(m):
         init.constant(m.bias.data, 0.0)
     elif classname.find('BatchNorm1d') != -1:
         init.normal(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        init.normal(m.weight.data, std=0.001)
         init.constant(m.bias.data, 0.0)
 
 
@@ -235,6 +235,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_layumi_Person_reID_triplet_loss(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4}), [torch.rand([4, 4, 4])], {})
+

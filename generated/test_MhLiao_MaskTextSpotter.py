@@ -321,50 +321,6 @@ class LastLevelMaxPool(nn.Module):
         return [F.max_pool2d(x, 1, 2, 0)]
 
 
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
-    blocks = []
-    stride = first_stride
-    for _ in range(block_count):
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride))
-        stride = 1
-        in_channels = out_channels
-    return nn.Sequential(*blocks)
-
-
-class ResNetHead(nn.Module):
-
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
-        super(ResNetHead, self).__init__()
-        stage2_relative_factor = 2 ** (stages[0].index - 1)
-        stage2_bottleneck_channels = num_groups * width_per_group
-        out_channels = res2_out_channels * stage2_relative_factor
-        in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
-        block_module = _TRANSFORMATION_MODULES[block_module]
-        self.stages = []
-        stride = stride_init
-        for stage in stages:
-            name = 'layer' + str(stage.index)
-            if not stride:
-                stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride)
-            stride = None
-            self.add_module(name, module)
-            self.stages.append(name)
-
-    def forward(self, x):
-        for stage in self.stages:
-            x = getattr(self, stage)(x)
-        return x
-
-
 class BottleneckWithFixedBatchNorm(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -421,71 +377,37 @@ class StemWithFixedBatchNorm(nn.Module):
         return x
 
 
-class ImageList(object):
+def build_rpn(cfg):
     """
-    Structure that holds a list of images (of possibly
-    varying sizes) as a single tensor.
-    This works by padding the images to the same size,
-    and storing in a field the original sizes of each image
+    This gives the gist of it. Not super important because it doesn't change as much
     """
-
-    def __init__(self, tensors, image_sizes):
-        """
-        Arguments:
-            tensors (tensor)
-            image_sizes (list[tuple[int, int]])
-        """
-        self.tensors = tensors
-        self.image_sizes = image_sizes
-
-    def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
-        return ImageList(cast_tensor, self.image_sizes)
+    return RPNModule(cfg)
 
 
-def to_image_list(tensors, size_divisible=0):
-    """
-    tensors can be an ImageList, a torch.Tensor or
-    an iterable of Tensors. It can't be a numpy array.
-    When tensors is an iterable of Tensors, it pads
-    the Tensors with zeros so that they have the same
-    shape
-    """
-    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
-        tensors = [tensors]
-    if isinstance(tensors, ImageList):
-        return tensors
-    elif isinstance(tensors, torch.Tensor):
-        assert tensors.dim() == 4
-        image_sizes = [tensor.shape[-2:] for tensor in tensors]
-        return ImageList(tensors, image_sizes)
-    elif isinstance(tensors, (tuple, list)):
-        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
-        if size_divisible > 0:
-            import math
-            stride = size_divisible
-            max_size = list(max_size)
-            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
-            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
-            max_size = tuple(max_size)
-        batch_shape = (len(tensors),) + max_size
-        batched_imgs = tensors[0].new(*batch_shape).zero_()
-        for img, pad_img in zip(tensors, batched_imgs):
-            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
-        image_sizes = [im.shape[-2:] for im in tensors]
-        return ImageList(batched_imgs, image_sizes)
-    else:
-        raise TypeError('Unsupported type for to_image_list: {}'.format(
-            type(tensors)))
+def build_resnet_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    model = nn.Sequential(OrderedDict([('body', body)]))
+    return model
 
 
-def build_roi_box_head(cfg):
-    """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg)
+def build_resnet_fpn_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
+    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
+        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
+        8], out_channels=out_channels, top_blocks=fpn_module.LastLevelMaxPool()
+        )
+    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
+    return model
+
+
+def build_backbone(cfg):
+    assert cfg.MODEL.BACKBONE.CONV_BODY.startswith('R-'
+        ), 'Only ResNet and ResNeXt models are currently implemented'
+    if cfg.MODEL.BACKBONE.CONV_BODY.endswith('-FPN'):
+        return build_resnet_fpn_backbone(cfg)
+    return build_resnet_backbone(cfg)
 
 
 class Matcher(object):
@@ -575,6 +497,15 @@ def build_roi_mask_head(cfg):
         cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_W))
 
 
+def build_roi_box_head(cfg):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg)
+
+
 def build_roi_heads(cfg):
     roi_heads = []
     if not cfg.MODEL.RPN_ONLY:
@@ -586,37 +517,62 @@ def build_roi_heads(cfg):
     return roi_heads
 
 
-def build_rpn(cfg):
+class ImageList(object):
     """
-    This gives the gist of it. Not super important because it doesn't change as much
+    Structure that holds a list of images (of possibly
+    varying sizes) as a single tensor.
+    This works by padding the images to the same size,
+    and storing in a field the original sizes of each image
     """
-    return RPNModule(cfg)
+
+    def __init__(self, tensors, image_sizes):
+        """
+        Arguments:
+            tensors (tensor)
+            image_sizes (list[tuple[int, int]])
+        """
+        self.tensors = tensors
+        self.image_sizes = image_sizes
+
+    def to(self, *args, **kwargs):
+        cast_tensor = self.tensors.to(*args, **kwargs)
+        return ImageList(cast_tensor, self.image_sizes)
 
 
-def build_resnet_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    model = nn.Sequential(OrderedDict([('body', body)]))
-    return model
-
-
-def build_resnet_fpn_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
-    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
-    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
-        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
-        8], out_channels=out_channels, top_blocks=fpn_module.LastLevelMaxPool()
-        )
-    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
-    return model
-
-
-def build_backbone(cfg):
-    assert cfg.MODEL.BACKBONE.CONV_BODY.startswith('R-'
-        ), 'Only ResNet and ResNeXt models are currently implemented'
-    if cfg.MODEL.BACKBONE.CONV_BODY.endswith('-FPN'):
-        return build_resnet_fpn_backbone(cfg)
-    return build_resnet_backbone(cfg)
+def to_image_list(tensors, size_divisible=0):
+    """
+    tensors can be an ImageList, a torch.Tensor or
+    an iterable of Tensors. It can't be a numpy array.
+    When tensors is an iterable of Tensors, it pads
+    the Tensors with zeros so that they have the same
+    shape
+    """
+    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
+        tensors = [tensors]
+    if isinstance(tensors, ImageList):
+        return tensors
+    elif isinstance(tensors, torch.Tensor):
+        assert tensors.dim() == 4
+        image_sizes = [tensor.shape[-2:] for tensor in tensors]
+        return ImageList(tensors, image_sizes)
+    elif isinstance(tensors, (tuple, list)):
+        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
+        if size_divisible > 0:
+            import math
+            stride = size_divisible
+            max_size = list(max_size)
+            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
+            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
+            max_size = tuple(max_size)
+        batch_shape = (len(tensors),) + max_size
+        batched_imgs = tensors[0].new(*batch_shape).zero_()
+        for img, pad_img in zip(tensors, batched_imgs):
+            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
+        image_sizes = [im.shape[-2:] for im in tensors]
+        return ImageList(batched_imgs, image_sizes)
+    else:
+        raise TypeError('Unsupported type for to_image_list: {}'.format(
+            type(tensors)))
 
 
 class GeneralizedRCNN(nn.Module):
@@ -1634,10 +1590,11 @@ class SeqCharMaskRCNNC4Predictor(nn.Module):
                 ), decoded_chars, decoded_scores, detailed_decoded_scores
 
 
-def num2char(num):
-    chars = '_0123456789abcdefghijklmnopqrstuvwxyz'
-    char = chars[num]
-    return char
+def check_all_done(seqs):
+    for seq in seqs:
+        if not seq[-1]:
+            return False
+    return True
 
 
 def reduce_mul(l):
@@ -1650,11 +1607,10 @@ def reduce_mul(l):
 cpu_device = torch.device('cpu')
 
 
-def check_all_done(seqs):
-    for seq in seqs:
-        if not seq[-1]:
-            return False
-    return True
+def num2char(num):
+    chars = '_0123456789abcdefghijklmnopqrstuvwxyz'
+    char = chars[num]
+    return char
 
 
 gpu_device = torch.device('cuda')
@@ -2294,6 +2250,24 @@ class RPNHead(nn.Module):
         return logits, bbox_reg
 
 
+def make_rpn_postprocessor(config, rpn_box_coder, is_train):
+    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
+    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
+    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
+        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
+        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
+        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
+        fpn_post_nms_top_n)
+    return box_selector
+
+
 def make_anchor_generator(config):
     anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
     aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
@@ -2308,6 +2282,19 @@ def make_anchor_generator(config):
     anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios,
         anchor_stride, straddle_thresh)
     return anchor_generator
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
 
 
 def boxlist_iou(boxlist1, boxlist2):
@@ -2339,19 +2326,6 @@ def boxlist_iou(boxlist1, boxlist2):
     inter = wh[:, :, (0)] * wh[:, :, (1)]
     iou = inter / (area1[:, (None)] + area2 - inter)
     return iou
-
-
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
 
 
 class RPNLossComputation(object):
@@ -2507,24 +2481,6 @@ def make_rpn_loss_evaluator(cfg, box_coder):
     return loss_evaluator
 
 
-def make_rpn_postprocessor(config, rpn_box_coder, is_train):
-    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
-    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
-    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
-        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
-        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
-        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
-        fpn_post_nms_top_n)
-    return box_selector
-
-
 class RPNModule(torch.nn.Module):
     """
     Module for RPN computation. Takes feature maps from the backbone and RPN
@@ -2600,24 +2556,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_MhLiao_MaskTextSpotter(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(BottleneckWithFixedBatchNorm(*[], **{'in_channels': 4, 'bottleneck_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(RPNHead(*[], **{'in_channels': 4, 'num_anchors': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+

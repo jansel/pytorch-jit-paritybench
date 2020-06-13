@@ -138,22 +138,22 @@ def matmul(x, y):
     return (x @ y.unsqueeze(-1)).squeeze(-1)
 
 
-TINY = 1e-09
-
-
 def softmax(x):
     if x.dim() == 3:
         return F.softmax(x.transpose(0, 2)).transpose(0, 2)
     return F.softmax(x)
 
 
+INF = 10000000000.0
+
+
+TINY = 1e-09
+
+
 def gumbel_softmax(input, beta=0.5, tau=1.0):
     noise = input.data.new(*input.size()).uniform_()
     noise.add_(TINY).log_().neg_().add_(TINY).log_().neg_()
     return softmax((input + beta * Variable(noise)) / tau)
-
-
-INF = 10000000000.0
 
 
 class Attention(nn.Module):
@@ -953,17 +953,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_salesforce_nonauto_nmt(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Fertility(*[], **{'args': _mock_config(d_model=4)}), [torch.rand([4, 4, 4, 4])], {})
+

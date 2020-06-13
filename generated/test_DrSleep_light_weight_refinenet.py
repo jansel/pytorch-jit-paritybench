@@ -367,17 +367,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_DrSleep_light_weight_refinenet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(InvertedResidualBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MBv2(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(CRPBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'n_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
+

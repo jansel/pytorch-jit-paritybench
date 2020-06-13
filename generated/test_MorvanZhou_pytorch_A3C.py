@@ -127,6 +127,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_MorvanZhou_pytorch_A3C(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Net(*[], **{'s_dim': 4, 'a_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -64,14 +64,6 @@ class InvertedResidualBlock(nn.Module):
         return block
 
 
-def conv2d_bn_relu6(in_channels, out_channels, kernel_size=3, stride=2,
-    dropout_prob=0.0):
-    padding = (kernel_size + 1) // 2 - 1
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.
-        Dropout2d(dropout_prob, inplace=True), nn.ReLU6(inplace=True))
-
-
 def inverted_residual_sequence(in_channels, out_channels, num_units,
     expansion_factor=6, kernel_size=3, initial_stride=2):
     bottleneck_arr = [InvertedResidualBlock(in_channels, out_channels,
@@ -80,6 +72,14 @@ def inverted_residual_sequence(in_channels, out_channels, num_units,
         bottleneck_arr.append(InvertedResidualBlock(out_channels,
             out_channels, expansion_factor, kernel_size, 1))
     return bottleneck_arr
+
+
+def conv2d_bn_relu6(in_channels, out_channels, kernel_size=3, stride=2,
+    dropout_prob=0.0):
+    padding = (kernel_size + 1) // 2 - 1
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
+        stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.
+        Dropout2d(dropout_prob, inplace=True), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -143,6 +143,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_MG2033_MobileNet_V2(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(InvertedResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

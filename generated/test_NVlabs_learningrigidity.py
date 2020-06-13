@@ -172,9 +172,10 @@ class Correlation1d(Module):
         return self.__class__.__name__
 
 
-def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
+def conv(inplanes, outplanes, ks=3, st=1):
+    return nn.Sequential(nn.Conv2d(inplanes, outplanes, kernel_size=ks,
+        stride=st, padding=(ks - 1) // 2, bias=True), nn.BatchNorm2d(
+        outplanes), nn.ReLU(inplace=True))
 
 
 def deconv(in_planes, out_planes, kernel_size=4, stride=2, padding=1):
@@ -182,10 +183,9 @@ def deconv(in_planes, out_planes, kernel_size=4, stride=2, padding=1):
         padding, bias=True)
 
 
-def conv(inplanes, outplanes, ks=3, st=1):
-    return nn.Sequential(nn.Conv2d(inplanes, outplanes, kernel_size=ks,
-        stride=st, padding=(ks - 1) // 2, bias=True), nn.BatchNorm2d(
-        outplanes), nn.ReLU(inplace=True))
+def predict_flow(in_planes):
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
+        =True)
 
 
 class PWCDCNet(nn.Module):
@@ -477,6 +477,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NVlabs_learningrigidity(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(RigidityNet(*[], **{}), [torch.rand([4, 12, 64, 64])], {})
+

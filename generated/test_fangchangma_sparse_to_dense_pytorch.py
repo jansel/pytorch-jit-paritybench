@@ -113,22 +113,6 @@ class Decoder(nn.Module):
         return x
 
 
-def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.ConvTranspose2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1)
-        m.bias.data.zero_()
-
-
 class DeConv(Decoder):
 
     def __init__(self, in_channels, kernel_size):
@@ -221,6 +205,22 @@ def choose_decoder(decoder, in_channels):
         assert False, 'invalid option for decoder: {}'.format(decoder)
 
 
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.ConvTranspose2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1)
+        m.bias.data.zero_()
+
+
 class ResNet(nn.Module):
 
     def __init__(self, layers, decoder, output_size, in_channels=3,
@@ -288,7 +288,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_fangchangma_sparse_to_dense_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -306,3 +305,4 @@ class Test_fangchangma_sparse_to_dense_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(UpConv(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+

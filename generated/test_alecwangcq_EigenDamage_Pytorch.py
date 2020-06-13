@@ -751,10 +751,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_alecwangcq_EigenDamage_Pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(channel_selection(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

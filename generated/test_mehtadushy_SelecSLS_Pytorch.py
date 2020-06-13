@@ -115,13 +115,13 @@ class SelecSLSBlockFused(nn.Module):
             return [self.conv6(torch.cat([d1, d2, d3, x[1]], 1)), x[1]]
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
@@ -392,6 +392,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mehtadushy_SelecSLS_Pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

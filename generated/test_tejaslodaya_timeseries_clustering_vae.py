@@ -176,9 +176,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tejaslodaya_timeseries_clustering_vae(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Encoder(*[], **{'number_of_features': 4, 'hidden_size': 4, 'hidden_layer_depth': 1, 'latent_length': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
         self._check(Lambda(*[], **{'hidden_size': 4, 'latent_length': 4}), [torch.rand([4, 4, 4, 4])], {})
+

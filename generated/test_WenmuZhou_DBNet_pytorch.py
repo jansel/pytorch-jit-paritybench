@@ -628,26 +628,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_WenmuZhou_DBNet_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_003(self):
         self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(FPN(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(FPEM_FFM(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
 
@@ -662,7 +661,8 @@ class Test_WenmuZhou_DBNet_pytorch(_paritybench_base):
 
     def test_009(self):
         self._check(DBHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+

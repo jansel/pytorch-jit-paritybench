@@ -126,11 +126,6 @@ import torch.optim
 import torch.utils.data
 
 
-def declare(name):
-    c_lib.byteps_torch_declare_tensor(name.encode())
-    return 0
-
-
 def byteps_torch_set_num_grads(num_grads_):
     c_lib.byteps_torch_set_num_grads(num_grads_)
     return 0

@@ -681,11 +681,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_JunjH_Revisiting_Single_Depth_Estimation(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(D(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 2048, 64, 64])], {})
 
@@ -700,3 +699,4 @@ class Test_JunjH_Revisiting_Single_Depth_Estimation(_paritybench_base):
 
     def test_005(self):
         self._check(Sobel(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

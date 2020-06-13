@@ -234,17 +234,6 @@ class FocalLossSoftmax(nn.Module):
         return loss
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -351,6 +340,17 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1040,6 +1040,16 @@ class L2Norm(nn.Module):
         return out
 
 
+base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
+    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
+    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+
+
+extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
+    'S', 256]}
+
+
 def vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
@@ -1061,16 +1071,6 @@ def vgg(cfg, i, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
-
-
-base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
-    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
-    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
-
-
-extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
-    'S', 256]}
 
 
 class VGG16Extractor(nn.Module):
@@ -1536,13 +1536,6 @@ class SSD(nn.Module):
         return output
 
 
-def up_layers(fpn_num):
-    layers = []
-    for i in range(fpn_num - 1):
-        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
-    return layers
-
-
 def latent_layers(fpn_num):
     layers = []
     for i in range(fpn_num):
@@ -1556,6 +1549,13 @@ def trans_layers(block, fpn_num):
         layers += [nn.Sequential(nn.Conv2d(block[i], 256, kernel_size=3,
             stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
             kernel_size=3, stride=1, padding=1))]
+    return layers
+
+
+def up_layers(fpn_num):
+    layers = []
+    for i in range(fpn_num - 1):
+        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
     return layers
 
 
@@ -1675,6 +1675,10 @@ class WeaveBlock(nn.Module):
         return out
 
 
+def adaptive_upsample(x, size):
+    return F.upsample(x, size, mode='bilinear')
+
+
 def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
     layers = list()
     weave_num = len(raw_channels)
@@ -1702,14 +1706,6 @@ def trans_layers_2(raw_channels, inner_channels):
     return layers
 
 
-def adaptive_pool(x, size):
-    return F.adaptive_max_pool2d(x, size)
-
-
-def adaptive_upsample(x, size):
-    return F.upsample(x, size, mode='bilinear')
-
-
 def weave_layers_2(raw_channels, weave_add_channels):
     layers = list()
     num = 2
@@ -1721,6 +1717,10 @@ def weave_layers_2(raw_channels, weave_add_channels):
         else:
             layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num)]
     return layers
+
+
+def adaptive_pool(x, size):
+    return F.adaptive_max_pool2d(x, size)
 
 
 class WeaveAdapter2(nn.Module):
@@ -2733,7 +2733,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yqyao_SSD_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FocalLossSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -2760,3 +2759,4 @@ class Test_yqyao_SSD_Pytorch(_paritybench_base):
 
     def test_008(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -611,14 +611,6 @@ class Model(nn.Module):
         return out[-1:]
 
 
-def _lazy_load_cuda_kernel():
-    try:
-        from .cuda_functional import SRU_Compute_GPU
-    except:
-        from cuda_functional import SRU_Compute_GPU
-    return SRU_Compute_GPU
-
-
 def _lazy_load_cpu_kernel():
     global SRU_CPU_kernel
     if SRU_CPU_kernel is not None:
@@ -758,6 +750,14 @@ class SRU_Compute_CPU:
             c_final.append(c_t.view(batch, d))
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(
             batch, -1)
+
+
+def _lazy_load_cuda_kernel():
+    try:
+        from .cuda_functional import SRU_Compute_GPU
+    except:
+        from cuda_functional import SRU_Compute_GPU
+    return SRU_Compute_GPU
 
 
 class SRUCell(nn.Module):
@@ -1151,6 +1151,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_asappresearch_sru(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(EmbeddingLayer(*[], **{'n_d': 4, 'words': [4, 4]}), [torch.zeros([4], dtype=torch.int64)], {})
+

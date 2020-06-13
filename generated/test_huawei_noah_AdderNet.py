@@ -255,10 +255,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_huawei_noah_AdderNet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(adder2d(*[], **{'input_channel': 4, 'output_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

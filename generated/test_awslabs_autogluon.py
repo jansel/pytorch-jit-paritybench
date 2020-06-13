@@ -202,12 +202,7 @@ import torch
 from torch import nn
 
 
-def _strip_config_space(config, prefix):
-    new_config = {}
-    for k, v in config.items():
-        if k.startswith(prefix):
-            new_config[k[len(prefix) + 1:]] = v
-    return new_config
+input_size = 112
 
 
 import torch

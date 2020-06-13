@@ -271,7 +271,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_mveres01_pytorch_drl4vrp(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Encoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64])], {})
 
@@ -280,3 +279,4 @@ class Test_mveres01_pytorch_drl4vrp(_paritybench_base):
 
     def test_002(self):
         self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([4, 4])], {})
+

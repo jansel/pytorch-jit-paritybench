@@ -232,13 +232,13 @@ class generalized_drop_out(nn.Module):
         return self.__class__.__name__ + param_str
 
 
-def get_module_names(model):
-    names = []
-    for key, val in model.state_dict().iteritems():
-        name = key.split('.')[0]
-        if not name in names:
-            names.append(name)
-    return names
+def deepcopy_module(module, target):
+    new_module = nn.Sequential()
+    for name, m in module.named_children():
+        if name == target:
+            new_module.add_module(name, m)
+            new_module[-1].load_state_dict(m.state_dict())
+    return new_module
 
 
 def deconv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=
@@ -259,13 +259,13 @@ def deconv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=
     return layers
 
 
-def deepcopy_module(module, target):
-    new_module = nn.Sequential()
-    for name, m in module.named_children():
-        if name == target:
-            new_module.add_module(name, m)
-            new_module[-1].load_state_dict(m.state_dict())
-    return new_module
+def get_module_names(model):
+    names = []
+    for key, val in model.state_dict().iteritems():
+        name = key.split('.')[0]
+        if not name in names:
+            names.append(name)
+    return names
 
 
 class Generator(nn.Module):
@@ -394,17 +394,6 @@ class Generator(nn.Module):
         return x
 
 
-def linear(layers, c_in, c_out, sig=True, wn=False):
-    layers.append(Flatten())
-    if wn:
-        layers.append(equalized_linear(c_in, c_out))
-    else:
-        layers.append(Linear(c_in, c_out))
-    if sig:
-        layers.append(nn.Sigmoid())
-    return layers
-
-
 def conv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=False,
     wn=False, pixel=False, gdrop=True, only=False):
     if gdrop:
@@ -423,6 +412,17 @@ def conv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=False,
             layers.append(nn.BatchNorm2d(c_out))
         if pixel:
             layers.append(pixelwise_norm_layer())
+    return layers
+
+
+def linear(layers, c_in, c_out, sig=True, wn=False):
+    layers.append(Flatten())
+    if wn:
+        layers.append(equalized_linear(c_in, c_out))
+    else:
+        layers.append(Linear(c_in, c_out))
+    if sig:
+        layers.append(nn.Sigmoid())
     return layers
 
 
@@ -556,14 +556,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_nashory_pggan_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(fadein_layer(*[], **{'config': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(minibatch_std_concat_layer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -578,7 +577,8 @@ class Test_nashory_pggan_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(equalized_linear(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(generalized_drop_out(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

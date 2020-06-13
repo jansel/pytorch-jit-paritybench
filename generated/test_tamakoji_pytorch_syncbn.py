@@ -100,6 +100,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_tamakoji_pytorch_syncbn(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(_BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

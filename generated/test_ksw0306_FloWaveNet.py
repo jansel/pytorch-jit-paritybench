@@ -155,13 +155,13 @@ class Flow(nn.Module):
         return x, c
 
 
+def gaussian_sample(eps, mean, log_sd):
+    return mean + torch.exp(log_sd) * eps
+
+
 def gaussian_log_p(x, mean, log_sd):
     return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(
         2 * log_sd)
-
-
-def gaussian_sample(eps, mean, log_sd):
-    return mean + torch.exp(log_sd) * eps
 
 
 class Block(nn.Module):
@@ -412,11 +412,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ksw0306_FloWaveNet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ActNorm(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Block(*[], **{'in_channel': 4, 'cin_channel': 4, 'n_flow': 4, 'n_layer': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 4, 4])], {})
 
@@ -425,3 +424,4 @@ class Test_ksw0306_FloWaveNet(_paritybench_base):
 
     def test_003(self):
         self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
+

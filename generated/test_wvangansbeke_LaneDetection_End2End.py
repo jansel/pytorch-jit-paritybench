@@ -537,6 +537,23 @@ class Classification(nn.Module):
         return x
 
 
+def ProjectiveGridGenerator(size, theta, no_cuda):
+    N, C, H, W = size
+    linear_points_W = torch.linspace(0, W - 1, W)
+    linear_points_H = torch.linspace(0, H - 1, H)
+    base_grid = theta.new(N, H, W, 3)
+    base_grid[:, :, :, (0)] = torch.ger(torch.ones(H), linear_points_W
+        ).expand_as(base_grid[:, :, :, (0)])
+    base_grid[:, :, :, (1)] = torch.ger(linear_points_H, torch.ones(W)
+        ).expand_as(base_grid[:, :, :, (1)])
+    base_grid[:, :, :, (2)] = 1
+    grid = torch.bmm(base_grid.view(N, H * W, 3), theta.transpose(1, 2))
+    grid = torch.div(grid[:, :, 0:2], grid[:, :, 2:])
+    if not no_cuda:
+        grid = grid.cuda()
+    return grid
+
+
 def return_tensor(x):
     return x
 
@@ -567,23 +584,6 @@ def activation_layer(activation='square', no_cuda=False):
     if not no_cuda and place_cuda:
         layer = layer.cuda()
     return layer
-
-
-def ProjectiveGridGenerator(size, theta, no_cuda):
-    N, C, H, W = size
-    linear_points_W = torch.linspace(0, W - 1, W)
-    linear_points_H = torch.linspace(0, H - 1, H)
-    base_grid = theta.new(N, H, W, 3)
-    base_grid[:, :, :, (0)] = torch.ger(torch.ones(H), linear_points_W
-        ).expand_as(base_grid[:, :, :, (0)])
-    base_grid[:, :, :, (1)] = torch.ger(linear_points_H, torch.ones(W)
-        ).expand_as(base_grid[:, :, :, (1)])
-    base_grid[:, :, :, (2)] = 1
-    grid = torch.bmm(base_grid.view(N, H * W, 3), theta.transpose(1, 2))
-    grid = torch.div(grid[:, :, 0:2], grid[:, :, 2:])
-    if not no_cuda:
-        grid = grid.cuda()
-    return grid
 
 
 class Net(nn.Module):
@@ -1654,26 +1654,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Area_Loss(*[], **{'order': 4, 'weight_funct': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MSE_Loss(*[], **{'options': _mock_config(no_cuda=4)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Decoder(*[], **{'num_classes': 4, 'pretrain': False}), [torch.rand([4, 128, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Classification(*[], **{'class_type': 4, 'size': [4, 4], 'channels_in': 4, 'resize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1685,3 +1684,4 @@ class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
 
     def test_008(self):
         self._check(Spatial_transformer_net(*[], **{'size': [4, 4], 'channels_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+

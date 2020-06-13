@@ -52,20 +52,6 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
-def cosine_similarity(x1, x2):
-    """compute cosine similarity between x1 and x2
-    Parameters
-    ----------
-    x1, x2 : 2-D torch Tensor
-        size (batch_size, 1)
-    Returns
-    -------
-    distance : 2-D torch Tensor
-        similarity result of size (batch_size, 1)
-    """
-    return F.cosine_similarity(x1, x2).unsqueeze(1)
-
-
 def manhattan_distance(x1, x2):
     """compute manhattan distance between x1 and x2 (not in paper)
     Parameters
@@ -78,6 +64,20 @@ def manhattan_distance(x1, x2):
         similarity result of size (batch_size, 1)
     """
     return torch.div(torch.norm(x1 - x2, 1, 1, keepdim=True), x1.size()[1])
+
+
+def cosine_similarity(x1, x2):
+    """compute cosine similarity between x1 and x2
+    Parameters
+    ----------
+    x1, x2 : 2-D torch Tensor
+        size (batch_size, 1)
+    Returns
+    -------
+    distance : 2-D torch Tensor
+        similarity result of size (batch_size, 1)
+    """
+    return F.cosine_similarity(x1, x2).unsqueeze(1)
 
 
 class Abcnn3(nn.Module):
@@ -1257,7 +1257,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_pengshuang_Text_Similarity(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Abcnn2Portion(*[], **{'sentence_length': 4, 'filter_width': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1272,7 +1271,8 @@ class Test_pengshuang_Text_Similarity(_paritybench_base):
 
     def test_004(self):
         self._check(Wide_Conv(*[], **{'seq_len': 4, 'embeds_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

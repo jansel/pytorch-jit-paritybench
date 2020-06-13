@@ -94,6 +94,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_szagoruyko_binary_wide_resnet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ModuleBinarizable(*[], **{}), [], {})
+

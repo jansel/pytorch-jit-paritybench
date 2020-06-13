@@ -734,6 +734,23 @@ class LayerFactory:
 Norm = LayerFactory()
 
 
+Dropout = LayerFactory()
+
+
+Act = LayerFactory()
+
+
+def same_padding(kernel_size, dilation=1):
+    """
+    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
+    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
+    """
+    kernel_size = np.atleast_1d(kernel_size)
+    padding = (kernel_size - 1) // 2 + (dilation - 1)
+    padding = tuple(int(p) for p in padding)
+    return tuple(padding) if len(padding) > 1 else padding[0]
+
+
 def split_args(args):
     """
     Split arguments in a way to be suitable for using with the factory types. If `args` is a name it's interpreted
@@ -749,23 +766,6 @@ def split_args(args):
                 )
             raise ValueError(msg)
         return name_obj, args
-
-
-def same_padding(kernel_size, dilation=1):
-    """
-    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
-    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
-    """
-    kernel_size = np.atleast_1d(kernel_size)
-    padding = (kernel_size - 1) // 2 + (dilation - 1)
-    padding = tuple(int(p) for p in padding)
-    return tuple(padding) if len(padding) > 1 else padding[0]
-
-
-Act = LayerFactory()
-
-
-Dropout = LayerFactory()
 
 
 Conv = LayerFactory()
@@ -991,12 +991,12 @@ class DenseNet(nn.Module):
         return x
 
 
-SUPPORTED_ACTI = {'relu': nn.ReLU, 'prelu': nn.PReLU, 'relu6': nn.ReLU6}
-
-
 SUPPORTED_NORM = {'batch': lambda spatial_dims: Norm[Norm.BATCH,
     spatial_dims], 'instance': lambda spatial_dims: Norm[Norm.INSTANCE,
     spatial_dims]}
+
+
+SUPPORTED_ACTI = {'relu': nn.ReLU, 'prelu': nn.PReLU, 'relu6': nn.ReLU6}
 
 
 class ConvNormActi(nn.Module):
@@ -1138,23 +1138,44 @@ class HighResNet(nn.Module):
         return self.blocks(x)
 
 
+def export(modname):
+    """
+    Make the decorated object a member of the named module. This will also add the object under its aliases if it has
+    a `__aliases__` member, thus this decorator should be before the `alias` decorator to pick up those names. Alias
+    names which conflict with package names or existing members will be ignored.
+    """
+
+    def _inner(obj):
+        mod = import_module(modname)
+        if not hasattr(mod, obj.__name__):
+            setattr(mod, obj.__name__, obj)
+            for alias in getattr(obj, '__aliases__', ()):
+                if not hasattr(mod, alias):
+                    setattr(mod, alias, obj)
+        return obj
+    return _inner
+
+
+GlobalAliases = {}
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Project_MONAI_MONAI(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(TverskyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -219,11 +219,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_gzuidhof_nn_transfer(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(UNetPytorch(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
@@ -238,3 +237,4 @@ class Test_gzuidhof_nn_transfer(_paritybench_base):
 
     def test_005(self):
         self._check(Conv3DNet(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
+

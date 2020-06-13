@@ -1818,13 +1818,12 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
         input = F.log_softmax(input, 1)
         return self.criterion(input, one_hot)
 
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-import unittest
 
 class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1852,6 +1851,6 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
     def test_008(self):
         self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @unittest.skip("crashes")
     def test_009(self):
         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

@@ -131,6 +131,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kuc2477_pytorch_ewc(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MLP(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

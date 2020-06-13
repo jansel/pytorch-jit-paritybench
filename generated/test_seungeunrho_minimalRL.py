@@ -257,10 +257,10 @@ class Qnet(nn.Module):
 eps_clip = 0.1
 
 
-lmbda = 0.95
-
-
 K_epoch = 3
+
+
+lmbda = 0.95
 
 
 class PPO(nn.Module):
@@ -416,7 +416,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_seungeunrho_minimalRL(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -428,3 +427,4 @@ class Test_seungeunrho_minimalRL(_paritybench_base):
 
     def test_003(self):
         self._check(Qnet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -113,36 +113,6 @@ import torch.nn.init as init
 from torch.optim.lr_scheduler import MultiStepLR
 
 
-class PreprocessEvalC3D(object):
-    """
-    Container for all transforms used to preprocess clips for training in this dataset.
-    """
-
-    def __init__(self, **kwargs):
-        """
-        Initialize preprocessing class for training set
-        Args:
-            preprocess (String): Keyword to select different preprocessing types            
-            crop_type  (String): Select random or central crop 
-
-        Return:
-            None
-        """
-        self.transforms = []
-        self.clip_mean = np.load('weights/sport1m_train16_128_mean.npy')[0]
-        self.clip_mean = np.transpose(self.clip_mean, (1, 2, 3, 0))
-        self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean,
-            **kwargs))
-        self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.ToTensorClip(**kwargs))
-
-    def __call__(self, input_data):
-        for transform in self.transforms:
-            input_data = transform(input_data)
-        return input_data
-
-
 class PreprocessTrainC3D(object):
     """
     Container for all transforms used to preprocess clips for training in this dataset.
@@ -173,6 +143,36 @@ class PreprocessTrainC3D(object):
             self.transforms.append(pt.CenterCropClip(**kwargs))
         self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **
             kwargs))
+        self.transforms.append(pt.ToTensorClip(**kwargs))
+
+    def __call__(self, input_data):
+        for transform in self.transforms:
+            input_data = transform(input_data)
+        return input_data
+
+
+class PreprocessEvalC3D(object):
+    """
+    Container for all transforms used to preprocess clips for training in this dataset.
+    """
+
+    def __init__(self, **kwargs):
+        """
+        Initialize preprocessing class for training set
+        Args:
+            preprocess (String): Keyword to select different preprocessing types            
+            crop_type  (String): Select random or central crop 
+
+        Return:
+            None
+        """
+        self.transforms = []
+        self.clip_mean = np.load('weights/sport1m_train16_128_mean.npy')[0]
+        self.clip_mean = np.transpose(self.clip_mean, (1, 2, 3, 0))
+        self.transforms.append(pt.ResizeClip(**kwargs))
+        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean,
+            **kwargs))
+        self.transforms.append(pt.CenterCropClip(**kwargs))
         self.transforms.append(pt.ToTensorClip(**kwargs))
 
     def __call__(self, input_data):
@@ -933,140 +933,6 @@ class I3D(nn.Module):
         return self.avg_pool(x)
 
 
-class PreprocessEvalSSD(object):
-    """
-    Container for all transforms used to preprocess clips for evaluation in this dataset.
-    """
-
-    def __init__(self, **kwargs):
-        crop_shape = kwargs['crop_shape']
-        crop_type = kwargs['crop_type']
-        resize_shape = kwargs['resize_shape']
-        self.transforms = []
-        if crop_type == 'Random':
-            self.transforms.append(pt.RandomCropClip(**kwargs))
-        elif crop_type == 'Center':
-            self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractRGBMean(**kwargs))
-        self.transforms.append(pt.ToTensorClip())
-
-    def __call__(self, input_data, bbox_data=[]):
-        """
-        Preprocess the clip and the bbox data accordingly
-        Args:
-            input_data: List of PIL images containing clip frames 
-            bbox_data:  Numpy array containing bbox coordinates per object per frame 
-
-        Return:
-            input_data: Pytorch tensor containing the processed clip data 
-            bbox_data:  Numpy tensor containing the augmented bbox coordinates
-        """
-        if bbox_data == []:
-            for transform in self.transforms:
-                input_data = transform(input_data)
-            return input_data
-        else:
-            for transform in self.transforms:
-                input_data, bbox_data = transform(input_data, bbox_data)
-            return input_data, bbox_data
-
-
-class PreprocessTrainSSD(object):
-    """
-    Container for all transforms used to preprocess clips for training in this dataset.
-    """
-
-    def __init__(self, **kwargs):
-        crop_shape = kwargs['crop_shape']
-        crop_type = kwargs['crop_type']
-        resize_shape = kwargs['resize_shape']
-        self.transforms = []
-        if crop_type == 'Random':
-            self.transforms.append(pt.RandomCropClip(**kwargs))
-        elif crop_type == 'Center':
-            self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractRGBMean(**kwargs))
-        self.transforms.append(pt.ToTensorClip())
-
-    def __call__(self, input_data, bbox_data=[]):
-        """
-        Preprocess the clip and the bbox data accordingly
-        Args:
-            input_data: List of PIL images containing clip frames 
-            bbox_data:  Numpy array containing bbox coordinates per object per frame 
-
-        Return:
-            input_data: Pytorch tensor containing the processed clip data 
-            bbox_data:  Numpy tensor containing the augmented bbox coordinates
-        """
-        if bbox_data == []:
-            for transform in self.transforms:
-                input_data = transform(input_data)
-            return input_data
-        else:
-            for transform in self.transforms:
-                input_data, bbox_data = transform(input_data, bbox_data)
-            return input_data, bbox_data
-
-
-def vgg(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        elif v == 'C':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
-    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
-    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
-    return layers
-
-
-def add_extras(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    return layers
-
-
-def multibox(vgg, extra_layers, cfg, num_classes):
-    loc_layers = []
-    conf_layers = []
-    vgg_source = [21, -2]
-    for k, v in enumerate(vgg_source):
-        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4,
-            kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
-    for k, v in enumerate(extra_layers[1::2], 2):
-        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3,
-            padding=1)]
-        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
-    return vgg, extra_layers, (loc_layers, conf_layers)
-
-
 def nms(boxes, scores, overlap=0.5, top_k=200):
     """Apply non-maximum suppression at test time to avoid detecting too many
     overlapping bounding boxes for a given object.
@@ -1195,6 +1061,84 @@ class Detect(Function):
         return output
 
 
+class PreprocessTrainSSD(object):
+    """
+    Container for all transforms used to preprocess clips for training in this dataset.
+    """
+
+    def __init__(self, **kwargs):
+        crop_shape = kwargs['crop_shape']
+        crop_type = kwargs['crop_type']
+        resize_shape = kwargs['resize_shape']
+        self.transforms = []
+        if crop_type == 'Random':
+            self.transforms.append(pt.RandomCropClip(**kwargs))
+        elif crop_type == 'Center':
+            self.transforms.append(pt.CenterCropClip(**kwargs))
+        self.transforms.append(pt.ResizeClip(**kwargs))
+        self.transforms.append(pt.SubtractRGBMean(**kwargs))
+        self.transforms.append(pt.ToTensorClip())
+
+    def __call__(self, input_data, bbox_data=[]):
+        """
+        Preprocess the clip and the bbox data accordingly
+        Args:
+            input_data: List of PIL images containing clip frames 
+            bbox_data:  Numpy array containing bbox coordinates per object per frame 
+
+        Return:
+            input_data: Pytorch tensor containing the processed clip data 
+            bbox_data:  Numpy tensor containing the augmented bbox coordinates
+        """
+        if bbox_data == []:
+            for transform in self.transforms:
+                input_data = transform(input_data)
+            return input_data
+        else:
+            for transform in self.transforms:
+                input_data, bbox_data = transform(input_data, bbox_data)
+            return input_data, bbox_data
+
+
+class PreprocessEvalSSD(object):
+    """
+    Container for all transforms used to preprocess clips for evaluation in this dataset.
+    """
+
+    def __init__(self, **kwargs):
+        crop_shape = kwargs['crop_shape']
+        crop_type = kwargs['crop_type']
+        resize_shape = kwargs['resize_shape']
+        self.transforms = []
+        if crop_type == 'Random':
+            self.transforms.append(pt.RandomCropClip(**kwargs))
+        elif crop_type == 'Center':
+            self.transforms.append(pt.CenterCropClip(**kwargs))
+        self.transforms.append(pt.ResizeClip(**kwargs))
+        self.transforms.append(pt.SubtractRGBMean(**kwargs))
+        self.transforms.append(pt.ToTensorClip())
+
+    def __call__(self, input_data, bbox_data=[]):
+        """
+        Preprocess the clip and the bbox data accordingly
+        Args:
+            input_data: List of PIL images containing clip frames 
+            bbox_data:  Numpy array containing bbox coordinates per object per frame 
+
+        Return:
+            input_data: Pytorch tensor containing the processed clip data 
+            bbox_data:  Numpy tensor containing the augmented bbox coordinates
+        """
+        if bbox_data == []:
+            for transform in self.transforms:
+                input_data = transform(input_data)
+            return input_data
+        else:
+            for transform in self.transforms:
+                input_data, bbox_data = transform(input_data, bbox_data)
+            return input_data, bbox_data
+
+
 class PriorBox(object):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
@@ -1234,6 +1178,62 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
+
+
+def add_extras(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    flag = False
+    for k, v in enumerate(cfg):
+        if in_channels != 'S':
+            if v == 'S':
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
+                    1, 3)[flag], stride=2, padding=1)]
+            else:
+                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
+            flag = not flag
+        in_channels = v
+    return layers
+
+
+def vgg(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        elif v == 'C':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
+    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
+        True)]
+    return layers
+
+
+def multibox(vgg, extra_layers, cfg, num_classes):
+    loc_layers = []
+    conf_layers = []
+    vgg_source = [21, -2]
+    for k, v in enumerate(vgg_source):
+        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4,
+            kernel_size=3, padding=1)]
+        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes,
+            kernel_size=3, padding=1)]
+    for k, v in enumerate(extra_layers[1::2], 2):
+        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3,
+            padding=1)]
+        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
+            kernel_size=3, padding=1)]
+    return vgg, extra_layers, (loc_layers, conf_layers)
 
 
 class SSD(nn.Module):
@@ -1369,17 +1369,6 @@ class L2Norm(nn.Module):
         return out
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -1488,6 +1477,17 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 class MultiBoxLoss(nn.Module):
     """SSD Weighted Loss Function
     Compute Targets:
@@ -1590,24 +1590,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_MichiganCOG_ViP(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Transformer(*[], **{'d_model': 4, 'n_vocab_src': 4, 'vocab_trg': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+

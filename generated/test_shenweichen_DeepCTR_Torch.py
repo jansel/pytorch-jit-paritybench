@@ -1140,26 +1140,6 @@ class DynamicGRU(nn.Module):
             unsorted_indices)
 
 
-def get_varlen_pooling_list(embedding_dict, features, feature_index,
-    varlen_sparse_feature_columns, device):
-    varlen_sparse_embedding_list = []
-    for feat in varlen_sparse_feature_columns:
-        seq_emb = embedding_dict[feat.embedding_name](features[:,
-            feature_index[feat.name][0]:feature_index[feat.name][1]].long())
-        if feat.length_name is None:
-            seq_mask = features[:, feature_index[feat.name][0]:
-                feature_index[feat.name][1]].long() != 0
-            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
-                =True, device=device)([seq_emb, seq_mask])
-        else:
-            seq_length = features[:, feature_index[feat.length_name][0]:
-                feature_index[feat.length_name][1]].long()
-            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
-                =False, device=device)([seq_emb, seq_length])
-        varlen_sparse_embedding_list.append(emb)
-    return varlen_sparse_embedding_list
-
-
 class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat',
     'maxlen', 'combiner', 'length_name'])):
     __slots__ = ()
@@ -1194,6 +1174,26 @@ class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat',
 
     def __hash__(self):
         return self.name.__hash__()
+
+
+def get_varlen_pooling_list(embedding_dict, features, feature_index,
+    varlen_sparse_feature_columns, device):
+    varlen_sparse_embedding_list = []
+    for feat in varlen_sparse_feature_columns:
+        seq_emb = embedding_dict[feat.embedding_name](features[:,
+            feature_index[feat.name][0]:feature_index[feat.name][1]].long())
+        if feat.length_name is None:
+            seq_mask = features[:, feature_index[feat.name][0]:
+                feature_index[feat.name][1]].long() != 0
+            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
+                =True, device=device)([seq_emb, seq_mask])
+        else:
+            seq_length = features[:, feature_index[feat.length_name][0]:
+                feature_index[feat.length_name][1]].long()
+            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
+                =False, device=device)([seq_emb, seq_length])
+        varlen_sparse_embedding_list.append(emb)
+    return varlen_sparse_embedding_list
 
 
 DEFAULT_GROUP_NAME = 'default_group'
@@ -1888,18 +1888,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Dice(*[], **{'emb_size': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(LocalActivationUnit(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(DNN(*[], **{'inputs_dim': 4, 'hidden_units': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1914,23 +1913,23 @@ class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
 
     def test_007(self):
         self._check(BiInteractionPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(AFMLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(CrossNet(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(InnerProductLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
         self._check(ConvLayer(*[], **{'field_size': 4, 'conv_kernel_width': [4, 4], 'conv_filters': [4, 4]}), [torch.rand([4, 1, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(AttentionSequencePoolingLayer(*[], **{}), [torch.rand([16384, 4, 4]), torch.rand([16384, 4, 4]), torch.rand([256, 4, 4, 4])], {})
 
@@ -1939,10 +1938,11 @@ class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
 
     def test_014(self):
         self._check(AUGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_015(self):
         self._check(Linear(*[], **{'feature_columns': [4, 4], 'feature_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
         self._check(Interac(*[], **{'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+

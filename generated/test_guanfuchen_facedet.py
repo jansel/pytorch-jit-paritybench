@@ -614,7 +614,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_guanfuchen_facedet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -632,10 +631,11 @@ class Test_guanfuchen_facedet(_paritybench_base):
 
     def test_005(self):
         self._check(FaceBoxExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(FaceBox(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_007(self):
         self._check(PNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

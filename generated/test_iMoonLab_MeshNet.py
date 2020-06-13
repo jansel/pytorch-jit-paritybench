@@ -227,9 +227,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_iMoonLab_MeshNet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FaceRotateConvolution(*[], **{}), [torch.rand([4, 9, 64])], {})
 
     def test_001(self):
         self._check(SpatialDescriptor(*[], **{}), [torch.rand([4, 3, 64])], {})
+

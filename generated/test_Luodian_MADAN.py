@@ -208,19 +208,19 @@ class MDANet(nn.Module):
 models = {}
 
 
+def get_model(name, num_cls=10, **args):
+    net = models[name](num_cls=num_cls, **args)
+    if torch.cuda.is_available():
+        net = net.cuda()
+    return net
+
+
 def register_model(name):
 
     def decorator(cls):
         models[name] = cls
         return cls
     return decorator
-
-
-def get_model(name, num_cls=10, **args):
-    net = models[name](num_cls=num_cls, **args)
-    if torch.cuda.is_available():
-        net = net.cuda()
-    return net
 
 
 @register_model('AddaNet')
@@ -355,14 +355,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-model_urls = {'drn26':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn26-ddedf421.pth',
-    'drn42':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn42-9d336e8c.pth',
-    'drn58':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn58-0a53a92c.pth'}
-
-
 def safe_load_state_dict(net, state_dict):
     """Copies parameters and buffers from :attr:`state_dict` into
     this module and its descendants. Any params in :attr:`state_dict`
@@ -387,6 +379,14 @@ def safe_load_state_dict(net, state_dict):
         own_state[name].copy_(param)
     if skipped:
         logging.info('Skipped loading some parameters: {}'.format(skipped))
+
+
+model_urls = {'drn26':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn26-ddedf421.pth',
+    'drn42':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn42-9d336e8c.pth',
+    'drn58':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn58-0a53a92c.pth'}
 
 
 def get_upsample_filter(size):
@@ -824,11 +824,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Luodian_MADAN(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Bilinear(*[], **{'factor': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -843,3 +842,4 @@ class Test_Luodian_MADAN(_paritybench_base):
 
     def test_005(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+

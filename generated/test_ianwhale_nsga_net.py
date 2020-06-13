@@ -66,6 +66,49 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 
 
+class Decoder(ABC):
+    """
+    Abstract genome decoder class.
+    """
+
+    @abstractmethod
+    def __init__(self, list_genome):
+        """
+        :param list_genome: genome represented as a list.
+        """
+        self._genome = list_genome
+
+    @abstractmethod
+    def get_model(self):
+        raise NotImplementedError()
+
+
+class HourGlassDecoder(Decoder):
+    """
+    Decoder that deals with HourGlass-type networks.
+    """
+
+    def __init__(self, genome, n_stacks, out_feature_maps):
+        """
+        Constructor.
+        :param genome: list, list of ints.
+        :param n_stacks: int, number of hourglasses to use.
+        :param out_feature_maps: int, number of output feature maps.
+        """
+        super().__init__(genome)
+        self.n_stacks = n_stacks
+        self.out_feature_maps = out_feature_maps
+
+    @abstractmethod
+    def get_model(self):
+        raise NotImplementedError()
+
+    @staticmethod
+    @abstractmethod
+    def check_genome(genome):
+        raise NotImplementedError()
+
+
 class LOSComputationGraph:
     """
     Graph to hold information about the computation going on in
@@ -172,49 +215,6 @@ class LOSComputationGraph:
                 previous_resolutions[node.resolution] = node
             previous_node = node
         return adj
-
-
-class Decoder(ABC):
-    """
-    Abstract genome decoder class.
-    """
-
-    @abstractmethod
-    def __init__(self, list_genome):
-        """
-        :param list_genome: genome represented as a list.
-        """
-        self._genome = list_genome
-
-    @abstractmethod
-    def get_model(self):
-        raise NotImplementedError()
-
-
-class HourGlassDecoder(Decoder):
-    """
-    Decoder that deals with HourGlass-type networks.
-    """
-
-    def __init__(self, genome, n_stacks, out_feature_maps):
-        """
-        Constructor.
-        :param genome: list, list of ints.
-        :param n_stacks: int, number of hourglasses to use.
-        :param out_feature_maps: int, number of output feature maps.
-        """
-        super().__init__(genome)
-        self.n_stacks = n_stacks
-        self.out_feature_maps = out_feature_maps
-
-    @abstractmethod
-    def get_model(self):
-        raise NotImplementedError()
-
-    @staticmethod
-    @abstractmethod
-    def check_genome(genome):
-        raise NotImplementedError()
 
 
 class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
@@ -832,6 +832,43 @@ class ChannelBasedDecoder(Decoder):
         raise NotImplementedError()
 
 
+class DenseGenomeDecoder(ChannelBasedDecoder):
+    """
+    Genetic CNN genome decoder with residual bit.
+    """
+
+    def __init__(self, list_genome, channels, repeats=None):
+        """
+        Constructor.
+        :param list_genome: list, genome describing the connections in a network.
+        :param channels: list, list of tuples describing the channel size changes.
+        :param repeats: None | list, list of integers describing how many times to repeat each phase.
+        """
+        super().__init__(list_genome, channels, repeats=repeats)
+        if self._model is not None:
+            return
+        phases = []
+        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
+            _genome, self._channels)):
+            phases.append(DensePhase(gene, in_channels, out_channels, idx))
+        self._model = nn.Sequential(*self.build_layers(phases))
+
+    @staticmethod
+    def get_effective_genome(genome):
+        """
+        Get only the parts of the genome that are active.
+        :param genome: list, represents the genome
+        :return: list
+        """
+        return [gene for gene in genome if phase_active(gene)]
+
+    def get_model(self):
+        """
+        :return: nn.Module
+        """
+        return self._model
+
+
 class ResidualGenomeDecoder(ChannelBasedDecoder):
     """
     Genetic CNN genome decoder with residual bit.
@@ -916,43 +953,6 @@ class VariableGenomeDecoder(ChannelBasedDecoder):
         return effective_types
 
     def get_model(self):
-        return self._model
-
-
-class DenseGenomeDecoder(ChannelBasedDecoder):
-    """
-    Genetic CNN genome decoder with residual bit.
-    """
-
-    def __init__(self, list_genome, channels, repeats=None):
-        """
-        Constructor.
-        :param list_genome: list, genome describing the connections in a network.
-        :param channels: list, list of tuples describing the channel size changes.
-        :param repeats: None | list, list of integers describing how many times to repeat each phase.
-        """
-        super().__init__(list_genome, channels, repeats=repeats)
-        if self._model is not None:
-            return
-        phases = []
-        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
-            _genome, self._channels)):
-            phases.append(DensePhase(gene, in_channels, out_channels, idx))
-        self._model = nn.Sequential(*self.build_layers(phases))
-
-    @staticmethod
-    def get_effective_genome(genome):
-        """
-        Get only the parts of the genome that are active.
-        :param genome: list, represents the genome
-        :return: list
-        """
-        return [gene for gene in genome if phase_active(gene)]
-
-    def get_model(self):
-        """
-        :return: nn.Module
-        """
         return self._model
 
 
@@ -1387,7 +1387,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ianwhale_nsga_net(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LOSHourGlassDecoder(*[], **{'genome': [4, 4], 'n_stacks': 4, 'out_feature_maps': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -1423,3 +1422,4 @@ class Test_ianwhale_nsga_net(_paritybench_base):
 
     def test_011(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -222,16 +222,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sfujim_BCQ(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Actor(*[], **{'state_dim': 4, 'action_dim': 4, 'max_action': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(VAE(*[], **{'state_dim': 4, 'action_dim': 4, 'latent_dim': 4, 'max_action': 4, 'device': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_003(self):
         self._check(FC_Q(*[], **{'state_dim': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+

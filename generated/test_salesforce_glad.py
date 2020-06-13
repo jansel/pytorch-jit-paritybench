@@ -141,6 +141,14 @@ class GLADEncoder(nn.Module):
         return h, c
 
 
+def pad(seqs, emb, device, pad=0):
+    lens = [len(s) for s in seqs]
+    max_len = max(lens)
+    padded = torch.LongTensor([(s + (max_len - l) * [pad]) for s, l in zip(
+        seqs, lens)])
+    return emb(padded.to(device)), lens
+
+
 def attend(seq, cond, lens):
     """
     attend over the sequences `seq` using the condition `cond`.
@@ -153,14 +161,6 @@ def attend(seq, cond, lens):
     scores = F.softmax(scores, dim=1)
     context = scores.unsqueeze(2).expand_as(seq).mul(seq).sum(1)
     return context, scores
-
-
-def pad(seqs, emb, device, pad=0):
-    lens = [len(s) for s in seqs]
-    max_len = max(lens)
-    padded = torch.LongTensor([(s + (max_len - l) * [pad]) for s, l in zip(
-        seqs, lens)])
-    return emb(padded.to(device)), lens
 
 
 class Model(nn.Module):
@@ -388,6 +388,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_salesforce_glad(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SelfAttention(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4]), [4, 4]], {})
+

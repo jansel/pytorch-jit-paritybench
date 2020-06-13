@@ -49,30 +49,6 @@ import copy
 import math
 
 
-def act_fn(act):
-    if act == 'relu':
-        act_ = nn.ReLU(inplace=False)
-    elif act == 'lrelu':
-        act_ = nn.LeakyReLU(inplace=True)
-    elif act == 'prelu':
-        act_ = nn.PReLU()
-    elif act == 'rrelu':
-        act_ = nn.RReLU(inplace=True)
-    elif act == 'elu':
-        act_ = nn.ELU(inplace=True)
-    elif act == 'selu':
-        act_ = nn.SELU(inplace=True)
-    elif act == 'tanh':
-        act_ = nn.Tanh()
-    elif act == 'sigmoid':
-        act_ = nn.Sigmoid()
-    else:
-        print('\n\nActivation function {} is not supported/understood\n\n'.
-            format(act))
-        act_ = None
-    return act_
-
-
 def print_values(x, noise, y, unique_masks, n=2):
     np.set_printoptions(precision=5, linewidth=200, threshold=1000000,
         suppress=True)
@@ -116,6 +92,30 @@ def print_values(x, noise, y, unique_masks, n=2):
         .data[(1), (1), (0), (0), :n].cpu().numpy()))
     print('masks: {} image1, channel1, mask1:  {}'.format(list(y.size()), y
         .data[(1), (1), (1), (0), :n].cpu().numpy()))
+
+
+def act_fn(act):
+    if act == 'relu':
+        act_ = nn.ReLU(inplace=False)
+    elif act == 'lrelu':
+        act_ = nn.LeakyReLU(inplace=True)
+    elif act == 'prelu':
+        act_ = nn.PReLU()
+    elif act == 'rrelu':
+        act_ = nn.RReLU(inplace=True)
+    elif act == 'elu':
+        act_ = nn.ELU(inplace=True)
+    elif act == 'selu':
+        act_ = nn.SELU(inplace=True)
+    elif act == 'tanh':
+        act_ = nn.Tanh()
+    elif act == 'sigmoid':
+        act_ = nn.Sigmoid()
+    else:
+        print('\n\nActivation function {} is not supported/understood\n\n'.
+            format(act))
+        act_ = None
+    return act_
 
 
 class PerturbLayerFirst(nn.Module):
@@ -691,9 +691,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_juefeix_pnn_pytorch_update(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Net(*[], **{}), [torch.rand([4, 1, 28, 28])], {})
+

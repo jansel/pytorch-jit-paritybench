@@ -225,12 +225,6 @@ class AbstractNoAtt(nn.Module):
         return x
 
 
-def process_lengths(input):
-    max_length = input.size(1)
-    lengths = list(max_length - input.data.eq(0).sum(1).squeeze())
-    return lengths
-
-
 def select_last(x, lengths):
     batch_size = x.size(0)
     seq_length = x.size(1)
@@ -241,6 +235,12 @@ def select_last(x, lengths):
     x = x.mul(mask)
     x = x.sum(1).view(batch_size, x.size(2))
     return x
+
+
+def process_lengths(input):
+    max_length = input.size(1)
+    lengths = list(max_length - input.data.eq(0).sum(1).squeeze())
+    return lengths
 
 
 class LSTM(nn.Module):
@@ -298,10 +298,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Cadene_vqa_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LSTM(*[], **{'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(TwoLSTM(*[], **{'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+

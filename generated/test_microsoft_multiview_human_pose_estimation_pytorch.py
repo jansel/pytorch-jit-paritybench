@@ -345,13 +345,13 @@ class MultiViewPose(nn.Module):
             return self.resnet(views)
 
 
+BN_MOMENTUM = 0.1
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-BN_MOMENTUM = 0.1
 
 
 class BasicBlock(nn.Module):
@@ -1058,7 +1058,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_microsoft_multiview_human_pose_estimation_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
@@ -1070,3 +1069,4 @@ class Test_microsoft_multiview_human_pose_estimation_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

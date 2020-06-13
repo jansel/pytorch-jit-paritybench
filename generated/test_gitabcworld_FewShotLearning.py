@@ -849,6 +849,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_gitabcworld_FewShotLearning(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SeparatedBatchNorm1d(*[], **{'num_features': 4, 'max_length': 4}), [torch.rand([4, 4, 4, 4]), 0], {})
+

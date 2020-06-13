@@ -103,16 +103,16 @@ from torch.autograd import Variable
 from torch.nn import Module
 
 
-def render_model(mesh, sgrid):
-    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid,
-        ray_directions=-sgrid, multiple_hits=False, return_locations=True)
-    loc = loc.reshape((-1, 3))
-    grid_hits = sgrid[index_ray]
-    dist = np.linalg.norm(grid_hits - loc, axis=-1)
-    dist_im = np.ones(sgrid.shape[0])
-    dist_im[index_ray] = dist
-    im = dist_im
-    return im
+def sph_pad(sph_tensor, padding_margin=16):
+    F = torch.nn.functional
+    pad2d = padding_margin, padding_margin, padding_margin, padding_margin
+    rep_padded_sph = F.pad(sph_tensor, pad2d, mode='replicate')
+    _, _, h, w = rep_padded_sph.shape
+    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w -
+        2 * padding_margin:w - padding_margin]
+    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :,
+        padding_margin:2 * padding_margin]
+    return rep_padded_sph
 
 
 def resize(im, target_size, which_dim, interpolation='bicubic', clamp=None):
@@ -213,6 +213,18 @@ def depth_to_mesh_df(depth_im, th, jitter, upsample=0.6, cam_dist=2.0):
     return tdf
 
 
+def render_model(mesh, sgrid):
+    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid,
+        ray_directions=-sgrid, multiple_hits=False, return_locations=True)
+    loc = loc.reshape((-1, 3))
+    grid_hits = sgrid[index_ray]
+    dist = np.linalg.norm(grid_hits - loc, axis=-1)
+    dist_im = np.ones(sgrid.shape[0])
+    dist_im[index_ray] = dist
+    im = dist_im
+    return im
+
+
 def render_spherical(data, mask, obj_path=None, debug=False):
     depth_im = data['depth'][(0), (0), :, :]
     th = data['depth_minmax']
@@ -235,33 +247,6 @@ def render_spherical(data, mask, obj_path=None, debug=False):
         im_depth = np.ones([128, 128])
         return im_depth
     return im_depth
-
-
-def sph_pad(sph_tensor, padding_margin=16):
-    F = torch.nn.functional
-    pad2d = padding_margin, padding_margin, padding_margin, padding_margin
-    rep_padded_sph = F.pad(sph_tensor, pad2d, mode='replicate')
-    _, _, h, w = rep_padded_sph.shape
-    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w -
-        2 * padding_margin:w - padding_margin]
-    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :,
-        padding_margin:2 * padding_margin]
-    return rep_padded_sph
-
-
-def gen_sph_grid(res=128):
-    pi = np.pi
-    phi = np.linspace(0, 180, res * 2 + 1)[1::2]
-    theta = np.linspace(0, 360, res + 1)[:-1]
-    grid = np.zeros([res, res, 3])
-    for idp, p in enumerate(phi):
-        for idt, t in enumerate(theta):
-            grid[idp, idt, 2] = np.cos(p * pi / 180)
-            proj = np.sin(p * pi / 180)
-            grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
-            grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
-    grid = np.reshape(grid, (1, 1, res, res, 3))
-    return torch.from_numpy(grid).float()
 
 
 class Net(nn.Module):
@@ -347,14 +332,6 @@ class ImageEncoder(nn.Module):
         return self.main(x)
 
 
-def batchnorm3d(n_feat):
-    return nn.BatchNorm3d(n_feat, eps=1e-05, momentum=0.1, affine=True)
-
-
-def relu():
-    return nn.ReLU(inplace=True)
-
-
 def deconv3d_2x(n_ch_in, n_ch_out, bias):
     return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
         dilation=1, groups=1, bias=bias)
@@ -363,6 +340,14 @@ def deconv3d_2x(n_ch_in, n_ch_out, bias):
 def deconv3d_add3(n_ch_in, n_ch_out, bias):
     return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=1, padding=0,
         dilation=1, groups=1, bias=bias)
+
+
+def relu():
+    return nn.ReLU(inplace=True)
+
+
+def batchnorm3d(n_feat):
+    return nn.BatchNorm3d(n_feat, eps=1e-05, momentum=0.1, affine=True)
 
 
 class VoxelDecoder(nn.Module):
@@ -407,17 +392,17 @@ class VoxelGenerator(nn.Module):
         return self.main(x)
 
 
-def conv3d_minus3(n_ch_in, n_ch_out, bias):
-    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1,
-        groups=1, bias=bias)
-
-
 def relu_leaky():
     return nn.LeakyReLU(0.2, inplace=True)
 
 
 def conv3d_half(n_ch_in, n_ch_out, bias):
     return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=2, padding=1, dilation=1,
+        groups=1, bias=bias)
+
+
+def conv3d_minus3(n_ch_in, n_ch_out, bias):
+    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1,
         groups=1, bias=bias)
 
 

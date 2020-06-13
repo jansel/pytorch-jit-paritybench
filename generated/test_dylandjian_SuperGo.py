@@ -213,13 +213,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dylandjian_SuperGo(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AlphaLoss(*[], **{}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([64, 4]), torch.rand([64, 4])], {})
 
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Extractor(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

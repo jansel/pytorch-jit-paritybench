@@ -722,6 +722,11 @@ class HRModule(nn.Module):
         return x_fuse
 
 
+def get_root_logger(log_file=None, log_level=logging.INFO):
+    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
+    return logger
+
+
 class Res2Layer(nn.Sequential):
     """Res2Layer to build Res2Net style backbone.
 
@@ -832,115 +837,94 @@ def multi_apply(func, *args, **kwargs):
     return tuple(map(list, zip(*map_results)))
 
 
-def distance2bbox(points, distance, max_shape=None):
-    """Decode distance prediction to bounding box.
-
-    Args:
-        points (Tensor): Shape (n, 2), [x, y].
-        distance (Tensor): Distance from the given point to 4
-            boundaries (left, top, right, bottom).
-        max_shape (tuple): Shape of the image.
-
-    Returns:
-        Tensor: Decoded bboxes.
-    """
-    x1 = points[:, (0)] - distance[:, (0)]
-    y1 = points[:, (1)] - distance[:, (1)]
-    x2 = points[:, (0)] + distance[:, (2)]
-    y2 = points[:, (1)] + distance[:, (3)]
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1])
-        y1 = y1.clamp(min=0, max=max_shape[0])
-        x2 = x2.clamp(min=0, max=max_shape[1])
-        y2 = y2.clamp(min=0, max=max_shape[0])
-    return torch.stack([x1, y1, x2, y2], -1)
-
-
 INF = 100000000.0
 
 
-def batched_nms(bboxes, scores, inds, nms_cfg, class_agnostic=False):
-    """Performs non-maximum suppression in a batched fashion.
-
-    Modified from https://github.com/pytorch/vision/blob
-    /505cd6957711af790211896d32b40291bea1bc21/torchvision/ops/boxes.py#L39.
-    In order to perform NMS independently per class, we add an offset to all
-    the boxes. The offset is dependent only on the class idx, and is large
-    enough so that boxes from different classes do not overlap.
-
-    Arguments:
-        bboxes (torch.Tensor): bboxes in shape (N, 4).
-        scores (torch.Tensor): scores in shape (N, ).
-        inds (torch.Tensor): each index value correspond to a bbox cluster,
-            and NMS will not be applied between elements of different inds,
-            shape (N, ).
-        nms_cfg (dict): specify nms type and class_agnostic as well as other
-            parameters like iou_thr.
-        class_agnostic (bool): if true, nms is class agnostic,
-            i.e. IoU thresholding happens over all bboxes,
-            regardless of the predicted class
-
-    Returns:
-        tuple: kept bboxes and indice.
-    """
-    nms_cfg_ = nms_cfg.copy()
-    class_agnostic = nms_cfg_.pop('class_agnostic', class_agnostic)
-    if class_agnostic:
-        bboxes_for_nms = bboxes
+def cast_tensor_type(inputs, src_type, dst_type):
+    if isinstance(inputs, torch.Tensor):
+        return inputs.to(dst_type)
+    elif isinstance(inputs, str):
+        return inputs
+    elif isinstance(inputs, np.ndarray):
+        return inputs
+    elif isinstance(inputs, abc.Mapping):
+        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
+            k, v in inputs.items()})
+    elif isinstance(inputs, abc.Iterable):
+        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
+            item in inputs)
     else:
-        max_coordinate = bboxes.max()
-        offsets = inds.to(bboxes) * (max_coordinate + 1)
-        bboxes_for_nms = bboxes + offsets[:, (None)]
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = eval(nms_type)
-    dets, keep = nms_op(torch.cat([bboxes_for_nms, scores[:, (None)]], -1),
-        **nms_cfg_)
-    bboxes = bboxes[keep]
-    scores = dets[:, (-1)]
-    return torch.cat([bboxes, scores[:, (None)]], -1), keep
+        return inputs
 
 
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
-    -1, score_factors=None):
-    """NMS for multi-class bboxes.
+def force_fp32(apply_to=None, out_fp16=False):
+    """Decorator to convert input arguments to fp32 in force.
+
+    This decorator is useful when you write custom modules and want to support
+    mixed precision training. If there are some inputs that must be processed
+    in fp32 mode, then this decorator can handle it. If inputs arguments are
+    fp16 tensors, they will be converted to fp32 automatically. Arguments other
+    than fp16 tensors are ignored.
 
     Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class), where the last column
-            contains scores of the background class, but this will be ignored.
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-        score_factors (Tensor): The factors multiplied to scores before
-            applying NMS
+        apply_to (Iterable, optional): The argument names to be converted.
+            `None` indicates all arguments.
+        out_fp16 (bool): Whether to convert the output back to fp16.
 
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
-            are 0-based.
+    Example:
+
+        >>> import torch.nn as nn
+        >>> class MyModule1(nn.Module):
+        >>>
+        >>>     # Convert x and y to fp32
+        >>>     @force_fp32()
+        >>>     def loss(self, x, y):
+        >>>         pass
+
+        >>> import torch.nn as nn
+        >>> class MyModule2(nn.Module):
+        >>>
+        >>>     # convert pred to fp32
+        >>>     @force_fp32(apply_to=('pred', ))
+        >>>     def post_process(self, pred, others):
+        >>>         pass
     """
-    num_classes = multi_scores.size(1) - 1
-    if multi_bboxes.shape[1] > 4:
-        bboxes = multi_bboxes.view(multi_scores.size(0), -1, 4)
-    else:
-        bboxes = multi_bboxes[:, (None)].expand(-1, num_classes, 4)
-    scores = multi_scores[:, :-1]
-    valid_mask = scores > score_thr
-    bboxes = bboxes[valid_mask]
-    if score_factors is not None:
-        scores = scores * score_factors[:, (None)]
-    scores = scores[valid_mask]
-    labels = valid_mask.nonzero()[:, (1)]
-    if bboxes.numel() == 0:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-        return bboxes, labels
-    dets, keep = batched_nms(bboxes, scores, labels, nms_cfg)
-    if max_num > 0:
-        dets = dets[:max_num]
-        keep = keep[:max_num]
-    return dets, labels[keep]
+
+    def force_fp32_wrapper(old_func):
+
+        @functools.wraps(old_func)
+        def new_func(*args, **kwargs):
+            if not isinstance(args[0], torch.nn.Module):
+                raise TypeError(
+                    '@force_fp32 can only be used to decorate the method of nn.Module'
+                    )
+            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
+                return old_func(*args, **kwargs)
+            args_info = getfullargspec(old_func)
+            args_to_cast = args_info.args if apply_to is None else apply_to
+            new_args = []
+            if args:
+                arg_names = args_info.args[:len(args)]
+                for i, arg_name in enumerate(arg_names):
+                    if arg_name in args_to_cast:
+                        new_args.append(cast_tensor_type(args[i], torch.
+                            half, torch.float))
+                    else:
+                        new_args.append(args[i])
+            new_kwargs = dict()
+            if kwargs:
+                for arg_name, arg_value in kwargs.items():
+                    if arg_name in args_to_cast:
+                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
+                            torch.half, torch.float)
+                    else:
+                        new_kwargs[arg_name] = arg_value
+            output = old_func(*new_args, **new_kwargs)
+            if out_fp16:
+                output = cast_tensor_type(output, torch.float, torch.half)
+            return output
+        return new_func
+    return force_fp32_wrapper
 
 
 class FeatureAlign(nn.Module):
@@ -964,6 +948,15 @@ class FeatureAlign(nn.Module):
         offset = self.conv_offset(shape)
         x = self.relu(self.conv_adaption(x, offset))
         return x
+
+
+def build(cfg, registry, default_args=None):
+    if isinstance(cfg, list):
+        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
+            ]
+        return nn.Sequential(*modules)
+    else:
+        return build_from_cfg(cfg, registry, default_args)
 
 
 class FeatureAdaption(nn.Module):
@@ -1001,21 +994,32 @@ class FeatureAdaption(nn.Module):
         return x
 
 
-def cast_tensor_type(inputs, src_type, dst_type):
-    if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
-    elif isinstance(inputs, str):
-        return inputs
-    elif isinstance(inputs, np.ndarray):
-        return inputs
-    elif isinstance(inputs, abc.Mapping):
-        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
-            k, v in inputs.items()})
-    elif isinstance(inputs, abc.Iterable):
-        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
-            item in inputs)
+def unmap(data, count, inds, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 1:
+        ret = data.new_full((count,), fill)
+        ret[inds.type(torch.bool)] = data
     else:
-        return inputs
+        new_size = (count,) + data.size()[1:]
+        ret = data.new_full(new_size, fill)
+        ret[(inds.type(torch.bool)), :] = data
+    return ret
+
+
+def images_to_levels(target, num_levels):
+    """Convert targets by image to targets by feature level.
+
+    [target_img0, target_img1] -> [target_level0, target_level1, ...]
+    """
+    target = torch.stack(target, 0)
+    level_targets = []
+    start = 0
+    for n in num_levels:
+        end = start + n
+        level_targets.append(target[:, start:end])
+        start = end
+    return level_targets
 
 
 def auto_fp16(apply_to=None, out_fp32=False):
@@ -1405,15 +1409,6 @@ def balanced_l1_loss(pred, target, beta=1.0, alpha=0.5, gamma=1.5,
     return loss
 
 
-def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
-    loss = F.cross_entropy(pred, label, reduction='none')
-    if weight is not None:
-        weight = weight.float()
-    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
-        avg_factor=avg_factor)
-    return loss
-
-
 def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
     assert reduction == 'mean' and avg_factor is None
     num_rois = pred.size()[0]
@@ -1445,6 +1440,15 @@ def binary_cross_entropy(pred, label, weight=None, reduction='mean',
     loss = F.binary_cross_entropy_with_logits(pred, label.float(), weight,
         reduction='none')
     loss = weight_reduce_loss(loss, reduction=reduction, avg_factor=avg_factor)
+    return loss
+
+
+def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
+    loss = F.cross_entropy(pred, label, reduction='none')
+    if weight is not None:
+        weight = weight.float()
+    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
+        avg_factor=avg_factor)
     return loss
 
 
@@ -1718,6 +1722,12 @@ class BasicResBlock(nn.Module):
         return out
 
 
+GPU_MEM_LIMIT = 1024 ** 3
+
+
+BYTES_PER_FLOAT = 4
+
+
 def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
     """Paste instance masks acoording to boxes.
 
@@ -1806,87 +1816,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
     if len(mask_targets) > 0:
         mask_targets = torch.cat(mask_targets)
     return mask_targets
-
-
-GPU_MEM_LIMIT = 1024 ** 3
-
-
-def force_fp32(apply_to=None, out_fp16=False):
-    """Decorator to convert input arguments to fp32 in force.
-
-    This decorator is useful when you write custom modules and want to support
-    mixed precision training. If there are some inputs that must be processed
-    in fp32 mode, then this decorator can handle it. If inputs arguments are
-    fp16 tensors, they will be converted to fp32 automatically. Arguments other
-    than fp16 tensors are ignored.
-
-    Args:
-        apply_to (Iterable, optional): The argument names to be converted.
-            `None` indicates all arguments.
-        out_fp16 (bool): Whether to convert the output back to fp16.
-
-    Example:
-
-        >>> import torch.nn as nn
-        >>> class MyModule1(nn.Module):
-        >>>
-        >>>     # Convert x and y to fp32
-        >>>     @force_fp32()
-        >>>     def loss(self, x, y):
-        >>>         pass
-
-        >>> import torch.nn as nn
-        >>> class MyModule2(nn.Module):
-        >>>
-        >>>     # convert pred to fp32
-        >>>     @force_fp32(apply_to=('pred', ))
-        >>>     def post_process(self, pred, others):
-        >>>         pass
-    """
-
-    def force_fp32_wrapper(old_func):
-
-        @functools.wraps(old_func)
-        def new_func(*args, **kwargs):
-            if not isinstance(args[0], torch.nn.Module):
-                raise TypeError(
-                    '@force_fp32 can only be used to decorate the method of nn.Module'
-                    )
-            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
-                return old_func(*args, **kwargs)
-            args_info = getfullargspec(old_func)
-            args_to_cast = args_info.args if apply_to is None else apply_to
-            new_args = []
-            if args:
-                arg_names = args_info.args[:len(args)]
-                for i, arg_name in enumerate(arg_names):
-                    if arg_name in args_to_cast:
-                        new_args.append(cast_tensor_type(args[i], torch.
-                            half, torch.float))
-                    else:
-                        new_args.append(args[i])
-            new_kwargs = dict()
-            if kwargs:
-                for arg_name, arg_value in kwargs.items():
-                    if arg_name in args_to_cast:
-                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
-                            torch.half, torch.float)
-                    else:
-                        new_kwargs[arg_name] = arg_value
-            output = old_func(*new_args, **new_kwargs)
-            if out_fp16:
-                output = cast_tensor_type(output, torch.float, torch.half)
-            return output
-        return new_func
-    return force_fp32_wrapper
-
-
-BYTES_PER_FLOAT = 4
-
-
-def get_root_logger(log_file=None, log_level=logging.INFO):
-    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
-    return logger
 
 
 class ResLayer(nn.Sequential):
@@ -3172,23 +3101,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_open_mmlab_mmdetection(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MaxPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3203,3 +3131,4 @@ class Test_open_mmlab_mmdetection(_paritybench_base):
 
     def test_008(self):
         self._check(PseudoDataParallel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

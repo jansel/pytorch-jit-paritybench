@@ -458,11 +458,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jiasenlu_visDial_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(share_Linear(*[], **{'weight': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(_netW(*[], **{'ntoken': 4, 'ninp': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
 
@@ -471,7 +470,8 @@ class Test_jiasenlu_visDial_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(mixture_of_softmaxes(*[], **{'nhid': 4, 'n_experts': 4, 'ntoken': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(gumbel_sampler(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+

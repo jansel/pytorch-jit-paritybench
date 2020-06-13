@@ -833,10 +833,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_loicland_superpoint_graph(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(GRUCellEx(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(STNkD(*[], **{'nfeat': 4, 'nf_conv': [4, 4], 'nf_fc': [4, 4]}), [torch.rand([4, 4, 64])], {})
+

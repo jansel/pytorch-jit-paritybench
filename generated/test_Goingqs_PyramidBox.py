@@ -88,15 +88,35 @@ class L2Norm(nn.Module):
         return out
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -166,35 +186,37 @@ def jaccard(box_a, box_b):
         return inter / union
 
 
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
+def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t,
+    conf_t, idx):
+    """Match each prior box with the ground truth box of the highest jaccard
+    overlap, encode the bounding boxes, then return the matched indices
+    corresponding to both confidence and location preds.
     Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
+        threshold: (float) The overlap threshold used when mathing boxes.
+        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
+        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
+        variances: (tensor) Variances corresponding to each prior coord,
             Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
+        labels: (tensor) All the class labels for the image, Shape: [num_obj].
+        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
+        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
+        idx: (int) current batch index
     Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
+        The matched indices corresponding to 1)location and 2)confidence preds.
     """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    overlaps = jaccard(truths, point_form(priors))
+    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+    if not best_truth_overlap.is_cuda:
+        best_truth_overlap = best_truth_overlap.cuda()
+        best_truth_idx = best_truth_idx.cuda()
+    best_truth_idx.squeeze_(0)
+    best_truth_overlap.squeeze_(0)
+    matches = truths[best_truth_idx]
+    conf = labels[best_truth_idx] + 1
+    conf[best_truth_overlap < threshold] = 0
+    loc = encode(matches, priors, variances)
+    loc_t[idx] = loc
+    conf_t[idx] = conf
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -237,37 +259,15 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
-def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t,
-    conf_t, idx):
-    """Match each prior box with the ground truth box of the highest jaccard
-    overlap, encode the bounding boxes, then return the matched indices
-    corresponding to both confidence and location preds.
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        threshold: (float) The overlap threshold used when mathing boxes.
-        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
-        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
-        variances: (tensor) Variances corresponding to each prior coord,
-            Shape: [num_priors, 4].
-        labels: (tensor) All the class labels for the image, Shape: [num_obj].
-        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
-        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
-        idx: (int) current batch index
-    Return:
-        The matched indices corresponding to 1)location and 2)confidence preds.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    overlaps = jaccard(truths, point_form(priors))
-    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
-    if not best_truth_overlap.is_cuda:
-        best_truth_overlap = best_truth_overlap.cuda()
-        best_truth_idx = best_truth_idx.cuda()
-    best_truth_idx.squeeze_(0)
-    best_truth_overlap.squeeze_(0)
-    matches = truths[best_truth_idx]
-    conf = labels[best_truth_idx] + 1
-    conf[best_truth_overlap < threshold] = 0
-    loc = encode(matches, priors, variances)
-    loc_t[idx] = loc
-    conf_t[idx] = conf
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 _global_config['variance'] = 4
@@ -467,44 +467,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-class PriorBoxLayer(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    Note:
-    This 'layer' has changed between versions of the original SSD
-    paper, so we include both versions, but note v2 is the most tested and most
-    recent version of the paper.
-
-    """
-
-    def __init__(self, width, height, stride=[4, 8, 16, 32, 64, 128], box=[
-        16, 32, 64, 128, 256, 512], scale=[1, 1, 1, 1, 1, 1], aspect_ratios
-        =[[], [], [], [], [], []]):
-        super(PriorBoxLayer, self).__init__()
-        self.width = width
-        self.height = height
-        self.stride = stride
-        self.box = box
-        self.scales = scale
-        self.aspect_ratios = aspect_ratios
-
-    def forward(self, prior_idx, f_width, f_height):
-        mean = []
-        for i in range(f_height):
-            for j in range(f_width):
-                for scale in range(self.scales[prior_idx]):
-                    box_scale = (2 ** (1 / 3)) ** scale
-                    cx = (j + 0.5) * self.stride[prior_idx] / self.width
-                    cy = (i + 0.5) * self.stride[prior_idx] / self.height
-                    side_x = self.box[prior_idx] * box_scale / self.width
-                    side_y = self.box[prior_idx] * box_scale / self.height
-                    mean += [cx, cy, side_x, side_y]
-                    for ar in self.aspect_ratios[prior_idx]:
-                        mean += [cx, cy, side_x / sqrt(ar), side_y * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        return output
-
-
 def nms(boxes, scores, overlap=0.5, top_k=200):
     """Apply non-maximum suppression at test time to avoid detecting too many
     overlapping bounding boxes for a given object.
@@ -633,6 +595,44 @@ class Detect(Function):
         _, idx = flt[:, :, (0)].sort(1, descending=True)
         _, rank = idx.sort(1)
         flt[(rank < self.top_k).unsqueeze(-1).expand_as(flt)].fill_(0)
+        return output
+
+
+class PriorBoxLayer(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    Note:
+    This 'layer' has changed between versions of the original SSD
+    paper, so we include both versions, but note v2 is the most tested and most
+    recent version of the paper.
+
+    """
+
+    def __init__(self, width, height, stride=[4, 8, 16, 32, 64, 128], box=[
+        16, 32, 64, 128, 256, 512], scale=[1, 1, 1, 1, 1, 1], aspect_ratios
+        =[[], [], [], [], [], []]):
+        super(PriorBoxLayer, self).__init__()
+        self.width = width
+        self.height = height
+        self.stride = stride
+        self.box = box
+        self.scales = scale
+        self.aspect_ratios = aspect_ratios
+
+    def forward(self, prior_idx, f_width, f_height):
+        mean = []
+        for i in range(f_height):
+            for j in range(f_width):
+                for scale in range(self.scales[prior_idx]):
+                    box_scale = (2 ** (1 / 3)) ** scale
+                    cx = (j + 0.5) * self.stride[prior_idx] / self.width
+                    cy = (i + 0.5) * self.stride[prior_idx] / self.height
+                    side_x = self.box[prior_idx] * box_scale / self.width
+                    side_y = self.box[prior_idx] * box_scale / self.height
+                    mean += [cx, cy, side_x, side_y]
+                    for ar in self.aspect_ratios[prior_idx]:
+                        mean += [cx, cy, side_x / sqrt(ar), side_y * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
         return output
 
 
@@ -830,7 +830,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Goingqs_PyramidBox(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -842,3 +841,4 @@ class Test_Goingqs_PyramidBox(_paritybench_base):
 
     def test_003(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -353,6 +353,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_salesforce_pytorch_qrnn(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(CPUForgetMult(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

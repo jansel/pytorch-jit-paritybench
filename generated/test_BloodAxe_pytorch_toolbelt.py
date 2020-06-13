@@ -364,29 +364,7 @@ class MultiscaleTTAWrapper(nn.Module):
         return output
 
 
-def to_tensor(x, dtype=None) ->torch.Tensor:
-    if isinstance(x, torch.Tensor):
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    if isinstance(x, np.ndarray):
-        x = torch.from_numpy(x)
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    if isinstance(x, (list, tuple)):
-        x = np.ndarray(x)
-        x = torch.from_numpy(x)
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    raise ValueError('Unsupported input type' + str(type(x)))
-
-
-BINARY_MODE = 'binary'
-
-
-MULTILABEL_MODE = 'multilabel'
+MULTICLASS_MODE = 'multiclass'
 
 
 def soft_dice_score(y_pred: torch.Tensor, y_true: torch.Tensor, smooth=0,
@@ -418,7 +396,29 @@ def soft_dice_score(y_pred: torch.Tensor, y_true: torch.Tensor, smooth=0,
     return dice_score
 
 
-MULTICLASS_MODE = 'multiclass'
+BINARY_MODE = 'binary'
+
+
+MULTILABEL_MODE = 'multilabel'
+
+
+def to_tensor(x, dtype=None) ->torch.Tensor:
+    if isinstance(x, torch.Tensor):
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    if isinstance(x, (list, tuple)):
+        x = np.ndarray(x)
+        x = torch.from_numpy(x)
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    raise ValueError('Unsupported input type' + str(type(x)))
 
 
 class DiceLoss(_Loss):
@@ -831,6 +831,23 @@ class BinaryLovaszLoss(_Loss):
             ignore=self.ignore)
 
 
+def _flatten_probas(probas, labels, ignore=None):
+    """Flattens predictions in the batch
+    """
+    if probas.dim() == 3:
+        B, H, W = probas.size()
+        probas = probas.view(B, 1, H, W)
+    B, C, H, W = probas.size()
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
+    labels = labels.view(-1)
+    if ignore is None:
+        return probas, labels
+    valid = labels != ignore
+    vprobas = probas[valid.nonzero().squeeze()]
+    vlabels = labels[valid]
+    return vprobas, vlabels
+
+
 def _lovasz_softmax_flat(probas, labels, classes='present'):
     """Multi-class Lovasz-Softmax loss
     Args:
@@ -860,23 +877,6 @@ def _lovasz_softmax_flat(probas, labels, classes='present'):
         losses.append(torch.dot(errors_sorted, Variable(_lovasz_grad(
             fg_sorted))))
     return mean(losses)
-
-
-def _flatten_probas(probas, labels, ignore=None):
-    """Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = labels != ignore
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
 
 
 def _lovasz_softmax(probas, labels, classes='present', per_image=False,
@@ -1355,46 +1355,51 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
+def conv_1x1_bn(inp, oup, activation):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), activation())
+
+
+ACT_SWISH = 'swish'
+
+
+ACT_HARD_SIGMOID = 'hard_sigmoid'
+
+
 ACT_MISH = 'mish'
 
 
 ACT_GLU = 'glu'
 
 
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
-ACT_HARD_SIGMOID = 'hard_sigmoid'
-
-
-ACT_CELU = 'celu'
-
-
-ACT_RELU = 'relu'
-
-
-ACT_SWISH = 'swish'
-
-
 ACT_SELU = 'selu'
-
-
-ACT_HARD_SWISH = 'hard_swish'
 
 
 ACT_RELU6 = 'relu6'
 
 
-ACT_ELU = 'elu'
+ACT_HARD_SWISH = 'hard_swish'
 
 
 ACT_NONE = 'none'
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_CELU = 'celu'
+
+
 ACT_SWISH_NAIVE = 'swish_naive'
 
 
+ACT_RELU = 'relu'
+
+
 ACT_PRELU = 'prelu'
+
+
+ACT_ELU = 'elu'
 
 
 def get_activation_block(activation_name: str):
@@ -1408,11 +1413,6 @@ def get_activation_block(activation_name: str):
 
 def conv_bn(inp, oup, stride, activation):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), activation())
-
-
-def conv_1x1_bn(inp, oup, activation):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), activation())
 
 
@@ -2577,6 +2577,10 @@ class DepthwiseSeparableConv2d(nn.Module):
         return out
 
 
+def _take(elements, indexes):
+    return list([elements[i] for i in indexes])
+
+
 string_types = type(b''), type('')
 
 
@@ -2619,10 +2623,6 @@ def pytorch_toolbelt_deprecated(reason):
         return new_func2
     else:
         raise TypeError(repr(type(reason)))
-
-
-def _take(elements, indexes):
-    return list([elements[i] for i in indexes])
 
 
 def drop_connect(inputs, p, training):
@@ -2803,13 +2803,13 @@ class HGSupervisionBlock(nn.Module):
         return sup_mask, sup_features
 
 
-HRNETV2_BN_MOMENTUM = 0.1
-
-
 def hrnet_conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
+
+
+HRNETV2_BN_MOMENTUM = 0.1
 
 
 class HRNetBasicBlock(nn.Module):
@@ -4143,14 +4143,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(SwishNaive(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4183,8 +4182,8 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
 
     def test_012(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4, 'expplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4193,12 +4192,12 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
 
     def test_015(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4210,15 +4209,15 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
 
     def test_020(self):
         self._check(ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_021(self):
         self._check(FPNCatDecoderBlock(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_022(self):
         self._check(UnetCentralBlockV2(*[], **{'in_dec_filters': 4, 'out_filters': 4, 'mask_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_023(self):
         self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4245,12 +4244,12 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
 
     def test_031(self):
         self._check(XResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_032(self):
         self._check(SEXResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_033(self):
         self._check(FPNBottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -4295,3 +4294,4 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
 
     def test_047(self):
         self._check(SumAll(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

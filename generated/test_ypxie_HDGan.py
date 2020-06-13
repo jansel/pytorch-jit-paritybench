@@ -312,13 +312,6 @@ class Sent2FeatMap(nn.Module):
         return output
 
 
-def branch_out(in_dim, out_dim=3):
-    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
-        kernel_size=3, padding=0, bias=False)]
-    _layers += [nn.Tanh()]
-    return nn.Sequential(*_layers)
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -327,6 +320,13 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
+
+
+def branch_out(in_dim, out_dim=3):
+    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
+        kernel_size=3, padding=0, bias=False)]
+    _layers += [nn.Tanh()]
+    return nn.Sequential(*_layers)
 
 
 class Generator(nn.Module):
@@ -599,18 +599,18 @@ class ImageEncoder(nn.Module):
         return feat
 
 
-def xavier_weight(tensor):
-    nin, nout = tensor.size()[0], tensor.size()[1]
-    r = np.sqrt(6.0) / np.sqrt(nin + nout)
-    return tensor.normal_(0, r)
-
-
 def l2norm(input, p=2.0, dim=1, eps=1e-12):
     """
     Compute L2 norm, row-wise
     """
     l2_inp = input / input.norm(p, dim, keepdim=True).clamp(min=eps)
     return l2_inp.expand_as(input)
+
+
+def xavier_weight(tensor):
+    nin, nout = tensor.size()[0], tensor.size()[1]
+    r = np.sqrt(6.0) / np.sqrt(nin + nout)
+    return tensor.normal_(0, r)
 
 
 class ImgSenRanking(torch.nn.Module):
@@ -2199,7 +2199,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ypxie_HDGan(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ImageDown(*[], **{'input_size': 4, 'num_chan': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2208,8 +2207,8 @@ class Test_ypxie_HDGan(_paritybench_base):
 
     def test_002(self):
         self._check(Sent2FeatMap(*[], **{'in_dim': 4, 'row': 4, 'col': 4, 'channel': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ImgSenRanking(*[], **{'dim_image': 4, 'sent_dim': 4, 'hid_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -2263,3 +2262,4 @@ class Test_ypxie_HDGan(_paritybench_base):
 
     def test_020(self):
         self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+

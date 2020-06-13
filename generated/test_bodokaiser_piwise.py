@@ -329,7 +329,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_bodokaiser_piwise(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(UNetEnc(*[], **{'in_channels': 4, 'features': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
@@ -341,3 +340,4 @@ class Test_bodokaiser_piwise(_paritybench_base):
 
     def test_003(self):
         self._check(PSPDec(*[], **{'in_features': 4, 'out_features': 4, 'downsize': 4}), [torch.rand([4, 4, 4, 4])], {})
+

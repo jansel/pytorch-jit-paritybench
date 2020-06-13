@@ -96,6 +96,19 @@ class eSEModule(nn.Module):
 _NORM = False
 
 
+def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
+    kernel_size=3, padding=1):
+    """3x3 convolution with padding"""
+    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
+        padding=padding, groups=out_channels, bias=False)), (
+        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
+        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
+        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
+        module_name, postfix), nn.ReLU(inplace=True))]
+
+
 def conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
     groups=1, kernel_size=3, padding=1):
     """3x3 convolution with padding"""
@@ -114,19 +127,6 @@ def conv1x1(in_channels, out_channels, module_name, postfix, stride=1,
         padding, groups=groups, bias=False)), (
         f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
         f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
-
-
-def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
-    kernel_size=3, padding=1):
-    """3x3 convolution with padding"""
-    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
-        padding=padding, groups=out_channels, bias=False)), (
-        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
-        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
-        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
-        module_name, postfix), nn.ReLU(inplace=True))]
 
 
 class _OSA_module(nn.Module):
@@ -201,9 +201,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_youngwanLEE_vovnet_detectron2(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(eSEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

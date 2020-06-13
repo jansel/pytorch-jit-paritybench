@@ -240,9 +240,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_SakuraRiven_EAST(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(extractor(*[], **{'pretrained': False}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(output(*[], **{}), [torch.rand([4, 32, 64, 64])], {})
+

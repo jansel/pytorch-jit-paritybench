@@ -586,16 +586,16 @@ class BertAttention(nn.Module):
         return outputs
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
         0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -1847,40 +1847,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-TF2_WEIGHTS_NAME = 'tf_model.h5'
-
-
-TF_WEIGHTS_NAME = 'model.ckpt'
-
-
-def s3_request(func):
-    """
-    Wrapper function for s3 requests in order to create more helpful error
-    messages.
-    """
-
-    @wraps(func)
-    def wrapper(url, *args, **kwargs):
-        try:
-            return func(url, *args, **kwargs)
-        except ClientError as exc:
-            if int(exc.response['Error']['Code']) == 404:
-                raise EnvironmentError('file {} not found'.format(url))
-            else:
-                raise
-    return wrapper
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
+CONFIG_NAME = 'bert_config.json'
 
 
 class Conv1D(nn.Module):
@@ -3236,26 +3203,6 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
-
-
-CONFIG_NAME = 'bert_config.json'
-
-
 class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
@@ -3340,10 +3287,27 @@ class BertConfig(object):
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
+    , 'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
+    , 'bert-base-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
+    }
 
 
 logger = logging.getLogger(__name__)
+
+
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 class PreTrainedBertModel(nn.Module):
@@ -3479,7 +3443,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_CLUEbenchmark_CLUE(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(AlbertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, embedding_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
@@ -3491,8 +3454,8 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
 
     def test_003(self):
         self._check(AlbertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
@@ -3501,34 +3464,34 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
 
     def test_006(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_008(self):
         self._check(Embeddings(*[], **{'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
         self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
 
@@ -3537,7 +3500,8 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
 
     def test_016(self):
         self._check(MRC_finetune(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(ALBertEmbeddings(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4, vocab_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+

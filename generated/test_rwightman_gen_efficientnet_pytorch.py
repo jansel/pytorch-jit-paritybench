@@ -240,14 +240,14 @@ class MishAuto(nn.Module):
 
 
 @torch.jit.script
-def swish_jit_bwd(x, grad_output):
-    x_sigmoid = torch.sigmoid(x)
-    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+def swish_jit_fwd(x):
+    return x.mul(torch.sigmoid(x))
 
 
 @torch.jit.script
-def swish_jit_fwd(x):
-    return x.mul(torch.sigmoid(x))
+def swish_jit_bwd(x, grad_output):
+    x_sigmoid = torch.sigmoid(x)
+    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
 
 
 class SwishJitAutoFn(torch.autograd.Function):
@@ -278,16 +278,16 @@ class SwishJit(nn.Module):
 
 
 @torch.jit.script
+def mish_jit_fwd(x):
+    return x.mul(torch.tanh(F.softplus(x)))
+
+
+@torch.jit.script
 def mish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     x_tanh_sp = F.softplus(x).tanh()
     return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
         x_tanh_sp))
-
-
-@torch.jit.script
-def mish_jit_fwd(x):
-    return x.mul(torch.tanh(F.softplus(x)))
 
 
 class MishJitAutoFn(torch.autograd.Function):
@@ -379,12 +379,6 @@ class Conv2dSameExport(nn.Conv2d):
             padding, self.dilation, self.groups)
 
 
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
-
-
 _SCRIPTABLE = False
 
 
@@ -392,13 +386,13 @@ def is_scriptable():
     return _SCRIPTABLE
 
 
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+
+
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
-
-
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def get_padding_value(padding, kernel_size, **kwargs):
@@ -438,6 +432,12 @@ def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
     else:
         return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
             kwargs)
+
+
+def _split_channels(num_chan, num_groups):
+    split = [(num_chan // num_groups) for _ in range(num_groups)]
+    split[0] += num_chan - sum(split)
+    return split
 
 
 class MixedConv2d(nn.ModuleDict):
@@ -569,16 +569,16 @@ class CondConv2d(nn.Module):
         return out
 
 
-def sigmoid(x, inplace: bool=False):
-    return x.sigmoid_() if inplace else x.sigmoid()
-
-
 def make_divisible(v: int, divisor: int=8, min_value: int=None):
     min_value = min_value or divisor
     new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
+
+
+def sigmoid(x, inplace: bool=False):
+    return x.sigmoid_() if inplace else x.sigmoid()
 
 
 class SqueezeExcite(nn.Module):
@@ -802,30 +802,6 @@ class EdgeResidual(nn.Module):
         return x
 
 
-def initialize_weight_default(m, n=''):
-    if isinstance(m, CondConv2d):
-        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
-            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
-            )
-        init_fn(m.weight)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
-
-
-def round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
-    """Round number of filters based on depth multiplier."""
-    if not multiplier:
-        return channels
-    channels *= multiplier
-    return make_divisible(channels, divisor, channel_min)
-
-
 class CondConvResidual(InvertedResidual):
     """ Inverted residual block w/ CondConv routing"""
 
@@ -863,6 +839,14 @@ class CondConvResidual(InvertedResidual):
                 x = drop_connect(x, self.training, self.drop_connect_rate)
             x += residual
         return x
+
+
+def round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
+    """Round number of filters based on depth multiplier."""
+    if not multiplier:
+        return channels
+    channels *= multiplier
+    return make_divisible(channels, divisor, channel_min)
 
 
 class EfficientNetBuilder:
@@ -960,6 +944,22 @@ class EfficientNetBuilder:
             stack = self._make_stack(stack)
             blocks.append(stack)
         return blocks
+
+
+def initialize_weight_default(m, n=''):
+    if isinstance(m, CondConv2d):
+        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
+            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
+            )
+        init_fn(m.weight)
+    elif isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
 
 
 def initialize_weight_goog(m, n='', fix_group_fanout=True):
@@ -1130,7 +1130,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1148,20 +1147,20 @@ class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(SwishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(MishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1191,3 +1190,4 @@ class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
 
     def test_018(self):
         self._check(EdgeResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+

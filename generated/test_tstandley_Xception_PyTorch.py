@@ -190,7 +190,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tstandley_Xception_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -199,3 +198,4 @@ class Test_tstandley_Xception_PyTorch(_paritybench_base):
 
     def test_002(self):
         self._check(Xception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

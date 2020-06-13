@@ -80,27 +80,51 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import DataLoader
 
 
-VOCAB_NAME = 'vocab.txt'
+class VisualConfig(object):
+    VISUAL_LOSSES = ['obj', 'attr', 'feat']
+
+    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
+        self.l_layers = l_layers
+        self.x_layers = x_layers
+        self.r_layers = r_layers
+        self.visual_feat_dim = 2048
+        self.visual_pos_dim = 4
+        self.obj_id_num = 1600
+        self.attr_id_num = 400
+        self.visual_losses = self.VISUAL_LOSSES
+        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 /
+            0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15),
+            'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
+
+    def set_visual_dims(self, feat_dim, pos_dim):
+        self.visual_feat_dim = feat_dim
+        self.visual_pos_dim = pos_dim
 
 
-def _is_control(char):
-    """Checks whether `chars` is a control character."""
-    if char == '\t' or char == '\n' or char == '\r':
-        return False
-    cat = unicodedata.category(char)
-    if cat.startswith('C'):
-        return True
-    return False
+VISUAL_CONFIG = VisualConfig()
 
 
-def _is_whitespace(char):
-    """Checks whether `chars` is a whitespace character."""
-    if char == ' ' or char == '\t' or char == '\n' or char == '\r':
-        return True
-    cat = unicodedata.category(char)
-    if cat == 'Zs':
-        return True
-    return False
+def set_visual_config(args):
+    VISUAL_CONFIG.l_layers = args.llayers
+    VISUAL_CONFIG.x_layers = args.xlayers
+    VISUAL_CONFIG.r_layers = args.rlayers
+
+
+PRETRAINED_VOCAB_ARCHIVE_MAP = {'bert-base-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'
+    , 'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased-vocab.txt'
+    , 'bert-base-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased-vocab.txt'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased-vocab.txt'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased-vocab.txt'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased-vocab.txt'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt'
+    }
 
 
 def _is_punctuation(char):
@@ -122,6 +146,26 @@ def whitespace_tokenize(text):
         return []
     tokens = text.split()
     return tokens
+
+
+def _is_control(char):
+    """Checks whether `chars` is a control character."""
+    if char == '\t' or char == '\n' or char == '\r':
+        return False
+    cat = unicodedata.category(char)
+    if cat.startswith('C'):
+        return True
+    return False
+
+
+def _is_whitespace(char):
+    """Checks whether `chars` is a whitespace character."""
+    if char == ' ' or char == '\t' or char == '\n' or char == '\r':
+        return True
+    cat = unicodedata.category(char)
+    if cat == 'Zs':
+        return True
+    return False
 
 
 class BasicTokenizer(object):
@@ -219,12 +263,6 @@ class BasicTokenizer(object):
         return ''.join(output)
 
 
-PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512,
-    'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 
-    512, 'bert-base-multilingual-uncased': 512,
-    'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
-
-
 def load_vocab(vocab_file):
     """Loads a vocabulary file into a dictionary."""
     vocab = collections.OrderedDict()
@@ -238,6 +276,31 @@ def load_vocab(vocab_file):
             vocab[token] = index
             index += 1
     return vocab
+
+
+VOCAB_NAME = 'vocab.txt'
+
+
+PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512,
+    'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 
+    512, 'bert-base-multilingual-uncased': 512,
+    'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
+
+
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
 
 
 def s3_request(func):
@@ -518,30 +581,6 @@ class LXRTXLayer(nn.Module):
         return lang_output, visn_output
 
 
-class VisualConfig(object):
-    VISUAL_LOSSES = ['obj', 'attr', 'feat']
-
-    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
-        self.l_layers = l_layers
-        self.x_layers = x_layers
-        self.r_layers = r_layers
-        self.visual_feat_dim = 2048
-        self.visual_pos_dim = 4
-        self.obj_id_num = 1600
-        self.attr_id_num = 400
-        self.visual_losses = self.VISUAL_LOSSES
-        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 /
-            0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15),
-            'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
-
-    def set_visual_dims(self, feat_dim, pos_dim):
-        self.visual_feat_dim = feat_dim
-        self.visual_pos_dim = pos_dim
-
-
-VISUAL_CONFIG = VisualConfig()
-
-
 class VisualFeatEncoder(nn.Module):
 
     def __init__(self, config):
@@ -692,29 +731,6 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-logger = logging.getLogger(__name__)
-
-
-TF_WEIGHTS_NAME = 'model.ckpt'
-
-
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
-
-
 def load_tf_weights_in_bert(model, tf_checkpoint_path):
     """ Load tf checkpoints in a pytorch model
     """
@@ -771,6 +787,9 @@ def load_tf_weights_in_bert(model, tf_checkpoint_path):
         print('Initialize PyTorch weight {}'.format(name))
         pointer.data = torch.from_numpy(array)
     return model
+
+
+TF_WEIGHTS_NAME = 'model.ckpt'
 
 
 CONFIG_NAME = 'bert_config.json'
@@ -859,6 +878,26 @@ class BertConfig(object):
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
+
+
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
+    , 'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
+    , 'bert-base-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
+    }
+
+
+logger = logging.getLogger(__name__)
 
 
 WEIGHTS_NAME = 'pytorch_model.bin'
@@ -1104,11 +1143,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_airsplay_lxmert(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
@@ -1123,3 +1161,4 @@ class Test_airsplay_lxmert(_paritybench_base):
 
     def test_005(self):
         self._check(BertVisualAnswerHead(*[], **{'config': _mock_config(hidden_size=4), 'num_answers': 4}), [torch.rand([4, 4, 4, 4])], {})
+

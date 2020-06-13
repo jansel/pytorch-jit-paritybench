@@ -50,6 +50,24 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
+class GroupRandomHorizontalFlip(object):
+
+    def __init__(self, is_mv=False):
+        self._is_mv = is_mv
+
+    def __call__(self, img_group, is_mv=False):
+        if random.random() < 0.5:
+            ret = [img[:, ::-1, :].astype(np.int32) for img in img_group]
+            if self._is_mv:
+                for i in range(len(ret)):
+                    ret[i] -= 128
+                    ret[i][..., 0] *= -1
+                    ret[i] += 128
+            return ret
+        else:
+            return img_group
+
+
 def resize_mv(img, shape, interpolation):
     return np.stack([cv2.resize(img[..., i], shape, interpolation) for i in
         range(2)], axis=2)
@@ -128,24 +146,6 @@ class GroupMultiScaleCrop(object):
         return ret
 
 
-class GroupRandomHorizontalFlip(object):
-
-    def __init__(self, is_mv=False):
-        self._is_mv = is_mv
-
-    def __call__(self, img_group, is_mv=False):
-        if random.random() < 0.5:
-            ret = [img[:, ::-1, :].astype(np.int32) for img in img_group]
-            if self._is_mv:
-                for i in range(len(ret)):
-                    ret[i] -= 128
-                    ret[i][..., 0] *= -1
-                    ret[i] += 128
-            return ret
-        else:
-            return img_group
-
-
 class Model(nn.Module):
 
     def __init__(self, num_class, num_segments, representation, base_model=
@@ -206,6 +206,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_chaoyuaw_pytorch_coviar(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

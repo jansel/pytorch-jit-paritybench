@@ -3582,15 +3582,13 @@ class DynamicShapeTinyNet(nn.Module):
         return out, logits
 
 
-def conv_forward(inputs, conv, choices):
-    iC = conv.in_channels
-    fill_size = list(inputs.size())
-    fill_size[1] = iC - fill_size[1]
-    filled = torch.zeros(fill_size, device=inputs.device)
-    xinputs = torch.cat((inputs, filled), dim=1)
-    outputs = conv(xinputs)
-    selecteds = [outputs[:, :oC] for oC in choices]
-    return selecteds
+def ChannelWiseInterV2(inputs, oC):
+    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
+    batch, C, H, W = inputs.size()
+    if C == oC:
+        return inputs
+    else:
+        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
 
 
 def ChannelWiseInterV1(inputs, oC):
@@ -3613,15 +3611,6 @@ def ChannelWiseInterV1(inputs, oC):
     return outputs
 
 
-def ChannelWiseInterV2(inputs, oC):
-    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
-    batch, C, H, W = inputs.size()
-    if C == oC:
-        return inputs
-    else:
-        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
-
-
 def ChannelWiseInter(inputs, oC, mode='v2'):
     if mode == 'v1':
         return ChannelWiseInterV1(inputs, oC)
@@ -3629,6 +3618,17 @@ def ChannelWiseInter(inputs, oC, mode='v2'):
         return ChannelWiseInterV2(inputs, oC)
     else:
         raise ValueError('invalid mode : {:}'.format(mode))
+
+
+def conv_forward(inputs, conv, choices):
+    iC = conv.in_channels
+    fill_size = list(inputs.size())
+    fill_size[1] = iC - fill_size[1]
+    filled = torch.zeros(fill_size, device=inputs.device)
+    xinputs = torch.cat((inputs, filled), dim=1)
+    outputs = conv(xinputs)
+    selecteds = [outputs[:, :oC] for oC in choices]
+    return selecteds
 
 
 def get_width_choices(nOut):
@@ -6511,7 +6511,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Policy(*[], **{'max_nodes': 4, 'search_space': [4, 4]}), [], {})
 
@@ -6538,8 +6537,8 @@ class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
 
     def test_008(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(Controller(*[], **{'num_edge': 4, 'num_ops': 4}), [], {})
 
@@ -6560,3 +6559,4 @@ class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
 
     def test_015(self):
         self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+

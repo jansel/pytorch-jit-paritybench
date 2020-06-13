@@ -278,6 +278,25 @@ class DeformConvNet(nn.Module):
             .parameters())
 
 
+def np_repeat_2d(a, repeats):
+    """Tensorflow version of np.repeat for 2D"""
+    assert len(a.shape) == 2
+    a = np.expand_dims(a, 0)
+    a = np.tile(a, [repeats, 1, 1])
+    return a
+
+
+def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
+    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
+    grid = np.stack(grid, axis=-1)
+    grid = grid.reshape(-1, 2)
+    grid = np_repeat_2d(grid, batch_size)
+    grid = torch.from_numpy(grid).type(dtype)
+    if cuda:
+        grid = grid.cuda()
+    return Variable(grid, requires_grad=False)
+
+
 def th_flatten(a):
     """Flatten tensor"""
     return a.contiguous().view(a.nelement())
@@ -333,25 +352,6 @@ def th_batch_map_coordinates(input, coords, order=1):
     vals_b = coords_offset_lt[..., 0] * (vals_rb - vals_lb) + vals_lb
     mapped_vals = coords_offset_lt[..., 1] * (vals_b - vals_t) + vals_t
     return mapped_vals
-
-
-def np_repeat_2d(a, repeats):
-    """Tensorflow version of np.repeat for 2D"""
-    assert len(a.shape) == 2
-    a = np.expand_dims(a, 0)
-    a = np.tile(a, [repeats, 1, 1])
-    return a
-
-
-def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
-    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
-    grid = np.stack(grid, axis=-1)
-    grid = grid.reshape(-1, 2)
-    grid = np_repeat_2d(grid, batch_size)
-    grid = torch.from_numpy(grid).type(dtype)
-    if cuda:
-        grid = grid.cuda()
-    return Variable(grid, requires_grad=False)
 
 
 def th_batch_map_offsets(input, offsets, grid=None, order=1):
@@ -905,7 +905,7 @@ class Depth3DGridGen_with_mask(Module):
 sources = []
 
 
-defines = []
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 with_cuda = False
@@ -914,7 +914,7 @@ with_cuda = False
 headers = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+defines = []
 
 
 class RoIPoolFunction(Function):
@@ -1192,6 +1192,15 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     return anchors
 
 
+def _scale_enum(anchor, scales):
+    """Enumerate a set of anchors for each scale wrt an anchor."""
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
 def _ratio_enum(anchor, ratios):
     """Enumerate a set of anchors for each aspect ratio wrt an anchor."""
     w, h, x_ctr, y_ctr = _whctrs(anchor)
@@ -1199,15 +1208,6 @@ def _ratio_enum(anchor, ratios):
     size_ratios = size / ratios
     ws = np.round(np.sqrt(size_ratios))
     hs = np.round(ws * ratios)
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _scale_enum(anchor, scales):
-    """Enumerate a set of anchors for each scale wrt an anchor."""
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
     return anchors
 
@@ -1233,10 +1233,10 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
         stride, np.array(aspect_ratios, dtype=np.float))
 
 
-_global_config['MODEL'] = 4
-
-
 _global_config['RPN'] = 4
+
+
+_global_config['MODEL'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -1378,6 +1378,48 @@ class FocalLoss(nn.Module):
 _global_config['RESNETS'] = 4
 
 
+def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
+    res_id):
+    """Construct weight mapping relation for a residual stage with `num_blocks` of
+    residual blocks given the stage id: `res_id`
+    """
+    if cfg.RESNETS.USE_GN:
+        norm_suffix = '_gn'
+    else:
+        norm_suffix = '_bn'
+    mapping_to_detectron = {}
+    orphan_in_detectron = []
+    for blk_id in range(num_blocks):
+        detectron_prefix = 'res%d_%d' % (res_id, blk_id)
+        my_prefix = '%s.%d' % (module_name, blk_id)
+        if getattr(module_ref[blk_id], 'downsample'):
+            dtt_bp = detectron_prefix + '_branch1'
+            mapping_to_detectron[my_prefix + '.downsample.0.weight'
+                ] = dtt_bp + '_w'
+            orphan_in_detectron.append(dtt_bp + '_b')
+            mapping_to_detectron[my_prefix + '.downsample.1.weight'
+                ] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.downsample.1.bias'
+                ] = dtt_bp + norm_suffix + '_b'
+        for i, c in zip([1, 2, 3], ['a', 'b', 'c']):
+            dtt_bp = detectron_prefix + '_branch2' + c
+            mapping_to_detectron[my_prefix + '.conv%d.weight' % i
+                ] = dtt_bp + '_w'
+            orphan_in_detectron.append(dtt_bp + '_b')
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
+                '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
+                '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
+    return mapping_to_detectron, orphan_in_detectron
+
+
+def freeze_params(m):
+    """Freeze all the weights by setting requires_grad to False
+    """
+    for p in m.parameters():
+        p.requires_grad = False
+
+
 def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride,
     deform=False):
     """Return a residual block module, including residual connection, """
@@ -1412,48 +1454,6 @@ def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
         inplanes = outplanes
         stride = 1
     return nn.Sequential(*res_blocks), outplanes
-
-
-def freeze_params(m):
-    """Freeze all the weights by setting requires_grad to False
-    """
-    for p in m.parameters():
-        p.requires_grad = False
-
-
-def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
-    res_id):
-    """Construct weight mapping relation for a residual stage with `num_blocks` of
-    residual blocks given the stage id: `res_id`
-    """
-    if cfg.RESNETS.USE_GN:
-        norm_suffix = '_gn'
-    else:
-        norm_suffix = '_bn'
-    mapping_to_detectron = {}
-    orphan_in_detectron = []
-    for blk_id in range(num_blocks):
-        detectron_prefix = 'res%d_%d' % (res_id, blk_id)
-        my_prefix = '%s.%d' % (module_name, blk_id)
-        if getattr(module_ref[blk_id], 'downsample'):
-            dtt_bp = detectron_prefix + '_branch1'
-            mapping_to_detectron[my_prefix + '.downsample.0.weight'
-                ] = dtt_bp + '_w'
-            orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.downsample.1.weight'
-                ] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.downsample.1.bias'
-                ] = dtt_bp + norm_suffix + '_b'
-        for i, c in zip([1, 2, 3], ['a', 'b', 'c']):
-            dtt_bp = detectron_prefix + '_branch2' + c
-            mapping_to_detectron[my_prefix + '.conv%d.weight' % i
-                ] = dtt_bp + '_w'
-            orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
-    return mapping_to_detectron, orphan_in_detectron
 
 
 class ResNet_convX_body(nn.Module):
@@ -2461,35 +2461,6 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         return x
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
-def check_inference(net_func):
-
-    @wraps(net_func)
-    def wrapper(self, *args, **kwargs):
-        if not self.training:
-            if cfg.PYTORCH_VERSION_LESS_THAN_040:
-                return net_func(self, *args, **kwargs)
-            else:
-                with torch.no_grad():
-                    return net_func(self, *args, **kwargs)
-        else:
-            raise ValueError(
-                'You should call this function only on inference.Set the network in inference mode by net.eval().'
-                )
-    return wrapper
-
-
-def compare_state_dict(sa, sb):
-    if sa.keys() != sb.keys():
-        return False
-    for k, va in sa.items():
-        if not torch.equal(va, sb[k]):
-            return False
-    return True
-
-
 def setup_logging(name):
     FORMAT = '%(levelname)s %(filename)s:%(lineno)4d: %(message)s'
     logging.root.handlers = []
@@ -2520,13 +2491,42 @@ def get_func(func_name):
         raise
 
 
+_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
+
+
+def check_inference(net_func):
+
+    @wraps(net_func)
+    def wrapper(self, *args, **kwargs):
+        if not self.training:
+            if cfg.PYTORCH_VERSION_LESS_THAN_040:
+                return net_func(self, *args, **kwargs)
+            else:
+                with torch.no_grad():
+                    return net_func(self, *args, **kwargs)
+        else:
+            raise ValueError(
+                'You should call this function only on inference.Set the network in inference mode by net.eval().'
+                )
+    return wrapper
+
+
+def compare_state_dict(sa, sb):
+    if sa.keys() != sb.keys():
+        return False
+    for k, va in sa.items():
+        if not torch.equal(va, sb[k]):
+            return False
+    return True
+
+
 _global_config['CASCADE_RCNN'] = 4
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class RoIAlign(Module):
@@ -2968,25 +2968,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_funnyzhou_FPN_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DeformConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvOffset2D(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -334,6 +334,23 @@ class DetNet(nn.Module):
         return x
 
 
+def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
+    bbox_outside_weights, sigma=1.0, dim=[1]):
+    sigma_2 = sigma ** 2
+    box_diff = bbox_pred - bbox_targets
+    in_box_diff = bbox_inside_weights * box_diff
+    abs_in_box_diff = torch.abs(in_box_diff)
+    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
+    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
+        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
+        smoothL1_sign)
+    out_loss_box = bbox_outside_weights * in_loss_box
+    loss_box = out_loss_box
+    s = loss_box.size(0)
+    loss_box = loss_box.view(s, -1).sum(1).mean()
+    return loss_box
+
+
 def _affine_grid_gen(rois, input_size, grid_size):
     rois = rois.detach()
     x1 = rois[:, 1::4] / 16.0
@@ -415,30 +432,13 @@ def bbox_decode(rois, bbox_pred, batch_size, class_agnostic, classes,
     return ret_boxes
 
 
-def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
-    bbox_outside_weights, sigma=1.0, dim=[1]):
-    sigma_2 = sigma ** 2
-    box_diff = bbox_pred - bbox_targets
-    in_box_diff = bbox_inside_weights * box_diff
-    abs_in_box_diff = torch.abs(in_box_diff)
-    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
-    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
-        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
-        smoothL1_sign)
-    out_loss_box = bbox_outside_weights * in_loss_box
-    loss_box = out_loss_box
-    s = loss_box.size(0)
-    loss_box = loss_box.view(s, -1).sum(1).mean()
-    return loss_box
-
-
 _global_config['POOLING_MODE'] = 4
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['POOLING_SIZE'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class _FPN(nn.Module):
@@ -1884,7 +1884,7 @@ class Depth3DGridGen_with_mask(Module):
 sources = []
 
 
-defines = []
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 with_cuda = False
@@ -1893,7 +1893,7 @@ with_cuda = False
 headers = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+defines = []
 
 
 class RoIPoolFunction(Function):
@@ -2000,52 +2000,6 @@ def _unmap(data, count, inds, batch_size, fill=0):
             ).type_as(data)
         ret[:, (inds), :] = data
     return ret
-
-
-def generate_anchors_single_pyramid(scales, ratios, shape, feature_stride,
-    anchor_stride):
-    """
-    scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
-    ratios: 1D array of anchor ratios of width/height. Example: [0.5, 1, 2]
-    shape: [height, width] spatial shape of the feature map over which
-            to generate anchors.
-    feature_stride: Stride of the feature map relative to the image in pixels.
-    anchor_stride: Stride of anchors on the feature map. For example, if the
-        value is 2 then generate anchors for every other feature map pixel.
-    """
-    scales, ratios = np.meshgrid(np.array(scales), np.array(ratios))
-    scales = scales.flatten()
-    ratios = ratios.flatten()
-    heights = scales / np.sqrt(ratios)
-    widths = scales * np.sqrt(ratios)
-    shifts_y = np.arange(0, shape[0], anchor_stride) * feature_stride
-    shifts_x = np.arange(0, shape[1], anchor_stride) * feature_stride
-    shifts_x, shifts_y = np.meshgrid(shifts_x, shifts_y)
-    box_widths, box_centers_x = np.meshgrid(widths, shifts_x)
-    box_heights, box_centers_y = np.meshgrid(heights, shifts_y)
-    box_centers = np.stack([box_centers_x, box_centers_y], axis=2).reshape([
-        -1, 2])
-    box_sizes = np.stack([box_widths, box_heights], axis=2).reshape([-1, 2])
-    boxes = np.concatenate([box_centers - 0.5 * box_sizes, box_centers + 
-        0.5 * box_sizes], axis=1)
-    return boxes
-
-
-def generate_anchors_all_pyramids(scales, ratios, feature_shapes,
-    feature_strides, anchor_stride):
-    """Generate anchors at different levels of a feature pyramid. Each scale
-    is associated with a level of the pyramid, but each ratio is used in
-    all levels of the pyramid.
-    Returns:
-    anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
-        with the same order of the given scales. So, anchors of scale[0] come
-        first, then anchors of scale[1], and so on.
-    """
-    anchors = []
-    for i in range(len(scales)):
-        anchors.append(generate_anchors_single_pyramid(scales[i], ratios,
-            feature_shapes[i], feature_strides[i], anchor_stride))
-    return np.concatenate(anchors, axis=0)
 
 
 def bbox_transform_batch(ex_rois, gt_rois):
@@ -2164,10 +2118,56 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     return overlaps
 
 
-_global_config['FPN_FEAT_STRIDES'] = 4
+def generate_anchors_single_pyramid(scales, ratios, shape, feature_stride,
+    anchor_stride):
+    """
+    scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
+    ratios: 1D array of anchor ratios of width/height. Example: [0.5, 1, 2]
+    shape: [height, width] spatial shape of the feature map over which
+            to generate anchors.
+    feature_stride: Stride of the feature map relative to the image in pixels.
+    anchor_stride: Stride of anchors on the feature map. For example, if the
+        value is 2 then generate anchors for every other feature map pixel.
+    """
+    scales, ratios = np.meshgrid(np.array(scales), np.array(ratios))
+    scales = scales.flatten()
+    ratios = ratios.flatten()
+    heights = scales / np.sqrt(ratios)
+    widths = scales * np.sqrt(ratios)
+    shifts_y = np.arange(0, shape[0], anchor_stride) * feature_stride
+    shifts_x = np.arange(0, shape[1], anchor_stride) * feature_stride
+    shifts_x, shifts_y = np.meshgrid(shifts_x, shifts_y)
+    box_widths, box_centers_x = np.meshgrid(widths, shifts_x)
+    box_heights, box_centers_y = np.meshgrid(heights, shifts_y)
+    box_centers = np.stack([box_centers_x, box_centers_y], axis=2).reshape([
+        -1, 2])
+    box_sizes = np.stack([box_widths, box_heights], axis=2).reshape([-1, 2])
+    boxes = np.concatenate([box_centers - 0.5 * box_sizes, box_centers + 
+        0.5 * box_sizes], axis=1)
+    return boxes
+
+
+def generate_anchors_all_pyramids(scales, ratios, feature_shapes,
+    feature_strides, anchor_stride):
+    """Generate anchors at different levels of a feature pyramid. Each scale
+    is associated with a level of the pyramid, but each ratio is used in
+    all levels of the pyramid.
+    Returns:
+    anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
+        with the same order of the given scales. So, anchors of scale[0] come
+        first, then anchors of scale[1], and so on.
+    """
+    anchors = []
+    for i in range(len(scales)):
+        anchors.append(generate_anchors_single_pyramid(scales[i], ratios,
+            feature_shapes[i], feature_strides[i], anchor_stride))
+    return np.concatenate(anchors, axis=0)
 
 
 _global_config['FPN_ANCHOR_SCALES'] = 4
+
+
+_global_config['FPN_FEAT_STRIDES'] = 4
 
 
 _global_config['FPN_ANCHOR_STRIDE'] = 4
@@ -2537,13 +2537,13 @@ class _ProposalTargetLayer(nn.Module):
             bbox_inside_weights)
 
 
+_global_config['FEAT_STRIDE'] = 4
+
+
 _global_config['ANCHOR_SCALES'] = 4
 
 
 _global_config['ANCHOR_RATIOS'] = 4
-
-
-_global_config['FEAT_STRIDE'] = 4
 
 
 class _RPN_FPN(nn.Module):
@@ -2640,14 +2640,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_guoruoqian_cascade_rcnn_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

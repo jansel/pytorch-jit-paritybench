@@ -370,17 +370,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_JaveyWang_Pyramid_Attention_Networks_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Classifier(*[], **{}), [torch.rand([2048, 2048])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(FPA(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(GAU(*[], **{'channels_high': 4, 'channels_low': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 
     def test_003(self):
         self._check(Mask_Classifier(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+

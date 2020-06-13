@@ -124,9 +124,9 @@ class _paritybench_base(JitTestCase):
         self.assertEqual(result2, result3)
 '''
 
-TESTCASE_TEMPLATE = '''
-    def test_{index:03}(self):
+TESTCASE_TEMPLATE = '''    def test_{index:03}(self):
         self._check({script}, {args}, {kwargs})
+
 '''
 
 

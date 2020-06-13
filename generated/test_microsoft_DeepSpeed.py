@@ -105,49 +105,114 @@ from collections import defaultdict
 from torch.utils.data.distributed import DistributedSampler
 
 
-MAX_GRAD_NORM = 'max_grad_norm'
+def _initialize_parameter_parallel_groups(parameter_parallel_size=None):
+    data_parallel_size = int(dist.get_world_size())
+    if parameter_parallel_size is None:
+        parameter_parallel_size = int(data_parallel_size)
+    print(data_parallel_size, parameter_parallel_size)
+    assert data_parallel_size % parameter_parallel_size == 0, 'world size should be divisible by parameter parallel size'
+    rank = dist.get_rank()
+    my_group = None
+    for i in range(dist.get_world_size() // parameter_parallel_size):
+        ranks = range(i * parameter_parallel_size, (i + 1) *
+            parameter_parallel_size)
+        group = torch.distributed.new_group(ranks)
+        if rank in ranks:
+            my_group = group
+    return my_group
 
 
-GRADIENT_CLIPPING_DEFAULT = 0.0
+TORCH_DISTRIBUTED_DEFAULT_PORT = '29500'
+
+
+ZERO_OPTIMIZATION_GRADIENTS = 2
+
+
+ROUTE_EVAL = 'eval'
+
+
+def print_configuration(args, name):
+    print('{}:'.format(name), flush=True)
+    for arg in sorted(vars(args)):
+        dots = '.' * (29 - len(arg))
+        print('  {} {} {}'.format(arg, dots, getattr(args, arg)), flush=True)
+
+
+class DeepSpeedDataLoader(object):
+
+    def __init__(self, dataset, batch_size, pin_memory, local_rank,
+        tput_timer, collate_fn=None, num_local_io_workers=None,
+        data_sampler=None):
+        self.tput_timer = tput_timer
+        self.batch_size = batch_size
+        if local_rank >= 0:
+            if data_sampler is None:
+                data_sampler = DistributedSampler(dataset)
+            device_count = 1
+        else:
+            if data_sampler is None:
+                data_sampler = RandomSampler(dataset)
+            device_count = torch.cuda.device_count()
+            batch_size *= device_count
+        if num_local_io_workers is None:
+            num_local_io_workers = 2 * device_count
+        self.num_local_io_workers = num_local_io_workers
+        self.data_sampler = data_sampler
+        self.dataset = dataset
+        self.collate_fn = collate_fn
+        self.device_count = device_count
+        self.batch_size = batch_size
+        self.pin_memory = pin_memory
+        self.len = len(self.data_sampler)
+        self.data = None
+
+    def __iter__(self):
+        self._create_dataloader()
+        return self
+
+    def __len__(self):
+        return self.len
+
+    def __next__(self):
+        if self.tput_timer:
+            self.tput_timer.start()
+        return next(self.data)
+
+    def _create_dataloader(self):
+        if self.collate_fn is None:
+            self.dataloader = DataLoader(self.dataset, batch_size=self.
+                batch_size, pin_memory=self.pin_memory, sampler=self.
+                data_sampler, num_workers=self.num_local_io_workers)
+        else:
+            self.dataloader = DataLoader(self.dataset, batch_size=self.
+                batch_size, pin_memory=self.pin_memory, sampler=self.
+                data_sampler, collate_fn=self.collate_fn, num_workers=self.
+                num_local_io_workers)
+        self.data = (x for x in self.dataloader)
+        return self.dataloader
+
+
+LEGACY_FUSION_DEFAULT = False
+
+
+LEGACY_FUSION = 'legacy_fusion'
 
 
 OPTIMIZER = 'optimizer'
 
 
-OPTIMIZER_TYPE_DEFAULT = None
-
-
-TYPE = 'type'
-
-
-def get_optimizer_name(param_dict):
-    if OPTIMIZER in param_dict.keys() and TYPE in param_dict[OPTIMIZER].keys():
-        return param_dict[OPTIMIZER][TYPE]
+def get_optimizer_legacy_fusion(param_dict):
+    if OPTIMIZER in param_dict.keys() and LEGACY_FUSION in param_dict[OPTIMIZER
+        ].keys():
+        return param_dict[OPTIMIZER][LEGACY_FUSION]
     else:
-        return OPTIMIZER_TYPE_DEFAULT
+        return LEGACY_FUSION_DEFAULT
 
 
-OPTIMIZER_PARAMS = 'params'
+MEMORY_BREAKDOWN = 'memory_breakdown'
 
 
-def get_optimizer_params(param_dict):
-    if get_optimizer_name(param_dict
-        ) is not None and OPTIMIZER_PARAMS in param_dict[OPTIMIZER].keys():
-        return param_dict[OPTIMIZER][OPTIMIZER_PARAMS]
-    else:
-        return None
-
-
-def get_optimizer_gradient_clipping(param_dict):
-    optimizer_params = get_optimizer_params(param_dict)
-    if optimizer_params is not None and MAX_GRAD_NORM in optimizer_params.keys(
-        ):
-        return optimizer_params[MAX_GRAD_NORM]
-    else:
-        return None
-
-
-GRADIENT_CLIPPING = 'gradient_clipping'
+MEMORY_BREAKDOWN_DEFAULT = False
 
 
 def get_scalar_param(param_dict, param_name, param_default_value):
@@ -157,16 +222,172 @@ def get_scalar_param(param_dict, param_name, param_default_value):
         return param_default_value
 
 
-def get_gradient_clipping(param_dict):
-    grad_clip = get_optimizer_gradient_clipping(param_dict)
-    if grad_clip is not None:
-        return grad_clip
+def get_memory_breakdown(param_dict):
+    return get_scalar_param(param_dict, MEMORY_BREAKDOWN,
+        MEMORY_BREAKDOWN_DEFAULT)
+
+
+GRADIENT_ACCUMULATION_STEPS = 'gradient_accumulation_steps'
+
+
+GRADIENT_ACCUMULATION_STEPS_DEFAULT = None
+
+
+def get_gradient_accumulation_steps(param_dict):
+    return get_scalar_param(param_dict, GRADIENT_ACCUMULATION_STEPS,
+        GRADIENT_ACCUMULATION_STEPS_DEFAULT)
+
+
+MAX_GRAD_NORM = 'max_grad_norm'
+
+
+TRAIN_BATCH_SIZE_DEFAULT = None
+
+
+TRAIN_BATCH_SIZE = 'train_batch_size'
+
+
+def get_train_batch_size(param_dict):
+    return get_scalar_param(param_dict, TRAIN_BATCH_SIZE,
+        TRAIN_BATCH_SIZE_DEFAULT)
+
+
+TRAIN_MICRO_BATCH_SIZE_PER_GPU = """
+TRAIN_MICRO_BATCH_SIZE_PER_GPU is defined in this format:
+"train_micro_batch_size_per_gpu": 1
+"""
+
+
+TRAIN_MICRO_BATCH_SIZE_PER_GPU_DEFAULT = None
+
+
+def get_train_micro_batch_size_per_gpu(param_dict):
+    return get_scalar_param(param_dict, TRAIN_MICRO_BATCH_SIZE_PER_GPU,
+        TRAIN_MICRO_BATCH_SIZE_PER_GPU_DEFAULT)
+
+
+TENSORBOARD = 'tensorboard'
+
+
+TENSORBOARD_JOB_NAME_DEFAULT = 'DeepSpeedJobName'
+
+
+TENSORBOARD_JOB_NAME = 'job_name'
+
+
+TENSORBOARD_ENABLED = 'enabled'
+
+
+TENSORBOARD_ENABLED_DEFAULT = False
+
+
+def get_tensorboard_enabled(param_dict):
+    if TENSORBOARD in param_dict.keys():
+        return get_scalar_param(param_dict[TENSORBOARD],
+            TENSORBOARD_ENABLED, TENSORBOARD_ENABLED_DEFAULT)
     else:
-        return get_scalar_param(param_dict, GRADIENT_CLIPPING,
-            GRADIENT_CLIPPING_DEFAULT)
+        return False
+
+
+def get_tensorboard_job_name(param_dict):
+    if get_tensorboard_enabled(param_dict):
+        return get_scalar_param(param_dict[TENSORBOARD],
+            TENSORBOARD_JOB_NAME, TENSORBOARD_JOB_NAME_DEFAULT)
+    else:
+        return TENSORBOARD_JOB_NAME_DEFAULT
+
+
+def dict_raise_error_on_duplicate_keys(ordered_pairs):
+    """Reject duplicate keys."""
+    d = {}
+    for k, v in ordered_pairs:
+        if k in d:
+            raise ValueError('Duplicate key in DeepSpeed config: %r' % (k,))
+        else:
+            d[k] = v
+    return d
+
+
+ADAM_OPTIMIZER = 'adam'
+
+
+LAMB_OPTIMIZER = 'lamb'
+
+
+DEEPSPEED_OPTIMIZERS = [ADAM_OPTIMIZER, LAMB_OPTIMIZER]
+
+
+DUMP_STATE = 'dump_state'
+
+
+DUMP_STATE_DEFAULT = False
+
+
+def get_dump_state(param_dict):
+    return get_scalar_param(param_dict, DUMP_STATE, DUMP_STATE_DEFAULT)
+
+
+VOCABULARY_SIZE = 'vocabulary_size'
+
+
+SPARSE_GRADIENTS_DEFAULT = False
+
+
+SPARSE_GRADIENTS = 'sparse_gradients'
+
+
+def get_sparse_gradients_enabled(param_dict):
+    return get_scalar_param(param_dict, SPARSE_GRADIENTS,
+        SPARSE_GRADIENTS_DEFAULT)
+
+
+TYPE = 'type'
+
+
+SCHEDULER_TYPE_DEFAULT = None
+
+
+SCHEDULER = 'scheduler'
+
+
+def get_scheduler_name(param_dict):
+    if SCHEDULER in param_dict.keys() and TYPE in param_dict[SCHEDULER].keys():
+        return param_dict[SCHEDULER][TYPE]
+    else:
+        return SCHEDULER_TYPE_DEFAULT
+
+
+SCHEDULER_PARAMS = 'params'
+
+
+def get_scheduler_params(param_dict):
+    if get_scheduler_name(param_dict
+        ) is not None and SCHEDULER_PARAMS in param_dict[SCHEDULER].keys():
+        return param_dict[SCHEDULER][SCHEDULER_PARAMS]
+    else:
+        return None
+
+
+OPTIMIZER_TYPE_DEFAULT = None
+
+
+def get_optimizer_name(param_dict):
+    if OPTIMIZER in param_dict.keys() and TYPE in param_dict[OPTIMIZER].keys():
+        return param_dict[OPTIMIZER][TYPE]
+    else:
+        return OPTIMIZER_TYPE_DEFAULT
+
+
+MAX_STAGE_ZERO_OPTIMIZATION = ZERO_OPTIMIZATION_GRADIENTS
 
 
 FP16 = 'fp16'
+
+
+FP16_INITIAL_SCALE_POWER_DEFAULT = 32
+
+
+FP16_INITIAL_SCALE_POWER = 'initial_scale_power'
 
 
 FP16_ENABLED_DEFAULT = False
@@ -183,12 +404,6 @@ def get_fp16_enabled(param_dict):
         return False
 
 
-FP16_INITIAL_SCALE_POWER_DEFAULT = 32
-
-
-FP16_INITIAL_SCALE_POWER = 'initial_scale_power'
-
-
 def get_initial_dynamic_scale(param_dict):
     if get_fp16_enabled(param_dict):
         initial_scale_power = get_scalar_param(param_dict[FP16],
@@ -201,114 +416,18 @@ def get_initial_dynamic_scale(param_dict):
 VOCABULARY_SIZE_DEFAULT = None
 
 
-GRADIENT_ACCUMULATION_STEPS = 'gradient_accumulation_steps'
+FP16_LOSS_SCALE = 'loss_scale'
 
 
-GRADIENT_ACCUMULATION_STEPS_DEFAULT = None
+FP16_LOSS_SCALE_DEFAULT = 0
 
 
-def get_gradient_accumulation_steps(param_dict):
-    return get_scalar_param(param_dict, GRADIENT_ACCUMULATION_STEPS,
-        GRADIENT_ACCUMULATION_STEPS_DEFAULT)
-
-
-PRESCALE_GRADIENTS = 'prescale_gradients'
-
-
-PRESCALE_GRADIENTS_DEFAULT = False
-
-
-def get_prescale_gradients(param_dict):
-    return get_scalar_param(param_dict, PRESCALE_GRADIENTS,
-        PRESCALE_GRADIENTS_DEFAULT)
-
-
-TENSORBOARD = 'tensorboard'
-
-
-TENSORBOARD_ENABLED_DEFAULT = False
-
-
-TENSORBOARD_ENABLED = 'enabled'
-
-
-def get_tensorboard_enabled(param_dict):
-    if TENSORBOARD in param_dict.keys():
-        return get_scalar_param(param_dict[TENSORBOARD],
-            TENSORBOARD_ENABLED, TENSORBOARD_ENABLED_DEFAULT)
+def get_loss_scale(param_dict):
+    if get_fp16_enabled(param_dict):
+        return get_scalar_param(param_dict[FP16], FP16_LOSS_SCALE,
+            FP16_LOSS_SCALE_DEFAULT)
     else:
-        return False
-
-
-TENSORBOARD_OUTPUT_PATH_DEFAULT = ''
-
-
-TENSORBOARD_OUTPUT_PATH = 'output_path'
-
-
-def get_tensorboard_output_path(param_dict):
-    if get_tensorboard_enabled(param_dict):
-        return get_scalar_param(param_dict[TENSORBOARD],
-            TENSORBOARD_OUTPUT_PATH, TENSORBOARD_OUTPUT_PATH_DEFAULT)
-    else:
-        return TENSORBOARD_OUTPUT_PATH_DEFAULT
-
-
-DISABLE_ALLGATHER_DEFAULT = False
-
-
-DISABLE_ALLGATHER = 'disable_allgather'
-
-
-def get_disable_allgather(param_dict):
-    return get_scalar_param(param_dict, DISABLE_ALLGATHER,
-        DISABLE_ALLGATHER_DEFAULT)
-
-
-SPARSE_GRADIENTS = 'sparse_gradients'
-
-
-SPARSE_GRADIENTS_DEFAULT = False
-
-
-def get_sparse_gradients_enabled(param_dict):
-    return get_scalar_param(param_dict, SPARSE_GRADIENTS,
-        SPARSE_GRADIENTS_DEFAULT)
-
-
-MEMORY_BREAKDOWN_DEFAULT = False
-
-
-MEMORY_BREAKDOWN = 'memory_breakdown'
-
-
-def get_memory_breakdown(param_dict):
-    return get_scalar_param(param_dict, MEMORY_BREAKDOWN,
-        MEMORY_BREAKDOWN_DEFAULT)
-
-
-SCHEDULER_TYPE_DEFAULT = None
-
-
-SCHEDULER = 'scheduler'
-
-
-def get_scheduler_name(param_dict):
-    if SCHEDULER in param_dict.keys() and TYPE in param_dict[SCHEDULER].keys():
-        return param_dict[SCHEDULER][TYPE]
-    else:
-        return SCHEDULER_TYPE_DEFAULT
-
-
-def dict_raise_error_on_duplicate_keys(ordered_pairs):
-    """Reject duplicate keys."""
-    d = {}
-    for k, v in ordered_pairs:
-        if k in d:
-            raise ValueError('Duplicate key in DeepSpeed config: %r' % (k,))
-        else:
-            d[k] = v
-    return d
+        return FP16_LOSS_SCALE_DEFAULT
 
 
 WALL_CLOCK_BREAKDOWN = 'wall_clock_breakdown'
@@ -322,52 +441,54 @@ def get_wall_clock_breakdown(param_dict):
         WALL_CLOCK_BREAKDOWN_DEFAULT)
 
 
-ADAM_OPTIMIZER = 'adam'
+TENSORBOARD_OUTPUT_PATH = 'output_path'
 
 
-LAMB_OPTIMIZER = 'lamb'
+TENSORBOARD_OUTPUT_PATH_DEFAULT = ''
 
 
-DEEPSPEED_OPTIMIZERS = [ADAM_OPTIMIZER, LAMB_OPTIMIZER]
-
-
-ACT_CHKPT_PARTITION_ACTIVATIONS = 'partition_activations'
-
-
-ACT_CHKPT = 'activation_checkpointing'
-
-
-ACT_CHKPT_NUMBER_CHECKPOINTS_DEFAULT = None
-
-
-ACT_CHKPT_NUMBER_CHECKPOINTS = 'number_checkpoints'
-
-
-ACT_CHKPT_PARTITION_ACTIVATIONS_DEFAULT = False
-
-
-ACT_CHKPT_PROFILE_DEFAULT = False
-
-
-ACT_CHKPT_SYNCHRONIZE_CHECKPOINT_BOUNDARY = 'synchronize_checkpoint_boundary'
-
-
-ACT_CHKPT_CONTIGUOUS_MEMORY_OPTIMIZATION = 'contiguous_memory_optimization'
-
-
-ACT_CHKPT_CPU_CHECKPOINTING = 'cpu_checkpointing'
+def get_tensorboard_output_path(param_dict):
+    if get_tensorboard_enabled(param_dict):
+        return get_scalar_param(param_dict[TENSORBOARD],
+            TENSORBOARD_OUTPUT_PATH, TENSORBOARD_OUTPUT_PATH_DEFAULT)
+    else:
+        return TENSORBOARD_OUTPUT_PATH_DEFAULT
 
 
 ACT_CHKPT_SYNCHRONIZE_CHECKPOINT_BOUNDARY_DEFAULT = False
 
 
-ACT_CHKPT_CPU_CHECKPOINTING_DEFAULT = False
+ACT_CHKPT_CPU_CHECKPOINTING = 'cpu_checkpointing'
+
+
+ACT_CHKPT_NUMBER_CHECKPOINTS_DEFAULT = None
+
+
+ACT_CHKPT_PROFILE = 'profile'
+
+
+ACT_CHKPT_PARTITION_ACTIVATIONS = 'partition_activations'
+
+
+ACT_CHKPT_PARTITION_ACTIVATIONS_DEFAULT = False
 
 
 ACT_CHKPT_CONTIGUOUS_MEMORY_OPTIMIZATION_DEFAULT = False
 
 
-ACT_CHKPT_PROFILE = 'profile'
+ACT_CHKPT_CONTIGUOUS_MEMORY_OPTIMIZATION = 'contiguous_memory_optimization'
+
+
+ACT_CHKPT_SYNCHRONIZE_CHECKPOINT_BOUNDARY = 'synchronize_checkpoint_boundary'
+
+
+ACT_CHKPT_PROFILE_DEFAULT = False
+
+
+ACT_CHKPT_CPU_CHECKPOINTING_DEFAULT = False
+
+
+ACT_CHKPT_NUMBER_CHECKPOINTS = 'number_checkpoints'
 
 
 ACT_CHKPT_DEFAULT = {ACT_CHKPT_PARTITION_ACTIVATIONS:
@@ -379,6 +500,9 @@ ACT_CHKPT_DEFAULT = {ACT_CHKPT_PARTITION_ACTIVATIONS:
     ACT_CHKPT_SYNCHRONIZE_CHECKPOINT_BOUNDARY_DEFAULT, ACT_CHKPT_PROFILE:
     ACT_CHKPT_PROFILE_DEFAULT, ACT_CHKPT_CPU_CHECKPOINTING:
     ACT_CHKPT_CPU_CHECKPOINTING_DEFAULT}
+
+
+ACT_CHKPT = 'activation_checkpointing'
 
 
 class DeepSpeedActivationCheckpointingConfig(object):
@@ -422,167 +546,72 @@ class DeepSpeedActivationCheckpointingConfig(object):
             ACT_CHKPT_SYNCHRONIZE_CHECKPOINT_BOUNDARY_DEFAULT)
 
 
-FP16_MIN_LOSS_SCALE_DEFAULT = 1
+OPTIMIZER_PARAMS = 'params'
 
 
-MIN_LOSS_SCALE = 'min_scale'
-
-
-FP16_MIN_LOSS_SCALE = 'min_loss_scale'
-
-
-DELAYED_SHIFT = 'delayed_shift'
-
-
-SCALE_WINDOW = 'scale_window'
-
-
-FP16_LOSS_SCALE_WINDOW_DEFAULT = 1000
-
-
-INITIAL_LOSS_SCALE = 'init_scale'
-
-
-FP16_HYSTERESIS = 'hysteresis'
-
-
-FP16_LOSS_SCALE_WINDOW = 'loss_scale_window'
-
-
-FP16_HYSTERESIS_DEFAULT = 2
-
-
-def get_dynamic_loss_scale_args(param_dict):
-    loss_scale_args = None
-    if get_fp16_enabled(param_dict):
-        fp16_dict = param_dict[FP16]
-        dynamic_loss_args = [FP16_INITIAL_SCALE_POWER,
-            FP16_LOSS_SCALE_WINDOW, FP16_MIN_LOSS_SCALE, FP16_HYSTERESIS]
-        if any(arg in list(fp16_dict.keys()) for arg in dynamic_loss_args):
-            init_scale = get_scalar_param(fp16_dict,
-                FP16_INITIAL_SCALE_POWER, FP16_INITIAL_SCALE_POWER_DEFAULT)
-            scale_window = get_scalar_param(fp16_dict,
-                FP16_LOSS_SCALE_WINDOW, FP16_LOSS_SCALE_WINDOW_DEFAULT)
-            delayed_shift = get_scalar_param(fp16_dict, FP16_HYSTERESIS,
-                FP16_HYSTERESIS_DEFAULT)
-            min_loss_scale = get_scalar_param(fp16_dict,
-                FP16_MIN_LOSS_SCALE, FP16_MIN_LOSS_SCALE_DEFAULT)
-            loss_scale_args = {INITIAL_LOSS_SCALE: 2 ** init_scale,
-                SCALE_WINDOW: scale_window, DELAYED_SHIFT: delayed_shift,
-                MIN_LOSS_SCALE: min_loss_scale}
-    return loss_scale_args
-
-
-FP32_ALLREDUCE_DEFAULT = False
-
-
-FP32_ALLREDUCE = 'fp32_allreduce'
-
-
-def get_allreduce_always_fp32(param_dict):
-    return get_scalar_param(param_dict, FP32_ALLREDUCE, FP32_ALLREDUCE_DEFAULT)
-
-
-TRAIN_BATCH_SIZE = 'train_batch_size'
-
-
-TRAIN_BATCH_SIZE_DEFAULT = None
-
-
-def get_train_batch_size(param_dict):
-    return get_scalar_param(param_dict, TRAIN_BATCH_SIZE,
-        TRAIN_BATCH_SIZE_DEFAULT)
-
-
-ALLGATHER_SIZE = 'allgather_size'
-
-
-ALLGATHER_SIZE_DEFAULT = 500000000
-
-
-def get_allgather_size(param_dict):
-    return get_scalar_param(param_dict, ALLGATHER_SIZE, ALLGATHER_SIZE_DEFAULT
-        ) if get_scalar_param(param_dict, ALLGATHER_SIZE,
-        ALLGATHER_SIZE_DEFAULT) > 0 else ALLGATHER_SIZE_DEFAULT
-
-
-SCHEDULER_PARAMS = 'params'
-
-
-def get_scheduler_params(param_dict):
-    if get_scheduler_name(param_dict
-        ) is not None and SCHEDULER_PARAMS in param_dict[SCHEDULER].keys():
-        return param_dict[SCHEDULER][SCHEDULER_PARAMS]
+def get_optimizer_params(param_dict):
+    if get_optimizer_name(param_dict
+        ) is not None and OPTIMIZER_PARAMS in param_dict[OPTIMIZER].keys():
+        return param_dict[OPTIMIZER][OPTIMIZER_PARAMS]
     else:
         return None
 
 
-DUMP_STATE = 'dump_state'
+ZERO_ALLOW_UNTESTED_OPTIMIZER = 'zero_allow_untested_optimizer'
 
 
-DUMP_STATE_DEFAULT = False
+ZERO_ALLOW_UNTESTED_OPTIMIZER_DEFAULT = False
 
 
-def get_dump_state(param_dict):
-    return get_scalar_param(param_dict, DUMP_STATE, DUMP_STATE_DEFAULT)
+def get_zero_allow_untested_optimizer(param_dict):
+    return get_scalar_param(param_dict, ZERO_ALLOW_UNTESTED_OPTIMIZER,
+        ZERO_ALLOW_UNTESTED_OPTIMIZER_DEFAULT)
 
 
-TRAIN_MICRO_BATCH_SIZE_PER_GPU = """
-TRAIN_MICRO_BATCH_SIZE_PER_GPU is defined in this format:
-"train_micro_batch_size_per_gpu": 1
-"""
+STEPS_PER_PRINT = 'steps_per_print'
 
 
-ZERO_OPTIMIZATION_GRADIENTS = 2
+STEPS_PER_PRINT_DEFAULT = 10
 
 
-MAX_STAGE_ZERO_OPTIMIZATION = ZERO_OPTIMIZATION_GRADIENTS
+def get_steps_per_print(param_dict):
+    return get_scalar_param(param_dict, STEPS_PER_PRINT,
+        STEPS_PER_PRINT_DEFAULT)
 
 
-TRAIN_MICRO_BATCH_SIZE_PER_GPU_DEFAULT = None
-
-
-def get_train_micro_batch_size_per_gpu(param_dict):
-    return get_scalar_param(param_dict, TRAIN_MICRO_BATCH_SIZE_PER_GPU,
-        TRAIN_MICRO_BATCH_SIZE_PER_GPU_DEFAULT)
-
-
-FP16_LOSS_SCALE = 'loss_scale'
-
-
-FP16_LOSS_SCALE_DEFAULT = 0
-
-
-def get_loss_scale(param_dict):
-    if get_fp16_enabled(param_dict):
-        return get_scalar_param(param_dict[FP16], FP16_LOSS_SCALE,
-            FP16_LOSS_SCALE_DEFAULT)
+def get_optimizer_gradient_clipping(param_dict):
+    optimizer_params = get_optimizer_params(param_dict)
+    if optimizer_params is not None and MAX_GRAD_NORM in optimizer_params.keys(
+        ):
+        return optimizer_params[MAX_GRAD_NORM]
     else:
-        return FP16_LOSS_SCALE_DEFAULT
+        return None
 
 
-ZERO_OPTIMIZATION_REDUCE_SCATTER_DEFAULT = True
+GRADIENT_CLIPPING = 'gradient_clipping'
 
 
-ZERO_OPTIMIZATION_DEFAULT = 0
+GRADIENT_CLIPPING_DEFAULT = 0.0
 
 
-ZERO_OPTIMIZATION = 'zero_optimization'
+def get_gradient_clipping(param_dict):
+    grad_clip = get_optimizer_gradient_clipping(param_dict)
+    if grad_clip is not None:
+        return grad_clip
+    else:
+        return get_scalar_param(param_dict, GRADIENT_CLIPPING,
+            GRADIENT_CLIPPING_DEFAULT)
 
 
-ZERO_OPTIMIZATION_REDUCE_SCATTER = 'reduce_scatter'
+DISABLE_ALLGATHER_DEFAULT = False
 
 
-ZERO_OPTIMIZATION_CONTIGUOUS_GRADIENTS = 'contiguous_gradients'
+DISABLE_ALLGATHER = 'disable_allgather'
 
 
-ZERO_OPTIMIZATION_ALLGATHER_PARTITIONS_DEFAULT = True
-
-
-ZERO_OPTIMIZATION_OVERLAP_COMM = 'overlap_comm'
-
-
-ZERO_OPTIMIZATION_OVERLAP_COMM_DEFAULT = False
+def get_disable_allgather(param_dict):
+    return get_scalar_param(param_dict, DISABLE_ALLGATHER,
+        DISABLE_ALLGATHER_DEFAULT)
 
 
 ZERO_FORMAT = """
@@ -594,34 +623,58 @@ ZeRO optimization should be enabled as:
 """
 
 
+ZERO_OPTIMIZATION_OVERLAP_COMM_DEFAULT = False
+
+
+ZERO_OPTIMIZATION_ALLGATHER_PARTITIONS = 'allgather_partitions'
+
+
+ZERO_OPTIMIZATION = 'zero_optimization'
+
+
+ZERO_OPTIMIZATION_REDUCE_BUCKET_SIZE = 'reduce_bucket_size'
+
+
+ZERO_OPTIMIZATION_ALLGATHER_PARTITIONS_DEFAULT = True
+
+
+ZERO_OPTIMIZATION_OVERLAP_COMM = 'overlap_comm'
+
+
+ZERO_OPTIMIZATION_STAGE = 'stage'
+
+
+ZERO_OPTIMIZATION_REDUCE_SCATTER_DEFAULT = True
+
+
+ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEPRECATED = 'allgather_size'
+
+
+ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEFAULT = 500000000
+
+
+ZERO_OPTIMIZATION_REDUCE_SCATTER = 'reduce_scatter'
+
+
 ZERO_OPTIMIZATION_DISABLED = 0
 
 
 ZERO_OPTIMIZATION_STAGE_DEFAULT = ZERO_OPTIMIZATION_DISABLED
 
 
-ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE = 'allgather_bucket_size'
-
-
-ZERO_OPTIMIZATION_REDUCE_BUCKET_SIZE = 'reduce_bucket_size'
-
-
-ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEPRECATED = 'allgather_size'
+ZERO_OPTIMIZATION_DEFAULT = 0
 
 
 ZERO_OPTIMIZATION_CONTIGUOUS_GRADIENTS_DEFAULT = True
 
 
-ZERO_OPTIMIZATION_STAGE = 'stage'
-
-
-ZERO_OPTIMIZATION_ALLGATHER_PARTITIONS = 'allgather_partitions'
+ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE = 'allgather_bucket_size'
 
 
 ZERO_OPTIMIZATION_REDUCE_BUCKET_SIZE_DEFAULT = 500000000
 
 
-ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEFAULT = 500000000
+ZERO_OPTIMIZATION_CONTIGUOUS_GRADIENTS = 'contiguous_gradients'
 
 
 class DeepSpeedZeroConfig(object):
@@ -686,60 +739,91 @@ class DeepSpeedZeroConfig(object):
             ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEFAULT)
 
 
-TENSORBOARD_JOB_NAME = 'job_name'
-
-
-TENSORBOARD_JOB_NAME_DEFAULT = 'DeepSpeedJobName'
-
-
-def get_tensorboard_job_name(param_dict):
-    if get_tensorboard_enabled(param_dict):
-        return get_scalar_param(param_dict[TENSORBOARD],
-            TENSORBOARD_JOB_NAME, TENSORBOARD_JOB_NAME_DEFAULT)
-    else:
-        return TENSORBOARD_JOB_NAME_DEFAULT
-
-
 TENSOR_CORE_ALIGN_SIZE = 8
 
 
-VOCABULARY_SIZE = 'vocabulary_size'
+MIN_LOSS_SCALE = 'min_scale'
 
 
-ZERO_ALLOW_UNTESTED_OPTIMIZER = 'zero_allow_untested_optimizer'
+SCALE_WINDOW = 'scale_window'
 
 
-ZERO_ALLOW_UNTESTED_OPTIMIZER_DEFAULT = False
+FP16_LOSS_SCALE_WINDOW_DEFAULT = 1000
 
 
-def get_zero_allow_untested_optimizer(param_dict):
-    return get_scalar_param(param_dict, ZERO_ALLOW_UNTESTED_OPTIMIZER,
-        ZERO_ALLOW_UNTESTED_OPTIMIZER_DEFAULT)
+DELAYED_SHIFT = 'delayed_shift'
 
 
-STEPS_PER_PRINT_DEFAULT = 10
+FP16_MIN_LOSS_SCALE_DEFAULT = 1
 
 
-STEPS_PER_PRINT = 'steps_per_print'
+FP16_LOSS_SCALE_WINDOW = 'loss_scale_window'
 
 
-def get_steps_per_print(param_dict):
-    return get_scalar_param(param_dict, STEPS_PER_PRINT,
-        STEPS_PER_PRINT_DEFAULT)
+FP16_MIN_LOSS_SCALE = 'min_loss_scale'
 
 
-LEGACY_FUSION = 'legacy_fusion'
+FP16_HYSTERESIS = 'hysteresis'
 
 
-LEGACY_FUSION_DEFAULT = False
+FP16_HYSTERESIS_DEFAULT = 2
 
 
-def get_optimizer_legacy_fusion(param_dict):
-    if OPTIMIZER in param_dict.keys() and LEGACY_FUSION in param_dict[OPTIMIZER
-        ].keys():
-        return param_dict[OPTIMIZER][LEGACY_FUSION]
-    else:
-        return LEGACY_FUSION_DEFAULT
+INITIAL_LOSS_SCALE = 'init_scale'
+
+
+def get_dynamic_loss_scale_args(param_dict):
+    loss_scale_args = None
+    if get_fp16_enabled(param_dict):
+        fp16_dict = param_dict[FP16]
+        dynamic_loss_args = [FP16_INITIAL_SCALE_POWER,
+            FP16_LOSS_SCALE_WINDOW, FP16_MIN_LOSS_SCALE, FP16_HYSTERESIS]
+        if any(arg in list(fp16_dict.keys()) for arg in dynamic_loss_args):
+            init_scale = get_scalar_param(fp16_dict,
+                FP16_INITIAL_SCALE_POWER, FP16_INITIAL_SCALE_POWER_DEFAULT)
+            scale_window = get_scalar_param(fp16_dict,
+                FP16_LOSS_SCALE_WINDOW, FP16_LOSS_SCALE_WINDOW_DEFAULT)
+            delayed_shift = get_scalar_param(fp16_dict, FP16_HYSTERESIS,
+                FP16_HYSTERESIS_DEFAULT)
+            min_loss_scale = get_scalar_param(fp16_dict,
+                FP16_MIN_LOSS_SCALE, FP16_MIN_LOSS_SCALE_DEFAULT)
+            loss_scale_args = {INITIAL_LOSS_SCALE: 2 ** init_scale,
+                SCALE_WINDOW: scale_window, DELAYED_SHIFT: delayed_shift,
+                MIN_LOSS_SCALE: min_loss_scale}
+    return loss_scale_args
+
+
+PRESCALE_GRADIENTS = 'prescale_gradients'
+
+
+PRESCALE_GRADIENTS_DEFAULT = False
+
+
+def get_prescale_gradients(param_dict):
+    return get_scalar_param(param_dict, PRESCALE_GRADIENTS,
+        PRESCALE_GRADIENTS_DEFAULT)
+
+
+FP32_ALLREDUCE_DEFAULT = False
+
+
+FP32_ALLREDUCE = 'fp32_allreduce'
+
+
+def get_allreduce_always_fp32(param_dict):
+    return get_scalar_param(param_dict, FP32_ALLREDUCE, FP32_ALLREDUCE_DEFAULT)
+
+
+ALLGATHER_SIZE_DEFAULT = 500000000
+
+
+ALLGATHER_SIZE = 'allgather_size'
+
+
+def get_allgather_size(param_dict):
+    return get_scalar_param(param_dict, ALLGATHER_SIZE, ALLGATHER_SIZE_DEFAULT
+        ) if get_scalar_param(param_dict, ALLGATHER_SIZE,
+        ALLGATHER_SIZE_DEFAULT) > 0 else ALLGATHER_SIZE_DEFAULT
 
 
 class DeepSpeedConfig(object):
@@ -900,593 +984,6 @@ class DeepSpeedConfig(object):
                 self.optimizer_params[MAX_GRAD_NORM] = 0.0
 
 
-class FusedLamb(torch.optim.Optimizer):
-    """Implements LAMB algorithm. Currently GPU-only.  Requires DeepSpeed adapted Apex to be installed via
-    ``python setup.py install --cuda_ext --cpp_ext``.
-
-    For usage example please see, TODO DeepSpeed Tutorial
-
-    It has been proposed in `Large Batch Optimization for Deep Learning: Training BERT in 76 minutes.
-    https://arxiv.org/abs/1904.00962
-
-
-    Arguments:
-        params (iterable): iterable of parameters to optimize or dicts defining
-            parameter groups.
-        lr (float, optional): learning rate. (default: 1e-3)
-        betas (Tuple[float, float], optional): coefficients used for computing
-            running averages of gradient and its square. (default: (0.9, 0.999))
-        eps (float, optional): term added to the denominator to improve
-            numerical stability. (default: 1e-8)
-        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
-        max_coeff(float, optional): maximum value of the lamb coefficient (default: 10.0)
-        min_coeff(float, optional): minimum value of the lamb coefficient (default: 0.01)
-        amsgrad (boolean, optional): whether to use the AMSGrad variant of this
-            algorithm from the paper `On the Convergence of Adam and Beyond`_
-            (default: False) NOT SUPPORTED in FusedAdam!
-        eps_inside_sqrt (boolean, optional): in the 'update parameters' step,
-            adds eps to the bias-corrected second moment estimate before
-            evaluating square root instead of adding it to the square root of
-            second moment estimate as in the original paper. (default: False)
-
-    .. _Adam\\: A Method for Stochastic Optimization:
-        https://arxiv.org/abs/1412.6980
-    .. _On the Convergence of Adam and Beyond:
-        https://openreview.net/forum?id=ryQu7f-RZ
-    """
-
-    def __init__(self, params, lr=0.001, bias_correction=True, betas=(0.9, 
-        0.999), eps=1e-08, eps_inside_sqrt=False, weight_decay=0.0,
-        max_grad_norm=0.0, max_coeff=10.0, min_coeff=0.01, amsgrad=False):
-        global fused_lamb_cuda
-        fused_lamb_cuda = importlib.import_module('fused_lamb_cuda')
-        if amsgrad:
-            raise RuntimeError(
-                'FusedLamb does not support the AMSGrad variant.')
-        defaults = dict(lr=lr, bias_correction=bias_correction, betas=betas,
-            eps=eps, weight_decay=weight_decay, max_grad_norm=max_grad_norm,
-            max_coeff=max_coeff, min_coeff=min_coeff)
-        super(FusedLamb, self).__init__(params, defaults)
-        self.eps_mode = 0 if eps_inside_sqrt else 1
-        self.lamb_coeffs = []
-
-    def step(self, closure=None, grads=None, output_params=None, scale=1.0,
-        grad_norms=None):
-        """Performs a single optimization step.
-
-        Arguments:
-            closure (callable, optional): A closure that reevaluates the model
-                and returns the loss.
-            grads (list of tensors, optional): weight gradient to use for the
-                optimizer update. If gradients have type torch.half, parameters
-                are expected to be in type torch.float. (default: None)
-            output params (list of tensors, optional): A reduced precision copy
-                of the updated weights written out in addition to the regular
-                updated weights. Have to be of same type as gradients. (default: None)
-            scale (float, optional): factor to divide gradient tensor values
-                by before applying to weights. (default: 1)
-        """
-        loss = None
-        if closure is not None:
-            loss = closure()
-        if grads is None:
-            grads_group = [None] * len(self.param_groups)
-        elif isinstance(grads, types.GeneratorType):
-            grads_group = [grads]
-        elif type(grads[0]) != list:
-            grads_group = [grads]
-        else:
-            grads_group = grads
-        if output_params is None:
-            output_params_group = [None] * len(self.param_groups)
-        elif isinstance(output_params, types.GeneratorType):
-            output_params_group = [output_params]
-        elif type(output_params[0]) != list:
-            output_params_group = [output_params]
-        else:
-            output_params_group = output_params
-        if grad_norms is None:
-            grad_norms = [None] * len(self.param_groups)
-        del self.lamb_coeffs[:]
-        for group, grads_this_group, output_params_this_group, grad_norm_group in zip(
-            self.param_groups, grads_group, output_params_group, grad_norms):
-            if grads_this_group is None:
-                grads_this_group = [None] * len(group['params'])
-            if output_params_this_group is None:
-                output_params_this_group = [None] * len(group['params'])
-            if grad_norm_group is None:
-                grad_norm_group = [None] * len(group['params'])
-            elif not isinstance(grad_norm_group, list):
-                grad_norm_group = [grad_norm_group]
-            bias_correction = 1 if group['bias_correction'] else 0
-            for p, grad, output_param, grad_norm in zip(group['params'],
-                grads_this_group, output_params_this_group, grad_norm_group):
-                combined_scale = scale
-                if group['max_grad_norm'] > 0:
-                    clip = (grad_norm / scale + 1e-06) / group['max_grad_norm']
-                    if clip > 1:
-                        combined_scale = clip * scale
-                if p.grad is None and grad is None:
-                    continue
-                if grad is None:
-                    grad = p.grad.data
-                if grad.is_sparse:
-                    raise RuntimeError(
-                        'FusedAdam does not support sparse gradients, please consider SparseAdam instead'
-                        )
-                state = self.state[p]
-                if len(state) == 0:
-                    state['step'] = 0
-                    state['exp_avg'] = torch.zeros_like(p.data)
-                    state['exp_avg_sq'] = torch.zeros_like(p.data)
-                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
-                beta1, beta2 = group['betas']
-                max_coeff = group['max_coeff']
-                min_coeff = group['min_coeff']
-                state['step'] += 1
-                out_p = torch.tensor([], dtype=torch.float
-                    ) if output_param is None else output_param
-                lamb_coeff = fused_lamb_cuda.lamb(p.data, out_p, exp_avg,
-                    exp_avg_sq, grad, group['lr'], beta1, beta2, max_coeff,
-                    min_coeff, group['eps'], combined_scale, state['step'],
-                    self.eps_mode, bias_correction, group['weight_decay'])
-                self.lamb_coeffs.append(lamb_coeff)
-        return loss
-
-    def get_lamb_coeffs(self):
-        lamb_coeffs = [lamb_coeff.item() for lamb_coeff in self.lamb_coeffs]
-        return lamb_coeffs
-
-
-TORCH_DISTRIBUTED_DEFAULT_PORT = '29500'
-
-
-def get_weight_norm(parameters, norm_type=2, mpu=None):
-    """Clips gradient norm of an iterable of parameters.
-
-    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
-    added functionality to handle model parallel parameters. Note that
-    the gradients are modified in place. Taken from Nvidia Megatron.
-
-    Arguments:
-        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
-            single Tensor that will have gradients normalized
-        max_norm (float or int): max norm of the gradients
-        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
-            infinity norm.
-
-    Returns:
-        Total norm of the parameters (viewed as a single vector).
-    """
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
-    norm_type = float(norm_type)
-    if norm_type == inf:
-        total_norm = max(p.data.abs().max() for p in parameters)
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
-        if mpu is not None:
-            torch.distributed.all_reduce(total_norm_cuda, op=torch.
-                distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
-        total_norm = total_norm_cuda[0].item()
-    else:
-        total_norm = 0.0
-        for p in parameters:
-            if mpu is not None:
-                if mpu.get_model_parallel_rank() == 0 or hasattr(p,
-                    'model_parallel') and p.model_parallel:
-                    try:
-                        param_norm = float(torch.norm(p, norm_type, dtype=
-                            torch.float32))
-                    except TypeError as err:
-                        param_norm = float(torch.norm(p.float(), norm_type))
-                    total_norm += param_norm ** norm_type
-            else:
-                try:
-                    param_norm = float(torch.norm(p, norm_type, dtype=torch
-                        .float32))
-                except TypeError as err:
-                    param_norm = float(torch.norm(p.float(), norm_type))
-                total_norm += param_norm ** norm_type
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
-        if mpu is not None:
-            torch.distributed.all_reduce(total_norm_cuda, op=torch.
-                distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
-        total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
-    if total_norm == float('inf') or total_norm == -float('inf'
-        ) or total_norm != total_norm:
-        total_norm = -1
-    return total_norm
-
-
-def _handle_overflow(cpu_sum, x, i):
-    import math
-    rank = torch.distributed.get_rank()
-    if rank == 0:
-        t_i = -1
-        for v_i, v in enumerate(x.data.contiguous().view(-1)):
-            if not math.isfinite(float(v)):
-                t_i = v_i
-                break
-        print(
-            f'rank {rank} detected overflow {cpu_sum} in tensor {i}:{t_i} shape {x.shape}'
-            )
-
-
-class CheckOverflow(object):
-    """Checks for overflow in gradient across parallel process"""
-
-    def __init__(self, param_groups=None, mpu=None, zero_reduce_scatter=False):
-        self.mpu = mpu
-        self.params = [] if param_groups else None
-        self.zero_reduce_scatter = zero_reduce_scatter
-        if param_groups:
-            for group in param_groups:
-                for param in group:
-                    self.params.append(param)
-
-    def check_using_norm(self, norm_group):
-        overflow = -1 in norm_group
-        if self.mpu is not None:
-            overflow_gpu = torch.cuda.ByteTensor([overflow])
-            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
-                .ReduceOp.MAX, group=self.mpu.get_model_parallel_group())
-            overflow = overflow_gpu[0].item()
-        return bool(overflow)
-
-    def check(self, param_groups=None):
-        params = []
-        if param_groups is None:
-            params = self.params
-        else:
-            assert param_groups is not None, 'self.params and param_groups both cannot be none'
-            for group in param_groups:
-                for param in group:
-                    params.append(param)
-        return self.has_overflow(params)
-
-    def has_overflow_serial(self, params):
-        for i, p in enumerate(params):
-            if p.grad is not None and self._has_inf_or_nan(p.grad.data, i):
-                return True
-        return False
-
-    def has_overflow(self, params):
-        overflow = self.has_overflow_serial(params)
-        overflow_gpu = torch.cuda.ByteTensor([overflow])
-        if self.zero_reduce_scatter:
-            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
-                .ReduceOp.MAX, group=torch.distributed.group.WORLD)
-        elif self.mpu is not None:
-            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
-                .ReduceOp.MAX, group=self.mpu.get_model_parallel_group())
-        overflow = overflow_gpu[0].item()
-        return bool(overflow)
-
-    @staticmethod
-    def _has_inf_or_nan(x, i):
-        try:
-            cpu_sum = float(x.float().sum())
-        except RuntimeError as instance:
-            if 'value cannot be converted' not in instance.args[0]:
-                raise
-            return True
-        else:
-            if cpu_sum == float('inf') or cpu_sum == -float('inf'
-                ) or cpu_sum != cpu_sum:
-                _handle_overflow(cpu_sum, x, i)
-                return True
-            return False
-
-
-def get_grad_norm(parameters, norm_type=2, mpu=None):
-    """Clips gradient norm of an iterable of parameters.
-
-    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
-    added functionality to handle model parallel parameters. Note that
-    the gradients are modified in place. Taken from Nvidia Megatron.
-
-    Arguments:
-        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
-            single Tensor that will have gradients normalized
-        max_norm (float or int): max norm of the gradients
-        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
-            infinity norm.
-
-    Returns:
-        Total norm of the parameters (viewed as a single vector).
-    """
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
-    parameters = list(filter(lambda p: p.grad is not None, parameters))
-    norm_type = float(norm_type)
-    if norm_type == inf:
-        total_norm = max(p.grad.data.abs().max() for p in parameters)
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
-        if mpu is not None:
-            torch.distributed.all_reduce(total_norm_cuda, op=torch.
-                distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
-        total_norm = total_norm_cuda[0].item()
-    else:
-        total_norm = 0.0
-        for p in parameters:
-            if mpu is not None:
-                if mpu.get_model_parallel_rank() == 0 or hasattr(p,
-                    'model_parallel') and p.model_parallel:
-                    param_norm = p.grad.data.float().norm(norm_type)
-                    total_norm += param_norm.item() ** norm_type
-            else:
-                param_norm = p.grad.data.float().norm(norm_type)
-                total_norm += param_norm.item() ** norm_type
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
-        if mpu is not None:
-            torch.distributed.all_reduce(total_norm_cuda, op=torch.
-                distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
-        total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
-    if total_norm == float('inf') or total_norm == -float('inf'
-        ) or total_norm != total_norm:
-        total_norm = -1
-    return total_norm
-
-
-class FP16_UnfusedOptimizer(object):
-    """
-    FP16 Optimizer without weight fusion to support LAMB optimizer
-
-    For usage example please see, TODO:  DeepSpeed V2 Tutorial
-    """
-
-    def __init__(self, init_optimizer, static_loss_scale=1.0,
-        dynamic_loss_scale=False, dynamic_loss_args=None, verbose=True, mpu
-        =None, clip_grad=0.0, fused_lamb_legacy=False):
-        self.fused_lamb_legacy = fused_lamb_legacy
-        if torch.distributed.get_rank() == 0:
-            logging.info(f'Fused Lamb Legacy : {self.fused_lamb_legacy} ')
-        if not torch.cuda.is_available:
-            raise SystemError('Cannot use fp16 without CUDA.')
-        self.optimizer = init_optimizer
-        self.fp16_groups = []
-        self.fp32_groups = []
-        for i, param_group in enumerate(self.optimizer.param_groups):
-            self.fp16_groups.append(param_group['params'])
-            fp32_group = [p.clone().float().detach() for p in param_group[
-                'params']]
-            for p in fp32_group:
-                p.requires_grad = True
-            self.fp32_groups.append(fp32_group)
-            param_group['params'] = self.fp32_groups[i]
-        if dynamic_loss_scale:
-            self.dynamic_loss_scale = True
-            self.cur_iter = 0
-            self.last_overflow_iter = -1
-            self.scale_factor = 2.0
-            if dynamic_loss_args is None:
-                self.cur_scale = 1.0 * 2 ** 16
-                self.scale_window = 1000
-                self.min_loss_scale = 0.25
-            else:
-                self.cur_scale = dynamic_loss_args[INITIAL_LOSS_SCALE]
-                self.scale_window = dynamic_loss_args[SCALE_WINDOW]
-                self.min_loss_scale = dynamic_loss_args[MIN_LOSS_SCALE]
-        else:
-            self.dynamic_loss_scale = False
-            self.cur_iter = 0
-            self.cur_scale = static_loss_scale
-        self.verbose = verbose
-        self.clip_grad = clip_grad
-        self.norm_type = 2
-        TORCH_MAJOR = int(torch.__version__.split('.')[0])
-        TORCH_MINOR = int(torch.__version__.split('.')[1])
-        if TORCH_MAJOR == 0 and TORCH_MINOR <= 4:
-            self.clip_grad_norm = torch.nn.utils.clip_grad_norm
-        else:
-            self.clip_grad_norm = torch.nn.utils.clip_grad_norm_
-        self.mpu = None
-        self.overflow = False
-        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.mpu)
-
-    def zero_grad(self, set_grads_to_None=True):
-        """
-        Zero FP16 parameter grads.
-        """
-        for group in self.fp16_groups:
-            for p in group:
-                if set_grads_to_None:
-                    p.grad = None
-                elif p.grad is not None:
-                    p.grad.detach_()
-                    p.grad.zero_()
-
-    def step_fused_lamb(self, closure=None):
-        """
-        Not supporting closure.
-        """
-        grads_groups_flat = []
-        grads_groups = []
-        norm_groups = []
-        for i, group in enumerate(self.fp16_groups):
-            grads = [(torch.zeros(p.size(), dtype=p.dtype, device=p.device) if
-                p.grad is None else p.grad) for p in group]
-            grads_groups.append(grads)
-            grads_groups_flat.append(_flatten_dense_tensors(grads))
-            norm_groups.append(get_weight_norm(grads_groups_flat[i], mpu=
-                self.mpu))
-        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
-        prev_scale = self.cur_scale
-        self._update_scale(self.overflow)
-        if self.overflow:
-            if self.verbose:
-                print(
-                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
-                    .format(prev_scale, self.cur_scale))
-            return self.overflow
-        combined_scale = self.unscale_and_clip_grads(norm_groups,
-            apply_scale=False)
-        self.optimizer.step(grads=grads_groups, output_params=self.
-            fp16_groups, scale=combined_scale)
-        return self.overflow
-
-    def step(self, closure=None):
-        """
-        Not supporting closure.
-        """
-        if self.fused_lamb_legacy:
-            return self.step_fused_lamb()
-        self.overflow = self.overflow_checker.check()
-        prev_scale = self.cur_scale
-        self._update_scale(self.overflow)
-        if self.overflow:
-            if self.verbose:
-                print(
-                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
-                    .format(prev_scale, self.cur_scale))
-            return self.overflow
-        norm_groups = []
-        for i, group in enumerate(self.fp16_groups):
-            norm_groups.append(get_grad_norm(group, mpu=self.mpu))
-            for fp32_param, fp16_param in zip(self.fp32_groups[i], self.
-                fp16_groups[i]):
-                if fp16_param.grad is None:
-                    fp32_param.grad = torch.zeros(fp16_param.size(), dtype=
-                        fp32_param.dtype, device=fp32_param.device)
-                else:
-                    fp32_param.grad = fp16_param.grad.to(fp32_param.dtype)
-        self.unscale_and_clip_grads(norm_groups)
-        self.optimizer.step()
-        for fp32_group, fp16_group in zip(self.fp32_groups, self.fp16_groups):
-            for fp32_param, fp16_param in zip(fp32_group, fp16_group):
-                fp32_param.grad = None
-                fp16_param.data.copy_(fp32_param.data)
-        return self.overflow
-
-    def unscale_and_clip_grads(self, norm_groups, apply_scale=True):
-        total_norm = 0.0
-        for norm in norm_groups:
-            total_norm += norm ** 2.0
-        total_norm = math.sqrt(total_norm)
-        combined_scale = self.cur_scale
-        if self.clip_grad > 0.0:
-            clip = (total_norm / self.cur_scale + 1e-06) / self.clip_grad
-            if clip > 1:
-                combined_scale = clip * self.cur_scale
-        if apply_scale:
-            for group in self.fp32_groups:
-                for param in group:
-                    if param.grad is not None:
-                        param.grad.data.mul_(1.0 / combined_scale)
-        return combined_scale
-
-    def backward(self, loss):
-        """
-        :attr:`backward` performs the following steps:
-
-        1. fp32_loss = loss.float()
-        2. scaled_loss = fp32_loss*loss_scale
-        3. scaled_loss.backward(), which accumulates scaled gradients into the ``.grad`` attributes of the model's fp16 leaves
-        """
-        scaled_loss = loss.float() * self.cur_scale
-        scaled_loss.backward()
-
-    def _update_scale(self, skip):
-        if self.dynamic_loss_scale:
-            prev_scale = self.cur_scale
-            if skip:
-                self.cur_scale = max(self.cur_scale / self.scale_factor,
-                    self.min_loss_scale)
-                self.last_overflow_iter = self.cur_iter
-                if self.verbose:
-                    print('\nGrad overflow on iteration', self.cur_iter)
-                    print(
-                        f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}'
-                        )
-            else:
-                stable_interval = self.cur_iter - self.last_overflow_iter - 1
-                if (stable_interval > 0 and stable_interval % self.
-                    scale_window == 0):
-                    self.cur_scale *= self.scale_factor
-                    if self.verbose:
-                        print(
-                            f'\nNo Grad overflow for {self.scale_window} iterations'
-                            )
-                        print(
-                            f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}'
-                            )
-        elif skip:
-            print('\nGrad overflow on iteration', self.cur_iter)
-            print('Using static loss scale of', self.cur_scale)
-        self.cur_iter += 1
-        return
-
-    def _get_state(self):
-        return self.optimizer.state
-
-    def _set_state(self, value):
-        self.optimizer.state = value
-    state = property(_get_state, _set_state)
-
-    def _get_param_groups(self):
-        return self.optimizer.param_groups
-
-    def _set_param_groups(self, value):
-        self.optimizer.param_groups = value
-    param_groups = property(_get_param_groups, _set_param_groups)
-
-    def state_dict(self):
-        """
-        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
-        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
-        of the contained Pytorch optimizer.
-        Example::
-            checkpoint = {}
-            checkpoint['model'] = model.state_dict()
-            checkpoint['optimizer'] = optimizer.state_dict()
-            torch.save(checkpoint, "saved.pth")
-        """
-        state_dict = {}
-        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
-        state_dict['cur_scale'] = self.cur_scale
-        state_dict['cur_iter'] = self.cur_iter
-        if state_dict['dynamic_loss_scale']:
-            state_dict['last_overflow_iter'] = self.last_overflow_iter
-            state_dict['scale_factor'] = self.scale_factor
-            state_dict['scale_window'] = self.scale_window
-        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
-        state_dict['fp32_groups'] = self.fp32_groups
-        return state_dict
-
-    def load_state_dict(self, state_dict, load_optimizer_states=True):
-        """
-        Loads a state_dict created by an earlier call to state_dict().
-        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
-        whose parameters in turn came from ``model``, it is expected that the user
-        will call ``model.load_state_dict()`` before
-        ``fp16_optimizer_instance.load_state_dict()`` is called.
-        Example::
-            model = torch.nn.Linear(D_in, D_out).cuda().half()
-            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
-            ...
-            checkpoint = torch.load("saved.pth")
-            model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-        """
-        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
-        self.cur_scale = state_dict['cur_scale']
-        self.cur_iter = state_dict['cur_iter']
-        if state_dict['dynamic_loss_scale']:
-            self.last_overflow_iter = state_dict['last_overflow_iter']
-            self.scale_factor = state_dict['scale_factor']
-            self.scale_window = state_dict['scale_window']
-        if load_optimizer_states:
-            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-        for current_group, saved_group in zip(self.fp32_groups, state_dict[
-            'fp32_groups']):
-            for current, saved in zip(current_group, saved_group):
-                current.data.copy_(saved.data)
-
-    def __repr__(self):
-        return repr(self.optimizer)
-
-
 class ThroughputTimer:
 
     def __init__(self, batch_size, num_workers, start_step=2,
@@ -1556,278 +1053,40 @@ class ThroughputTimer:
         return float('-inf')
 
 
-class CSRTensor(object):
-    """ Compressed Sparse Row (CSR) Tensor """
-
-    def __init__(self, dense_tensor=None):
-        self.orig_dense_tensor = dense_tensor
-        if dense_tensor is not None:
-            result = torch.sum(dense_tensor, dim=1)
-            self.indices = result.nonzero().flatten()
-            self.values = dense_tensor[self.indices]
-            self.dense_size = list(dense_tensor.size())
-        else:
-            self.indices = None
-            self.values = None
-            self.dense_size = None
-
-    @staticmethod
-    def type():
-        return 'deepspeed.CSRTensor'
-
-    def to_dense(self):
-        it = self.indices.unsqueeze(1)
-        full_indices = torch.cat([it for _ in range(self.dense_size[1])], dim=1
-            )
-        return self.values.new_zeros(self.dense_size).scatter_add_(0,
-            full_indices, self.values)
-
-    def sparse_size(self):
-        index_size = list(self.indices.size())
-        index_size = index_size[0]
-        value_size = list(self.values.size())
-        value_size = value_size[0] * value_size[1]
-        dense_size = self.dense_size[0] * self.dense_size[1]
-        return index_size + value_size, dense_size
-
-    def add(self, b):
-        assert self.dense_size == b.dense_size
-        self.indices = torch.cat([self.indices, b.indices])
-        self.values = torch.cat([self.values, b.values])
-
-    def __str__(self):
-        sparse_size, dense_size = self.sparse_size()
-        return (
-            'DeepSpeed.CSRTensor(indices_size={}, values_size={}, dense_size={}, device={}, reduction_factor={})'
-            .format(self.indices.size(), self.values.size(), self.
-            dense_size, self.indices.get_device(), dense_size / sparse_size))
-
-    def __repr__(self):
-        return self.__str__()
+def see_memory_usage(message):
+    return
+    if torch.distributed.is_initialized() and not torch.distributed.get_rank(
+        ) == 0:
+        return
+    print(message, flush=True)
+    print('Memory Allocated ', torch.cuda.memory_allocated() / (1024 * 1024 *
+        1024), 'GigaBytes', flush=True)
+    print('Max Memory Allocated ', torch.cuda.max_memory_allocated() / (
+        1024 * 1024 * 1024), 'GigaBytes', flush=True)
+    print('Cache Allocated ', torch.cuda.memory_cached() / (1024 * 1024 * 
+        1024), 'GigaBytes', flush=True)
+    print('Max cache Allocated ', torch.cuda.max_memory_cached() / (1024 * 
+        1024 * 1024), 'GigaBytes', flush=True)
+    print(' ', flush=True)
 
 
-def split_half_float_double_csr(tensors):
+def split_half_float_double(tensors):
     dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor', CSRTensor.type()]
+        'torch.cuda.DoubleTensor']
     buckets = []
     for i, dtype in enumerate(dtypes):
         bucket = [t for t in tensors if t.type() == dtype]
         if bucket:
-            buckets.append((dtype, bucket))
+            buckets.append(bucket)
     return buckets
 
 
-ROUTE_PREDICT = 'predict'
+pg_correctness_test = False
 
 
-def _initialize_parameter_parallel_groups(parameter_parallel_size=None):
-    data_parallel_size = int(dist.get_world_size())
-    if parameter_parallel_size is None:
-        parameter_parallel_size = int(data_parallel_size)
-    print(data_parallel_size, parameter_parallel_size)
-    assert data_parallel_size % parameter_parallel_size == 0, 'world size should be divisible by parameter parallel size'
-    rank = dist.get_rank()
-    my_group = None
-    for i in range(dist.get_world_size() // parameter_parallel_size):
-        ranks = range(i * parameter_parallel_size, (i + 1) *
-            parameter_parallel_size)
-        group = torch.distributed.new_group(ranks)
-        if rank in ranks:
-            my_group = group
-    return my_group
-
-
-def print_rank_0(message):
-    if torch.distributed.is_initialized():
-        if torch.distributed.get_rank() == 0:
-            print(message, flush=True)
-    else:
-        print(message, flush=True)
-
-
-class SynchronizedWallClockTimer:
-    """Group of timers. Borrowed from Nvidia Megatron code"""
-
-
-    class Timer:
-        """Timer."""
-
-        def __init__(self, name):
-            self.name_ = name
-            self.elapsed_ = 0.0
-            self.started_ = False
-            self.start_time = time.time()
-
-        def start(self):
-            """Start the timer."""
-            assert not self.started_, 'timer has already been started'
-            torch.cuda.synchronize()
-            self.start_time = time.time()
-            self.started_ = True
-
-        def stop(self):
-            """Stop the timer."""
-            assert self.started_, 'timer is not started'
-            torch.cuda.synchronize()
-            self.elapsed_ += time.time() - self.start_time
-            self.started_ = False
-
-        def reset(self):
-            """Reset timer."""
-            self.elapsed_ = 0.0
-            self.started_ = False
-
-        def elapsed(self, reset=True):
-            """Calculate the elapsed time."""
-            started_ = self.started_
-            if self.started_:
-                self.stop()
-            elapsed_ = self.elapsed_
-            if reset:
-                self.reset()
-            if started_:
-                self.start()
-            return elapsed_
-
-    def __init__(self):
-        self.timers = {}
-
-    def __call__(self, name):
-        if name not in self.timers:
-            self.timers[name] = self.Timer(name)
-        return self.timers[name]
-
-    @staticmethod
-    def memory_usage():
-        alloc = 'mem_allocated: {:.4f} GB'.format(torch.cuda.
-            memory_allocated() / (1024 * 1024 * 1024))
-        max_alloc = 'max_mem_allocated: {:.4f} GB'.format(torch.cuda.
-            max_memory_allocated() / (1024 * 1024 * 1024))
-        cache = 'cache_allocated: {:.4f} GB'.format(torch.cuda.
-            memory_cached() / (1024 * 1024 * 1024))
-        max_cache = 'max_cache_allocated: {:.4f} GB'.format(torch.cuda.
-            max_memory_cached() / (1024 * 1024 * 1024))
-        return ' | {} | {} | {} | {}'.format(alloc, max_alloc, cache, max_cache
-            )
-
-    def log(self, names, normalizer=1.0, reset=True, memory_breakdown=False):
-        """Log a group of timers."""
-        assert normalizer > 0.0
-        string = 'time (ms)'
-        for name in names:
-            elapsed_time = self.timers[name].elapsed(reset=reset
-                ) * 1000.0 / normalizer
-            string += ' | {}: {:.2f}'.format(name, elapsed_time)
-        if memory_breakdown:
-            string += self.memory_usage()
-        print_rank_0(string)
-
-
-ZERO_OPTIMIZATION_OPTIMIZER_STATES = 1
-
-
-MEMORY_OPT_ALLREDUCE_SIZE = 500000000
-
-
-def print_configuration(args, name):
-    print('{}:'.format(name), flush=True)
-    for arg in sorted(vars(args)):
-        dots = '.' * (29 - len(arg))
-        print('  {} {} {}'.format(arg, dots, getattr(args, arg)), flush=True)
-
-
-class LossScaler:
-    """
-    Class that manages a static loss scale.  This class is intended to interact with
-    :class:`FP16_Optimizer`, and should not be directly manipulated by the user.
-
-    Use of :class:`LossScaler` is enabled via the ``static_loss_scale`` argument to
-    :class:`FP16_Optimizer`'s constructor.
-
-    Args:
-        scale (float, optional, default=1.0):  The loss scale.
-    """
-
-    def __init__(self, scale=1):
-        self.cur_scale = scale
-
-    def has_overflow(self, params):
-        return False
-
-    def _has_inf_or_nan(x):
-        return False
-
-    def update_scale(self, overflow):
-        pass
-
-    @property
-    def loss_scale(self):
-        return self.cur_scale
-
-    def scale_gradient(self, module, grad_in, grad_out):
-        return tuple(self.loss_scale * g for g in grad_in)
-
-    def backward(self, loss, retain_graph=False):
-        scaled_loss = loss * self.loss_scale
-        scaled_loss.backward(retain_graph=retain_graph)
-
-
-def pprint(msg):
-    if not dist.is_initialized() or dist.get_rank() == 0:
-        print(msg)
-
-
-def flatten_dense_tensors_sub_partition_aligned(tensor_list, dp,
-    max_elements_per_comm, pg):
-    num_elements = 0
+def move_to_cpu(tensor_list):
     for tensor in tensor_list:
-        num_elements = num_elements + tensor.numel()
-    pprint('Total number of elements in model: {}, max elements per com: {}'
-        .format(num_elements, max_elements_per_comm))
-    max_elements_per_comm = min(max_elements_per_comm, num_elements)
-    sub_partition_size = int(max_elements_per_comm // dp)
-    alignment = sub_partition_size
-    remaining = int(num_elements % alignment)
-    elements_to_add = 0
-    if remaining:
-        elements_to_add = alignment - remaining
-        pprint('adding pad tensor for alignment, {} + {}->{}'.format(
-            num_elements, elements_to_add, num_elements + elements_to_add))
-    else:
-        padded_tensor_list = tensor_list
-    num_partitions = int((num_elements + elements_to_add) // sub_partition_size
-        )
-    assert (num_elements + elements_to_add
-        ) % sub_partition_size == 0, 'num elements should be aligned by sub partition size'
-    num_comm_intervals = int(num_partitions // dp)
-    partition_remaining = int(num_partitions % dp)
-    pprint('num_comm_intervals={}, partition_remaining={}'.format(
-        num_comm_intervals, partition_remaining))
-    if partition_remaining != 0:
-        pprint('adding pad tensor and/or extra sub partition')
-        num_comm_intervals += 1
-        aligned_comm_elements = num_comm_intervals * sub_partition_size * dp
-        elements_to_add = aligned_comm_elements - num_elements
-        pad_tensor = torch.zeros(elements_to_add, device=tensor_list[0].
-            device, dtype=tensor_list[0].dtype)
-        padded_tensor_list = tensor_list + [pad_tensor]
-        pprint('adding pad tensor and/or extra sub partition, {} + {}->{}'.
-            format(num_elements, elements_to_add, num_elements +
-            elements_to_add))
-        num_elements += elements_to_add
-    elif elements_to_add > 0:
-        pad_tensor = torch.zeros(elements_to_add, device=tensor_list[0].
-            device, dtype=tensor_list[0].dtype)
-        padded_tensor_list = tensor_list + [pad_tensor]
-        num_elements += elements_to_add
-    if pg is None or dist.get_rank(group=pg) == 0:
-        print('Number of Elements (w. padding) is ', num_elements)
-    padded_num_elems = 0
-    for p in padded_tensor_list:
-        padded_num_elems += p.numel()
-    assert num_elements == padded_num_elems, '{} != {}, rank={}'.format(
-        num_elements, padded_num_elems, dist.get_rank())
-    return _flatten_dense_tensors(padded_tensor_list)
+        tensor.data = tensor.data.cpu()
 
 
 class DynamicLossScaler:
@@ -1926,877 +1185,58 @@ class DynamicLossScaler:
         scaled_loss.backward(retain_graph=retain_graph)
 
 
-def _single_range_check(current_index, start_index, end_index, tensor_size):
-    offset = 0
-    if current_index >= start_index and current_index < end_index:
-        return True, offset
-    elif start_index > current_index and start_index < current_index + tensor_size:
-        offset = start_index - current_index
-        return True, offset
-    else:
-        return False, offset
-
-
-def _range_check(current_index, element_intervals, tensor_size):
-    results = []
-    for comm_idx, interval in enumerate(element_intervals):
-        start_index, end_index = interval
-        contained, offset = _single_range_check(current_index, start_index,
-            end_index, tensor_size)
-        if contained:
-            results.append((contained, offset, comm_idx))
-    if len(results) == 0:
-        return [(False, 0, -1)]
-    return results
-
-
-class FP16_DeepSpeedZeroOptimizer_Stage1(object):
+class LossScaler:
     """
-    FP16_DeepSpeedZeroOptimizer_Stage1 designed to reduce the memory footprint
-    required for training large deep learning models.
+    Class that manages a static loss scale.  This class is intended to interact with
+    :class:`FP16_Optimizer`, and should not be directly manipulated by the user.
 
-    For more details please see ZeRO: Memory Optimization Towards Training A Trillion Parameter Models
-    https://arxiv.org/abs/1910.02054
+    Use of :class:`LossScaler` is enabled via the ``static_loss_scale`` argument to
+    :class:`FP16_Optimizer`'s constructor.
 
-    This version aligns with stage-1 in the paper above.
+    Args:
+        scale (float, optional, default=1.0):  The loss scale.
     """
 
-    def __init__(self, init_optimizer, static_loss_scale=1.0,
-        dynamic_loss_scale=False, dynamic_loss_args=None, verbose=True,
-        dp_process_group=None, partition_size=None, mpu=None,
-        all_gather_partitions=True, allgather_size=500000000, clip_grad=0.0,
-        max_elements_per_comm=500000000.0):
-        if dp_process_group is not None and partition_size is not None:
-            raise ValueError(
-                'Cannot specify both dp_process_group and partition size')
-        if dp_process_group is None:
-            dp_process_group = _initialize_parameter_parallel_groups(
-                partition_size)
-        if not torch.cuda.is_available:
-            raise SystemError('Cannot use fp16 without CUDA.')
-        self.optimizer = init_optimizer
-        self.verbose = verbose
-        self.dp_process_group = dp_process_group
-        self.all_gather_partitions = all_gather_partitions
-        self.allgather_size = allgather_size
-        self.max_elements_per_comm = max_elements_per_comm
-        print('max_elements_per_comm={}'.format(max_elements_per_comm))
-        self.fp16_groups = []
-        self.fp16_groups_flat = []
-        self.parallel_sub_partitioned_fp16_groups = []
-        self.parallel_comm_sub_partitioned_fp16_groups = []
-        self.local_sub_partitions_of_fp32_groups = []
-        self.params_not_local = []
-        self.params_in_rank_sub_partitions = []
-        self.params_in_rank_sub_partitions_offsets = []
-        self.sub_partition_sizes = []
-        self.num_comm_intervals_per_group = []
-        local_rank = dist.get_rank(group=self.dp_process_group)
-        for i, param_group in enumerate(self.optimizer.param_groups):
-            self.fp16_groups.append(param_group['params'])
-            self.fp16_groups_flat.append(
-                flatten_dense_tensors_sub_partition_aligned(tensor_list=
-                self.fp16_groups[i], dp=dist.get_world_size(group=self.
-                dp_process_group), max_elements_per_comm=self.
-                max_elements_per_comm, pg=self.dp_process_group))
-            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
-                [i], self.fp16_groups[i])
-            for p, q in zip(self.fp16_groups[i], updated_params):
-                p.data = q.data
-            (comm_partitions, dp_sub_partitions, element_intervals,
-                sub_partition_size, num_comm_intervals) = (self.
-                get_data_parallel_sub_partitions(tensor=self.
-                fp16_groups_flat[i], max_elements_per_comm=self.
-                max_elements_per_comm, world_size=dist.get_world_size(group
-                =self.dp_process_group), dp_process_group=self.
-                dp_process_group))
-            self.parallel_comm_sub_partitioned_fp16_groups.append(
-                comm_partitions)
-            self.parallel_sub_partitioned_fp16_groups.append(dp_sub_partitions)
-            self.sub_partition_sizes.append(sub_partition_size)
-            self.num_comm_intervals_per_group.append(num_comm_intervals)
-            local_sub_partitions = []
-            for sub_partition in self.parallel_sub_partitioned_fp16_groups[i][
-                local_rank]:
-                fp32_sub_partition = sub_partition.clone().float().detach()
-                fp32_sub_partition.requires_grad = True
-                local_sub_partitions.append(fp32_sub_partition)
-            self.local_sub_partitions_of_fp32_groups.append(
-                local_sub_partitions)
-            param_group['params'] = self.local_sub_partitions_of_fp32_groups[i]
-            (params_in_rank_sub_partition,
-                params_in_rank_sub_partitions_offsets, params_not_local) = (
-                self.get_all_sub_partition_info(tensor_list=self.
-                fp16_groups[i], all_element_intervals=element_intervals,
-                local_rank=local_rank, world_size=dist.get_world_size(group
-                =self.dp_process_group)))
-            self.params_in_rank_sub_partitions.append(
-                params_in_rank_sub_partition)
-            self.params_not_local.append(params_not_local)
-            self.params_in_rank_sub_partitions_offsets.append(
-                params_in_rank_sub_partitions_offsets)
-        if dynamic_loss_scale:
-            if dynamic_loss_args is None:
-                self.loss_scaler = DynamicLossScaler()
-            else:
-                self.loss_scaler = DynamicLossScaler(**dynamic_loss_args)
-            self.dynamic_loss_scale = True
-        else:
-            self.dynamic_loss_scale = False
-            self.loss_scaler = LossScaler(scale=static_loss_scale)
-            self.cur_iter = 0
-        self.mpu = mpu
-        self.clip_grad = clip_grad
-        self.overflow = False
-        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.
-            mpu, zero_reduce_scatter=True)
+    def __init__(self, scale=1):
+        self.cur_scale = scale
 
-    @staticmethod
-    def get_data_parallel_sub_partitions(tensor, max_elements_per_comm,
-        world_size, dp_process_group=None):
-        total_num_elements = tensor.numel()
-        max_elements_per_comm = min(total_num_elements, max_elements_per_comm)
-        sub_partition_size = int(max_elements_per_comm // world_size)
-        num_sub_partitions = int(total_num_elements // sub_partition_size)
-        assert total_num_elements % sub_partition_size == 0, '{} % {} != 0'.format(
-            total_num_elements, sub_partition_size)
-        num_comm_intervals = int(num_sub_partitions // world_size)
-        assert num_sub_partitions % world_size == 0, '{} % {} != 0'.format(
-            num_sub_partitions, world_size)
-        if not dist.is_initialized() or dist.get_rank(group=dp_process_group
-            ) == 0:
-            print('**** partition info:')
-            print('\t total_num_elements=', total_num_elements)
-            print('\t world_size=', world_size)
-            print('\t max_elements_per_comm=', max_elements_per_comm)
-            print('\t sub_partition_size=', sub_partition_size)
-            print('\t num_sub_partitions=', num_sub_partitions)
-            print('\t num_comm_intervals=', num_comm_intervals)
-            print('****')
-        comm_partitions = []
-        for _ in range(num_comm_intervals):
-            comm_partitions.append([])
-        start = 0
-        comm_id = 0
-        element_intervals = defaultdict(list)
-        for idx in range(num_sub_partitions):
-            rank_id = idx % world_size
-            sub_partition = tensor.narrow(0, start, sub_partition_size)
-            element_intervals[rank_id].append((start, start +
-                sub_partition_size))
-            comm_partitions[comm_id].append(sub_partition)
-            start = start + sub_partition_size
-            if rank_id == world_size - 1:
-                comm_id += 1
-        sub_partitions = []
-        for _ in range(world_size):
-            sub_partitions.append([])
-        for comm_id, partitions in enumerate(comm_partitions):
-            for rank_id, partition in enumerate(partitions):
-                sub_partitions[rank_id].append(partition)
-        return (comm_partitions, sub_partitions, element_intervals,
-            sub_partition_size, num_comm_intervals)
+    def has_overflow(self, params):
+        return False
 
-    @staticmethod
-    def get_all_sub_partition_info(tensor_list, all_element_intervals,
-        local_rank, world_size):
-        params_not_local = []
-        params_in_rank_sub_partition = []
-        params_in_rank_sub_partitions_offsets = []
-        for rank in range(world_size):
-            params_in_local_sub_partition = []
-            local_sub_partition_offsets = []
-            comm_tensor_list = []
-            comm_offset_list = []
-            current_index = 0
-            prev_comm_idx = 0
-            for iii, tensor in enumerate(tensor_list):
-                tensor_size = tensor.numel()
-                results_list = _range_check(current_index,
-                    all_element_intervals[rank], tensor_size)
-                for contained, offset, comm_idx in results_list:
-                    if contained:
-                        if prev_comm_idx != comm_idx:
-                            params_in_local_sub_partition.append(
-                                comm_tensor_list)
-                            comm_tensor_list = []
-                            local_sub_partition_offsets.append(comm_offset_list
-                                )
-                            comm_offset_list = []
-                        comm_tensor_list.append(tensor)
-                        comm_offset_list.append(offset)
-                        prev_comm_idx = comm_idx
-                    elif rank == local_rank:
-                        params_not_local.append(tensor)
-                current_index = current_index + tensor_size
-            params_in_local_sub_partition.append(comm_tensor_list)
-            local_sub_partition_offsets.append(comm_offset_list)
-            params_in_rank_sub_partition.append(params_in_local_sub_partition)
-            params_in_rank_sub_partitions_offsets.append(
-                local_sub_partition_offsets)
-        return (params_in_rank_sub_partition,
-            params_in_rank_sub_partitions_offsets, params_not_local)
+    def _has_inf_or_nan(x):
+        return False
 
-    @staticmethod
-    def get_flat_sub_partitions(comm_tensor_list, comm_param_offsets,
-        sub_partition_size, dtype, num_comm_intervals=None, default_device=
-        None, return_partition_params=False):
-        partition_params = []
-        final_param_offsets = []
-        flat_sub_partitions = []
-        for tensor_list, param_offsets in zip(comm_tensor_list,
-            comm_param_offsets):
-            flat_tensor_list = []
-            current_size = 0
-            my_offsets = []
-            my_params = []
-            if dtype is None:
-                dtype = tensor_list[0].dtype
-            for i, tensor in enumerate(tensor_list):
-                if tensor.grad is None:
-                    tensor.grad = torch.zeros(tensor.size(), dtype=tensor.
-                        dtype, device=tensor.device)
-                param = tensor
-                tensor = tensor.grad
-                num_elements = tensor.numel()
-                tensor_offset = 0
-                if i == 0 and param_offsets[i] > 0:
-                    tensor_offset = param_offsets[i]
-                    num_elements = num_elements - tensor_offset
-                if num_elements > sub_partition_size - current_size:
-                    num_elements = sub_partition_size - current_size
-                if tensor_offset > 0 or num_elements < tensor.numel():
-                    flat_tensor_list.append(tensor.contiguous().view(-1).
-                        narrow(0, int(tensor_offset), int(num_elements)).to
-                        (dtype))
-                else:
-                    flat_tensor_list.append(tensor.to(dtype))
-                my_params.append(param)
-                my_offsets.append((current_size, num_elements))
-                current_size = current_size + num_elements
-            if current_size < sub_partition_size:
-                my_offsets.append((None, None))
-                my_params.append(None)
-                if len(tensor_list) == 0:
-                    assert default_device != None
-                    flat_tensor_list.append(torch.zeros(int(
-                        sub_partition_size - current_size), dtype=dtype,
-                        device=default_device))
-                else:
-                    flat_tensor_list.append(torch.zeros(int(
-                        sub_partition_size - current_size), dtype=dtype,
-                        device=tensor_list[0].device))
-            partition_params.append(my_params)
-            final_param_offsets.append(my_offsets)
-            assert len(flat_tensor_list) == len(my_offsets), '{} {}'.format(len
-                (flat_tensor_list), len(my_offsets))
-            flat_sub_partitions.append(_flatten_dense_tensors(flat_tensor_list)
-                )
-        if num_comm_intervals is not None and len(flat_sub_partitions
-            ) < num_comm_intervals:
-            device = flat_sub_partitions[0].device
-            for _ in range(num_comm_intervals - len(flat_sub_partitions)):
-                flat_sub_partitions.append(torch.zeros(int(
-                    sub_partition_size), dtype=dtype, device=device))
-                partition_params.append([None])
-                final_param_offsets.append([(None, None)])
-        if return_partition_params:
-            assert len(flat_sub_partitions) == len(partition_params)
-            assert len(partition_params) == len(final_param_offsets
-                ), '{} {}'.format(len(partition_params), len(
-                final_param_offsets))
-            return flat_sub_partitions, partition_params, final_param_offsets
-        return flat_sub_partitions
+    def update_scale(self, overflow):
+        pass
 
-    def zero_grad(self, set_grads_to_None=True):
-        """
-        Zero FP16 parameter grads.
-        """
-        for group in self.fp16_groups:
-            for p in group:
-                if set_grads_to_None:
-                    p.grad = None
-                elif p.grad is not None:
-                    p.grad.detach_()
-                    p.grad.zero_()
+    @property
+    def loss_scale(self):
+        return self.cur_scale
 
-    def free_grad_in_param_list(self, param_list):
-        for p in param_list:
-            if isinstance(p, list):
-                for _p in p:
-                    _p.grad = None
-            else:
-                p.grad = None
-
-    def reduce_scatter_gradients(self, postscale_gradients,
-        gradient_predivide_factor, gradient_average):
-        world_size = dist.get_world_size(group=self.dp_process_group)
-        local_rank = dist.get_rank(group=self.dp_process_group)
-        for i, group in enumerate(self.fp16_groups):
-            partition_param_map = {}
-            param_partition_map = {}
-            my_params = set()
-            num_comm_intervals = self.num_comm_intervals_per_group[i]
-            all_sub_partitions = []
-            for rank in range(world_size):
-                grad_sub_partitions, partition_params, param_offsets = (self
-                    .get_flat_sub_partitions(comm_tensor_list=self.
-                    params_in_rank_sub_partitions[i][rank],
-                    comm_param_offsets=self.
-                    params_in_rank_sub_partitions_offsets[i][rank],
-                    sub_partition_size=self.sub_partition_sizes[i], dtype=
-                    torch.half, num_comm_intervals=self.
-                    num_comm_intervals_per_group[i], default_device='cuda',
-                    return_partition_params=True))
-                all_sub_partitions.append(grad_sub_partitions)
-                for comm_idx, part in enumerate(grad_sub_partitions):
-                    partition_param_map[part] = partition_params[comm_idx
-                        ], param_offsets[comm_idx]
-                for comm_idx, params in enumerate(partition_params):
-                    for pidx, p in enumerate(params):
-                        if rank == local_rank:
-                            my_params.add(p)
-                        if p in param_partition_map:
-                            param_partition_map[p].append(grad_sub_partitions
-                                [comm_idx])
-                        else:
-                            param_partition_map[p] = [grad_sub_partitions[
-                                comm_idx]]
-                assert len(grad_sub_partitions) == num_comm_intervals
-            if not postscale_gradients:
-                raise NotImplementedError(
-                    'pre-scale_gradients is not implemented')
-            all_comm_partitions = []
-            for comm_idx in range(num_comm_intervals):
-                single_comm_all_partitions = []
-                for rank in range(world_size):
-                    single_comm_all_partitions.append(all_sub_partitions[
-                        rank][comm_idx])
-                dist.reduce_scatter(output=single_comm_all_partitions[
-                    local_rank], input_list=single_comm_all_partitions,
-                    group=self.dp_process_group)
-                if gradient_average:
-                    for partition in single_comm_all_partitions:
-                        partition.mul_(gradient_predivide_factor / world_size)
-                all_comm_partitions.append(single_comm_all_partitions)
-            for p in my_params:
-                partitions = param_partition_map[p]
-                parts = []
-                for part in partitions:
-                    params, offsets = partition_param_map[part]
-                    found = False
-                    for p_idx, _p in enumerate(params):
-                        if p.__hash__() == _p.__hash__():
-                            found = True
-                            if offsets[p_idx][0] is not None:
-                                my_part = part.narrow(0, offsets[p_idx][0],
-                                    offsets[p_idx][1])
-                                parts.append(my_part)
-                    assert found
-                if p is not None:
-                    updated_grad = _unflatten_dense_tensors(torch.cat(parts
-                        ), [p])
-                    p.grad.copy_(updated_grad[0])
-
-    def step(self, closure=None):
-        self.overflow = self.overflow_checker.check()
-        prev_scale = self.loss_scale
-        self._update_scale(self.overflow)
-        if self.overflow:
-            self.zero_grad()
-            if self.verbose:
-                print(
-                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
-                    .format(prev_scale, self.loss_scale))
-            return self.overflow
-        norm_groups = []
-        local_sub_partitions_grad_groups = []
-        partition_id = dist.get_rank(group=self.dp_process_group)
-        for i, group in enumerate(self.fp16_groups):
-            norm_groups.append(get_grad_norm(group, mpu=self.mpu))
-            self.free_grad_in_param_list(self.params_not_local[i])
-            local_grad_sub_partitions = self.get_flat_sub_partitions(
-                comm_tensor_list=self.params_in_rank_sub_partitions[i][
-                partition_id], comm_param_offsets=self.
-                params_in_rank_sub_partitions_offsets[i][partition_id],
-                sub_partition_size=self.sub_partition_sizes[i], dtype=self.
-                local_sub_partitions_of_fp32_groups[i][0].dtype,
-                num_comm_intervals=self.num_comm_intervals_per_group[i],
-                default_device=self.local_sub_partitions_of_fp32_groups[i][
-                0].device)
-            for idx, sub_partition_param in enumerate(self.
-                local_sub_partitions_of_fp32_groups[i]):
-                sub_partition_param.grad = local_grad_sub_partitions[idx]
-            self.free_grad_in_param_list(self.params_in_rank_sub_partitions
-                [i][partition_id])
-            local_sub_partitions_grad_groups.append(local_grad_sub_partitions)
-        self.unscale_and_clip_grads(local_sub_partitions_grad_groups,
-            norm_groups)
-        self.optimizer.step()
-        for group in self.local_sub_partitions_of_fp32_groups:
-            for idx, sub_partition_param in enumerate(group):
-                sub_partition_param.grad = None
-        for fp16_all_sub_partitions, fp32_local_sub_partitions in zip(self.
-            parallel_sub_partitioned_fp16_groups, self.
-            local_sub_partitions_of_fp32_groups):
-            for local_sub_partition_param_fp16, local_sub_partition_param_fp32 in zip(
-                fp16_all_sub_partitions[partition_id],
-                fp32_local_sub_partitions):
-                local_sub_partition_param_fp16.data.copy_(
-                    local_sub_partition_param_fp32.data)
-        for fp16_all_sub_partitions in self.parallel_comm_sub_partitioned_fp16_groups:
-            for comm_id, sub_partitions in enumerate(fp16_all_sub_partitions):
-                dist.all_gather(sub_partitions, sub_partitions[partition_id
-                    ], group=self.dp_process_group)
-        for i in range(len(norm_groups)):
-            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
-                [i], self.fp16_groups[i])
-            for p, q in zip(self.fp16_groups[i], updated_params):
-                p.data = q.data
-        return self.overflow
-
-    def unscale_and_clip_grads(self, grad_groups_flat, norm_groups):
-        total_norm = 0.0
-        for norm in norm_groups:
-            total_norm += norm ** 2.0
-        total_norm = math.sqrt(total_norm)
-        combined_scale = self.loss_scale
-        if self.clip_grad > 0.0:
-            clip = (total_norm / self.loss_scale + 1e-06) / self.clip_grad
-            if clip > 1:
-                combined_scale = clip * self.loss_scale
-        for grad in grad_groups_flat:
-            if isinstance(grad, list):
-                sub_partitions = grad
-                for g in sub_partitions:
-                    g.data.mul_(1.0 / combined_scale)
-            else:
-                grad.data.mul_(1.0 / combined_scale)
+    def scale_gradient(self, module, grad_in, grad_out):
+        return tuple(self.loss_scale * g for g in grad_in)
 
     def backward(self, loss, retain_graph=False):
-        self.loss_scaler.backward(loss.float(), retain_graph=retain_graph)
-
-    def _update_scale(self, has_overflow=False):
-        self.loss_scaler.update_scale(has_overflow)
-
-    def _get_state(self):
-        return self.optimizer.state
-
-    def _set_state(self, value):
-        self.optimizer.state = value
-    state = property(_get_state, _set_state)
-
-    def _get_param_groups(self):
-        return self.optimizer.param_groups
-
-    def _set_param_groups(self, value):
-        self.optimizer.param_groups = value
-    param_groups = property(_get_param_groups, _set_param_groups)
-
-    def _get_loss_scale(self):
-        return self.loss_scaler.loss_scale
-
-    def _set_loss_scale(self, value):
-        self.loss_scaler.cur_scale = value
-    loss_scale = property(_get_loss_scale, _set_loss_scale)
-    cur_scale = property(_get_loss_scale, _set_loss_scale)
-
-    def state_dict(self):
-        """
-        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
-        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
-        of the contained Pytorch optimizer.
-        Example::
-            checkpoint = {}
-            checkpoint['model'] = model.state_dict()
-            checkpoint['optimizer'] = optimizer.state_dict()
-            torch.save(checkpoint, "saved.pth")
-        """
-        state_dict = {}
-        state_dict['loss_scaler'] = self.loss_scaler
-        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
-        state_dict['overflow'] = self.overflow
-        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
-        state_dict['local_sub_partitions_of_fp32_groups'
-            ] = self.local_sub_partitions_of_fp32_groups
-        return state_dict
-
-    def load_state_dict(self, state_dict, load_optimizer_states=True):
-        """
-        Loads a state_dict created by an earlier call to state_dict().
-        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
-        whose parameters in turn came from ``model``, it is expected that the user
-        will call ``model.load_state_dict()`` before
-        ``fp16_optimizer_instance.load_state_dict()`` is called.
-        Example::
-            model = torch.nn.Linear(D_in, D_out).cuda().half()
-            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
-            ...
-            checkpoint = torch.load("saved.pth")
-            model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-        """
-        self.loss_scaler = state_dict['loss_scaler']
-        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
-        self.overflow = state_dict['overflow']
-        if load_optimizer_states:
-            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-        for curr_group, saved_group in zip(self.
-            local_sub_partitions_of_fp32_groups, state_dict[
-            'local_sub_partitions_of_fp32_groups']):
-            for curr_param, saved_param in zip(curr_group, saved_group):
-                curr_param.data.copy_(saved_param.data)
+        scaled_loss = loss * self.loss_scale
+        scaled_loss.backward(retain_graph=retain_graph)
 
 
-class FP16_Optimizer(object):
-    """
-   FP16 Optimizer for training fp16 models. Handles loss scaling.
-
-   For usage example please see, TODO:  DeepSpeed V2 Tutorial
-    """
-
-    def __init__(self, init_optimizer, static_loss_scale=1.0,
-        dynamic_loss_scale=False, initial_dynamic_scale=2 ** 32,
-        dynamic_loss_args=None, verbose=True, mpu=None, clip_grad=0.0,
-        fused_adam_legacy=False):
-        self.fused_adam_legacy = fused_adam_legacy
-        if not torch.cuda.is_available:
-            raise SystemError('Cannot use fp16 without CUDA.')
-        self.optimizer = init_optimizer
-        self.fp16_groups = []
-        self.fp16_groups_flat = []
-        self.fp32_groups_flat = []
-        for i, param_group in enumerate(self.optimizer.param_groups):
-            self.fp16_groups.append(param_group['params'])
-            self.fp16_groups_flat.append(_flatten_dense_tensors([p.clone().
-                detach() for p in self.fp16_groups[i]]))
-            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
-                [i], self.fp16_groups[i])
-            for p, q in zip(self.fp16_groups[i], updated_params):
-                p.data = q.data
-            self.fp32_groups_flat.append(self.fp16_groups_flat[i].clone().
-                float().detach())
-            self.fp32_groups_flat[i].requires_grad = True
-            param_group['params'] = [self.fp32_groups_flat[i]]
-        if dynamic_loss_scale:
-            self.dynamic_loss_scale = True
-            self.cur_iter = 0
-            self.last_overflow_iter = -1
-            self.scale_factor = 2
-            if dynamic_loss_args is None:
-                self.cur_scale = initial_dynamic_scale
-                self.scale_window = 1000
-                self.min_loss_scale = 1
-            else:
-                self.cur_scale = dynamic_loss_args[INITIAL_LOSS_SCALE]
-                self.scale_window = dynamic_loss_args[SCALE_WINDOW]
-                self.min_loss_scale = dynamic_loss_args[MIN_LOSS_SCALE]
-        else:
-            self.dynamic_loss_scale = False
-            self.cur_iter = 0
-            self.cur_scale = static_loss_scale
-        self.verbose = verbose
-        self.clip_grad = clip_grad
-        self.norm_type = 2
-        TORCH_MAJOR = int(torch.__version__.split('.')[0])
-        TORCH_MINOR = int(torch.__version__.split('.')[1])
-        if TORCH_MAJOR == 0 and TORCH_MINOR <= 4:
-            self.clip_grad_norm = torch.nn.utils.clip_grad_norm
-        else:
-            self.clip_grad_norm = torch.nn.utils.clip_grad_norm_
-        self.mpu = None
-        self.overflow = False
-        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.mpu)
-
-    def zero_grad(self, set_grads_to_None=True):
-        """
-        Zero FP16 parameter grads.
-        """
-        for group in self.fp16_groups:
-            for p in group:
-                if set_grads_to_None:
-                    p.grad = None
-                elif p.grad is not None:
-                    p.grad.detach_()
-                    p.grad.zero_()
-
-    def step_fused_adam(self, closure=None):
-        """
-        Not supporting closure.
-        """
-        grads_groups_flat = []
-        norm_groups = []
-        for i, group in enumerate(self.fp16_groups):
-            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p
-                .size(), dtype=p.dtype, device=p.device) if p.grad is None else
-                p.grad) for p in group]))
-            norm_groups.append(get_weight_norm(grads_groups_flat[i], mpu=
-                self.mpu))
-        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
-        prev_scale = self.cur_scale
-        self._update_scale(self.overflow)
-        if self.overflow:
-            if self.verbose:
-                print(
-                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
-                    .format(prev_scale, self.cur_scale))
-            return self.overflow
-        combined_scale = self.unscale_and_clip_grads(grads_groups_flat,
-            norm_groups, apply_scale=False)
-        self.optimizer.step(grads=[[g] for g in grads_groups_flat],
-            output_params=[[p] for p in self.fp16_groups_flat], scale=
-            combined_scale, grad_norms=norm_groups)
-        for i in range(len(norm_groups)):
-            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
-                [i], self.fp16_groups[i])
-            for p, q in zip(self.fp16_groups[i], updated_params):
-                p.data = q.data
-        return self.overflow
-
-    def step(self, closure=None):
-        """
-        Not supporting closure.
-        """
-        if self.fused_adam_legacy:
-            return self.step_fused_adam()
-        grads_groups_flat = []
-        norm_groups = []
-        for i, group in enumerate(self.fp16_groups):
-            data_type = self.fp32_groups_flat[i].dtype
-            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p
-                .size(), dtype=data_type, device=p.device) if p.grad is
-                None else p.grad.to(data_type)) for p in group]))
-            self.fp32_groups_flat[i].grad = grads_groups_flat[i]
-            norm_groups.append(get_grad_norm(self.fp32_groups_flat, mpu=
-                self.mpu))
-        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
-        prev_scale = self.cur_scale
-        self._update_scale(self.overflow)
-        if self.overflow:
-            if self.verbose:
-                print(
-                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
-                    .format(prev_scale, self.cur_scale))
-            return self.overflow
-        self.unscale_and_clip_grads(grads_groups_flat, norm_groups)
-        self.optimizer.step()
-        for group in self.fp32_groups_flat:
-            group.grad = None
-        for i in range(len(norm_groups)):
-            updated_params = _unflatten_dense_tensors(self.fp32_groups_flat
-                [i], self.fp16_groups[i])
-            for p, q in zip(self.fp16_groups[i], updated_params):
-                p.data.copy_(q.data)
-        return self.overflow
-
-    def unscale_and_clip_grads(self, grad_groups_flat, norm_groups,
-        apply_scale=True):
-        total_norm = 0.0
-        for norm in norm_groups:
-            total_norm += norm ** 2.0
-        total_norm = math.sqrt(total_norm)
-        combined_scale = self.cur_scale
-        if self.clip_grad > 0.0:
-            clip = (total_norm / self.cur_scale + 1e-06) / self.clip_grad
-            if clip > 1:
-                combined_scale = clip * self.cur_scale
-        if apply_scale:
-            for grad in grad_groups_flat:
-                grad.data.mul_(1.0 / combined_scale)
-        return combined_scale
-
-    def backward(self, loss):
-        """
-        :attr:`backward` performs the following steps:
-
-        1. fp32_loss = loss.float()
-        2. scaled_loss = fp32_loss*loss_scale
-        3. scaled_loss.backward(), which accumulates scaled gradients into the ``.grad`` attributes of the model's fp16 leaves
-        """
-        scaled_loss = loss.float() * self.cur_scale
-        scaled_loss.backward()
-
-    def _update_scale(self, skip):
-        if self.dynamic_loss_scale:
-            prev_scale = self.cur_scale
-            if skip:
-                self.cur_scale = max(self.cur_scale / self.scale_factor,
-                    self.min_loss_scale)
-                self.last_overflow_iter = self.cur_iter
-                if self.verbose:
-                    print(f'\nGrad overflow on iteration {self.cur_iter}')
-                    print(
-                        f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}'
-                        )
-            else:
-                stable_interval = self.cur_iter - self.last_overflow_iter - 1
-                if (stable_interval > 0 and stable_interval % self.
-                    scale_window == 0):
-                    self.cur_scale *= self.scale_factor
-                    if self.verbose:
-                        print(
-                            f'\nNo Grad overflow for {self.scale_window} iterations'
-                            )
-                        print(
-                            f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}'
-                            )
-        elif skip:
-            print('\nGrad overflow on iteration', self.cur_iter)
-            print('Using static loss scale of', self.cur_scale)
-        self.cur_iter += 1
-        return
-
-    def _get_state(self):
-        return self.optimizer.state
-
-    def _set_state(self, value):
-        self.optimizer.state = value
-    state = property(_get_state, _set_state)
-
-    def _get_param_groups(self):
-        return self.optimizer.param_groups
-
-    def _set_param_groups(self, value):
-        self.optimizer.param_groups = value
-    param_groups = property(_get_param_groups, _set_param_groups)
-
-    def state_dict(self):
-        """
-        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
-        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
-        of the contained Pytorch optimizer.
-        Example::
-            checkpoint = {}
-            checkpoint['model'] = model.state_dict()
-            checkpoint['optimizer'] = optimizer.state_dict()
-            torch.save(checkpoint, "saved.pth")
-        """
-        state_dict = {}
-        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
-        state_dict['cur_scale'] = self.cur_scale
-        state_dict['cur_iter'] = self.cur_iter
-        if state_dict['dynamic_loss_scale']:
-            state_dict['last_overflow_iter'] = self.last_overflow_iter
-            state_dict['scale_factor'] = self.scale_factor
-            state_dict['scale_window'] = self.scale_window
-        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
-        state_dict['fp32_groups_flat'] = self.fp32_groups_flat
-        state_dict['clip_grad'] = self.clip_grad
-        return state_dict
-
-    def load_state_dict(self, state_dict, load_optimizer_states=True):
-        """
-        Loads a state_dict created by an earlier call to state_dict().
-        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
-        whose parameters in turn came from ``model``, it is expected that the user
-        will call ``model.load_state_dict()`` before
-        ``fp16_optimizer_instance.load_state_dict()`` is called.
-        Example::
-            model = torch.nn.Linear(D_in, D_out).cuda().half()
-            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
-            ...
-            checkpoint = torch.load("saved.pth")
-            model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-        """
-        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
-        self.cur_scale = state_dict['cur_scale']
-        self.cur_iter = state_dict['cur_iter']
-        if state_dict['dynamic_loss_scale']:
-            self.last_overflow_iter = state_dict['last_overflow_iter']
-            self.scale_factor = state_dict['scale_factor']
-            self.scale_window = state_dict['scale_window']
-        if load_optimizer_states:
-            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-        self.clip_grad = state_dict['clip_grad']
-        for current, saved in zip(self.fp32_groups_flat, state_dict[
-            'fp32_groups_flat']):
-            current.data.copy_(saved.data)
-
-    def __repr__(self):
-        return repr(self.optimizer)
+def is_model_parallel_parameter(p):
+    return hasattr(p, 'model_parallel') and p.model_parallel
 
 
-ROUTE_EVAL = 'eval'
-
-
-ROUTE_TRAIN = 'train'
-
-
-class DeepSpeedDataLoader(object):
-
-    def __init__(self, dataset, batch_size, pin_memory, local_rank,
-        tput_timer, collate_fn=None, num_local_io_workers=None,
-        data_sampler=None):
-        self.tput_timer = tput_timer
-        self.batch_size = batch_size
-        if local_rank >= 0:
-            if data_sampler is None:
-                data_sampler = DistributedSampler(dataset)
-            device_count = 1
-        else:
-            if data_sampler is None:
-                data_sampler = RandomSampler(dataset)
-            device_count = torch.cuda.device_count()
-            batch_size *= device_count
-        if num_local_io_workers is None:
-            num_local_io_workers = 2 * device_count
-        self.num_local_io_workers = num_local_io_workers
-        self.data_sampler = data_sampler
-        self.dataset = dataset
-        self.collate_fn = collate_fn
-        self.device_count = device_count
-        self.batch_size = batch_size
-        self.pin_memory = pin_memory
-        self.len = len(self.data_sampler)
-        self.data = None
-
-    def __iter__(self):
-        self._create_dataloader()
-        return self
-
-    def __len__(self):
-        return self.len
-
-    def __next__(self):
-        if self.tput_timer:
-            self.tput_timer.start()
-        return next(self.data)
-
-    def _create_dataloader(self):
-        if self.collate_fn is None:
-            self.dataloader = DataLoader(self.dataset, batch_size=self.
-                batch_size, pin_memory=self.pin_memory, sampler=self.
-                data_sampler, num_workers=self.num_local_io_workers)
-        else:
-            self.dataloader = DataLoader(self.dataset, batch_size=self.
-                batch_size, pin_memory=self.pin_memory, sampler=self.
-                data_sampler, collate_fn=self.collate_fn, num_workers=self.
-                num_local_io_workers)
-        self.data = (x for x in self.dataloader)
-        return self.dataloader
-
-
-pg_correctness_test = False
-
-
-def see_memory_usage(message):
-    return
-    if torch.distributed.is_initialized() and not torch.distributed.get_rank(
-        ) == 0:
-        return
-    print(message, flush=True)
-    print('Memory Allocated ', torch.cuda.memory_allocated() / (1024 * 1024 *
-        1024), 'GigaBytes', flush=True)
-    print('Max Memory Allocated ', torch.cuda.max_memory_allocated() / (
-        1024 * 1024 * 1024), 'GigaBytes', flush=True)
-    print('Cache Allocated ', torch.cuda.memory_cached() / (1024 * 1024 * 
-        1024), 'GigaBytes', flush=True)
-    print('Max cache Allocated ', torch.cuda.max_memory_cached() / (1024 * 
-        1024 * 1024), 'GigaBytes', flush=True)
-    print(' ', flush=True)
+def _handle_overflow(cpu_sum, x, i):
+    import math
+    rank = torch.distributed.get_rank()
+    if rank == 0:
+        t_i = -1
+        for v_i, v in enumerate(x.data.contiguous().view(-1)):
+            if not math.isfinite(float(v)):
+                t_i = v_i
+                break
+        print(
+            f'rank {rank} detected overflow {cpu_sum} in tensor {i}:{t_i} shape {x.shape}'
+            )
 
 
 def flatten_dense_tensors_aligned(tensor_list, alignment, pg):
@@ -2813,26 +1253,6 @@ def flatten_dense_tensors_aligned(tensor_list, alignment, pg):
     else:
         padded_tensor_list = tensor_list
     return _flatten_dense_tensors(padded_tensor_list)
-
-
-def move_to_cpu(tensor_list):
-    for tensor in tensor_list:
-        tensor.data = tensor.data.cpu()
-
-
-def is_model_parallel_parameter(p):
-    return hasattr(p, 'model_parallel') and p.model_parallel
-
-
-def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
-    buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
-            buckets.append(bucket)
-    return buckets
 
 
 class FP16_DeepSpeedZeroOptimizer(object):
@@ -3775,6 +2195,1586 @@ class FP16_DeepSpeedZeroOptimizer(object):
                 parallel_partitioned_fp16_groups, self.
                 single_partition_of_fp32_groups):
                 fp32_partition.data.copy_(fp16_partitions[partition_id].data)
+
+
+class CheckOverflow(object):
+    """Checks for overflow in gradient across parallel process"""
+
+    def __init__(self, param_groups=None, mpu=None, zero_reduce_scatter=False):
+        self.mpu = mpu
+        self.params = [] if param_groups else None
+        self.zero_reduce_scatter = zero_reduce_scatter
+        if param_groups:
+            for group in param_groups:
+                for param in group:
+                    self.params.append(param)
+
+    def check_using_norm(self, norm_group):
+        overflow = -1 in norm_group
+        if self.mpu is not None:
+            overflow_gpu = torch.cuda.ByteTensor([overflow])
+            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
+                .ReduceOp.MAX, group=self.mpu.get_model_parallel_group())
+            overflow = overflow_gpu[0].item()
+        return bool(overflow)
+
+    def check(self, param_groups=None):
+        params = []
+        if param_groups is None:
+            params = self.params
+        else:
+            assert param_groups is not None, 'self.params and param_groups both cannot be none'
+            for group in param_groups:
+                for param in group:
+                    params.append(param)
+        return self.has_overflow(params)
+
+    def has_overflow_serial(self, params):
+        for i, p in enumerate(params):
+            if p.grad is not None and self._has_inf_or_nan(p.grad.data, i):
+                return True
+        return False
+
+    def has_overflow(self, params):
+        overflow = self.has_overflow_serial(params)
+        overflow_gpu = torch.cuda.ByteTensor([overflow])
+        if self.zero_reduce_scatter:
+            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
+                .ReduceOp.MAX, group=torch.distributed.group.WORLD)
+        elif self.mpu is not None:
+            torch.distributed.all_reduce(overflow_gpu, op=torch.distributed
+                .ReduceOp.MAX, group=self.mpu.get_model_parallel_group())
+        overflow = overflow_gpu[0].item()
+        return bool(overflow)
+
+    @staticmethod
+    def _has_inf_or_nan(x, i):
+        try:
+            cpu_sum = float(x.float().sum())
+        except RuntimeError as instance:
+            if 'value cannot be converted' not in instance.args[0]:
+                raise
+            return True
+        else:
+            if cpu_sum == float('inf') or cpu_sum == -float('inf'
+                ) or cpu_sum != cpu_sum:
+                _handle_overflow(cpu_sum, x, i)
+                return True
+            return False
+
+
+def get_weight_norm(parameters, norm_type=2, mpu=None):
+    """Clips gradient norm of an iterable of parameters.
+
+    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
+    added functionality to handle model parallel parameters. Note that
+    the gradients are modified in place. Taken from Nvidia Megatron.
+
+    Arguments:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized
+        max_norm (float or int): max norm of the gradients
+        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
+            infinity norm.
+
+    Returns:
+        Total norm of the parameters (viewed as a single vector).
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    norm_type = float(norm_type)
+    if norm_type == inf:
+        total_norm = max(p.data.abs().max() for p in parameters)
+        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        if mpu is not None:
+            torch.distributed.all_reduce(total_norm_cuda, op=torch.
+                distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
+        total_norm = total_norm_cuda[0].item()
+    else:
+        total_norm = 0.0
+        for p in parameters:
+            if mpu is not None:
+                if mpu.get_model_parallel_rank() == 0 or hasattr(p,
+                    'model_parallel') and p.model_parallel:
+                    try:
+                        param_norm = float(torch.norm(p, norm_type, dtype=
+                            torch.float32))
+                    except TypeError as err:
+                        param_norm = float(torch.norm(p.float(), norm_type))
+                    total_norm += param_norm ** norm_type
+            else:
+                try:
+                    param_norm = float(torch.norm(p, norm_type, dtype=torch
+                        .float32))
+                except TypeError as err:
+                    param_norm = float(torch.norm(p.float(), norm_type))
+                total_norm += param_norm ** norm_type
+        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        if mpu is not None:
+            torch.distributed.all_reduce(total_norm_cuda, op=torch.
+                distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
+        total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
+    if total_norm == float('inf') or total_norm == -float('inf'
+        ) or total_norm != total_norm:
+        total_norm = -1
+    return total_norm
+
+
+def get_grad_norm(parameters, norm_type=2, mpu=None):
+    """Clips gradient norm of an iterable of parameters.
+
+    This is adapted from torch.nn.utils.clip_grad.clip_grad_norm_ and
+    added functionality to handle model parallel parameters. Note that
+    the gradients are modified in place. Taken from Nvidia Megatron.
+
+    Arguments:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized
+        max_norm (float or int): max norm of the gradients
+        norm_type (float or int): type of the used p-norm. Can be ``'inf'`` for
+            infinity norm.
+
+    Returns:
+        Total norm of the parameters (viewed as a single vector).
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    parameters = list(filter(lambda p: p.grad is not None, parameters))
+    norm_type = float(norm_type)
+    if norm_type == inf:
+        total_norm = max(p.grad.data.abs().max() for p in parameters)
+        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        if mpu is not None:
+            torch.distributed.all_reduce(total_norm_cuda, op=torch.
+                distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
+        total_norm = total_norm_cuda[0].item()
+    else:
+        total_norm = 0.0
+        for p in parameters:
+            if mpu is not None:
+                if mpu.get_model_parallel_rank() == 0 or hasattr(p,
+                    'model_parallel') and p.model_parallel:
+                    param_norm = p.grad.data.float().norm(norm_type)
+                    total_norm += param_norm.item() ** norm_type
+            else:
+                param_norm = p.grad.data.float().norm(norm_type)
+                total_norm += param_norm.item() ** norm_type
+        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        if mpu is not None:
+            torch.distributed.all_reduce(total_norm_cuda, op=torch.
+                distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
+        total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
+    if total_norm == float('inf') or total_norm == -float('inf'
+        ) or total_norm != total_norm:
+        total_norm = -1
+    return total_norm
+
+
+class FP16_Optimizer(object):
+    """
+   FP16 Optimizer for training fp16 models. Handles loss scaling.
+
+   For usage example please see, TODO:  DeepSpeed V2 Tutorial
+    """
+
+    def __init__(self, init_optimizer, static_loss_scale=1.0,
+        dynamic_loss_scale=False, initial_dynamic_scale=2 ** 32,
+        dynamic_loss_args=None, verbose=True, mpu=None, clip_grad=0.0,
+        fused_adam_legacy=False):
+        self.fused_adam_legacy = fused_adam_legacy
+        if not torch.cuda.is_available:
+            raise SystemError('Cannot use fp16 without CUDA.')
+        self.optimizer = init_optimizer
+        self.fp16_groups = []
+        self.fp16_groups_flat = []
+        self.fp32_groups_flat = []
+        for i, param_group in enumerate(self.optimizer.param_groups):
+            self.fp16_groups.append(param_group['params'])
+            self.fp16_groups_flat.append(_flatten_dense_tensors([p.clone().
+                detach() for p in self.fp16_groups[i]]))
+            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
+                [i], self.fp16_groups[i])
+            for p, q in zip(self.fp16_groups[i], updated_params):
+                p.data = q.data
+            self.fp32_groups_flat.append(self.fp16_groups_flat[i].clone().
+                float().detach())
+            self.fp32_groups_flat[i].requires_grad = True
+            param_group['params'] = [self.fp32_groups_flat[i]]
+        if dynamic_loss_scale:
+            self.dynamic_loss_scale = True
+            self.cur_iter = 0
+            self.last_overflow_iter = -1
+            self.scale_factor = 2
+            if dynamic_loss_args is None:
+                self.cur_scale = initial_dynamic_scale
+                self.scale_window = 1000
+                self.min_loss_scale = 1
+            else:
+                self.cur_scale = dynamic_loss_args[INITIAL_LOSS_SCALE]
+                self.scale_window = dynamic_loss_args[SCALE_WINDOW]
+                self.min_loss_scale = dynamic_loss_args[MIN_LOSS_SCALE]
+        else:
+            self.dynamic_loss_scale = False
+            self.cur_iter = 0
+            self.cur_scale = static_loss_scale
+        self.verbose = verbose
+        self.clip_grad = clip_grad
+        self.norm_type = 2
+        TORCH_MAJOR = int(torch.__version__.split('.')[0])
+        TORCH_MINOR = int(torch.__version__.split('.')[1])
+        if TORCH_MAJOR == 0 and TORCH_MINOR <= 4:
+            self.clip_grad_norm = torch.nn.utils.clip_grad_norm
+        else:
+            self.clip_grad_norm = torch.nn.utils.clip_grad_norm_
+        self.mpu = None
+        self.overflow = False
+        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.mpu)
+
+    def zero_grad(self, set_grads_to_None=True):
+        """
+        Zero FP16 parameter grads.
+        """
+        for group in self.fp16_groups:
+            for p in group:
+                if set_grads_to_None:
+                    p.grad = None
+                elif p.grad is not None:
+                    p.grad.detach_()
+                    p.grad.zero_()
+
+    def step_fused_adam(self, closure=None):
+        """
+        Not supporting closure.
+        """
+        grads_groups_flat = []
+        norm_groups = []
+        for i, group in enumerate(self.fp16_groups):
+            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p
+                .size(), dtype=p.dtype, device=p.device) if p.grad is None else
+                p.grad) for p in group]))
+            norm_groups.append(get_weight_norm(grads_groups_flat[i], mpu=
+                self.mpu))
+        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
+        prev_scale = self.cur_scale
+        self._update_scale(self.overflow)
+        if self.overflow:
+            if self.verbose:
+                print(
+                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
+                    .format(prev_scale, self.cur_scale))
+            return self.overflow
+        combined_scale = self.unscale_and_clip_grads(grads_groups_flat,
+            norm_groups, apply_scale=False)
+        self.optimizer.step(grads=[[g] for g in grads_groups_flat],
+            output_params=[[p] for p in self.fp16_groups_flat], scale=
+            combined_scale, grad_norms=norm_groups)
+        for i in range(len(norm_groups)):
+            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
+                [i], self.fp16_groups[i])
+            for p, q in zip(self.fp16_groups[i], updated_params):
+                p.data = q.data
+        return self.overflow
+
+    def step(self, closure=None):
+        """
+        Not supporting closure.
+        """
+        if self.fused_adam_legacy:
+            return self.step_fused_adam()
+        grads_groups_flat = []
+        norm_groups = []
+        for i, group in enumerate(self.fp16_groups):
+            data_type = self.fp32_groups_flat[i].dtype
+            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p
+                .size(), dtype=data_type, device=p.device) if p.grad is
+                None else p.grad.to(data_type)) for p in group]))
+            self.fp32_groups_flat[i].grad = grads_groups_flat[i]
+            norm_groups.append(get_grad_norm(self.fp32_groups_flat, mpu=
+                self.mpu))
+        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
+        prev_scale = self.cur_scale
+        self._update_scale(self.overflow)
+        if self.overflow:
+            if self.verbose:
+                print(
+                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
+                    .format(prev_scale, self.cur_scale))
+            return self.overflow
+        self.unscale_and_clip_grads(grads_groups_flat, norm_groups)
+        self.optimizer.step()
+        for group in self.fp32_groups_flat:
+            group.grad = None
+        for i in range(len(norm_groups)):
+            updated_params = _unflatten_dense_tensors(self.fp32_groups_flat
+                [i], self.fp16_groups[i])
+            for p, q in zip(self.fp16_groups[i], updated_params):
+                p.data.copy_(q.data)
+        return self.overflow
+
+    def unscale_and_clip_grads(self, grad_groups_flat, norm_groups,
+        apply_scale=True):
+        total_norm = 0.0
+        for norm in norm_groups:
+            total_norm += norm ** 2.0
+        total_norm = math.sqrt(total_norm)
+        combined_scale = self.cur_scale
+        if self.clip_grad > 0.0:
+            clip = (total_norm / self.cur_scale + 1e-06) / self.clip_grad
+            if clip > 1:
+                combined_scale = clip * self.cur_scale
+        if apply_scale:
+            for grad in grad_groups_flat:
+                grad.data.mul_(1.0 / combined_scale)
+        return combined_scale
+
+    def backward(self, loss):
+        """
+        :attr:`backward` performs the following steps:
+
+        1. fp32_loss = loss.float()
+        2. scaled_loss = fp32_loss*loss_scale
+        3. scaled_loss.backward(), which accumulates scaled gradients into the ``.grad`` attributes of the model's fp16 leaves
+        """
+        scaled_loss = loss.float() * self.cur_scale
+        scaled_loss.backward()
+
+    def _update_scale(self, skip):
+        if self.dynamic_loss_scale:
+            prev_scale = self.cur_scale
+            if skip:
+                self.cur_scale = max(self.cur_scale / self.scale_factor,
+                    self.min_loss_scale)
+                self.last_overflow_iter = self.cur_iter
+                if self.verbose:
+                    print(f'\nGrad overflow on iteration {self.cur_iter}')
+                    print(
+                        f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}'
+                        )
+            else:
+                stable_interval = self.cur_iter - self.last_overflow_iter - 1
+                if (stable_interval > 0 and stable_interval % self.
+                    scale_window == 0):
+                    self.cur_scale *= self.scale_factor
+                    if self.verbose:
+                        print(
+                            f'\nNo Grad overflow for {self.scale_window} iterations'
+                            )
+                        print(
+                            f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}'
+                            )
+        elif skip:
+            print('\nGrad overflow on iteration', self.cur_iter)
+            print('Using static loss scale of', self.cur_scale)
+        self.cur_iter += 1
+        return
+
+    def _get_state(self):
+        return self.optimizer.state
+
+    def _set_state(self, value):
+        self.optimizer.state = value
+    state = property(_get_state, _set_state)
+
+    def _get_param_groups(self):
+        return self.optimizer.param_groups
+
+    def _set_param_groups(self, value):
+        self.optimizer.param_groups = value
+    param_groups = property(_get_param_groups, _set_param_groups)
+
+    def state_dict(self):
+        """
+        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
+        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
+        of the contained Pytorch optimizer.
+        Example::
+            checkpoint = {}
+            checkpoint['model'] = model.state_dict()
+            checkpoint['optimizer'] = optimizer.state_dict()
+            torch.save(checkpoint, "saved.pth")
+        """
+        state_dict = {}
+        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
+        state_dict['cur_scale'] = self.cur_scale
+        state_dict['cur_iter'] = self.cur_iter
+        if state_dict['dynamic_loss_scale']:
+            state_dict['last_overflow_iter'] = self.last_overflow_iter
+            state_dict['scale_factor'] = self.scale_factor
+            state_dict['scale_window'] = self.scale_window
+        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
+        state_dict['fp32_groups_flat'] = self.fp32_groups_flat
+        state_dict['clip_grad'] = self.clip_grad
+        return state_dict
+
+    def load_state_dict(self, state_dict, load_optimizer_states=True):
+        """
+        Loads a state_dict created by an earlier call to state_dict().
+        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
+        whose parameters in turn came from ``model``, it is expected that the user
+        will call ``model.load_state_dict()`` before
+        ``fp16_optimizer_instance.load_state_dict()`` is called.
+        Example::
+            model = torch.nn.Linear(D_in, D_out).cuda().half()
+            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
+            ...
+            checkpoint = torch.load("saved.pth")
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+        """
+        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
+        self.cur_scale = state_dict['cur_scale']
+        self.cur_iter = state_dict['cur_iter']
+        if state_dict['dynamic_loss_scale']:
+            self.last_overflow_iter = state_dict['last_overflow_iter']
+            self.scale_factor = state_dict['scale_factor']
+            self.scale_window = state_dict['scale_window']
+        if load_optimizer_states:
+            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+        self.clip_grad = state_dict['clip_grad']
+        for current, saved in zip(self.fp32_groups_flat, state_dict[
+            'fp32_groups_flat']):
+            current.data.copy_(saved.data)
+
+    def __repr__(self):
+        return repr(self.optimizer)
+
+
+def _single_range_check(current_index, start_index, end_index, tensor_size):
+    offset = 0
+    if current_index >= start_index and current_index < end_index:
+        return True, offset
+    elif start_index > current_index and start_index < current_index + tensor_size:
+        offset = start_index - current_index
+        return True, offset
+    else:
+        return False, offset
+
+
+def _range_check(current_index, element_intervals, tensor_size):
+    results = []
+    for comm_idx, interval in enumerate(element_intervals):
+        start_index, end_index = interval
+        contained, offset = _single_range_check(current_index, start_index,
+            end_index, tensor_size)
+        if contained:
+            results.append((contained, offset, comm_idx))
+    if len(results) == 0:
+        return [(False, 0, -1)]
+    return results
+
+
+def pprint(msg):
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        print(msg)
+
+
+def flatten_dense_tensors_sub_partition_aligned(tensor_list, dp,
+    max_elements_per_comm, pg):
+    num_elements = 0
+    for tensor in tensor_list:
+        num_elements = num_elements + tensor.numel()
+    pprint('Total number of elements in model: {}, max elements per com: {}'
+        .format(num_elements, max_elements_per_comm))
+    max_elements_per_comm = min(max_elements_per_comm, num_elements)
+    sub_partition_size = int(max_elements_per_comm // dp)
+    alignment = sub_partition_size
+    remaining = int(num_elements % alignment)
+    elements_to_add = 0
+    if remaining:
+        elements_to_add = alignment - remaining
+        pprint('adding pad tensor for alignment, {} + {}->{}'.format(
+            num_elements, elements_to_add, num_elements + elements_to_add))
+    else:
+        padded_tensor_list = tensor_list
+    num_partitions = int((num_elements + elements_to_add) // sub_partition_size
+        )
+    assert (num_elements + elements_to_add
+        ) % sub_partition_size == 0, 'num elements should be aligned by sub partition size'
+    num_comm_intervals = int(num_partitions // dp)
+    partition_remaining = int(num_partitions % dp)
+    pprint('num_comm_intervals={}, partition_remaining={}'.format(
+        num_comm_intervals, partition_remaining))
+    if partition_remaining != 0:
+        pprint('adding pad tensor and/or extra sub partition')
+        num_comm_intervals += 1
+        aligned_comm_elements = num_comm_intervals * sub_partition_size * dp
+        elements_to_add = aligned_comm_elements - num_elements
+        pad_tensor = torch.zeros(elements_to_add, device=tensor_list[0].
+            device, dtype=tensor_list[0].dtype)
+        padded_tensor_list = tensor_list + [pad_tensor]
+        pprint('adding pad tensor and/or extra sub partition, {} + {}->{}'.
+            format(num_elements, elements_to_add, num_elements +
+            elements_to_add))
+        num_elements += elements_to_add
+    elif elements_to_add > 0:
+        pad_tensor = torch.zeros(elements_to_add, device=tensor_list[0].
+            device, dtype=tensor_list[0].dtype)
+        padded_tensor_list = tensor_list + [pad_tensor]
+        num_elements += elements_to_add
+    if pg is None or dist.get_rank(group=pg) == 0:
+        print('Number of Elements (w. padding) is ', num_elements)
+    padded_num_elems = 0
+    for p in padded_tensor_list:
+        padded_num_elems += p.numel()
+    assert num_elements == padded_num_elems, '{} != {}, rank={}'.format(
+        num_elements, padded_num_elems, dist.get_rank())
+    return _flatten_dense_tensors(padded_tensor_list)
+
+
+class FP16_DeepSpeedZeroOptimizer_Stage1(object):
+    """
+    FP16_DeepSpeedZeroOptimizer_Stage1 designed to reduce the memory footprint
+    required for training large deep learning models.
+
+    For more details please see ZeRO: Memory Optimization Towards Training A Trillion Parameter Models
+    https://arxiv.org/abs/1910.02054
+
+    This version aligns with stage-1 in the paper above.
+    """
+
+    def __init__(self, init_optimizer, static_loss_scale=1.0,
+        dynamic_loss_scale=False, dynamic_loss_args=None, verbose=True,
+        dp_process_group=None, partition_size=None, mpu=None,
+        all_gather_partitions=True, allgather_size=500000000, clip_grad=0.0,
+        max_elements_per_comm=500000000.0):
+        if dp_process_group is not None and partition_size is not None:
+            raise ValueError(
+                'Cannot specify both dp_process_group and partition size')
+        if dp_process_group is None:
+            dp_process_group = _initialize_parameter_parallel_groups(
+                partition_size)
+        if not torch.cuda.is_available:
+            raise SystemError('Cannot use fp16 without CUDA.')
+        self.optimizer = init_optimizer
+        self.verbose = verbose
+        self.dp_process_group = dp_process_group
+        self.all_gather_partitions = all_gather_partitions
+        self.allgather_size = allgather_size
+        self.max_elements_per_comm = max_elements_per_comm
+        print('max_elements_per_comm={}'.format(max_elements_per_comm))
+        self.fp16_groups = []
+        self.fp16_groups_flat = []
+        self.parallel_sub_partitioned_fp16_groups = []
+        self.parallel_comm_sub_partitioned_fp16_groups = []
+        self.local_sub_partitions_of_fp32_groups = []
+        self.params_not_local = []
+        self.params_in_rank_sub_partitions = []
+        self.params_in_rank_sub_partitions_offsets = []
+        self.sub_partition_sizes = []
+        self.num_comm_intervals_per_group = []
+        local_rank = dist.get_rank(group=self.dp_process_group)
+        for i, param_group in enumerate(self.optimizer.param_groups):
+            self.fp16_groups.append(param_group['params'])
+            self.fp16_groups_flat.append(
+                flatten_dense_tensors_sub_partition_aligned(tensor_list=
+                self.fp16_groups[i], dp=dist.get_world_size(group=self.
+                dp_process_group), max_elements_per_comm=self.
+                max_elements_per_comm, pg=self.dp_process_group))
+            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
+                [i], self.fp16_groups[i])
+            for p, q in zip(self.fp16_groups[i], updated_params):
+                p.data = q.data
+            (comm_partitions, dp_sub_partitions, element_intervals,
+                sub_partition_size, num_comm_intervals) = (self.
+                get_data_parallel_sub_partitions(tensor=self.
+                fp16_groups_flat[i], max_elements_per_comm=self.
+                max_elements_per_comm, world_size=dist.get_world_size(group
+                =self.dp_process_group), dp_process_group=self.
+                dp_process_group))
+            self.parallel_comm_sub_partitioned_fp16_groups.append(
+                comm_partitions)
+            self.parallel_sub_partitioned_fp16_groups.append(dp_sub_partitions)
+            self.sub_partition_sizes.append(sub_partition_size)
+            self.num_comm_intervals_per_group.append(num_comm_intervals)
+            local_sub_partitions = []
+            for sub_partition in self.parallel_sub_partitioned_fp16_groups[i][
+                local_rank]:
+                fp32_sub_partition = sub_partition.clone().float().detach()
+                fp32_sub_partition.requires_grad = True
+                local_sub_partitions.append(fp32_sub_partition)
+            self.local_sub_partitions_of_fp32_groups.append(
+                local_sub_partitions)
+            param_group['params'] = self.local_sub_partitions_of_fp32_groups[i]
+            (params_in_rank_sub_partition,
+                params_in_rank_sub_partitions_offsets, params_not_local) = (
+                self.get_all_sub_partition_info(tensor_list=self.
+                fp16_groups[i], all_element_intervals=element_intervals,
+                local_rank=local_rank, world_size=dist.get_world_size(group
+                =self.dp_process_group)))
+            self.params_in_rank_sub_partitions.append(
+                params_in_rank_sub_partition)
+            self.params_not_local.append(params_not_local)
+            self.params_in_rank_sub_partitions_offsets.append(
+                params_in_rank_sub_partitions_offsets)
+        if dynamic_loss_scale:
+            if dynamic_loss_args is None:
+                self.loss_scaler = DynamicLossScaler()
+            else:
+                self.loss_scaler = DynamicLossScaler(**dynamic_loss_args)
+            self.dynamic_loss_scale = True
+        else:
+            self.dynamic_loss_scale = False
+            self.loss_scaler = LossScaler(scale=static_loss_scale)
+            self.cur_iter = 0
+        self.mpu = mpu
+        self.clip_grad = clip_grad
+        self.overflow = False
+        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.
+            mpu, zero_reduce_scatter=True)
+
+    @staticmethod
+    def get_data_parallel_sub_partitions(tensor, max_elements_per_comm,
+        world_size, dp_process_group=None):
+        total_num_elements = tensor.numel()
+        max_elements_per_comm = min(total_num_elements, max_elements_per_comm)
+        sub_partition_size = int(max_elements_per_comm // world_size)
+        num_sub_partitions = int(total_num_elements // sub_partition_size)
+        assert total_num_elements % sub_partition_size == 0, '{} % {} != 0'.format(
+            total_num_elements, sub_partition_size)
+        num_comm_intervals = int(num_sub_partitions // world_size)
+        assert num_sub_partitions % world_size == 0, '{} % {} != 0'.format(
+            num_sub_partitions, world_size)
+        if not dist.is_initialized() or dist.get_rank(group=dp_process_group
+            ) == 0:
+            print('**** partition info:')
+            print('\t total_num_elements=', total_num_elements)
+            print('\t world_size=', world_size)
+            print('\t max_elements_per_comm=', max_elements_per_comm)
+            print('\t sub_partition_size=', sub_partition_size)
+            print('\t num_sub_partitions=', num_sub_partitions)
+            print('\t num_comm_intervals=', num_comm_intervals)
+            print('****')
+        comm_partitions = []
+        for _ in range(num_comm_intervals):
+            comm_partitions.append([])
+        start = 0
+        comm_id = 0
+        element_intervals = defaultdict(list)
+        for idx in range(num_sub_partitions):
+            rank_id = idx % world_size
+            sub_partition = tensor.narrow(0, start, sub_partition_size)
+            element_intervals[rank_id].append((start, start +
+                sub_partition_size))
+            comm_partitions[comm_id].append(sub_partition)
+            start = start + sub_partition_size
+            if rank_id == world_size - 1:
+                comm_id += 1
+        sub_partitions = []
+        for _ in range(world_size):
+            sub_partitions.append([])
+        for comm_id, partitions in enumerate(comm_partitions):
+            for rank_id, partition in enumerate(partitions):
+                sub_partitions[rank_id].append(partition)
+        return (comm_partitions, sub_partitions, element_intervals,
+            sub_partition_size, num_comm_intervals)
+
+    @staticmethod
+    def get_all_sub_partition_info(tensor_list, all_element_intervals,
+        local_rank, world_size):
+        params_not_local = []
+        params_in_rank_sub_partition = []
+        params_in_rank_sub_partitions_offsets = []
+        for rank in range(world_size):
+            params_in_local_sub_partition = []
+            local_sub_partition_offsets = []
+            comm_tensor_list = []
+            comm_offset_list = []
+            current_index = 0
+            prev_comm_idx = 0
+            for iii, tensor in enumerate(tensor_list):
+                tensor_size = tensor.numel()
+                results_list = _range_check(current_index,
+                    all_element_intervals[rank], tensor_size)
+                for contained, offset, comm_idx in results_list:
+                    if contained:
+                        if prev_comm_idx != comm_idx:
+                            params_in_local_sub_partition.append(
+                                comm_tensor_list)
+                            comm_tensor_list = []
+                            local_sub_partition_offsets.append(comm_offset_list
+                                )
+                            comm_offset_list = []
+                        comm_tensor_list.append(tensor)
+                        comm_offset_list.append(offset)
+                        prev_comm_idx = comm_idx
+                    elif rank == local_rank:
+                        params_not_local.append(tensor)
+                current_index = current_index + tensor_size
+            params_in_local_sub_partition.append(comm_tensor_list)
+            local_sub_partition_offsets.append(comm_offset_list)
+            params_in_rank_sub_partition.append(params_in_local_sub_partition)
+            params_in_rank_sub_partitions_offsets.append(
+                local_sub_partition_offsets)
+        return (params_in_rank_sub_partition,
+            params_in_rank_sub_partitions_offsets, params_not_local)
+
+    @staticmethod
+    def get_flat_sub_partitions(comm_tensor_list, comm_param_offsets,
+        sub_partition_size, dtype, num_comm_intervals=None, default_device=
+        None, return_partition_params=False):
+        partition_params = []
+        final_param_offsets = []
+        flat_sub_partitions = []
+        for tensor_list, param_offsets in zip(comm_tensor_list,
+            comm_param_offsets):
+            flat_tensor_list = []
+            current_size = 0
+            my_offsets = []
+            my_params = []
+            if dtype is None:
+                dtype = tensor_list[0].dtype
+            for i, tensor in enumerate(tensor_list):
+                if tensor.grad is None:
+                    tensor.grad = torch.zeros(tensor.size(), dtype=tensor.
+                        dtype, device=tensor.device)
+                param = tensor
+                tensor = tensor.grad
+                num_elements = tensor.numel()
+                tensor_offset = 0
+                if i == 0 and param_offsets[i] > 0:
+                    tensor_offset = param_offsets[i]
+                    num_elements = num_elements - tensor_offset
+                if num_elements > sub_partition_size - current_size:
+                    num_elements = sub_partition_size - current_size
+                if tensor_offset > 0 or num_elements < tensor.numel():
+                    flat_tensor_list.append(tensor.contiguous().view(-1).
+                        narrow(0, int(tensor_offset), int(num_elements)).to
+                        (dtype))
+                else:
+                    flat_tensor_list.append(tensor.to(dtype))
+                my_params.append(param)
+                my_offsets.append((current_size, num_elements))
+                current_size = current_size + num_elements
+            if current_size < sub_partition_size:
+                my_offsets.append((None, None))
+                my_params.append(None)
+                if len(tensor_list) == 0:
+                    assert default_device != None
+                    flat_tensor_list.append(torch.zeros(int(
+                        sub_partition_size - current_size), dtype=dtype,
+                        device=default_device))
+                else:
+                    flat_tensor_list.append(torch.zeros(int(
+                        sub_partition_size - current_size), dtype=dtype,
+                        device=tensor_list[0].device))
+            partition_params.append(my_params)
+            final_param_offsets.append(my_offsets)
+            assert len(flat_tensor_list) == len(my_offsets), '{} {}'.format(len
+                (flat_tensor_list), len(my_offsets))
+            flat_sub_partitions.append(_flatten_dense_tensors(flat_tensor_list)
+                )
+        if num_comm_intervals is not None and len(flat_sub_partitions
+            ) < num_comm_intervals:
+            device = flat_sub_partitions[0].device
+            for _ in range(num_comm_intervals - len(flat_sub_partitions)):
+                flat_sub_partitions.append(torch.zeros(int(
+                    sub_partition_size), dtype=dtype, device=device))
+                partition_params.append([None])
+                final_param_offsets.append([(None, None)])
+        if return_partition_params:
+            assert len(flat_sub_partitions) == len(partition_params)
+            assert len(partition_params) == len(final_param_offsets
+                ), '{} {}'.format(len(partition_params), len(
+                final_param_offsets))
+            return flat_sub_partitions, partition_params, final_param_offsets
+        return flat_sub_partitions
+
+    def zero_grad(self, set_grads_to_None=True):
+        """
+        Zero FP16 parameter grads.
+        """
+        for group in self.fp16_groups:
+            for p in group:
+                if set_grads_to_None:
+                    p.grad = None
+                elif p.grad is not None:
+                    p.grad.detach_()
+                    p.grad.zero_()
+
+    def free_grad_in_param_list(self, param_list):
+        for p in param_list:
+            if isinstance(p, list):
+                for _p in p:
+                    _p.grad = None
+            else:
+                p.grad = None
+
+    def reduce_scatter_gradients(self, postscale_gradients,
+        gradient_predivide_factor, gradient_average):
+        world_size = dist.get_world_size(group=self.dp_process_group)
+        local_rank = dist.get_rank(group=self.dp_process_group)
+        for i, group in enumerate(self.fp16_groups):
+            partition_param_map = {}
+            param_partition_map = {}
+            my_params = set()
+            num_comm_intervals = self.num_comm_intervals_per_group[i]
+            all_sub_partitions = []
+            for rank in range(world_size):
+                grad_sub_partitions, partition_params, param_offsets = (self
+                    .get_flat_sub_partitions(comm_tensor_list=self.
+                    params_in_rank_sub_partitions[i][rank],
+                    comm_param_offsets=self.
+                    params_in_rank_sub_partitions_offsets[i][rank],
+                    sub_partition_size=self.sub_partition_sizes[i], dtype=
+                    torch.half, num_comm_intervals=self.
+                    num_comm_intervals_per_group[i], default_device='cuda',
+                    return_partition_params=True))
+                all_sub_partitions.append(grad_sub_partitions)
+                for comm_idx, part in enumerate(grad_sub_partitions):
+                    partition_param_map[part] = partition_params[comm_idx
+                        ], param_offsets[comm_idx]
+                for comm_idx, params in enumerate(partition_params):
+                    for pidx, p in enumerate(params):
+                        if rank == local_rank:
+                            my_params.add(p)
+                        if p in param_partition_map:
+                            param_partition_map[p].append(grad_sub_partitions
+                                [comm_idx])
+                        else:
+                            param_partition_map[p] = [grad_sub_partitions[
+                                comm_idx]]
+                assert len(grad_sub_partitions) == num_comm_intervals
+            if not postscale_gradients:
+                raise NotImplementedError(
+                    'pre-scale_gradients is not implemented')
+            all_comm_partitions = []
+            for comm_idx in range(num_comm_intervals):
+                single_comm_all_partitions = []
+                for rank in range(world_size):
+                    single_comm_all_partitions.append(all_sub_partitions[
+                        rank][comm_idx])
+                dist.reduce_scatter(output=single_comm_all_partitions[
+                    local_rank], input_list=single_comm_all_partitions,
+                    group=self.dp_process_group)
+                if gradient_average:
+                    for partition in single_comm_all_partitions:
+                        partition.mul_(gradient_predivide_factor / world_size)
+                all_comm_partitions.append(single_comm_all_partitions)
+            for p in my_params:
+                partitions = param_partition_map[p]
+                parts = []
+                for part in partitions:
+                    params, offsets = partition_param_map[part]
+                    found = False
+                    for p_idx, _p in enumerate(params):
+                        if p.__hash__() == _p.__hash__():
+                            found = True
+                            if offsets[p_idx][0] is not None:
+                                my_part = part.narrow(0, offsets[p_idx][0],
+                                    offsets[p_idx][1])
+                                parts.append(my_part)
+                    assert found
+                if p is not None:
+                    updated_grad = _unflatten_dense_tensors(torch.cat(parts
+                        ), [p])
+                    p.grad.copy_(updated_grad[0])
+
+    def step(self, closure=None):
+        self.overflow = self.overflow_checker.check()
+        prev_scale = self.loss_scale
+        self._update_scale(self.overflow)
+        if self.overflow:
+            self.zero_grad()
+            if self.verbose:
+                print(
+                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
+                    .format(prev_scale, self.loss_scale))
+            return self.overflow
+        norm_groups = []
+        local_sub_partitions_grad_groups = []
+        partition_id = dist.get_rank(group=self.dp_process_group)
+        for i, group in enumerate(self.fp16_groups):
+            norm_groups.append(get_grad_norm(group, mpu=self.mpu))
+            self.free_grad_in_param_list(self.params_not_local[i])
+            local_grad_sub_partitions = self.get_flat_sub_partitions(
+                comm_tensor_list=self.params_in_rank_sub_partitions[i][
+                partition_id], comm_param_offsets=self.
+                params_in_rank_sub_partitions_offsets[i][partition_id],
+                sub_partition_size=self.sub_partition_sizes[i], dtype=self.
+                local_sub_partitions_of_fp32_groups[i][0].dtype,
+                num_comm_intervals=self.num_comm_intervals_per_group[i],
+                default_device=self.local_sub_partitions_of_fp32_groups[i][
+                0].device)
+            for idx, sub_partition_param in enumerate(self.
+                local_sub_partitions_of_fp32_groups[i]):
+                sub_partition_param.grad = local_grad_sub_partitions[idx]
+            self.free_grad_in_param_list(self.params_in_rank_sub_partitions
+                [i][partition_id])
+            local_sub_partitions_grad_groups.append(local_grad_sub_partitions)
+        self.unscale_and_clip_grads(local_sub_partitions_grad_groups,
+            norm_groups)
+        self.optimizer.step()
+        for group in self.local_sub_partitions_of_fp32_groups:
+            for idx, sub_partition_param in enumerate(group):
+                sub_partition_param.grad = None
+        for fp16_all_sub_partitions, fp32_local_sub_partitions in zip(self.
+            parallel_sub_partitioned_fp16_groups, self.
+            local_sub_partitions_of_fp32_groups):
+            for local_sub_partition_param_fp16, local_sub_partition_param_fp32 in zip(
+                fp16_all_sub_partitions[partition_id],
+                fp32_local_sub_partitions):
+                local_sub_partition_param_fp16.data.copy_(
+                    local_sub_partition_param_fp32.data)
+        for fp16_all_sub_partitions in self.parallel_comm_sub_partitioned_fp16_groups:
+            for comm_id, sub_partitions in enumerate(fp16_all_sub_partitions):
+                dist.all_gather(sub_partitions, sub_partitions[partition_id
+                    ], group=self.dp_process_group)
+        for i in range(len(norm_groups)):
+            updated_params = _unflatten_dense_tensors(self.fp16_groups_flat
+                [i], self.fp16_groups[i])
+            for p, q in zip(self.fp16_groups[i], updated_params):
+                p.data = q.data
+        return self.overflow
+
+    def unscale_and_clip_grads(self, grad_groups_flat, norm_groups):
+        total_norm = 0.0
+        for norm in norm_groups:
+            total_norm += norm ** 2.0
+        total_norm = math.sqrt(total_norm)
+        combined_scale = self.loss_scale
+        if self.clip_grad > 0.0:
+            clip = (total_norm / self.loss_scale + 1e-06) / self.clip_grad
+            if clip > 1:
+                combined_scale = clip * self.loss_scale
+        for grad in grad_groups_flat:
+            if isinstance(grad, list):
+                sub_partitions = grad
+                for g in sub_partitions:
+                    g.data.mul_(1.0 / combined_scale)
+            else:
+                grad.data.mul_(1.0 / combined_scale)
+
+    def backward(self, loss, retain_graph=False):
+        self.loss_scaler.backward(loss.float(), retain_graph=retain_graph)
+
+    def _update_scale(self, has_overflow=False):
+        self.loss_scaler.update_scale(has_overflow)
+
+    def _get_state(self):
+        return self.optimizer.state
+
+    def _set_state(self, value):
+        self.optimizer.state = value
+    state = property(_get_state, _set_state)
+
+    def _get_param_groups(self):
+        return self.optimizer.param_groups
+
+    def _set_param_groups(self, value):
+        self.optimizer.param_groups = value
+    param_groups = property(_get_param_groups, _set_param_groups)
+
+    def _get_loss_scale(self):
+        return self.loss_scaler.loss_scale
+
+    def _set_loss_scale(self, value):
+        self.loss_scaler.cur_scale = value
+    loss_scale = property(_get_loss_scale, _set_loss_scale)
+    cur_scale = property(_get_loss_scale, _set_loss_scale)
+
+    def state_dict(self):
+        """
+        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
+        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
+        of the contained Pytorch optimizer.
+        Example::
+            checkpoint = {}
+            checkpoint['model'] = model.state_dict()
+            checkpoint['optimizer'] = optimizer.state_dict()
+            torch.save(checkpoint, "saved.pth")
+        """
+        state_dict = {}
+        state_dict['loss_scaler'] = self.loss_scaler
+        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
+        state_dict['overflow'] = self.overflow
+        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
+        state_dict['local_sub_partitions_of_fp32_groups'
+            ] = self.local_sub_partitions_of_fp32_groups
+        return state_dict
+
+    def load_state_dict(self, state_dict, load_optimizer_states=True):
+        """
+        Loads a state_dict created by an earlier call to state_dict().
+        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
+        whose parameters in turn came from ``model``, it is expected that the user
+        will call ``model.load_state_dict()`` before
+        ``fp16_optimizer_instance.load_state_dict()`` is called.
+        Example::
+            model = torch.nn.Linear(D_in, D_out).cuda().half()
+            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
+            ...
+            checkpoint = torch.load("saved.pth")
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+        """
+        self.loss_scaler = state_dict['loss_scaler']
+        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
+        self.overflow = state_dict['overflow']
+        if load_optimizer_states:
+            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+        for curr_group, saved_group in zip(self.
+            local_sub_partitions_of_fp32_groups, state_dict[
+            'local_sub_partitions_of_fp32_groups']):
+            for curr_param, saved_param in zip(curr_group, saved_group):
+                curr_param.data.copy_(saved_param.data)
+
+
+ROUTE_PREDICT = 'predict'
+
+
+ROUTE_TRAIN = 'train'
+
+
+def print_rank_0(message):
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            print(message, flush=True)
+    else:
+        print(message, flush=True)
+
+
+class SynchronizedWallClockTimer:
+    """Group of timers. Borrowed from Nvidia Megatron code"""
+
+
+    class Timer:
+        """Timer."""
+
+        def __init__(self, name):
+            self.name_ = name
+            self.elapsed_ = 0.0
+            self.started_ = False
+            self.start_time = time.time()
+
+        def start(self):
+            """Start the timer."""
+            assert not self.started_, 'timer has already been started'
+            torch.cuda.synchronize()
+            self.start_time = time.time()
+            self.started_ = True
+
+        def stop(self):
+            """Stop the timer."""
+            assert self.started_, 'timer is not started'
+            torch.cuda.synchronize()
+            self.elapsed_ += time.time() - self.start_time
+            self.started_ = False
+
+        def reset(self):
+            """Reset timer."""
+            self.elapsed_ = 0.0
+            self.started_ = False
+
+        def elapsed(self, reset=True):
+            """Calculate the elapsed time."""
+            started_ = self.started_
+            if self.started_:
+                self.stop()
+            elapsed_ = self.elapsed_
+            if reset:
+                self.reset()
+            if started_:
+                self.start()
+            return elapsed_
+
+    def __init__(self):
+        self.timers = {}
+
+    def __call__(self, name):
+        if name not in self.timers:
+            self.timers[name] = self.Timer(name)
+        return self.timers[name]
+
+    @staticmethod
+    def memory_usage():
+        alloc = 'mem_allocated: {:.4f} GB'.format(torch.cuda.
+            memory_allocated() / (1024 * 1024 * 1024))
+        max_alloc = 'max_mem_allocated: {:.4f} GB'.format(torch.cuda.
+            max_memory_allocated() / (1024 * 1024 * 1024))
+        cache = 'cache_allocated: {:.4f} GB'.format(torch.cuda.
+            memory_cached() / (1024 * 1024 * 1024))
+        max_cache = 'max_cache_allocated: {:.4f} GB'.format(torch.cuda.
+            max_memory_cached() / (1024 * 1024 * 1024))
+        return ' | {} | {} | {} | {}'.format(alloc, max_alloc, cache, max_cache
+            )
+
+    def log(self, names, normalizer=1.0, reset=True, memory_breakdown=False):
+        """Log a group of timers."""
+        assert normalizer > 0.0
+        string = 'time (ms)'
+        for name in names:
+            elapsed_time = self.timers[name].elapsed(reset=reset
+                ) * 1000.0 / normalizer
+            string += ' | {}: {:.2f}'.format(name, elapsed_time)
+        if memory_breakdown:
+            string += self.memory_usage()
+        print_rank_0(string)
+
+
+class CSRTensor(object):
+    """ Compressed Sparse Row (CSR) Tensor """
+
+    def __init__(self, dense_tensor=None):
+        self.orig_dense_tensor = dense_tensor
+        if dense_tensor is not None:
+            result = torch.sum(dense_tensor, dim=1)
+            self.indices = result.nonzero().flatten()
+            self.values = dense_tensor[self.indices]
+            self.dense_size = list(dense_tensor.size())
+        else:
+            self.indices = None
+            self.values = None
+            self.dense_size = None
+
+    @staticmethod
+    def type():
+        return 'deepspeed.CSRTensor'
+
+    def to_dense(self):
+        it = self.indices.unsqueeze(1)
+        full_indices = torch.cat([it for _ in range(self.dense_size[1])], dim=1
+            )
+        return self.values.new_zeros(self.dense_size).scatter_add_(0,
+            full_indices, self.values)
+
+    def sparse_size(self):
+        index_size = list(self.indices.size())
+        index_size = index_size[0]
+        value_size = list(self.values.size())
+        value_size = value_size[0] * value_size[1]
+        dense_size = self.dense_size[0] * self.dense_size[1]
+        return index_size + value_size, dense_size
+
+    def add(self, b):
+        assert self.dense_size == b.dense_size
+        self.indices = torch.cat([self.indices, b.indices])
+        self.values = torch.cat([self.values, b.values])
+
+    def __str__(self):
+        sparse_size, dense_size = self.sparse_size()
+        return (
+            'DeepSpeed.CSRTensor(indices_size={}, values_size={}, dense_size={}, device={}, reduction_factor={})'
+            .format(self.indices.size(), self.values.size(), self.
+            dense_size, self.indices.get_device(), dense_size / sparse_size))
+
+    def __repr__(self):
+        return self.__str__()
+
+
+def split_half_float_double_csr(tensors):
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
+        'torch.cuda.DoubleTensor', CSRTensor.type()]
+    buckets = []
+    for i, dtype in enumerate(dtypes):
+        bucket = [t for t in tensors if t.type() == dtype]
+        if bucket:
+            buckets.append((dtype, bucket))
+    return buckets
+
+
+class FP16_UnfusedOptimizer(object):
+    """
+    FP16 Optimizer without weight fusion to support LAMB optimizer
+
+    For usage example please see, TODO:  DeepSpeed V2 Tutorial
+    """
+
+    def __init__(self, init_optimizer, static_loss_scale=1.0,
+        dynamic_loss_scale=False, dynamic_loss_args=None, verbose=True, mpu
+        =None, clip_grad=0.0, fused_lamb_legacy=False):
+        self.fused_lamb_legacy = fused_lamb_legacy
+        if torch.distributed.get_rank() == 0:
+            logging.info(f'Fused Lamb Legacy : {self.fused_lamb_legacy} ')
+        if not torch.cuda.is_available:
+            raise SystemError('Cannot use fp16 without CUDA.')
+        self.optimizer = init_optimizer
+        self.fp16_groups = []
+        self.fp32_groups = []
+        for i, param_group in enumerate(self.optimizer.param_groups):
+            self.fp16_groups.append(param_group['params'])
+            fp32_group = [p.clone().float().detach() for p in param_group[
+                'params']]
+            for p in fp32_group:
+                p.requires_grad = True
+            self.fp32_groups.append(fp32_group)
+            param_group['params'] = self.fp32_groups[i]
+        if dynamic_loss_scale:
+            self.dynamic_loss_scale = True
+            self.cur_iter = 0
+            self.last_overflow_iter = -1
+            self.scale_factor = 2.0
+            if dynamic_loss_args is None:
+                self.cur_scale = 1.0 * 2 ** 16
+                self.scale_window = 1000
+                self.min_loss_scale = 0.25
+            else:
+                self.cur_scale = dynamic_loss_args[INITIAL_LOSS_SCALE]
+                self.scale_window = dynamic_loss_args[SCALE_WINDOW]
+                self.min_loss_scale = dynamic_loss_args[MIN_LOSS_SCALE]
+        else:
+            self.dynamic_loss_scale = False
+            self.cur_iter = 0
+            self.cur_scale = static_loss_scale
+        self.verbose = verbose
+        self.clip_grad = clip_grad
+        self.norm_type = 2
+        TORCH_MAJOR = int(torch.__version__.split('.')[0])
+        TORCH_MINOR = int(torch.__version__.split('.')[1])
+        if TORCH_MAJOR == 0 and TORCH_MINOR <= 4:
+            self.clip_grad_norm = torch.nn.utils.clip_grad_norm
+        else:
+            self.clip_grad_norm = torch.nn.utils.clip_grad_norm_
+        self.mpu = None
+        self.overflow = False
+        self.overflow_checker = CheckOverflow(self.fp16_groups, mpu=self.mpu)
+
+    def zero_grad(self, set_grads_to_None=True):
+        """
+        Zero FP16 parameter grads.
+        """
+        for group in self.fp16_groups:
+            for p in group:
+                if set_grads_to_None:
+                    p.grad = None
+                elif p.grad is not None:
+                    p.grad.detach_()
+                    p.grad.zero_()
+
+    def step_fused_lamb(self, closure=None):
+        """
+        Not supporting closure.
+        """
+        grads_groups_flat = []
+        grads_groups = []
+        norm_groups = []
+        for i, group in enumerate(self.fp16_groups):
+            grads = [(torch.zeros(p.size(), dtype=p.dtype, device=p.device) if
+                p.grad is None else p.grad) for p in group]
+            grads_groups.append(grads)
+            grads_groups_flat.append(_flatten_dense_tensors(grads))
+            norm_groups.append(get_weight_norm(grads_groups_flat[i], mpu=
+                self.mpu))
+        self.overflow = self.overflow_checker.check_using_norm(norm_groups)
+        prev_scale = self.cur_scale
+        self._update_scale(self.overflow)
+        if self.overflow:
+            if self.verbose:
+                print(
+                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
+                    .format(prev_scale, self.cur_scale))
+            return self.overflow
+        combined_scale = self.unscale_and_clip_grads(norm_groups,
+            apply_scale=False)
+        self.optimizer.step(grads=grads_groups, output_params=self.
+            fp16_groups, scale=combined_scale)
+        return self.overflow
+
+    def step(self, closure=None):
+        """
+        Not supporting closure.
+        """
+        if self.fused_lamb_legacy:
+            return self.step_fused_lamb()
+        self.overflow = self.overflow_checker.check()
+        prev_scale = self.cur_scale
+        self._update_scale(self.overflow)
+        if self.overflow:
+            if self.verbose:
+                print(
+                    '[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'
+                    .format(prev_scale, self.cur_scale))
+            return self.overflow
+        norm_groups = []
+        for i, group in enumerate(self.fp16_groups):
+            norm_groups.append(get_grad_norm(group, mpu=self.mpu))
+            for fp32_param, fp16_param in zip(self.fp32_groups[i], self.
+                fp16_groups[i]):
+                if fp16_param.grad is None:
+                    fp32_param.grad = torch.zeros(fp16_param.size(), dtype=
+                        fp32_param.dtype, device=fp32_param.device)
+                else:
+                    fp32_param.grad = fp16_param.grad.to(fp32_param.dtype)
+        self.unscale_and_clip_grads(norm_groups)
+        self.optimizer.step()
+        for fp32_group, fp16_group in zip(self.fp32_groups, self.fp16_groups):
+            for fp32_param, fp16_param in zip(fp32_group, fp16_group):
+                fp32_param.grad = None
+                fp16_param.data.copy_(fp32_param.data)
+        return self.overflow
+
+    def unscale_and_clip_grads(self, norm_groups, apply_scale=True):
+        total_norm = 0.0
+        for norm in norm_groups:
+            total_norm += norm ** 2.0
+        total_norm = math.sqrt(total_norm)
+        combined_scale = self.cur_scale
+        if self.clip_grad > 0.0:
+            clip = (total_norm / self.cur_scale + 1e-06) / self.clip_grad
+            if clip > 1:
+                combined_scale = clip * self.cur_scale
+        if apply_scale:
+            for group in self.fp32_groups:
+                for param in group:
+                    if param.grad is not None:
+                        param.grad.data.mul_(1.0 / combined_scale)
+        return combined_scale
+
+    def backward(self, loss):
+        """
+        :attr:`backward` performs the following steps:
+
+        1. fp32_loss = loss.float()
+        2. scaled_loss = fp32_loss*loss_scale
+        3. scaled_loss.backward(), which accumulates scaled gradients into the ``.grad`` attributes of the model's fp16 leaves
+        """
+        scaled_loss = loss.float() * self.cur_scale
+        scaled_loss.backward()
+
+    def _update_scale(self, skip):
+        if self.dynamic_loss_scale:
+            prev_scale = self.cur_scale
+            if skip:
+                self.cur_scale = max(self.cur_scale / self.scale_factor,
+                    self.min_loss_scale)
+                self.last_overflow_iter = self.cur_iter
+                if self.verbose:
+                    print('\nGrad overflow on iteration', self.cur_iter)
+                    print(
+                        f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}'
+                        )
+            else:
+                stable_interval = self.cur_iter - self.last_overflow_iter - 1
+                if (stable_interval > 0 and stable_interval % self.
+                    scale_window == 0):
+                    self.cur_scale *= self.scale_factor
+                    if self.verbose:
+                        print(
+                            f'\nNo Grad overflow for {self.scale_window} iterations'
+                            )
+                        print(
+                            f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}'
+                            )
+        elif skip:
+            print('\nGrad overflow on iteration', self.cur_iter)
+            print('Using static loss scale of', self.cur_scale)
+        self.cur_iter += 1
+        return
+
+    def _get_state(self):
+        return self.optimizer.state
+
+    def _set_state(self, value):
+        self.optimizer.state = value
+    state = property(_get_state, _set_state)
+
+    def _get_param_groups(self):
+        return self.optimizer.param_groups
+
+    def _set_param_groups(self, value):
+        self.optimizer.param_groups = value
+    param_groups = property(_get_param_groups, _set_param_groups)
+
+    def state_dict(self):
+        """
+        Returns a dict containing the current state of this :class:`FP16_Optimizer` instance.
+        This dict contains attributes of :class:`FP16_Optimizer`, as well as the state_dict
+        of the contained Pytorch optimizer.
+        Example::
+            checkpoint = {}
+            checkpoint['model'] = model.state_dict()
+            checkpoint['optimizer'] = optimizer.state_dict()
+            torch.save(checkpoint, "saved.pth")
+        """
+        state_dict = {}
+        state_dict['dynamic_loss_scale'] = self.dynamic_loss_scale
+        state_dict['cur_scale'] = self.cur_scale
+        state_dict['cur_iter'] = self.cur_iter
+        if state_dict['dynamic_loss_scale']:
+            state_dict['last_overflow_iter'] = self.last_overflow_iter
+            state_dict['scale_factor'] = self.scale_factor
+            state_dict['scale_window'] = self.scale_window
+        state_dict['optimizer_state_dict'] = self.optimizer.state_dict()
+        state_dict['fp32_groups'] = self.fp32_groups
+        return state_dict
+
+    def load_state_dict(self, state_dict, load_optimizer_states=True):
+        """
+        Loads a state_dict created by an earlier call to state_dict().
+        If ``fp16_optimizer_instance`` was constructed from some ``init_optimizer``,
+        whose parameters in turn came from ``model``, it is expected that the user
+        will call ``model.load_state_dict()`` before
+        ``fp16_optimizer_instance.load_state_dict()`` is called.
+        Example::
+            model = torch.nn.Linear(D_in, D_out).cuda().half()
+            optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+            optimizer = FP16_Optimizer(optimizer, static_loss_scale = 128.0)
+            ...
+            checkpoint = torch.load("saved.pth")
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+        """
+        self.dynamic_loss_scale = state_dict['dynamic_loss_scale']
+        self.cur_scale = state_dict['cur_scale']
+        self.cur_iter = state_dict['cur_iter']
+        if state_dict['dynamic_loss_scale']:
+            self.last_overflow_iter = state_dict['last_overflow_iter']
+            self.scale_factor = state_dict['scale_factor']
+            self.scale_window = state_dict['scale_window']
+        if load_optimizer_states:
+            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+        for current_group, saved_group in zip(self.fp32_groups, state_dict[
+            'fp32_groups']):
+            for current, saved in zip(current_group, saved_group):
+                current.data.copy_(saved.data)
+
+    def __repr__(self):
+        return repr(self.optimizer)
+
+
+MEMORY_OPT_ALLREDUCE_SIZE = 500000000
+
+
+ZERO_OPTIMIZATION_OPTIMIZER_STATES = 1
+
+
+class FusedLamb(torch.optim.Optimizer):
+    """Implements LAMB algorithm. Currently GPU-only.  Requires DeepSpeed adapted Apex to be installed via
+    ``python setup.py install --cuda_ext --cpp_ext``.
+
+    For usage example please see, TODO DeepSpeed Tutorial
+
+    It has been proposed in `Large Batch Optimization for Deep Learning: Training BERT in 76 minutes.
+    https://arxiv.org/abs/1904.00962
+
+
+    Arguments:
+        params (iterable): iterable of parameters to optimize or dicts defining
+            parameter groups.
+        lr (float, optional): learning rate. (default: 1e-3)
+        betas (Tuple[float, float], optional): coefficients used for computing
+            running averages of gradient and its square. (default: (0.9, 0.999))
+        eps (float, optional): term added to the denominator to improve
+            numerical stability. (default: 1e-8)
+        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
+        max_coeff(float, optional): maximum value of the lamb coefficient (default: 10.0)
+        min_coeff(float, optional): minimum value of the lamb coefficient (default: 0.01)
+        amsgrad (boolean, optional): whether to use the AMSGrad variant of this
+            algorithm from the paper `On the Convergence of Adam and Beyond`_
+            (default: False) NOT SUPPORTED in FusedAdam!
+        eps_inside_sqrt (boolean, optional): in the 'update parameters' step,
+            adds eps to the bias-corrected second moment estimate before
+            evaluating square root instead of adding it to the square root of
+            second moment estimate as in the original paper. (default: False)
+
+    .. _Adam\\: A Method for Stochastic Optimization:
+        https://arxiv.org/abs/1412.6980
+    .. _On the Convergence of Adam and Beyond:
+        https://openreview.net/forum?id=ryQu7f-RZ
+    """
+
+    def __init__(self, params, lr=0.001, bias_correction=True, betas=(0.9, 
+        0.999), eps=1e-08, eps_inside_sqrt=False, weight_decay=0.0,
+        max_grad_norm=0.0, max_coeff=10.0, min_coeff=0.01, amsgrad=False):
+        global fused_lamb_cuda
+        fused_lamb_cuda = importlib.import_module('fused_lamb_cuda')
+        if amsgrad:
+            raise RuntimeError(
+                'FusedLamb does not support the AMSGrad variant.')
+        defaults = dict(lr=lr, bias_correction=bias_correction, betas=betas,
+            eps=eps, weight_decay=weight_decay, max_grad_norm=max_grad_norm,
+            max_coeff=max_coeff, min_coeff=min_coeff)
+        super(FusedLamb, self).__init__(params, defaults)
+        self.eps_mode = 0 if eps_inside_sqrt else 1
+        self.lamb_coeffs = []
+
+    def step(self, closure=None, grads=None, output_params=None, scale=1.0,
+        grad_norms=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+            grads (list of tensors, optional): weight gradient to use for the
+                optimizer update. If gradients have type torch.half, parameters
+                are expected to be in type torch.float. (default: None)
+            output params (list of tensors, optional): A reduced precision copy
+                of the updated weights written out in addition to the regular
+                updated weights. Have to be of same type as gradients. (default: None)
+            scale (float, optional): factor to divide gradient tensor values
+                by before applying to weights. (default: 1)
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+        if grads is None:
+            grads_group = [None] * len(self.param_groups)
+        elif isinstance(grads, types.GeneratorType):
+            grads_group = [grads]
+        elif type(grads[0]) != list:
+            grads_group = [grads]
+        else:
+            grads_group = grads
+        if output_params is None:
+            output_params_group = [None] * len(self.param_groups)
+        elif isinstance(output_params, types.GeneratorType):
+            output_params_group = [output_params]
+        elif type(output_params[0]) != list:
+            output_params_group = [output_params]
+        else:
+            output_params_group = output_params
+        if grad_norms is None:
+            grad_norms = [None] * len(self.param_groups)
+        del self.lamb_coeffs[:]
+        for group, grads_this_group, output_params_this_group, grad_norm_group in zip(
+            self.param_groups, grads_group, output_params_group, grad_norms):
+            if grads_this_group is None:
+                grads_this_group = [None] * len(group['params'])
+            if output_params_this_group is None:
+                output_params_this_group = [None] * len(group['params'])
+            if grad_norm_group is None:
+                grad_norm_group = [None] * len(group['params'])
+            elif not isinstance(grad_norm_group, list):
+                grad_norm_group = [grad_norm_group]
+            bias_correction = 1 if group['bias_correction'] else 0
+            for p, grad, output_param, grad_norm in zip(group['params'],
+                grads_this_group, output_params_this_group, grad_norm_group):
+                combined_scale = scale
+                if group['max_grad_norm'] > 0:
+                    clip = (grad_norm / scale + 1e-06) / group['max_grad_norm']
+                    if clip > 1:
+                        combined_scale = clip * scale
+                if p.grad is None and grad is None:
+                    continue
+                if grad is None:
+                    grad = p.grad.data
+                if grad.is_sparse:
+                    raise RuntimeError(
+                        'FusedAdam does not support sparse gradients, please consider SparseAdam instead'
+                        )
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['exp_avg'] = torch.zeros_like(p.data)
+                    state['exp_avg_sq'] = torch.zeros_like(p.data)
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                beta1, beta2 = group['betas']
+                max_coeff = group['max_coeff']
+                min_coeff = group['min_coeff']
+                state['step'] += 1
+                out_p = torch.tensor([], dtype=torch.float
+                    ) if output_param is None else output_param
+                lamb_coeff = fused_lamb_cuda.lamb(p.data, out_p, exp_avg,
+                    exp_avg_sq, grad, group['lr'], beta1, beta2, max_coeff,
+                    min_coeff, group['eps'], combined_scale, state['step'],
+                    self.eps_mode, bias_correction, group['weight_decay'])
+                self.lamb_coeffs.append(lamb_coeff)
+        return loss
+
+    def get_lamb_coeffs(self):
+        lamb_coeffs = [lamb_coeff.item() for lamb_coeff in self.lamb_coeffs]
+        return lamb_coeffs
 
 
 class SimpleModel(torch.nn.Module):

@@ -827,7 +827,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_bearpaw_pytorch_classification(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -836,3 +835,4 @@ class Test_bearpaw_pytorch_classification(_paritybench_base):
 
     def test_002(self):
         self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+

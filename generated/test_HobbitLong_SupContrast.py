@@ -233,8 +233,8 @@ class LinearBatchNorm(nn.Module):
         return x
 
 
-def resnet101(**kwargs):
-    return ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+def resnet18(**kwargs):
+    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 
 def resnet34(**kwargs):
@@ -245,8 +245,8 @@ def resnet50(**kwargs):
     return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
 
-def resnet18(**kwargs):
-    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+def resnet101(**kwargs):
+    return ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
 
 
 model_dict = {'resnet18': [resnet18, 512], 'resnet34': [resnet34, 512],
@@ -305,28 +305,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_HobbitLong_SupContrast(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SupConLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(LinearBatchNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(SupConResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(SupCEResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_006(self):
         self._check(LinearClassifier(*[], **{}), [torch.rand([2048, 2048])], {})
+

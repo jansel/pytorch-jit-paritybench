@@ -118,10 +118,10 @@ class Inception(nn.Module):
         return torch.cat([y1, y2, y3, y4], 1)
 
 
-CRelu = CReLUM()
-
-
 anchors = 21, 1, 1
+
+
+CRelu = CReLUM()
 
 
 class FaceBoxes(nn.Module):
@@ -214,6 +214,12 @@ class MobileNet(nn.Module):
         return x
 
 
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
 model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet18-5c106cde.pth',
     'resnet34':
@@ -224,12 +230,6 @@ model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet101-5d3b4d8f.pth',
     'resnet152':
     'https://s3.amazonaws.com/pytorch/models/resnet152-b121ed2d.pth'}
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -536,7 +536,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_starimeL_PytorchConverter(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(FaceBoxes(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -560,3 +559,4 @@ class Test_starimeL_PytorchConverter(_paritybench_base):
 
     def test_007(self):
         self._check(UNetDec(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

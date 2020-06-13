@@ -274,6 +274,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_YuxianMeng_Matrix_Capsules_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(PrimaryCaps(*[], **{}), [torch.rand([4, 32, 64, 64])], {})
+

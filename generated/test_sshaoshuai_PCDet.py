@@ -122,115 +122,6 @@ from torch._utils import _unflatten_dense_tensors
 from torch.nn.utils import clip_grad_norm_
 
 
-def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9, 
-    1.56),), rotations=(0, np.pi / 2), dtype=np.float32):
-    """
-    Args:
-        feature_size: list [D, H, W](zyx)
-        sizes: [N, 3] list of list or array, size of anchors, xyz
-
-    Returns:
-        anchors: [*feature_size, num_sizes, num_rots, 7] tensor.
-    """
-    anchor_range = np.array(anchor_range, dtype)
-    z_centers = np.linspace(anchor_range[2], anchor_range[5], feature_size[
-        0], dtype=dtype)
-    y_centers = np.linspace(anchor_range[1], anchor_range[4], feature_size[
-        1], dtype=dtype)
-    x_centers = np.linspace(anchor_range[0], anchor_range[3], feature_size[
-        2], dtype=dtype)
-    sizes = np.reshape(np.array(sizes, dtype=dtype), [-1, 3])
-    rotations = np.array(rotations, dtype=dtype)
-    rets = np.meshgrid(x_centers, y_centers, z_centers, rotations, indexing
-        ='ij')
-    tile_shape = [1] * 5
-    tile_shape[-2] = int(sizes.shape[0])
-    for i in range(len(rets)):
-        rets[i] = np.tile(rets[i][(...), (np.newaxis), :], tile_shape)
-        rets[i] = rets[i][..., np.newaxis]
-    sizes = np.reshape(sizes, [1, 1, 1, -1, 1, 3])
-    tile_size_shape = list(rets[0].shape)
-    tile_size_shape[3] = 1
-    sizes = np.tile(sizes, tile_size_shape)
-    rets.insert(3, sizes)
-    ret = np.concatenate(rets, axis=-1)
-    return np.transpose(ret, [2, 1, 0, 3, 4, 5])
-
-
-class AnchorGeneratorRange(object):
-
-    def __init__(self, anchor_ranges, sizes=((1.6, 3.9, 1.56),), rotations=
-        (0, np.pi / 2), class_name=None, match_threshold=-1,
-        unmatch_threshold=-1, custom_values=None, dtype=np.float32,
-        feature_map_size=None):
-        self._sizes = sizes
-        self._anchor_ranges = anchor_ranges
-        self._rotations = rotations
-        self._dtype = dtype
-        self._class_name = class_name
-        self._match_threshold = match_threshold
-        self._unmatch_threshold = unmatch_threshold
-        self._custom_values = custom_values
-        self._feature_map_size = feature_map_size
-
-    @property
-    def class_name(self):
-        return self._class_name
-
-    @property
-    def match_threshold(self):
-        return self._match_threshold
-
-    @property
-    def unmatch_threshold(self):
-        return self._unmatch_threshold
-
-    @property
-    def custom_values(self):
-        return self.custom_values
-
-    @property
-    def feature_map_size(self):
-        return self._feature_map_size
-
-    @property
-    def num_anchors_per_localization(self):
-        num_rot = len(self._rotations)
-        num_size = np.array(self._sizes).reshape([-1, 3]).shape[0]
-        return num_rot * num_size
-
-    def generate(self, feature_map_size):
-        anchors = create_anchors_3d_range(feature_map_size, self.
-            _anchor_ranges, self._sizes, self._rotations, self._dtype)
-        if self._custom_values is not None:
-            custom_values = np.zeros((*anchors.shape[:-1], len(self.
-                _custom_values)), dtype=self._dtype)
-            for k in range(len(self._custom_values)):
-                custom_values[..., k] = self._custom_values[k]
-            anchors = np.concatenate((anchors, custom_values), axis=-1)
-        return anchors
-
-
-def center_to_minmax_2d_0_5(centers, dims):
-    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
-
-
-def rotation_2d(points, angles):
-    """rotation 2d points based on origin point clockwise when angle positive.
-
-    Args:
-        points (float array, shape=[N, point_size, 2]): points to be rotated.
-        angles (float array, shape=[N]): rotation angle.
-
-    Returns:
-        float array: same shape as points
-    """
-    rot_sin = np.sin(angles)
-    rot_cos = np.cos(angles)
-    rot_mat_T = np.stack([[rot_cos, -rot_sin], [rot_sin, rot_cos]])
-    return np.einsum('aij,jka->aik', points, rot_mat_T)
-
-
 def corners_nd(dims, origin=0.5):
     """generate relative box corners based on length per dim and
     origin point.
@@ -258,6 +149,22 @@ def corners_nd(dims, origin=0.5):
     return corners
 
 
+def rotation_2d(points, angles):
+    """rotation 2d points based on origin point clockwise when angle positive.
+
+    Args:
+        points (float array, shape=[N, point_size, 2]): points to be rotated.
+        angles (float array, shape=[N]): rotation angle.
+
+    Returns:
+        float array: same shape as points
+    """
+    rot_sin = np.sin(angles)
+    rot_cos = np.cos(angles)
+    rot_mat_T = np.stack([[rot_cos, -rot_sin], [rot_sin, rot_cos]])
+    return np.einsum('aij,jka->aik', points, rot_mat_T)
+
+
 def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
     """convert kitti locations, dimensions and angles to corners.
     format: center(xy), dims(xy), angles(clockwise when positive)
@@ -275,6 +182,10 @@ def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
         corners = rotation_2d(corners, angles)
     corners += centers.reshape([-1, 1, 2])
     return corners
+
+
+def center_to_minmax_2d_0_5(centers, dims):
+    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
 
 
 def center_to_minmax_2d(centers, dims, origin=0.5):
@@ -487,6 +398,29 @@ class FC(nn.Sequential):
                 self.add_module(name + 'activation', activation)
 
 
+def get_maxiou3d_with_same_class(rois, roi_labels, gt_boxes, gt_labels):
+    """
+    :param rois: (N, 7)
+    :param roi_labels: (N)
+    :param gt_boxes: (N, 8)
+    :return:
+    """
+    max_overlaps = rois.new_zeros(rois.shape[0])
+    gt_assignment = roi_labels.new_zeros(roi_labels.shape[0])
+    for k in range(gt_labels.min().item(), gt_labels.max().item() + 1):
+        roi_mask = roi_labels == k
+        gt_mask = gt_labels == k
+        if roi_mask.sum() > 0 and gt_mask.sum() > 0:
+            cur_roi = rois[roi_mask]
+            cur_gt = gt_boxes[gt_mask]
+            original_gt_assignment = gt_mask.nonzero().view(-1)
+            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt)
+            cur_max_overlaps, cur_gt_assignment = torch.max(iou3d, dim=1)
+            max_overlaps[roi_mask] = cur_max_overlaps
+            gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
+    return max_overlaps, gt_assignment
+
+
 def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image,
     roi_sampler_cfg):
     if hard_bg_inds.numel() > 0 and easy_bg_inds.numel() > 0:
@@ -513,29 +447,6 @@ def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image,
     else:
         raise NotImplementedError
     return bg_inds
-
-
-def get_maxiou3d_with_same_class(rois, roi_labels, gt_boxes, gt_labels):
-    """
-    :param rois: (N, 7)
-    :param roi_labels: (N)
-    :param gt_boxes: (N, 8)
-    :return:
-    """
-    max_overlaps = rois.new_zeros(rois.shape[0])
-    gt_assignment = roi_labels.new_zeros(roi_labels.shape[0])
-    for k in range(gt_labels.min().item(), gt_labels.max().item() + 1):
-        roi_mask = roi_labels == k
-        gt_mask = gt_labels == k
-        if roi_mask.sum() > 0 and gt_mask.sum() > 0:
-            cur_roi = rois[roi_mask]
-            cur_gt = gt_boxes[gt_mask]
-            original_gt_assignment = gt_mask.nonzero().view(-1)
-            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt)
-            cur_max_overlaps, cur_gt_assignment = torch.max(iou3d, dim=1)
-            max_overlaps[roi_mask] = cur_max_overlaps
-            gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
-    return max_overlaps, gt_assignment
 
 
 _global_config['CLASS_NAMES'] = 4
@@ -1157,11 +1068,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_sshaoshuai_PCDet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Empty(*[], **{}), [], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1173,3 +1083,4 @@ class Test_sshaoshuai_PCDet(_paritybench_base):
 
     def test_004(self):
         self._check(PFNLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+

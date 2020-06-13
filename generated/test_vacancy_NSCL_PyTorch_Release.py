@@ -561,6 +561,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vacancy_NSCL_PyTorch_Release(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LearnedPositionalEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+

@@ -34,18 +34,18 @@ import torch.nn.functional as F
 from torch import nn
 
 
+STOP_TAG = 'STOP'
+
+
+START_TAG = 'START'
+
+
 def log_sum_exp(vec):
     max_score = torch.max(vec, 0)[0].unsqueeze(0)
     max_score_broadcast = max_score.expand(vec.size(1), vec.size(1))
     result = max_score + torch.log(torch.sum(torch.exp(vec -
         max_score_broadcast), 0)).unsqueeze(0)
     return result.squeeze(1)
-
-
-START_TAG = 'START'
-
-
-STOP_TAG = 'STOP'
 
 
 class BiLSTMCRF(nn.Module):
@@ -213,6 +213,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yanwii_ChinsesNER_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BiLSTMCRF(*[], **{}), [torch.rand([4, 4])], {})
+

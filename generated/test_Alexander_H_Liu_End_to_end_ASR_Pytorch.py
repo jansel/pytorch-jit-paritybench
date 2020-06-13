@@ -82,6 +82,13 @@ import abc
 from torch.utils.tensorboard import SummaryWriter
 
 
+def init_gate(bias):
+    n = bias.size(0)
+    start, end = n // 4, n // 2
+    bias.data[start:end].fill_(1.0)
+    return bias
+
+
 def init_weights(module):
     if type(module) == nn.Embedding:
         module.weight.data.normal_(0, 1)
@@ -102,13 +109,6 @@ def init_weights(module):
                 data.normal_(0, stdv)
             else:
                 raise NotImplementedError
-
-
-def init_gate(bias):
-    n = bias.size(0)
-    start, end = n // 4, n // 2
-    bias.data[start:end].fill_(1.0)
-    return bias
 
 
 class ASR(nn.Module):
@@ -431,22 +431,6 @@ class ExtractAudioFeature(nn.Module):
         return 'mode={}, num_mel_bins={}'.format(self.mode, self.num_mel_bins)
 
 
-def generate_embedding(bert_model, labels):
-    """Generate bert's embedding from fine-tuned model."""
-    batch_size, time = labels.shape
-    cls_ids = torch.full((batch_size, 1), bert_model.bert_text_encoder.
-        cls_idx, dtype=labels.dtype, device=labels.device)
-    bert_labels = torch.cat([cls_ids, labels], 1)
-    eos_idx = bert_model.bert_text_encoder.eos_idx
-    sep_idx = bert_model.bert_text_encoder.sep_idx
-    bert_labels[bert_labels == eos_idx] = sep_idx
-    embedding, _ = bert_model.bert(bert_labels, output_all_encoded_layers=True)
-    embedding = torch.stack(embedding).sum(0)
-    embedding = embedding[:, 1:]
-    assert labels.shape == embedding.shape[:-1]
-    return embedding
-
-
 class BertLikeSentencePieceTextEncoder(object):
 
     def __init__(self, text_encoder):
@@ -491,6 +475,22 @@ def load_fine_tuned_model(bert_model, text_encoder, path):
     return model
 
 
+def generate_embedding(bert_model, labels):
+    """Generate bert's embedding from fine-tuned model."""
+    batch_size, time = labels.shape
+    cls_ids = torch.full((batch_size, 1), bert_model.bert_text_encoder.
+        cls_idx, dtype=labels.dtype, device=labels.device)
+    bert_labels = torch.cat([cls_ids, labels], 1)
+    eos_idx = bert_model.bert_text_encoder.eos_idx
+    sep_idx = bert_model.bert_text_encoder.sep_idx
+    bert_labels[bert_labels == eos_idx] = sep_idx
+    embedding, _ = bert_model.bert(bert_labels, output_all_encoded_layers=True)
+    embedding = torch.stack(embedding).sum(0)
+    embedding = embedding[:, 1:]
+    assert labels.shape == embedding.shape[:-1]
+    return embedding
+
+
 class BertEmbeddingPredictor(nn.Module):
 
     def __init__(self, bert_model, text_encoder, path):
@@ -500,6 +500,9 @@ class BertEmbeddingPredictor(nn.Module):
     def forward(self, labels):
         self.eval()
         return generate_embedding(self.model, labels)
+
+
+CTC_BEAM_RATIO = 1.5
 
 
 class CTCPrefixScore:
@@ -576,7 +579,7 @@ class CTCPrefixScore:
         return psi, np.rollaxis(r, 2)
 
 
-CTC_BEAM_RATIO = 1.5
+LOG_ZERO = -10000000.0
 
 
 class Hypothesis:
@@ -649,9 +652,6 @@ class Hypothesis:
     @property
     def outIndex(self):
         return [i.item() for i in self.output_seq]
-
-
-LOG_ZERO = -10000000.0
 
 
 class BeamDecoder(nn.Module):
@@ -1142,6 +1142,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Alexander_H_Liu_End_to_end_ASR_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CNNExtractor(*[], **{'input_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

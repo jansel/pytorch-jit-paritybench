@@ -762,18 +762,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BinaryCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -782,15 +781,15 @@ class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
 
     def test_005(self):
         self._check(UpsamplerBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(Discriminator(*[], **{'config': _mock_config(relu_slope=4, input_channels=4, num_filt_d=4)}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_007(self):
         self._check(Generator(*[], **{'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(ERF(*[], **{'config': _mock_config(num_classes=4, input_channels=4)}), [torch.rand([4, 4, 64, 64])], {})
 
@@ -799,3 +798,4 @@ class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
 
     def test_010(self):
         self._check(Example(*[], **{'config': _mock_config(input_channels=4, num_filters=4)}), [torch.rand([4, 4, 4, 4])], {})
+

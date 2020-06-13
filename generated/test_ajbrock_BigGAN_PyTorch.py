@@ -1353,6 +1353,9 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1374,9 +1377,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',

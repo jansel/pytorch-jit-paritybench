@@ -154,6 +154,54 @@ class Attention(Module):
         return representations, attentions if self.return_attention else None
 
 
+def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
+    num_directions = len(inners)
+    total_layers = num_layers * num_directions
+
+    def forward(input, hidden, weight):
+        assert len(weight) == total_layers
+        next_hidden = []
+        if lstm:
+            hidden = list(zip(*hidden))
+        for i in range(num_layers):
+            all_output = []
+            for j, inner in enumerate(inners):
+                l = i * num_directions + j
+                hy, output = inner(input, hidden[l], weight[l])
+                next_hidden.append(hy)
+                all_output.append(output)
+            input = torch.cat(all_output, input.dim() - 1)
+            if dropout != 0 and i < num_layers - 1:
+                input = F.dropout(input, p=dropout, training=train, inplace
+                    =False)
+        if lstm:
+            next_h, next_c = zip(*next_hidden)
+            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
+                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
+                0].size())
+        else:
+            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
+                next_hidden[0].size())
+        return next_hidden, input
+    return forward
+
+
+def Recurrent(inner, reverse=False):
+
+    def forward(input, hidden, weight):
+        output = []
+        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
+            .size(0))
+        for i in steps:
+            hidden = inner(input[i], hidden, *weight)
+            output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
+        if reverse:
+            output.reverse()
+        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        return hidden, output
+    return forward
+
+
 def VariableRecurrent(batch_sizes, inner):
 
     def forward(input, hidden, weight):
@@ -256,54 +304,6 @@ def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None):
     cy = forgetgate * cx + ingate * cellgate
     hy = outgate * F.tanh(cy)
     return hy, cy
-
-
-def Recurrent(inner, reverse=False):
-
-    def forward(input, hidden, weight):
-        output = []
-        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
-            .size(0))
-        for i in steps:
-            hidden = inner(input[i], hidden, *weight)
-            output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
-        if reverse:
-            output.reverse()
-        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
-        return hidden, output
-    return forward
-
-
-def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
-    num_directions = len(inners)
-    total_layers = num_layers * num_directions
-
-    def forward(input, hidden, weight):
-        assert len(weight) == total_layers
-        next_hidden = []
-        if lstm:
-            hidden = list(zip(*hidden))
-        for i in range(num_layers):
-            all_output = []
-            for j, inner in enumerate(inners):
-                l = i * num_directions + j
-                hy, output = inner(input, hidden[l], weight[l])
-                next_hidden.append(hy)
-                all_output.append(output)
-            input = torch.cat(all_output, input.dim() - 1)
-            if dropout != 0 and i < num_layers - 1:
-                input = F.dropout(input, p=dropout, training=train, inplace
-                    =False)
-        if lstm:
-            next_h, next_c = zip(*next_hidden)
-            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
-                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
-                0].size())
-        else:
-            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
-                next_hidden[0].size())
-        return next_hidden, input
-    return forward
 
 
 def AutogradRNN(input_size, hidden_size, num_layers=1, batch_first=False,
@@ -608,6 +608,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_huggingface_torchMoji(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LSTMHardSigmoid(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4])], {})
+

@@ -120,6 +120,26 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     return layer
 
 
+def pad(pad_type, padding):
+    pad_type = pad_type.lower()
+    if padding == 0:
+        return None
+    if pad_type == 'reflect':
+        layer = nn.ReflectionPad2d(padding)
+    elif pad_type == 'replicate':
+        layer = nn.ReplicationPad2d(padding)
+    else:
+        raise NotImplementedError('padding layer [{:s}] is not implemented'
+            .format(pad_type))
+    return layer
+
+
+def get_valid_padding(kernel_size, dilation):
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
@@ -134,26 +154,6 @@ def sequential(*args):
         elif isinstance(module, nn.Module):
             modules.append(module)
     return nn.Sequential(*modules)
-
-
-def get_valid_padding(kernel_size, dilation):
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
-
-
-def pad(pad_type, padding):
-    pad_type = pad_type.lower()
-    if padding == 0:
-        return None
-    if pad_type == 'reflect':
-        layer = nn.ReflectionPad2d(padding)
-    elif pad_type == 'replicate':
-        layer = nn.ReplicationPad2d(padding)
-    else:
-        raise NotImplementedError('padding layer [{:s}] is not implemented'
-            .format(pad_type))
-    return layer
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
@@ -220,7 +220,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hejingwenhejingwen_AdaFM(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -229,3 +228,4 @@ class Test_hejingwenhejingwen_AdaFM(_paritybench_base):
 
     def test_002(self):
         self._check(Basic(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

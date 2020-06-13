@@ -629,6 +629,22 @@ class Split2d(nn.Module):
             return z, logdet
 
 
+def squeeze2d(input, factor=2):
+    assert factor >= 1 and isinstance(factor, int)
+    if factor == 1:
+        return input
+    size = input.size()
+    B = size[0]
+    C = size[1]
+    H = size[2]
+    W = size[3]
+    assert H % factor == 0 and W % factor == 0, '{}'.format((H, W))
+    x = input.view(B, C, H // factor, factor, W // factor, factor)
+    x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+    x = x.view(B, C * factor * factor, H // factor, W // factor)
+    return x
+
+
 def unsqueeze2d(input, factor=2):
     assert factor >= 1 and isinstance(factor, int)
     factor2 = factor ** 2
@@ -643,22 +659,6 @@ def unsqueeze2d(input, factor=2):
     x = input.view(B, C // factor2, factor, factor, H, W)
     x = x.permute(0, 1, 4, 2, 5, 3).contiguous()
     x = x.view(B, C // factor2, H * factor, W * factor)
-    return x
-
-
-def squeeze2d(input, factor=2):
-    assert factor >= 1 and isinstance(factor, int)
-    if factor == 1:
-        return input
-    size = input.size()
-    B = size[0]
-    C = size[1]
-    H = size[2]
-    W = size[3]
-    assert H % factor == 0 and W % factor == 0, '{}'.format((H, W))
-    x = input.view(B, C, H // factor, factor, W // factor, factor)
-    x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-    x = x.view(B, C * factor * factor, H // factor, W // factor)
     return x
 
 
@@ -683,30 +683,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_chaiyujin_glow_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(_ActNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ActNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+

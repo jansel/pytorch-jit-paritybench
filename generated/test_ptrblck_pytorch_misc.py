@@ -373,14 +373,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ptrblck_pytorch_misc(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LocallyConnected2d(*[], **{'in_channels': 4, 'out_channels': 4, 'output_size': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(AdaptiveBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MyBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -395,3 +394,4 @@ class Test_ptrblck_pytorch_misc(_paritybench_base):
 
     def test_006(self):
         self._check(UpConv(*[], **{'in_channels': 4, 'in_channels_skip': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+

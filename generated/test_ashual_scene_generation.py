@@ -80,6 +80,19 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 
+def get_activation(name):
+    kwargs = {}
+    if name.lower().startswith('leakyrelu'):
+        if '-' in name:
+            slope = float(name.split('-')[1])
+            kwargs = {'negative_slope': slope}
+    name = 'leakyrelu'
+    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
+    if name.lower() not in activations:
+        raise ValueError('Invalid activation "%s"' % name)
+    return activations[name.lower()](**kwargs)
+
+
 def get_normalization_2d(channels, normalization):
     if normalization == 'instance':
         return nn.InstanceNorm2d(channels)
@@ -101,19 +114,6 @@ def _init_conv(layer, method):
         nn.init.kaiming_normal(layer.weight)
     elif method == 'kaiming-uniform':
         nn.init.kaiming_uniform(layer.weight)
-
-
-def get_activation(name):
-    kwargs = {}
-    if name.lower().startswith('leakyrelu'):
-        if '-' in name:
-            slope = float(name.split('-')[1])
-            kwargs = {'negative_slope': slope}
-    name = 'leakyrelu'
-    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
-    if name.lower() not in activations:
-        raise ValueError('Invalid activation "%s"' % name)
-    return activations[name.lower()](**kwargs)
 
 
 def _get_padding(K, mode):
@@ -985,39 +985,6 @@ class VectorPool:
         return return_vectors
 
 
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm2d') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-
-
-def get_norm_layer(norm_type='instance'):
-    if norm_type == 'batch':
-        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
-    elif norm_type == 'instance':
-        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
-    elif norm_type == 'conditional':
-        norm_layer = functools.partial(ConditionalBatchNorm2d)
-    else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
-    return norm_layer
-
-
-def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
-    n_blocks_global=9, norm='instance'):
-    norm_layer = get_norm_layer(norm_type=norm)
-    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global,
-        n_blocks_global, norm_layer)
-    assert torch.cuda.is_available()
-    netG.cuda()
-    netG.apply(weights_init)
-    return netG
-
-
 def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
     """
     Input:
@@ -1138,6 +1105,39 @@ def mask_net(dim, mask_size):
         raise ValueError('Mask size must be a power of 2')
     layers.append(nn.Conv2d(dim, output_dim, kernel_size=1))
     return nn.Sequential(*layers)
+
+
+def get_norm_layer(norm_type='instance'):
+    if norm_type == 'batch':
+        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
+    elif norm_type == 'instance':
+        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
+    elif norm_type == 'conditional':
+        norm_layer = functools.partial(ConditionalBatchNorm2d)
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' %
+            norm_type)
+    return norm_layer
+
+
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm2d') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
+
+
+def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
+    n_blocks_global=9, norm='instance'):
+    norm_layer = get_norm_layer(norm_type=norm)
+    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global,
+        n_blocks_global, norm_layer)
+    assert torch.cuda.is_available()
+    netG.cuda()
+    netG.apply(weights_init)
+    return netG
 
 
 class Model(nn.Module):
@@ -1412,11 +1412,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ashual_scene_generation(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1428,3 +1427,4 @@ class Test_ashual_scene_generation(_paritybench_base):
 
     def test_004(self):
         self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -72,10 +72,10 @@ import torch.backends.cudnn as cudnn
 _global_config['ANs_select_rate'] = 4
 
 
-_global_config['ANs_size'] = 4
-
-
 _global_config['device'] = 4
+
+
+_global_config['ANs_size'] = 4
 
 
 class ANsDiscovery(nn.Module):
@@ -270,10 +270,10 @@ class NonParametricClassifierOP(Function):
         return gradInput, None, None, None, None
 
 
-_global_config['npc_momentum'] = 4
-
-
 _global_config['npc_temperature'] = 4
+
+
+_global_config['npc_momentum'] = 4
 
 
 class NonParametricClassifier(nn.Module):
@@ -427,7 +427,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Raymond_sci_AND(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(NonParametricClassifier(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -439,3 +438,4 @@ class Test_Raymond_sci_AND(_paritybench_base):
 
     def test_003(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

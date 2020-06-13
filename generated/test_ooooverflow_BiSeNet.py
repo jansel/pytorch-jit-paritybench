@@ -326,7 +326,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ooooverflow_BiSeNet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -338,3 +337,4 @@ class Test_ooooverflow_BiSeNet(_paritybench_base):
 
     def test_003(self):
         self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

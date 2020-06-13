@@ -67,6 +67,9 @@ class CpBatchNorm2d(torch.nn.BatchNorm2d):
                 track_running_stats, 0.0, self.eps)
 
 
+BatchNorm2d = CpBatchNorm2d
+
+
 def _bn_function_factory(norm, relu, conv):
 
     def bn_function(*inputs):
@@ -74,9 +77,6 @@ def _bn_function_factory(norm, relu, conv):
         bottleneck_output = conv(relu(norm(concated_features)))
         return bottleneck_output
     return bn_function
-
-
-BatchNorm2d = CpBatchNorm2d
 
 
 class _DenseLayer(nn.Module):
@@ -342,7 +342,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_csrhddlam_pytorch_checkpoint(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CpBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -351,7 +350,8 @@ class Test_csrhddlam_pytorch_checkpoint(_paritybench_base):
 
     def test_002(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+

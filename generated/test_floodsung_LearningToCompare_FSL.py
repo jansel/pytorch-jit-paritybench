@@ -438,6 +438,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_floodsung_LearningToCompare_FSL(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(CNNEncoder(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

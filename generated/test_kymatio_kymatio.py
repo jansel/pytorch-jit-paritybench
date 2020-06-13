@@ -434,14 +434,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kymatio_kymatio(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Scattering2dCNN(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -450,3 +449,4 @@ class Test_kymatio_kymatio(_paritybench_base):
 
     def test_004(self):
         self._check(Generator(*[], **{'num_input_channels': 4, 'num_hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

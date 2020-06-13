@@ -281,13 +281,13 @@ class MLP(nn.Module):
         return x.squeeze() if self.output_squeeze else x
 
 
-LOG_STD_MAX = 2
+LOG_STD_MIN = -20
 
 
 EPS = 1e-08
 
 
-LOG_STD_MIN = -20
+LOG_STD_MAX = 2
 
 
 class GaussianPolicy(nn.Module):
@@ -625,6 +625,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kashif_firedup(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MLP(*[], **{'layers': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

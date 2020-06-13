@@ -72,6 +72,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_spro_char_rnn_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CharRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4])], {})
+

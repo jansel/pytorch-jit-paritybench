@@ -165,14 +165,14 @@ class Model(nn.Module):
         return dist.Normal(self.mu, self.sigma)
 
 
+EPSILON = 1e-08
+
+
 def linear_init(module):
     if isinstance(module, nn.Linear):
         nn.init.xavier_uniform_(module.weight)
         module.bias.data.zero_()
     return module
-
-
-EPSILON = 1e-08
 
 
 class DiagNormalPolicy(nn.Module):
@@ -554,11 +554,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_learnables_learn2learn(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DiagNormalPolicy(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -570,11 +569,12 @@ class Test_learnables_learn2learn(_paritybench_base):
 
     def test_004(self):
         self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(ConvBase(*[], **{'output_size': 4}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(OmniglotFC(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -90,17 +90,6 @@ import torch.optim as optim
 import torch.nn.utils as utils
 
 
-def init_linear(input_linear, seed=1337):
-    """初始化全连接层权重
-    """
-    torch.manual_seed(seed)
-    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.
-        weight.size(1)))
-    nn.init.uniform_(input_linear.weight, -scope, scope)
-    if input_linear.bias is not None:
-        input_linear.bias.data.zero_()
-
-
 cpu_device = 'cpu'
 
 
@@ -121,6 +110,17 @@ def prepare_pack_padded_sequence(inputs_words, seq_lengths, device='cpu',
     sorted_inputs_words = inputs_words[indices]
     return sorted_inputs_words, sorted_seq_lengths.cpu().numpy(
         ), desorted_indices
+
+
+def init_linear(input_linear, seed=1337):
+    """初始化全连接层权重
+    """
+    torch.manual_seed(seed)
+    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.
+        weight.size(1)))
+    nn.init.uniform_(input_linear.weight, -scope, scope)
+    if input_linear.bias is not None:
+        input_linear.bias.data.zero_()
 
 
 def init_embedding(input_embedding, seed=666):

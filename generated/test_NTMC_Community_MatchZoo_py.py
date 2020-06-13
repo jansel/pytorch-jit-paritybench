@@ -190,77 +190,6 @@ import torch.optim as optim
 from torch import optim
 
 
-def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
-    dictionary: nn.ModuleDict, target: str) ->nn.Module:
-    """
-    Parse loss and activation.
-
-    :param identifier: activation identifier, one of
-            - String: name of a activation
-            - Torch Modele subclass
-            - Torch Module instance (it will be returned unchanged).
-    :param dictionary: nn.ModuleDict instance. Map string identifier to
-        nn.Module instance.
-    :return: A :class:`nn.Module` instance
-    """
-    if isinstance(identifier, str):
-        if identifier in dictionary:
-            return dictionary[identifier]
-        else:
-            raise ValueError(f'Could not interpret {target} identifier: ' +
-                str(identifier))
-    elif isinstance(identifier, nn.Module):
-        return identifier
-    elif issubclass(identifier, nn.Module):
-        return identifier()
-    else:
-        raise ValueError(f'Could not interpret {target} identifier: ' + str
-            (identifier))
-
-
-activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()
-    ], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()
-    ], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], [
-    'logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()],
-    ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.
-    LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus
-    ()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], [
-    'softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink',
-    nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
-
-
-def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module],
-    nn.Module]) ->nn.Module:
-    """
-    Retrieves a torch Module instance.
-
-    :param identifier: activation identifier, one of
-            - String: name of a activation
-            - Torch Modele subclass
-            - Torch Module instance (it will be returned unchanged).
-    :return: A :class:`nn.Module` instance
-
-    Examples::
-        >>> from torch import nn
-        >>> from matchzoo.utils import parse_activation
-
-    Use `str` as activation:
-        >>> activation = parse_activation('relu')
-        >>> type(activation)
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    Use :class:`torch.nn.Module` subclasses as activation:
-        >>> type(parse_activation(nn.ReLU))
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    Use :class:`torch.nn.Module` instances as activation:
-        >>> type(parse_activation(nn.ReLU()))
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    """
-    return _parse(identifier, activation, 'activation')
-
-
 class RankCrossEntropyLoss(nn.Module):
     """Creates a criterion that measures rank cross entropy loss."""
     __constants__ = ['num_neg']
@@ -853,6 +782,77 @@ class SemanticComposite(nn.Module):
         return encoding
 
 
+def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
+    dictionary: nn.ModuleDict, target: str) ->nn.Module:
+    """
+    Parse loss and activation.
+
+    :param identifier: activation identifier, one of
+            - String: name of a activation
+            - Torch Modele subclass
+            - Torch Module instance (it will be returned unchanged).
+    :param dictionary: nn.ModuleDict instance. Map string identifier to
+        nn.Module instance.
+    :return: A :class:`nn.Module` instance
+    """
+    if isinstance(identifier, str):
+        if identifier in dictionary:
+            return dictionary[identifier]
+        else:
+            raise ValueError(f'Could not interpret {target} identifier: ' +
+                str(identifier))
+    elif isinstance(identifier, nn.Module):
+        return identifier
+    elif issubclass(identifier, nn.Module):
+        return identifier()
+    else:
+        raise ValueError(f'Could not interpret {target} identifier: ' + str
+            (identifier))
+
+
+activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()
+    ], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()
+    ], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], [
+    'logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()],
+    ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.
+    LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus
+    ()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], [
+    'softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink',
+    nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
+
+
+def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module],
+    nn.Module]) ->nn.Module:
+    """
+    Retrieves a torch Module instance.
+
+    :param identifier: activation identifier, one of
+            - String: name of a activation
+            - Torch Modele subclass
+            - Torch Module instance (it will be returned unchanged).
+    :return: A :class:`nn.Module` instance
+
+    Examples::
+        >>> from torch import nn
+        >>> from matchzoo.utils import parse_activation
+
+    Use `str` as activation:
+        >>> activation = parse_activation('relu')
+        >>> type(activation)
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    Use :class:`torch.nn.Module` subclasses as activation:
+        >>> type(parse_activation(nn.ReLU))
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    Use :class:`torch.nn.Module` instances as activation:
+        >>> type(parse_activation(nn.ReLU()))
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    """
+    return _parse(identifier, activation, 'activation')
+
+
 class SpatialGRU(nn.Module):
     """
     Spatial GRU Module.
@@ -1040,7 +1040,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1049,34 +1048,35 @@ class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
 
     def test_002(self):
         self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MatchModule(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(DenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(DenseNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(GaussianKernel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(SemanticComposite(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(SpatialGRU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

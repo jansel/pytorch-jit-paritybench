@@ -1329,6 +1329,11 @@ class DRN_A(nn.Module):
         return x
 
 
+def drn_a_n(pretrained=False, depth_n=18, **kwargs):
+    model = DRN_A(BasicBlock, [2 + depth_n - 18, 2, 2, 2], **kwargs)
+    return model
+
+
 def drn_a_asymmetric_n(pretrained=False, depth_n=18, **kwargs):
     model = DRN_A(BasicBlock_asymmetric, [2 + depth_n - 18, 2, 2, 2], **kwargs)
     return model
@@ -1344,11 +1349,6 @@ def fill_up_weights(up):
                 f - c))
     for c in range(1, w.size(0)):
         w[(c), (0), :, :] = w[(0), (0), :, :]
-
-
-def drn_a_n(pretrained=False, depth_n=18, **kwargs):
-    model = DRN_A(BasicBlock, [2 + depth_n - 18, 2, 2, 2], **kwargs)
-    return model
 
 
 class DRNSeg(nn.Module):

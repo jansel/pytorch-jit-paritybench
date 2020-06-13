@@ -182,6 +182,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_cmhungsteve_TA3N(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(TCL(*[], **{'conv_size': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

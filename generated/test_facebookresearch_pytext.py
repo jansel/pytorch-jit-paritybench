@@ -510,31 +510,6 @@ def FloatTensor(*args):
         return torch.FloatTensor(*args)
 
 
-class ComponentType(enum.Enum):
-    TASK = 'task'
-    COLUMN = 'column'
-    DATA_TYPE = 'data_type'
-    DATA_HANDLER = 'data_handler'
-    DATA_SOURCE = 'data_source'
-    TOKENIZER = 'tokenizer'
-    TENSORIZER = 'tensorizer'
-    BATCHER = 'batcher'
-    BATCH_SAMPLER = 'batch_sampler'
-    FEATURIZER = 'featurizer'
-    TRAINER = 'trainer'
-    LOSS = 'loss'
-    OPTIMIZER = 'optimizer'
-    SCHEDULER = 'scheduler'
-    MODEL = 'model'
-    MODEL2 = 'model2'
-    MODULE = 'module'
-    PREDICTOR = 'predictor'
-    EXPORTER = 'exporter'
-    METRIC_REPORTER = 'metric_reporter'
-    SPARSIFIER = 'sparsifier'
-    MASKING_FUNCTION = 'masking_function'
-
-
 class ConfigBaseMeta(type):
 
     def annotations_and_defaults(cls):
@@ -606,6 +581,31 @@ class ConfigBase(metaclass=ConfigBaseMeta):
     def __eq__(self, other):
         """Mainly a convenience utility for unit testing."""
         return type(self) == type(other) and self._asdict() == other._asdict()
+
+
+class ComponentType(enum.Enum):
+    TASK = 'task'
+    COLUMN = 'column'
+    DATA_TYPE = 'data_type'
+    DATA_HANDLER = 'data_handler'
+    DATA_SOURCE = 'data_source'
+    TOKENIZER = 'tokenizer'
+    TENSORIZER = 'tensorizer'
+    BATCHER = 'batcher'
+    BATCH_SAMPLER = 'batch_sampler'
+    FEATURIZER = 'featurizer'
+    TRAINER = 'trainer'
+    LOSS = 'loss'
+    OPTIMIZER = 'optimizer'
+    SCHEDULER = 'scheduler'
+    MODEL = 'model'
+    MODEL2 = 'model2'
+    MODULE = 'module'
+    PREDICTOR = 'predictor'
+    EXPORTER = 'exporter'
+    METRIC_REPORTER = 'metric_reporter'
+    SPARSIFIER = 'sparsifier'
+    MASKING_FUNCTION = 'masking_function'
 
 
 class RegistryError(Exception):
@@ -2505,6 +2505,18 @@ def rename_state_keys(state, keys_regex, replacement):
         k, v in state.items()}
 
 
+def rename_component_from_root(state, old_name, new_name):
+    """Rename keys from state using full python paths"""
+    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') +
+        '.?(.*)$', new_name + '.\\1')
+
+
+def remove_state_keys(state, keys_regex):
+    """Remove keys from state that match a regex"""
+    regex = re.compile(keys_regex)
+    return {k: v for k, v in state.items() if not regex.findall(k)}
+
+
 def merge_input_projection(state):
     """
     New checkpoints of fairseq multihead attention split in_projections into
@@ -2536,18 +2548,6 @@ def merge_input_projection(state):
     for key, value in items_to_add.items():
         state[key] = value
     return state
-
-
-def remove_state_keys(state, keys_regex):
-    """Remove keys from state that match a regex"""
-    regex = re.compile(keys_regex)
-    return {k: v for k, v in state.items() if not regex.findall(k)}
-
-
-def rename_component_from_root(state, old_name, new_name):
-    """Rename keys from state using full python paths"""
-    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') +
-        '.?(.*)$', new_name + '.\\1')
 
 
 def translate_roberta_state_dict(state_dict):
@@ -2608,10 +2608,10 @@ DEFAULT_PADDING_IDX = 1
 DEFAULT_NUM_LAYERS = 12
 
 
-DEFAULT_VOCAB_SIZE = 50265
-
-
 DEFAULT_MAX_SEQUENCE_LENGTH = 514
+
+
+DEFAULT_VOCAB_SIZE = 50265
 
 
 class Transformer(nn.Module):
@@ -2649,19 +2649,19 @@ class Transformer(nn.Module):
 
 
 @torch.jit.script
-def xaviervar(size: List[int], device: str):
-    t = torch.empty(size, device=device)
-    t = torch.nn.init.xavier_normal_(t)
-    return t
-
-
-@torch.jit.script
 def reverse_tensor_list(int_list: List[torch.Tensor]) ->List[torch.Tensor]:
     l_len = len(int_list)
     res = []
     for idx in range(l_len):
         res.append(int_list[l_len - idx - 1])
     return res
+
+
+@torch.jit.script
+def xaviervar(size: List[int], device: str):
+    t = torch.empty(size, device=device)
+    t = torch.nn.init.xavier_normal_(t)
+    return t
 
 
 class CompositionalNN(torch.jit.ScriptModule):
@@ -3503,10 +3503,6 @@ class VectorNormalizer(torch.nn.Module):
         return vec
 
 
-class UninitializedLazyModuleError(Exception):
-    """A lazy module was used improperly."""
-
-
 class Infer:
     """A value which can be inferred from a forward pass. Infer objects should
     be passed as arguments or keyword arguments to Lazy objects; see Lazy
@@ -3524,6 +3520,10 @@ class Infer:
     def dimension(cls, dim):
         """A helper for creating Infer arguments looking at specific dimensions."""
         return cls(lambda input: input.size()[dim])
+
+
+class UninitializedLazyModuleError(Exception):
+    """A lazy module was used improperly."""
 
 
 class Lazy(nn.Module):
@@ -3613,15 +3613,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_facebookresearch_pytext(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FCModelWithNanAndInfWts(*[], **{}), [torch.rand([10, 10])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MultiLabelClassificationScores(*[], **{'scores': [ReLU()]}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3630,19 +3629,19 @@ class Test_facebookresearch_pytext(_paritybench_base):
 
     def test_004(self):
         self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(MaxPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(MeanPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(NoPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -3657,3 +3656,4 @@ class Test_facebookresearch_pytext(_paritybench_base):
 
     def test_012(self):
         self._check(VectorNormalizer(*[], **{'dim': 4}), [], {})
+

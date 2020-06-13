@@ -1,0 +1,1393 @@
+import sys
+_module = sys.modules[__name__]
+del sys
+test_cb = _module
+test_cbow = _module
+test_cws = _module
+test_gdp = _module
+test_lm = _module
+test_mt = _module
+test_ner = _module
+test_pos = _module
+test_re = _module
+test_sa = _module
+test_skip_gram = _module
+test_srl = _module
+test_ss = _module
+test_tdp = _module
+test_te = _module
+test_ts = _module
+test_word_vectors = _module
+lightnlp = _module
+base = _module
+config = _module
+model = _module
+module = _module
+tool = _module
+sl = _module
+cws = _module
+model = _module
+utils = _module
+convert = _module
+ner = _module
+model = _module
+pos = _module
+model = _module
+srl = _module
+model = _module
+sp = _module
+gdp = _module
+components = _module
+biaffine = _module
+dropout = _module
+lstm = _module
+mlp = _module
+model = _module
+module = _module
+dataset = _module
+metric = _module
+reader = _module
+vocab = _module
+tdp = _module
+action_chooser = _module
+combiner = _module
+word_embedding = _module
+model = _module
+module = _module
+feature_extractor = _module
+parser_state = _module
+vectors = _module
+sr = _module
+ss = _module
+model = _module
+module = _module
+pad = _module
+te = _module
+model = _module
+module = _module
+tc = _module
+re = _module
+model = _module
+module = _module
+preprocess = _module
+sa = _module
+model = _module
+module = _module
+tg = _module
+cb = _module
+models = _module
+attention = _module
+decoder = _module
+encoder = _module
+seq2seq = _module
+module = _module
+lm = _module
+model = _module
+module = _module
+mt = _module
+attention = _module
+decoder = _module
+encoder = _module
+seq2seq = _module
+module = _module
+ts = _module
+attention = _module
+decoder = _module
+encoder = _module
+seq2seq = _module
+module = _module
+deploy = _module
+learning = _module
+log = _module
+score_func = _module
+word_vector = _module
+we = _module
+cbow = _module
+model = _module
+module = _module
+hierarchical_softmax = _module
+model = _module
+model = _module
+negative_sampling = _module
+model = _module
+huffman_tree = _module
+sampling = _module
+skip_gram = _module
+model = _module
+module = _module
+model = _module
+model = _module
+model = _module
+module = _module
+setup = _module
+test_flask = _module
+
+from _paritybench_helpers import _mock_config
+from unittest.mock import mock_open, MagicMock
+from torch.autograd import Function
+from torch.nn import Module
+open = mock_open()
+logging = sys = argparse = MagicMock()
+ArgumentParser = argparse.ArgumentParser
+_global_config = args = argv = cfg = config = params = _mock_config()
+argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+sys.argv = _global_config
+__version__ = '1.0.0'
+
+
+import torch
+
+
+import torch.nn as nn
+
+
+from torch.nn.utils.rnn import pack_padded_sequence
+
+
+from torch.nn.utils.rnn import pad_packed_sequence
+
+
+from torch.nn.utils.rnn import PackedSequence
+
+
+import torch.nn.functional as F
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+from torch.nn.utils.rnn import pad_sequence
+
+
+from torch.utils.data import Dataset
+
+
+from collections import Counter
+
+
+from collections import deque
+
+
+import random
+
+
+from torch.nn.utils import clip_grad_norm_
+
+
+from typing import List
+
+
+FILE_LOG_FMT = (
+    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+    )
+
+
+LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
+    'ERROR': 'red', 'CRITICAL': 'red,bg_white'}
+
+
+class ColoredFormatter(logging.Formatter):
+    COLOR_MAP = {'black': '30', 'red': '31', 'green': '32', 'yellow': '33',
+        'blue': '34', 'magenta': '35', 'cyan': '36', 'white': '37',
+        'bg_black': '40', 'bg_red': '41', 'bg_green': '42', 'bg_yellow':
+        '43', 'bg_blue': '44', 'bg_magenta': '45', 'bg_cyan': '46',
+        'bg_white': '47', 'light_black': '1;30', 'light_red': '1;31',
+        'light_green': '1;32', 'light_yellow': '1;33', 'light_blue': '1;34',
+        'light_magenta': '1;35', 'light_cyan': '1;36', 'light_white':
+        '1;37', 'light_bg_black': '100', 'light_bg_red': '101',
+        'light_bg_green': '102', 'light_bg_yellow': '103', 'light_bg_blue':
+        '104', 'light_bg_magenta': '105', 'light_bg_cyan': '106',
+        'light_bg_white': '107'}
+
+    def __init__(self, fmt, datefmt):
+        super(ColoredFormatter, self).__init__(fmt, datefmt)
+
+    def parse_color(self, level_name):
+        color_name = LEVEL_COLOR.get(level_name, '')
+        if not color_name:
+            return ''
+        color_value = []
+        color_name = color_name.split(',')
+        for _cn in color_name:
+            color_code = self.COLOR_MAP.get(_cn, '')
+            if color_code:
+                color_value.append(color_code)
+        return '\x1b[' + ';'.join(color_value) + 'm'
+
+    def format(self, record):
+        record.log_color = self.parse_color(record.levelname)
+        message = super(ColoredFormatter, self).format(record) + '\x1b[0m'
+        return message
+
+
+FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+STDOUT_LOG_FMT = (
+    '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+    )
+
+
+STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+def _get_logger(log_to_file=True, log_filename='default.log', log_level='DEBUG'
+    ):
+    _logger = logging.getLogger(__name__)
+    stdout_handler = logging.StreamHandler()
+    stdout_handler.setFormatter(ColoredFormatter(fmt=STDOUT_LOG_FMT,
+        datefmt=STDOUT_DATE_FMT))
+    _logger.addHandler(stdout_handler)
+    if log_to_file:
+        _tmp_path = os.path.dirname(os.path.abspath(__file__))
+        _tmp_path = os.path.join(_tmp_path, '../logs/{}'.format(log_filename))
+        file_handler = logging.handlers.TimedRotatingFileHandler(_tmp_path,
+            when='midnight', backupCount=30)
+        file_formatter = logging.Formatter(fmt=FILE_LOG_FMT, datefmt=
+            FILE_DATE_FMT)
+        file_handler.setFormatter(file_formatter)
+        _logger.addHandler(file_handler)
+    _logger.setLevel(log_level)
+    return _logger
+
+
+logger = _get_logger(log_to_file=False)
+
+
+class BaseModel(nn.Module):
+
+    def __init__(self, args):
+        super(BaseModel, self).__init__()
+        self.args = args
+        self.save_path = args.save_path
+
+    def load(self, path=None):
+        path = path if path else self.save_path
+        map_location = None if torch.cuda.is_available() else 'cpu'
+        model_path = os.path.join(path, 'model.pkl')
+        self.load_state_dict(torch.load(model_path, map_location=map_location))
+        logger.info('loadding model from {}'.format(model_path))
+
+    def save(self, path=None):
+        path = path if path else self.save_path
+        if not os.path.isdir(path):
+            os.mkdir(path)
+        model_path = os.path.join(path, 'model.pkl')
+        torch.save(self.state_dict(), model_path)
+        logger.info('saved model to {}'.format(model_path))
+
+
+class Biaffine(nn.Module):
+
+    def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):
+        super(Biaffine, self).__init__()
+        self.n_in = n_in
+        self.n_out = n_out
+        self.bias_x = bias_x
+        self.bias_y = bias_y
+        self.weight = nn.Parameter(torch.Tensor(n_out, n_in + bias_x, n_in +
+            bias_y))
+        self.reset_parameters()
+
+    def extra_repr(self):
+        info = f'n_in={self.n_in}, n_out={self.n_out}'
+        if self.bias_x:
+            info += f', bias_x={self.bias_x}'
+        if self.bias_y:
+            info += f', bias_y={self.bias_y}'
+        return info
+
+    def reset_parameters(self):
+        nn.init.zeros_(self.weight)
+
+    def forward(self, x, y):
+        if self.bias_x:
+            x = torch.cat([x, x.new_ones(x.shape[:-1]).unsqueeze(-1)], -1)
+        if self.bias_y:
+            y = torch.cat([y, y.new_ones(y.shape[:-1]).unsqueeze(-1)], -1)
+        x = x.unsqueeze(1)
+        y = y.unsqueeze(1)
+        s = x @ self.weight @ torch.transpose(y, -1, -2)
+        s = s.squeeze(1)
+        return s
+
+
+class SharedDropout(nn.Module):
+
+    def __init__(self, p=0.5, batch_first=True):
+        super(SharedDropout, self).__init__()
+        self.p = p
+        self.batch_first = batch_first
+
+    def extra_repr(self):
+        info = f'p={self.p}'
+        if self.batch_first:
+            info += f', batch_first={self.batch_first}'
+        return info
+
+    def forward(self, x):
+        if self.training:
+            if self.batch_first:
+                mask = self.get_mask(x[:, (0)], self.p)
+            else:
+                mask = self.get_mask(x[0], self.p)
+            x *= mask.unsqueeze(1) if self.batch_first else mask
+        return x
+
+    @staticmethod
+    def get_mask(x, p):
+        mask = x.new_full(x.shape, 1 - p)
+        mask = torch.bernoulli(mask) / (1 - p)
+        return mask
+
+
+class IndependentDropout(nn.Module):
+
+    def __init__(self, p=0.5):
+        super(IndependentDropout, self).__init__()
+        self.p = p
+
+    def extra_repr(self):
+        return f'p={self.p}'
+
+    def forward(self, x, y, eps=1e-12):
+        if self.training:
+            x_mask = torch.bernoulli(x.new_full(x.shape[:2], 1 - self.p))
+            y_mask = torch.bernoulli(y.new_full(y.shape[:2], 1 - self.p))
+            scale = 3.0 / (2.0 * x_mask + y_mask + eps)
+            x_mask *= scale
+            y_mask *= scale
+            x *= x_mask.unsqueeze(dim=-1)
+            y *= y_mask.unsqueeze(dim=-1)
+        return x, y
+
+
+class LSTM(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0,
+        bidirectional=False):
+        super(LSTM, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
+        self.f_cells = nn.ModuleList()
+        self.b_cells = nn.ModuleList()
+        for layer in range(self.num_layers):
+            self.f_cells.append(nn.LSTMCell(input_size=input_size,
+                hidden_size=hidden_size))
+            if bidirectional:
+                self.b_cells.append(nn.LSTMCell(input_size=input_size,
+                    hidden_size=hidden_size))
+            input_size = hidden_size * self.num_directions
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for i in self.parameters():
+            if len(i.shape) > 1:
+                nn.init.orthogonal_(i)
+            else:
+                nn.init.zeros_(i)
+
+    def layer_forward(self, x, hx, cell, batch_sizes, reverse=False):
+        h, c = hx
+        init_h, init_c = h, c
+        output, seq_len = [], len(x)
+        steps = reversed(range(seq_len)) if reverse else range(seq_len)
+        if self.training:
+            hid_mask = SharedDropout.get_mask(h, self.dropout)
+        for t in steps:
+            batch_size = batch_sizes[t]
+            if len(h) < batch_size:
+                h = torch.cat((h, init_h[last_batch_size:batch_size]))
+                c = torch.cat((c, init_c[last_batch_size:batch_size]))
+            else:
+                h = h[:batch_size]
+                c = c[:batch_size]
+            h, c = cell(input=x[t], hx=(h, c))
+            output.append(h)
+            if self.training:
+                h = h * hid_mask[:batch_size]
+            last_batch_size = batch_size
+        if reverse:
+            output.reverse()
+        output = torch.cat(output)
+        return output
+
+    def forward(self, x, hx=None):
+        x, batch_sizes = x
+        batch_size = batch_sizes[0]
+        if hx is None:
+            init = x.new_zeros(batch_size, self.hidden_size)
+            hx = init, init
+        for layer in range(self.num_layers):
+            if self.training:
+                mask = SharedDropout.get_mask(x[:batch_size], self.dropout)
+                mask = torch.cat([mask[:batch_size] for batch_size in
+                    batch_sizes])
+                x *= mask
+            x = torch.split(x, batch_sizes.tolist())
+            f_output = self.layer_forward(x=x, hx=hx, cell=self.f_cells[
+                layer], batch_sizes=batch_sizes, reverse=False)
+            if self.bidirectional:
+                b_output = self.layer_forward(x=x, hx=hx, cell=self.b_cells
+                    [layer], batch_sizes=batch_sizes, reverse=True)
+            if self.bidirectional:
+                x = torch.cat([f_output, b_output], -1)
+            else:
+                x = f_output
+        x = PackedSequence(x, batch_sizes)
+        return x
+
+
+class MLP(nn.Module):
+
+    def __init__(self, n_in, n_hidden, dropout):
+        super(MLP, self).__init__()
+        self.linear = nn.Linear(n_in, n_hidden)
+        self.activation = nn.LeakyReLU(negative_slope=0.1)
+        self.dropout = SharedDropout(dropout)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.orthogonal_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+
+    def forward(self, x):
+        x = self.linear(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        return x
+
+
+ROOT = '<ROOT>'
+
+
+def light_tokenize(sequence: str):
+    return [sequence]
+
+
+class Actions:
+    """Simple Enum for each possible parser action"""
+    SHIFT = 0
+    REDUCE_L = 1
+    REDUCE_R = 2
+    NUM_ACTIONS = 3
+    action_to_ix = {'SHIFT': SHIFT, 'REDUCE_L': REDUCE_L, 'REDUCE_R': REDUCE_R}
+
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+class ActionChooserNetwork(nn.Module):
+
+    def __init__(self, input_dim):
+        super(ActionChooserNetwork, self).__init__()
+        self.hidden_dim = input_dim
+        self.linear1 = nn.Linear(input_dim, self.hidden_dim).to(DEVICE)
+        self.linear2 = nn.Linear(self.hidden_dim, Actions.NUM_ACTIONS).to(
+            DEVICE)
+
+    def forward(self, inputs):
+        input_vec = vectors.concat_and_flatten(inputs)
+        temp_vec = self.linear1(input_vec)
+        temp_vec = F.relu(temp_vec).to(DEVICE)
+        result = self.linear2(temp_vec)
+        return result
+
+
+class MLPCombinerNetwork(nn.Module):
+
+    def __init__(self, embedding_dim):
+        super(MLPCombinerNetwork, self).__init__()
+        self.linear1 = nn.Linear(embedding_dim * 2, embedding_dim).to(DEVICE)
+        self.linear2 = nn.Linear(embedding_dim, embedding_dim).to(DEVICE)
+
+    def forward(self, head_embed, modifier_embed):
+        input_vec = vectors.concat_and_flatten((head_embed, modifier_embed))
+        temp_vec = self.linear1(input_vec)
+        temp_vec = torch.tanh(temp_vec)
+        result = self.linear2(temp_vec)
+        return result
+
+
+class LSTMCombinerNetwork(nn.Module):
+
+    def __init__(self, embedding_dim, num_layers, dropout):
+        super(LSTMCombinerNetwork, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.num_layers = num_layers
+        self.use_cuda = False
+        self.linear = nn.Linear(self.embedding_dim * 2, self.embedding_dim).to(
+            DEVICE)
+        self.hidden_dim = self.embedding_dim
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, num_layers=
+            self.num_layers, dropout=dropout).to(DEVICE)
+        self.hidden = self.init_hidden()
+
+    def init_hidden(self, batch_size=1):
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
+            DEVICE)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
+            DEVICE)
+        return h0, c0
+
+    def forward(self, head_embed, modifier_embed):
+        input_vec = vectors.concat_and_flatten((head_embed, modifier_embed))
+        temp_vec = self.linear(input_vec).view(1, 1, -1)
+        lstm_hiddens, self.hidden = self.lstm(temp_vec, self.hidden)
+        return lstm_hiddens[-1]
+
+    def clear_hidden_state(self):
+        self.hidden = self.init_hidden()
+
+
+class VanillaWordEmbeddingLookup(nn.Module):
+    """
+    A component that simply returns a list of the word embeddings as
+    autograd Variables.
+    """
+
+    def __init__(self, vocabulary_size, embedding_dim, vector_path=None,
+        non_static=False):
+        super(VanillaWordEmbeddingLookup, self).__init__()
+        self.vocabulary_size = vocabulary_size
+        self.embedding_dim = embedding_dim
+        self.output_dim = embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dim).to(DEVICE)
+        if vector_path:
+            logger.info('logging word vectors from {}'.format(vector_path))
+            word_vectors = Vectors(vector_path).vectors
+            self.word_embeddings = self.word_embeddings.from_pretrained(
+                word_vectors, freeze=not non_static).to(DEVICE)
+
+    def forward(self, sentence):
+        embeds = self.word_embeddings(sentence.to(DEVICE)).to(DEVICE)
+        return embeds
+
+
+class BiLSTMWordEmbeddingLookup(nn.Module):
+
+    def __init__(self, vocabulary_size, word_embedding_dim, hidden_dim,
+        num_layers, dropout, vector_path=None, non_static=False):
+        super(BiLSTMWordEmbeddingLookup, self).__init__()
+        self.vocabulary_size = vocabulary_size
+        self.num_layers = num_layers
+        self.word_embedding_dim = word_embedding_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = hidden_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            word_embedding_dim).to(DEVICE)
+        if vector_path:
+            logger.info('logging word vectors from {}'.format(vector_path))
+            word_vectors = Vectors(vector_path).vectors
+            self.word_embeddings = self.word_embeddings.from_pretrained(
+                word_vectors, freeze=not non_static).to(DEVICE)
+        self.lstm = nn.LSTM(self.word_embedding_dim, self.hidden_dim // 2,
+            bidirectional=True, num_layers=num_layers, dropout=dropout).to(
+            DEVICE)
+        self.hidden = self.init_hidden()
+
+    def forward(self, sentence):
+        embeddings = self.word_embeddings(sentence)
+        lstm_hiddens, self.hidden = self.lstm(embeddings, self.hidden)
+        return lstm_hiddens
+
+    def init_hidden(self, batch_size=1):
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def clear_hidden_state(self):
+        self.hidden = self.init_hidden()
+
+
+def adjust_learning_rate(optimizer, new_lr):
+    """
+    Shrinks learning rate by a specified factor.
+
+    :param optimizer: optimizer whose learning rates must be decayed
+    :param new_lr: new learning rate
+    """
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+
+
+DEFAULT_CONFIG = {'save_path': './saves'}
+
+
+class MaLSTM(BaseModel):
+
+    def __init__(self, args):
+        super(MaLSTM, self).__init__(args)
+        self.args = args
+        self.hidden_dim = 300
+        self.tag_num = args.tag_num
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.num_layers = args.num_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        self.pwd = torch.nn.PairwiseDistance(p=1)
+        self.embedding = nn.Embedding(vocabulary_size, embedding_dimension).to(
+            DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.embedding = self.embedding.from_pretrained(vectors, freeze
+                =not args.non_static).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension, self.hidden_dim // 2,
+            bidirectional=self.bidirectional, num_layers=self.num_layers,
+            dropout=self.dropout).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def forward(self, left, right):
+        left_vec = self.embedding(left.to(DEVICE)).to(DEVICE)
+        right_vec = self.embedding(right.to(DEVICE)).to(DEVICE)
+        self.hidden = self.init_hidden(batch_size=left.size(1))
+        left_lstm_out, (left_lstm_hidden, _) = self.lstm(left_vec, self.hidden)
+        right_lstm_out, (right_lstm_hidden, _) = self.lstm(right_vec, self.
+            hidden)
+        return self.manhattan_distance(left_lstm_hidden[0],
+            right_lstm_hidden[0])
+
+    def manhattan_distance(self, left, right):
+        return torch.exp(-self.pwd(left, right))
+
+
+class BaseConfig(object):
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def load(path=DEFAULT_CONFIG['save_path']):
+        config_path = os.path.join(path, 'config.pkl')
+        with open(config_path, 'rb') as f:
+            config = pickle.load(f)
+        logger.info('loadding config from {}'.format(config_path))
+        config.save_path = path
+        return config
+
+    def save(self, path=None):
+        if not hasattr(self, 'save_path'):
+            raise AttributeError(
+                'config object must init save_path attr in init method!')
+        path = path if path else self.save_path
+        if not os.path.isdir(path):
+            os.mkdir(path)
+        config_path = os.path.join(path, 'config.pkl')
+        with open(os.path.join(path, 'config.pkl'), 'wb') as f:
+            pickle.dump(self, f)
+        logger.info('saved config to {}'.format(config_path))
+
+
+class Config(BaseConfig):
+
+    def __init__(self, word_vocab, **kwargs):
+        super(Config, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
+def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
+    padded_seq = sequence[:]
+    if len(padded_seq) < seq_length:
+        padded_seq.extend([pad_token for _ in range(len(padded_seq),
+            seq_length)])
+    return padded_seq[:seq_length]
+
+
+def get_free_tcp_port():
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(('', 0))
+    addr, port = tcp.getsockname()
+    tcp.close()
+    return port
+
+
+class Attention(nn.Module):
+    """
+    several score types like dot,general and concat
+    """
+
+    def __init__(self, method='dot', hidden_size=None):
+        super(Attention, self).__init__()
+        self.method = method
+        if self.method != 'dot':
+            self.hidden_size = hidden_size
+            if self.method == 'general':
+                self.W = nn.Linear(hidden_size, hidden_size)
+            elif self.method == 'concat':
+                self.W = nn.Linear(self.hidden_size * 2, hidden_size)
+                self.v = nn.Parameter(torch.rand(1, hidden_size))
+                nn.init.xavier_normal_(self.v.data)
+
+    def forward(self, query, key, value, mask=None, dropout=0):
+        if self.method == 'general':
+            scores = self.general(query, key)
+        elif self.method == 'concat':
+            scores = self.concat(query, key)
+        else:
+            scores = self.dot(query, key)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1000000000.0)
+        p_attn = F.softmax(scores, dim=-1)
+        if not dropout:
+            p_attn = F.dropout(p_attn, dropout)
+        return torch.matmul(p_attn, value), p_attn
+
+    def dot(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        return scores
+
+    def general(self, query, key):
+        scores = torch.matmul(self.W(query), key.transpose(-2, -1))
+        return scores
+
+    def concat(self, query, key):
+        scores = torch.cat((query.expand(-1, key.size(1), -1), key), dim=2)
+        scores = self.W(scores)
+        scores = F.tanh(scores)
+        scores = torch.matmul(scores, self.v.t()).transpose(-2, -1)
+        return scores
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
+        dropout=0.2, method='dot'):
+        super(Decoder, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
+        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
+        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
+            dropout=dropout, batch_first=True).to(DEVICE)
+        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+
+    def forward(self, word, last_hidden, encoder_outputs):
+        embedded = self.embed(word).unsqueeze(1)
+        embedded = self.dropout(embedded)
+        context, attn_weights = self.attention(last_hidden[-1].unsqueeze(1),
+            encoder_outputs, encoder_outputs)
+        context = F.relu(context)
+        rnn_input = torch.cat((embedded, context), 2)
+        output, hidden = self.gru(rnn_input, last_hidden)
+        output = output.squeeze(1)
+        context = context.squeeze(1)
+        output = torch.cat((output, context), 1)
+        output = self.out(output)
+        return output, hidden, attn_weights
+
+
+class Encoder(nn.Module):
+    """
+    basic GRU encoder
+    """
+
+    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
+        dropout=0.5):
+        super(Encoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
+            True, dropout=dropout, bidirectional=True).to(DEVICE)
+
+    def forward(self, sentences, lengths, hidden=None):
+        embedded = self.embed(sentences)
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True)
+        outputs, hidden = self.gru(packed, hidden)
+        outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
+            hidden_size:]
+        return outputs, hidden
+
+
+class Seq2Seq(nn.Module):
+
+    def __init__(self, encoder, decoder):
+        super(Seq2Seq, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, src, src_lens, trg, teacher_forcing_ratio=0.5):
+        batch_size = trg.size(0)
+        max_len = trg.size(1)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = trg.data[:, (0)]
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            teacher_force = random.random() < teacher_forcing_ratio
+            top1 = output.data.max(1)[1]
+            if teacher_force:
+                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+            else:
+                decoder_input = top1.to(DEVICE)
+        return outputs
+
+    def predict(self, src, src_lens, sos, max_len):
+        batch_size = src.size(0)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = sos
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            top1 = output.data.max(1)[1]
+            decoder_input = top1.to(DEVICE)
+        return outputs
+
+
+class CBConfig(BaseConfig):
+
+    def __init__(self, word_vocab, vector_path, **kwargs):
+        super(CBConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        self.vector_path = vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
+class CBSeq2Seq(BaseModel):
+
+    def __init__(self, args):
+        super(CBSeq2Seq, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.embedding_dim
+        self.vocabulary_size = args.vocabulary_size
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        self.teacher_forcing_ratio = args.teacher_forcing_ratio
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        encoder = Encoder(vocabulary_size, embedding_dimension, self.
+            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
+        decoder = Decoder(self.hidden_dim, embedding_dimension,
+            vocabulary_size, self.num_layers, self.dropout, args.method).to(
+            DEVICE)
+        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
+
+    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        return self.seq2seq(src, trg, teacher_forcing_ratio)
+
+    def predict(self, src, src_lens, sos, max_len):
+        return self.seq2seq.predict(src, src_lens, sos, max_len)
+
+
+class Attention(nn.Module):
+    """
+    several score types like dot,general and concat
+    """
+
+    def __init__(self, method='dot', hidden_size=None):
+        super(Attention, self).__init__()
+        self.method = method
+        if self.method != 'dot':
+            self.hidden_size = hidden_size
+            if self.method == 'general':
+                self.W = nn.Linear(hidden_size, hidden_size)
+            elif self.method == 'concat':
+                self.W = nn.Linear(self.hidden_size * 2, hidden_size)
+                self.v = nn.Parameter(torch.rand(1, hidden_size))
+                nn.init.xavier_normal_(self.v.data)
+
+    def forward(self, query, key, value, mask=None, dropout=0):
+        if self.method == 'general':
+            scores = self.general(query, key)
+        elif self.method == 'concat':
+            scores = self.concat(query, key)
+        else:
+            scores = self.dot(query, key)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1000000000.0)
+        p_attn = F.softmax(scores, dim=-1)
+        if not dropout:
+            p_attn = F.dropout(p_attn, dropout)
+        return torch.matmul(p_attn, value), p_attn
+
+    def dot(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        return scores
+
+    def general(self, query, key):
+        scores = torch.matmul(self.W(query), key.transpose(-2, -1))
+        return scores
+
+    def concat(self, query, key):
+        scores = torch.cat((query.expand(-1, key.size(1), -1), key), dim=2)
+        scores = self.W(scores)
+        scores = F.tanh(scores)
+        scores = torch.matmul(scores, self.v.t()).transpose(-2, -1)
+        return scores
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
+        dropout=0.2, method='dot'):
+        super(Decoder, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
+        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
+        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
+            dropout=dropout, batch_first=True).to(DEVICE)
+        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+
+    def forward(self, word, last_hidden, encoder_outputs):
+        embedded = self.embed(word).unsqueeze(1)
+        embedded = self.dropout(embedded)
+        context, attn_weights = self.attention(last_hidden[-1].unsqueeze(1),
+            encoder_outputs, encoder_outputs)
+        context = F.relu(context)
+        rnn_input = torch.cat((embedded, context), 2)
+        output, hidden = self.gru(rnn_input, last_hidden)
+        output = output.squeeze(1)
+        context = context.squeeze(1)
+        output = torch.cat((output, context), 1)
+        output = self.out(output)
+        return output, hidden, attn_weights
+
+
+class Encoder(nn.Module):
+    """
+    basic GRU encoder
+    """
+
+    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
+        dropout=0.5):
+        super(Encoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
+            True, dropout=dropout, bidirectional=True).to(DEVICE)
+
+    def forward(self, sentences, lengths, hidden=None):
+        embedded = self.embed(sentences)
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True)
+        outputs, hidden = self.gru(packed, hidden)
+        outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
+            hidden_size:]
+        return outputs, hidden
+
+
+class Seq2Seq(nn.Module):
+
+    def __init__(self, encoder, decoder):
+        super(Seq2Seq, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, src, src_lens, trg, teacher_forcing_ratio=0.5):
+        batch_size = trg.size(0)
+        max_len = trg.size(1)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = trg.data[:, (0)]
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            teacher_force = random.random() < teacher_forcing_ratio
+            top1 = output.data.max(1)[1]
+            if teacher_force:
+                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+            else:
+                decoder_input = top1.to(DEVICE)
+        return outputs
+
+    def predict(self, src, src_lens, sos, max_len):
+        batch_size = src.size(0)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = sos
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            top1 = output.data.max(1)[1]
+            decoder_input = top1.to(DEVICE)
+        return outputs
+
+
+class Attention(nn.Module):
+    """
+    several score types like dot,general and concat
+    """
+
+    def __init__(self, method='dot', hidden_size=None):
+        super(Attention, self).__init__()
+        self.method = method
+        if self.method != 'dot':
+            self.hidden_size = hidden_size
+            if self.method == 'general':
+                self.W = nn.Linear(hidden_size, hidden_size)
+            elif self.method == 'concat':
+                self.W = nn.Linear(self.hidden_size * 2, hidden_size)
+                self.v = nn.Parameter(torch.rand(1, hidden_size))
+                nn.init.xavier_normal_(self.v.data)
+
+    def forward(self, query, key, value, mask=None, dropout=0):
+        if self.method == 'general':
+            scores = self.general(query, key)
+        elif self.method == 'concat':
+            scores = self.concat(query, key)
+        else:
+            scores = self.dot(query, key)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1000000000.0)
+        p_attn = F.softmax(scores, dim=-1)
+        if not dropout:
+            p_attn = F.dropout(p_attn, dropout)
+        return torch.matmul(p_attn, value), p_attn
+
+    def dot(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        return scores
+
+    def general(self, query, key):
+        scores = torch.matmul(self.W(query), key.transpose(-2, -1))
+        return scores
+
+    def concat(self, query, key):
+        scores = torch.cat((query.expand(-1, key.size(1), -1), key), dim=2)
+        scores = self.W(scores)
+        scores = F.tanh(scores)
+        scores = torch.matmul(scores, self.v.t()).transpose(-2, -1)
+        return scores
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
+        dropout=0.2, method='dot'):
+        super(Decoder, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
+        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
+        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
+            dropout=dropout, batch_first=True).to(DEVICE)
+        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+
+    def forward(self, word, last_hidden, encoder_outputs):
+        embedded = self.embed(word).unsqueeze(1)
+        embedded = self.dropout(embedded)
+        context, attn_weights = self.attention(last_hidden[-1].unsqueeze(1),
+            encoder_outputs, encoder_outputs)
+        context = F.relu(context)
+        rnn_input = torch.cat((embedded, context), 2)
+        output, hidden = self.gru(rnn_input, last_hidden)
+        output = output.squeeze(1)
+        context = context.squeeze(1)
+        output = torch.cat((output, context), 1)
+        output = self.out(output)
+        return output, hidden, attn_weights
+
+
+class Encoder(nn.Module):
+    """
+    basic GRU encoder
+    """
+
+    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
+        dropout=0.5):
+        super(Encoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
+            True, dropout=dropout, bidirectional=True).to(DEVICE)
+
+    def forward(self, sentences, lengths, hidden=None):
+        embedded = self.embed(sentences)
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True)
+        outputs, hidden = self.gru(packed, hidden)
+        outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
+            hidden_size:]
+        return outputs, hidden
+
+
+class Seq2Seq(nn.Module):
+
+    def __init__(self, encoder, decoder):
+        super(Seq2Seq, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, src, src_lens, trg, teacher_forcing_ratio=0.5):
+        batch_size = trg.size(0)
+        max_len = trg.size(1)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = trg.data[:, (0)]
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            teacher_force = random.random() < teacher_forcing_ratio
+            top1 = output.data.max(1)[1]
+            if teacher_force:
+                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+            else:
+                decoder_input = top1.to(DEVICE)
+        return outputs
+
+    def predict(self, src, src_lens, sos, max_len):
+        batch_size = src.size(0)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = sos
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            top1 = output.data.max(1)[1]
+            decoder_input = top1.to(DEVICE)
+        return outputs
+
+
+class TSSeq2Seq(BaseModel):
+
+    def __init__(self, args):
+        super(TSSeq2Seq, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.embedding_dim
+        self.vocabulary_size = args.vocabulary_size
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        self.teacher_forcing_ratio = args.teacher_forcing_ratio
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        encoder = Encoder(vocabulary_size, embedding_dimension, self.
+            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
+        decoder = Decoder(self.hidden_dim, embedding_dimension,
+            vocabulary_size, self.num_layers, self.dropout, args.method).to(
+            DEVICE)
+        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
+
+    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        return self.seq2seq(src, trg, teacher_forcing_ratio)
+
+    def predict(self, src, src_lens, sos, max_len):
+        return self.seq2seq.predict(src, src_lens, sos, max_len)
+
+
+class TSConfig(BaseConfig):
+
+    def __init__(self, word_vocab, vector_path, **kwargs):
+        super(TSConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        self.vector_path = vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
+class CBOWBase(BaseModel):
+
+    def __init__(self, args):
+        super(CBOWBase, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
+            ).to(DEVICE)
+
+    def forward(self, context):
+        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
+        target_embedding = self.linear(context_embedding)
+        return target_embedding
+
+    def loss(self, context, target):
+        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
+        target_embedding = self.linear(context_embedding)
+        return F.cross_entropy(target_embedding, target.view(-1))
+
+
+def default_tokenize(sentence):
+    return list(jieba.cut(sentence))
+
+
+class CBOWDataset(Dataset):
+
+    def __init__(self, path, fields, window_size=3, tokenize=
+        default_tokenize, encoding='utf-8', **kwargs):
+        examples = []
+        with open(path, 'r', encoding=encoding) as f:
+            for line in f:
+                words = tokenize(line.strip())
+                if len(words) < window_size + 1:
+                    continue
+                for i in range(len(words)):
+                    example = words[max(0, i - window_size):i] + words[min(
+                        i + 1, len(words)):min(len(words), i + window_size) + 1
+                        ], words[i]
+                    examples.append(Example.fromlist(example, fields))
+        super(CBOWDataset, self).__init__(examples, fields, **kwargs)
+
+
+class SkipGramBase(BaseModel):
+
+    def __init__(self, args):
+        super(SkipGramBase, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
+            ).to(DEVICE)
+
+    def forward(self, target):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.linear(target_embedding).squeeze()
+        return context_embedding
+
+    def loss(self, target, context):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.linear(target_embedding).reshape(
+            target_embedding.size(0), -1)
+        return F.cross_entropy(context_embedding, context.view(-1))
+
+
+class SkipGramDataset(Dataset):
+
+    def __init__(self, path, fields, window_size=3, tokenize=
+        default_tokenize, encoding='utf-8', **kwargs):
+        examples = []
+        with open(path, 'r', encoding=encoding) as f:
+            for line in f:
+                words = tokenize(line.strip())
+                if len(words) < window_size + 1:
+                    continue
+                for i in range(len(words)):
+                    contexts = words[max(0, i - window_size):i] + words[min
+                        (i + 1, len(words)):min(len(words), i + window_size
+                        ) + 1]
+                    for context in contexts:
+                        examples.append(Example.fromlist((context, words[i]
+                            ), fields))
+        super(SkipGramDataset, self).__init__(examples, fields, **kwargs)
+
+
+class SkipGramNegativeSampling(BaseModel):
+
+    def __init__(self, args):
+        super(SkipGramNegativeSampling, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.context_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+
+    def forward(self, target, context):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.context_embeddings(context)
+        target_score = torch.matmul(target_embedding, context_embedding.
+            transpose(2, 1)).squeeze()
+        return torch.sigmoid(target_score)
+
+    def loss(self, target, pos, neg):
+        target_embedding = self.word_embeddings(target)
+        pos_embedding = self.context_embeddings(pos)
+        neg_embedding = self.context_embeddings(neg).squeeze()
+        pos_score = torch.matmul(target_embedding, pos_embedding.transpose(
+            2, 1)).squeeze()
+        neg_score = torch.matmul(target_embedding, neg_embedding.transpose(
+            1, 2)).squeeze()
+        pos_score = torch.sum(F.logsigmoid(pos_score), dim=0)
+        neg_score = torch.sum(F.logsigmoid(-1 * neg_score), dim=0)
+        return -1 * (torch.sum(pos_score) + torch.sum(neg_score))
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_smilelight_lightNLP(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(IndependentDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Attention(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

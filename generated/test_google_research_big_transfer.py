@@ -139,6 +139,13 @@ class StdConv2d(nn.Conv2d):
             dilation, self.groups)
 
 
+def tf2th(conv_weights):
+    """Possibly convert HWIO to OIHW."""
+    if conv_weights.ndim == 4:
+        conv_weights = conv_weights.transpose([3, 2, 0, 1])
+    return torch.from_numpy(conv_weights)
+
+
 def conv3x3(cin, cout, stride=1, groups=1, bias=False):
     return StdConv2d(cin, cout, kernel_size=3, stride=stride, padding=1,
         bias=bias, groups=groups)
@@ -147,13 +154,6 @@ def conv3x3(cin, cout, stride=1, groups=1, bias=False):
 def conv1x1(cin, cout, stride=1, bias=False):
     return StdConv2d(cin, cout, kernel_size=1, stride=stride, padding=0,
         bias=bias)
-
-
-def tf2th(conv_weights):
-    """Possibly convert HWIO to OIHW."""
-    if conv_weights.ndim == 4:
-        conv_weights = conv_weights.transpose([3, 2, 0, 1])
-    return torch.from_numpy(conv_weights)
 
 
 class PreActBottleneck(nn.Module):
@@ -276,6 +276,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_google_research_big_transfer(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(StdConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

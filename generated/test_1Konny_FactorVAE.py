@@ -36,9 +36,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-def normal_init(m):
+def kaiming_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
-        init.normal_(m.weight, 0, 0.02)
+        init.kaiming_normal_(m.weight)
         if m.bias is not None:
             m.bias.data.fill_(0)
     elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
@@ -47,9 +47,9 @@ def normal_init(m):
             m.bias.data.fill_(0)
 
 
-def kaiming_init(m):
+def normal_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
-        init.kaiming_normal_(m.weight)
+        init.normal_(m.weight, 0, 0.02)
         if m.bias is not None:
             m.bias.data.fill_(0)
     elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
@@ -223,18 +223,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_1Konny_FactorVAE(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Discriminator(*[], **{'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(FactorVAE1(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(FactorVAE2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(FactorVAE3(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

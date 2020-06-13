@@ -31,15 +31,6 @@ import torch.nn as nn
 from torch.autograd import Function
 
 
-def CountSketchFn_backward(h, s, x_size, grad_output):
-    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
-    s = s.view(s_view)
-    h = h.view(s_view).expand(x_size)
-    grad_x = grad_output.gather(-1, h)
-    grad_x = grad_x * s
-    return grad_x
-
-
 def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     x_size = tuple(x.size())
     s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
@@ -53,6 +44,15 @@ def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     else:
         out = x.new(*out_size).zero_()
         return out.scatter_add_(-1, h, xs)
+
+
+def CountSketchFn_backward(h, s, x_size, grad_output):
+    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
+    s = s.view(s_view)
+    h = h.view(s_view).expand(x_size)
+    grad_x = grad_output.gather(-1, h)
+    grad_x = grad_x * s
+    return grad_x
 
 
 class CountSketchFn(Function):
@@ -246,10 +246,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_gdlg_pytorch_compact_bilinear_pooling(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

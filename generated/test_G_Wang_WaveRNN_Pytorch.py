@@ -145,69 +145,6 @@ class UpsampleNetwork(nn.Module):
         return m.transpose(1, 2), aux.transpose(1, 2)
 
 
-def num_params(model):
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
-    parameters = sum([np.prod(p.size()) for p in parameters]) / 1000000
-    print('Trainable Parameters: %.3f million' % parameters)
-
-
-def sample_from_beta_dist(y_hat):
-    """
-    y_hat (batch_size x seq_len x 2):
-    
-    """
-    loc_y = y_hat.exp()
-    alpha = loc_y[:, :, (0)].unsqueeze(-1)
-    beta = loc_y[:, :, (1)].unsqueeze(-1)
-    dist = Beta(alpha, beta)
-    sample = dist.sample()
-    sample = 2.0 * sample - 1.0
-    return sample
-
-
-def sample_from_gaussian(y_hat, log_std_min=-7.0, scale_factor=1.0):
-    """y_hat (batch_size x seq_len x 2)
-        y (batch_size x seq_len x 1)
-    """
-    assert y_hat.size(2) == 2
-    mean = y_hat[:, :, :1]
-    log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
-    dist = Normal(mean, torch.exp(log_std))
-    sample = dist.sample()
-    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=
-        scale_factor)
-    del dist
-    return sample
-
-
-def inv_mulaw_quantize(x_mu, quantization_channels=256, cuda=False):
-    """Decode mu-law encoded signal.  For more info see the
-    `Wikipedia Entry <https://en.wikipedia.org/wiki/%CE%9C-law_algorithm>`_
-
-    This expects an input with values between 0 and quantization_channels - 1
-    and returns a signal scaled between -1 and 1.
-
-    Args:
-        quantization_channels (int): Number of channels. default: 256
-
-    """
-    mu = quantization_channels - 1.0
-    if isinstance(x_mu, np.ndarray):
-        x = x_mu / mu * 2 - 1.0
-        x = np.sign(x) * (np.exp(np.abs(x) * np.log1p(mu)) - 1.0) / mu
-    elif isinstance(x_mu, (torch.Tensor, torch.LongTensor)):
-        if isinstance(x_mu, (torch.LongTensor, torch.cuda.LongTensor)):
-            x_mu = x_mu.float()
-        if cuda:
-            mu = torch.FloatTensor([mu]).cuda()
-        else:
-            mu = torch.FloatTensor([mu])
-        x = x_mu / mu * 2 - 1.0
-        x = torch.sign(x) * (torch.exp(torch.abs(x) * torch.log1p(mu)) - 1.0
-            ) / mu
-    return x
-
-
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
@@ -221,9 +158,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_G_Wang_WaveRNN_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ResBlock(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_001(self):
         self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}), [torch.rand([4, 4, 64])], {})
+

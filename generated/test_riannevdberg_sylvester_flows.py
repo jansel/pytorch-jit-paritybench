@@ -596,7 +596,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_riannevdberg_sylvester_flows(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Planar(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
@@ -614,3 +613,4 @@ class Test_riannevdberg_sylvester_flows(_paritybench_base):
 
     def test_005(self):
         self._check(MaskedConv2d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

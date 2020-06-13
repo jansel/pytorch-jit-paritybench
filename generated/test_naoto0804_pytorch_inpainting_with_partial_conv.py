@@ -255,10 +255,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_naoto0804_pytorch_inpainting_with_partial_conv(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(PartialConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(PCBActiv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

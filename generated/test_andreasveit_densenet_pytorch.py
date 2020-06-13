@@ -177,7 +177,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_andreasveit_densenet_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -189,3 +188,4 @@ class Test_andreasveit_densenet_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(DenseNet3(*[], **{'depth': 1, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+

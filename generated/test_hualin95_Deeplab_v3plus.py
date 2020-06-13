@@ -739,17 +739,7 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class FutureResult(object):
@@ -773,9 +763,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -871,6 +858,19 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -997,7 +997,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hualin95_Deeplab_v3plus(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Xception(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -1006,3 +1005,4 @@ class Test_hualin95_Deeplab_v3plus(_paritybench_base):
 
     def test_002(self):
         self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+

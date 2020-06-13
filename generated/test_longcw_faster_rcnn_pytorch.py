@@ -221,19 +221,6 @@ class RPN(nn.Module):
             own_dict[key].copy_(param)
 
 
-def clip_boxes(boxes, im_shape):
-    """
-    Clip boxes to image boundaries.
-    """
-    if boxes.shape[0] == 0:
-        return boxes
-    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
-    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
-    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
-    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
-    return boxes
-
-
 _global_config['USE_GPU_NMS'] = 4
 
 
@@ -258,6 +245,34 @@ def nms_detections(pred_boxes, scores, nms_thresh, inds=None):
     return pred_boxes[keep], scores[keep], inds[keep]
 
 
+def im_list_to_blob(ims):
+    """Convert a list of images into a network input.
+
+    Assumes images are already prepared (means subtracted, BGR order, ...).
+    """
+    max_shape = np.array([im.shape for im in ims]).max(axis=0)
+    num_images = len(ims)
+    blob = np.zeros((num_images, max_shape[0], max_shape[1], 3), dtype=np.
+        float32)
+    for i in xrange(num_images):
+        im = ims[i]
+        blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
+    return blob
+
+
+def clip_boxes(boxes, im_shape):
+    """
+    Clip boxes to image boundaries.
+    """
+    if boxes.shape[0] == 0:
+        return boxes
+    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
+    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
+    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
+    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
+    return boxes
+
+
 def bbox_transform_inv(boxes, deltas):
     if boxes.shape[0] == 0:
         return np.zeros((0,), dtype=deltas.dtype)
@@ -280,21 +295,6 @@ def bbox_transform_inv(boxes, deltas):
     pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w
     pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h
     return pred_boxes
-
-
-def im_list_to_blob(ims):
-    """Convert a list of images into a network input.
-
-    Assumes images are already prepared (means subtracted, BGR order, ...).
-    """
-    max_shape = np.array([im.shape for im in ims]).max(axis=0)
-    num_images = len(ims)
-    blob = np.zeros((num_images, max_shape[0], max_shape[1], 3), dtype=np.
-        float32)
-    for i in xrange(num_images):
-        im = ims[i]
-        blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
-    return blob
 
 
 class FasterRCNN(nn.Module):
@@ -663,9 +663,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_longcw_faster_rcnn_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

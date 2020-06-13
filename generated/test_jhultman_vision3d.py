@@ -84,6 +84,14 @@ import itertools
 from torch.utils.data import DataLoader
 
 
+def torchify_anchor_attributes(cfg):
+    attr = {}
+    for key in ['wlh', 'center_z', 'yaw']:
+        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
+        attr[key] = torch.stack(vals).float()
+    return dict(attr)
+
+
 def _linspace_midpoint(x0, x1, nx):
     """
     Mimics np.linspace with endpoint=False except
@@ -99,14 +107,6 @@ def meshgrid_midpoint(*arrays):
     spaces = [_linspace_midpoint(*x) for x in arrays]
     grid = torch.stack(torch.meshgrid(spaces), -1)
     return grid
-
-
-def torchify_anchor_attributes(cfg):
-    attr = {}
-    for key in ['wlh', 'center_z', 'yaw']:
-        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
-        attr[key] = torch.stack(vals).float()
-    return dict(attr)
 
 
 class AnchorGenerator(nn.Module):
@@ -213,24 +213,6 @@ class Preprocessor(nn.Module):
         return item
 
 
-def _anchor_diagonal(A_wlh):
-    """Reference: VoxelNet."""
-    A_wl, A_h = A_wlh.split([2, 1], -1)
-    A_norm = A_wl.norm(dim=-1, keepdim=True).expand_as(A_wl)
-    A_norm = torch.cat((A_norm, A_h), dim=-1)
-    return A_norm
-
-
-def encode(boxes, anchors):
-    """Both inputs of shape (*, 7)."""
-    G_xyz, G_wlh, G_yaw = boxes.split([3, 3, 1], -1)
-    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
-    A_norm = _anchor_diagonal(A_wlh)
-    deltas = torch.cat(((G_xyz - A_xyz) / A_norm, (G_wlh / A_wlh).log(), (
-        G_yaw - A_yaw) % math.pi), dim=-1)
-    return deltas
-
-
 class Matcher(object):
     """
     This class assigns to each predicted "element" (e.g., a box) a ground-truth
@@ -325,6 +307,24 @@ class Matcher(object):
             match_quality_matrix == highest_quality_foreach_gt[:, (None)])
         pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
         match_labels[pred_inds_to_update] = 1
+
+
+def _anchor_diagonal(A_wlh):
+    """Reference: VoxelNet."""
+    A_wl, A_h = A_wlh.split([2, 1], -1)
+    A_norm = A_wl.norm(dim=-1, keepdim=True).expand_as(A_wl)
+    A_norm = torch.cat((A_norm, A_h), dim=-1)
+    return A_norm
+
+
+def encode(boxes, anchors):
+    """Both inputs of shape (*, 7)."""
+    G_xyz, G_wlh, G_yaw = boxes.split([3, 3, 1], -1)
+    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
+    A_norm = _anchor_diagonal(A_wlh)
+    deltas = torch.cat(((G_xyz - A_xyz) / A_norm, (G_wlh / A_wlh).log(), (
+        G_yaw - A_yaw) % math.pi), dim=-1)
+    return deltas
 
 
 class ProposalTargetAssigner(nn.Module):
@@ -591,6 +591,23 @@ def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
     return layer
 
 
+def make_subm_layer(C_in, C_out, *args, **kwargs):
+    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
+        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
+        0.01), nn.ReLU())
+    return layer
+
+
+def decode(deltas, anchors):
+    """Both inputs of shape (*, 7)."""
+    P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
+    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
+    A_norm = _anchor_diagonal(A_wlh)
+    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
+        A_yaw), dim=-1)
+    return boxes
+
+
 def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
     reduction: str='none'):
     """
@@ -780,13 +797,6 @@ class RoiGridPool(nn.Module):
         return features
 
 
-def make_subm_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
-    return layer
-
-
 class RPN(nn.Module):
     """OneStage RPN from SECOND."""
 
@@ -948,7 +958,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jhultman_vision3d(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(VoxelFeatureExtractor(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
@@ -957,3 +966,4 @@ class Test_jhultman_vision3d(_paritybench_base):
 
     def test_002(self):
         self._check(RPN(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
+

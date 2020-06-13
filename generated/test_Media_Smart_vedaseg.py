@@ -250,15 +250,15 @@ class CriterionWrapper(nn.Module):
         return self.criterion(pred, target)
 
 
-BRICKS = Registry('brick')
-
-
 UTILS = Registry('utils')
 
 
 def build_module(cfg, default_args=None):
     util = build_from_cfg(cfg, UTILS, default_args)
     return util
+
+
+BRICKS = Registry('brick')
 
 
 @BRICKS.register_module
@@ -389,31 +389,7 @@ class CollectBlock(nn.Module):
             res[self.to_layer] = feats[self.from_layer]
 
 
-def constant_init(module, val, bias=0):
-    nn.init.constant_(module.weight, val)
-    if hasattr(module, 'bias') and module.bias is not None:
-        nn.init.constant_(module.bias, bias)
-
-
-def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, a=a, mode=mode,
-            nonlinearity=nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, a=a, mode=mode, nonlinearity
-            =nonlinearity)
-    if hasattr(module, 'bias') and module.bias is not None:
-        nn.init.constant_(module.bias, bias)
-
-
-def init_weights(modules):
-    for m in modules:
-        if isinstance(m, nn.Conv2d):
-            kaiming_init(m)
-        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-            constant_init(m, 1)
+DECODERS = Registry('decoder')
 
 
 def build_brick(cfg, default_args=None):
@@ -431,7 +407,31 @@ def build_bricks(cfgs):
 logger = logging.getLogger()
 
 
-DECODERS = Registry('decoder')
+def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, a=a, mode=mode,
+            nonlinearity=nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, a=a, mode=mode, nonlinearity
+            =nonlinearity)
+    if hasattr(module, 'bias') and module.bias is not None:
+        nn.init.constant_(module.bias, bias)
+
+
+def constant_init(module, val, bias=0):
+    nn.init.constant_(module.weight, val)
+    if hasattr(module, 'bias') and module.bias is not None:
+        nn.init.constant_(module.bias, bias)
+
+
+def init_weights(modules):
+    for m in modules:
+        if isinstance(m, nn.Conv2d):
+            kaiming_init(m)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            constant_init(m, 1)
 
 
 @DECODERS.register_module
@@ -893,7 +893,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Media_Smart_vedaseg(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CollectBlock(*[], **{'from_layer': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -905,3 +904,4 @@ class Test_Media_Smart_vedaseg(_paritybench_base):
 
     def test_003(self):
         self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -274,6 +274,12 @@ class CharCNN(nn.Module):
         return self.get_all_hiddens(input, seq_lengths)
 
 
+STOP_TAG = -1
+
+
+START_TAG = -2
+
+
 def log_sum_exp(vec, m_size):
     """
     calculate log of exp sum
@@ -288,12 +294,6 @@ def log_sum_exp(vec, m_size):
         m_size)
     return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec -
         max_score.expand_as(vec)), 1)).view(-1, m_size)
-
-
-START_TAG = -2
-
-
-STOP_TAG = -1
 
 
 class CRF(nn.Module):
@@ -933,6 +933,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Nealcly_BiLSTM_LAN(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(multihead_attention(*[], **{'num_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

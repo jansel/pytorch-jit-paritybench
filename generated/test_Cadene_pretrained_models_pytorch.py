@@ -3675,23 +3675,17 @@ class MultiWay(nn.Module):
         return out
 
 
-class InceptionResNetCPoly3(InceptionResNetCPoly):
-
-    def __init__(self, scale):
-        super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetB2Way(MultiWay):
-
-    def __init__(self, scale):
-        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
-            num_blocks=2)
-
-
 class InceptionResNetBPoly3(InceptionResNetBPoly):
 
     def __init__(self, scale):
         super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
+
+
+class InceptionResNetA2Way(MultiWay):
+
+    def __init__(self, scale):
+        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
+            num_blocks=2)
 
 
 class InceptionResNetC2Way(MultiWay):
@@ -3701,11 +3695,17 @@ class InceptionResNetC2Way(MultiWay):
             num_blocks=2)
 
 
-class InceptionResNetA2Way(MultiWay):
+class InceptionResNetB2Way(MultiWay):
 
     def __init__(self, scale):
-        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
+        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
             num_blocks=2)
+
+
+class InceptionResNetCPoly3(InceptionResNetCPoly):
+
+    def __init__(self, scale):
+        super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
 
 
 class PolyNet(nn.Module):

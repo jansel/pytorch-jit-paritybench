@@ -2365,16 +2365,16 @@ class SqueezeAndExcite(nn.Module):
         return out * x
 
 
-def Conv1x1BNActivation(in_channels, out_channels, activate):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=1, stride=1), nn.BatchNorm2d(out_channels
-        ), nn.ReLU6(inplace=True) if activate == 'relu' else HardSwish())
-
-
 def Conv1x1BN(in_channels, out_channels, groups):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
         out_channels, kernel_size=1, stride=1, groups=groups), nn.
         BatchNorm2d(out_channels))
+
+
+def Conv1x1BNActivation(in_channels, out_channels, activate):
+    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
+        out_channels, kernel_size=1, stride=1), nn.BatchNorm2d(out_channels
+        ), nn.ReLU6(inplace=True) if activate == 'relu' else HardSwish())
 
 
 class MDConvBlock(nn.Module):
@@ -3081,14 +3081,14 @@ class ExitBottleneck(nn.Module):
         return out + x
 
 
-def SeparableConvolutionRelu(in_channels, out_channels):
-    return nn.Sequential(SeparableConvolution(in_channels, out_channels),
-        nn.ReLU6(inplace=True))
-
-
 def ConvBNRelu(in_channels, out_channels, kernel_size, stride):
     return nn.Sequential(ConvBN(in_channels, out_channels, kernel_size,
         stride), nn.ReLU6(inplace=True))
+
+
+def SeparableConvolutionRelu(in_channels, out_channels):
+    return nn.Sequential(SeparableConvolution(in_channels, out_channels),
+        nn.ReLU6(inplace=True))
 
 
 class Xception(nn.Module):
@@ -3126,11 +3126,10 @@ class Xception(nn.Module):
         return out
 
 
-def upSampling1(in_channels, out_channels):
+def downSampling1(in_channels, out_channels):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.
-        BatchNorm2d(out_channels), nn.ReLU6(inplace=True), nn.Upsample(
-        scale_factor=2, mode='nearest'))
+        out_channels, kernel_size=3, stride=2, padding=1, bias=False), nn.
+        BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
 
 
 def Conv1x1BnRelu(in_channels, out_channels):
@@ -3139,15 +3138,16 @@ def Conv1x1BnRelu(in_channels, out_channels):
         BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
 
 
-def downSampling1(in_channels, out_channels):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=3, stride=2, padding=1, bias=False), nn.
-        BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
-
-
 def downSampling2(in_channels, out_channels):
     return nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
         downSampling1(in_channels=in_channels, out_channels=out_channels))
+
+
+def upSampling1(in_channels, out_channels):
+    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
+        out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.
+        BatchNorm2d(out_channels), nn.ReLU6(inplace=True), nn.Upsample(
+        scale_factor=2, mode='nearest'))
 
 
 def upSampling2(in_channels, out_channels):

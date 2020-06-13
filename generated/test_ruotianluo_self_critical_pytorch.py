@@ -105,10 +105,10 @@ def array_to_str(arr):
     return out.strip()
 
 
-CiderD_scorer = None
-
-
 Bleu_scorer = None
+
+
+CiderD_scorer = None
 
 
 def get_self_critical_reward(greedy_res, data_gts, gen_result, opt):
@@ -1393,18 +1393,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ruotianluo_self_critical_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Generator(*[], **{'d_model': 4, 'vocab': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1416,3 +1415,4 @@ class Test_ruotianluo_self_critical_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+

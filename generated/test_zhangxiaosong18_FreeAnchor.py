@@ -425,50 +425,6 @@ class LastLevelP6P7(nn.Module):
         return [p6, p7]
 
 
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
-    blocks = []
-    stride = first_stride
-    for _ in range(block_count):
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride))
-        stride = 1
-        in_channels = out_channels
-    return nn.Sequential(*blocks)
-
-
-class ResNetHead(nn.Module):
-
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
-        super(ResNetHead, self).__init__()
-        stage2_relative_factor = 2 ** (stages[0].index - 1)
-        stage2_bottleneck_channels = num_groups * width_per_group
-        out_channels = res2_out_channels * stage2_relative_factor
-        in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
-        block_module = _TRANSFORMATION_MODULES[block_module]
-        self.stages = []
-        stride = stride_init
-        for stage in stages:
-            name = 'layer' + str(stage.index)
-            if not stride:
-                stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride)
-            stride = None
-            self.add_module(name, module)
-            self.stages.append(name)
-
-    def forward(self, x):
-        for stage in self.stages:
-            x = getattr(self, stage)(x)
-        return x
-
-
 class BottleneckWithFixedBatchNorm(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -523,6 +479,100 @@ class StemWithFixedBatchNorm(nn.Module):
         x = F.relu_(x)
         x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
         return x
+
+
+def build_rpn(cfg):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    return RPNModule(cfg)
+
+
+def build_resnet_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    model = nn.Sequential(OrderedDict([('body', body)]))
+    return model
+
+
+def build_resnet_fpn_p2p7_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
+    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
+        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
+        8], out_channels=out_channels, top_blocks=fpn_module.LastLevelP6P7(
+        out_channels), use_gn=cfg.MODEL.USE_GN)
+    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
+    return model
+
+
+def build_resnet_fpn_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
+    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
+        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
+        8], out_channels=out_channels, top_blocks=fpn_module.
+        LastLevelMaxPool(), use_gn=cfg.MODEL.USE_GN)
+    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
+    return model
+
+
+def build_resnet_fpn_p3p7_backbone(cfg):
+    body = resnet.ResNet(cfg)
+    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
+    fpn = fpn_module.FPN(in_channels_list=[0, in_channels_stage2 * 2, 
+        in_channels_stage2 * 4, in_channels_stage2 * 8], out_channels=
+        out_channels, top_blocks=fpn_module.LastLevelP6P7(out_channels),
+        use_gn=cfg.MODEL.USE_GN)
+    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
+    return model
+
+
+def build_backbone(cfg):
+    assert cfg.MODEL.BACKBONE.CONV_BODY.startswith('R-'
+        ), 'Only ResNet and ResNeXt models are currently implemented'
+    if cfg.MODEL.BACKBONE.CONV_BODY.endswith('-FPN'):
+        if cfg.RETINANET.RETINANET_ON:
+            if cfg.RETINANET.BACKBONE == 'p3p7':
+                return build_resnet_fpn_p3p7_backbone(cfg)
+            elif cfg.RETINANET.BACKBONE == 'p2p7':
+                return build_resnet_fpn_p2p7_backbone(cfg)
+            else:
+                raise Exception('Wrong Setting {}:{}'.format(
+                    'cfg.RETINANET.BACKBONE', cfg.RETINANET.BACKBBACKBONE))
+        else:
+            return build_resnet_fpn_backbone(cfg)
+    return build_resnet_backbone(cfg)
+
+
+def build_retinanet(cfg):
+    return RetinaNetModule(cfg)
+
+
+def build_roi_mask_head(cfg):
+    return ROIMaskHead(cfg)
+
+
+def build_roi_box_head(cfg):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg)
+
+
+def build_roi_heads(cfg):
+    roi_heads = []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg)))
+    if cfg.MODEL.MASK_ON:
+        roi_heads.append(('mask', build_roi_mask_head(cfg)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
 
 
 class ImageList(object):
@@ -581,100 +631,6 @@ def to_image_list(tensors, size_divisible=0):
     else:
         raise TypeError('Unsupported type for to_image_list: {}'.format(
             type(tensors)))
-
-
-def build_roi_box_head(cfg):
-    """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg)
-
-
-def build_roi_mask_head(cfg):
-    return ROIMaskHead(cfg)
-
-
-def build_roi_heads(cfg):
-    roi_heads = []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg)))
-    if cfg.MODEL.MASK_ON:
-        roi_heads.append(('mask', build_roi_mask_head(cfg)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
-
-
-def build_rpn(cfg):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    return RPNModule(cfg)
-
-
-def build_resnet_fpn_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
-    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
-    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
-        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
-        8], out_channels=out_channels, top_blocks=fpn_module.
-        LastLevelMaxPool(), use_gn=cfg.MODEL.USE_GN)
-    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
-    return model
-
-
-def build_resnet_fpn_p3p7_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
-    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
-    fpn = fpn_module.FPN(in_channels_list=[0, in_channels_stage2 * 2, 
-        in_channels_stage2 * 4, in_channels_stage2 * 8], out_channels=
-        out_channels, top_blocks=fpn_module.LastLevelP6P7(out_channels),
-        use_gn=cfg.MODEL.USE_GN)
-    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
-    return model
-
-
-def build_resnet_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    model = nn.Sequential(OrderedDict([('body', body)]))
-    return model
-
-
-def build_resnet_fpn_p2p7_backbone(cfg):
-    body = resnet.ResNet(cfg)
-    in_channels_stage2 = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
-    out_channels = cfg.MODEL.BACKBONE.OUT_CHANNELS
-    fpn = fpn_module.FPN(in_channels_list=[in_channels_stage2, 
-        in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 *
-        8], out_channels=out_channels, top_blocks=fpn_module.LastLevelP6P7(
-        out_channels), use_gn=cfg.MODEL.USE_GN)
-    model = nn.Sequential(OrderedDict([('body', body), ('fpn', fpn)]))
-    return model
-
-
-def build_backbone(cfg):
-    assert cfg.MODEL.BACKBONE.CONV_BODY.startswith('R-'
-        ), 'Only ResNet and ResNeXt models are currently implemented'
-    if cfg.MODEL.BACKBONE.CONV_BODY.endswith('-FPN'):
-        if cfg.RETINANET.RETINANET_ON:
-            if cfg.RETINANET.BACKBONE == 'p3p7':
-                return build_resnet_fpn_p3p7_backbone(cfg)
-            elif cfg.RETINANET.BACKBONE == 'p2p7':
-                return build_resnet_fpn_p2p7_backbone(cfg)
-            else:
-                raise Exception('Wrong Setting {}:{}'.format(
-                    'cfg.RETINANET.BACKBONE', cfg.RETINANET.BACKBBACKBONE))
-        else:
-            return build_resnet_fpn_backbone(cfg)
-    return build_resnet_backbone(cfg)
-
-
-def build_retinanet(cfg):
-    return RetinaNetModule(cfg)
 
 
 class GeneralizedRCNN(nn.Module):
@@ -964,10 +920,10 @@ class Pooler(nn.Module):
         return result
 
 
-FLIP_TOP_BOTTOM = 1
-
-
 FLIP_LEFT_RIGHT = 0
+
+
+FLIP_TOP_BOTTOM = 1
 
 
 class BoxList(object):
@@ -2053,38 +2009,89 @@ class RetinaNetHead(torch.nn.Module):
         return logits, bbox_reg
 
 
-def make_retinanet_postprocessor(config, fpn_post_nms_top_n, rpn_box_coder):
-    pre_nms_thresh = 0.05
-    pre_nms_top_n = 100000000000000
-    fpn_post_nms_top_n = 1000000000000000
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
-        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
-        fpn_post_nms_top_n=fpn_post_nms_top_n, box_coder=rpn_box_coder,
-        min_size=min_size)
-    return box_selector
+class Matcher(object):
+    """
+    This class assigns to each predicted "element" (e.g., a box) a ground-truth
+    element. Each predicted element will have exactly zero or one matches; each
+    ground-truth element may be assigned to zero or more predicted elements.
 
+    Matching is based on the MxN match_quality_matrix, that characterizes how well
+    each (ground-truth, predicted)-pair match. For example, if the elements are
+    boxes, the matrix may contain box IoU overlap values.
 
-def make_anchor_generator_retinanet(config):
-    anchor_sizes = config.RETINANET.ANCHOR_SIZES
-    aspect_ratios = config.RETINANET.ASPECT_RATIOS
-    anchor_strides = config.RETINANET.ANCHOR_STRIDES
-    straddle_thresh = config.RETINANET.STRADDLE_THRESH
-    octave = config.RETINANET.OCTAVE
-    scales_per_octave = config.RETINANET.SCALES_PER_OCTAVE
-    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
-    new_anchor_sizes = []
-    for size in anchor_sizes:
-        per_layer_anchor_sizes = []
-        for scale_per_octave in range(scales_per_octave):
-            octave_scale = octave ** (scale_per_octave / float(
-                scales_per_octave))
-            per_layer_anchor_sizes.append(octave_scale * size)
-        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
-    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes),
-        aspect_ratios, anchor_strides, straddle_thresh)
-    return anchor_generator
+    The matcher returns a tensor of size N containing the index of the ground-truth
+    element m that matches to prediction n. If there is no match, a negative value
+    is returned.
+    """
+    BELOW_LOW_THRESHOLD = -1
+    BETWEEN_THRESHOLDS = -2
+
+    def __init__(self, high_threshold, low_threshold,
+        allow_low_quality_matches=False, low_quality_threshold=0.0):
+        """
+        Args:
+            high_threshold (float): quality values greater than or equal to
+                this value are candidate matches.
+            low_threshold (float): a lower quality threshold used to stratify
+                matches into three levels:
+                1) matches >= high_threshold
+                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
+                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
+            allow_low_quality_matches (bool): if True, produce additional matches
+                for predictions that have only low-quality match candidates. See
+                set_low_quality_matches_ for more details.
+        """
+        assert low_threshold <= high_threshold
+        self.high_threshold = high_threshold
+        self.low_threshold = low_threshold
+        self.allow_low_quality_matches = allow_low_quality_matches
+        self.low_quality_threshold = low_quality_threshold
+
+    def __call__(self, match_quality_matrix):
+        """
+        Args:
+            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
+            pairwise quality between M ground-truth elements and N predicted elements.
+
+        Returns:
+            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
+            [0, M - 1] or a negative value indicating that prediction i could not
+            be matched.
+        """
+        if match_quality_matrix.numel() == 0:
+            device = match_quality_matrix.device
+            return torch.empty((0,), dtype=torch.int64, device=device)
+        matched_vals, matches = match_quality_matrix.max(dim=0)
+        if self.allow_low_quality_matches:
+            all_matches = matches.clone()
+        below_low_threshold = matched_vals < self.low_threshold
+        between_thresholds = (matched_vals >= self.low_threshold) & (
+            matched_vals < self.high_threshold)
+        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
+        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
+        if self.allow_low_quality_matches:
+            self.set_low_quality_matches_(matches, all_matches,
+                match_quality_matrix)
+        return matches
+
+    def set_low_quality_matches_(self, matches, all_matches,
+        match_quality_matrix):
+        """
+        Produce additional matches for predictions that have only low-quality matches.
+        Specifically, for each ground-truth find the set of predictions that have
+        maximum overlap with it (including ties); for each prediction in that set, if
+        it is unmatched, then match it to the ground-truth with which it has the highest
+        quality value.
+        """
+        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
+        if self.low_quality_threshold > 0.0:
+            select = highest_quality_foreach_gt >= self.low_quality_threshold
+            highest_quality_foreach_gt = highest_quality_foreach_gt[select]
+            match_quality_matrix = match_quality_matrix[select]
+        gt_pred_pairs_of_highest_quality = torch.nonzero(
+            match_quality_matrix == highest_quality_foreach_gt[:, (None)])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
 def boxlist_iou(boxlist1, boxlist2):
@@ -2118,9 +2125,141 @@ def boxlist_iou(boxlist1, boxlist2):
     return iou
 
 
-def focal_loss(logits, gamma):
-    return torch.sum(logits ** gamma * F.binary_cross_entropy(logits, torch
-        .zeros_like(logits), reduction='none'))
+class RetinaNetLossComputation(object):
+    """
+    This class computes the RetinaNet loss.
+    """
+
+    def __init__(self, cfg, proposal_matcher, box_coder):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.box_coder = box_coder
+        self.num_classes = cfg.RETINANET.NUM_CLASSES - 1
+        self.box_cls_loss_func = SigmoidFocalLoss(self.num_classes, cfg.
+            RETINANET.LOSS_GAMMA, cfg.RETINANET.LOSS_ALPHA)
+        self.regression_loss = SmoothL1Loss(beta=cfg.RETINANET.BBOX_REG_BETA)
+
+    def match_targets_to_anchors(self, anchor, target):
+        match_quality_matrix = boxlist_iou(target, anchor)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, anchors, targets):
+        labels = []
+        regression_targets = []
+        for anchors_per_image, targets_per_image in zip(anchors, targets):
+            matched_targets = self.match_targets_to_anchors(anchors_per_image,
+                targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels').clone()
+            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_indices] = 0
+            inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+            labels_per_image[inds_to_discard] = -1
+            labels_per_image = labels_per_image.to(dtype=torch.float32)
+            regression_targets_per_image = self.box_coder.encode(
+                matched_targets.bbox, anchors_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def __call__(self, anchors, box_cls, box_regression, targets):
+        """
+        Arguments:
+            anchors (list[BoxList])
+            objectness (list[Tensor])
+            box_regression (list[Tensor])
+            targets (list[BoxList])
+
+        Returns:
+            objectness_loss (Tensor)
+            box_loss (Tensor
+        """
+        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in
+            anchors]
+        labels, regression_targets = self.prepare_targets(anchors, targets)
+        num_layers = len(box_cls)
+        box_cls_flattened = []
+        box_regression_flattened = []
+        for box_cls_per_level, box_regression_per_level in zip(box_cls,
+            box_regression):
+            N, A, H, W = box_cls_per_level.shape
+            C = self.num_classes
+            box_cls_per_level = box_cls_per_level.view(N, -1, C, H, W)
+            box_cls_per_level = box_cls_per_level.permute(0, 3, 4, 1, 2)
+            box_cls_per_level = box_cls_per_level.reshape(N, -1, C)
+            box_regression_per_level = box_regression_per_level.view(N, -1,
+                4, H, W)
+            box_regression_per_level = box_regression_per_level.permute(0, 
+                3, 4, 1, 2)
+            box_regression_per_level = box_regression_per_level.reshape(N, 
+                -1, 4)
+            box_cls_flattened.append(box_cls_per_level)
+            box_regression_flattened.append(box_regression_per_level)
+        box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
+        box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        pos_inds = labels > 0
+        retinanet_regression_loss = self.regression_loss(box_regression[
+            pos_inds], regression_targets[pos_inds], size_average=False) / (
+            pos_inds.sum() * 4)
+        labels = labels.int()
+        retinanet_cls_loss = self.box_cls_loss_func(box_cls, labels) / ((
+            labels > 0).sum() + N)
+        losses = {'loss_retina_cls': retinanet_cls_loss, 'loss_retina_reg':
+            retinanet_regression_loss}
+        return losses
+
+
+def make_retinanet_loss_evaluator(cfg, box_coder):
+    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.
+        BG_IOU_THRESHOLD, allow_low_quality_matches=cfg.RETINANET.
+        LOW_QUALITY_MATCHES, low_quality_threshold=cfg.RETINANET.
+        LOW_QUALITY_THRESHOLD)
+    loss_evaluator = RetinaNetLossComputation(cfg, matcher, box_coder)
+    return loss_evaluator
+
+
+def make_anchor_generator_retinanet(config):
+    anchor_sizes = config.RETINANET.ANCHOR_SIZES
+    aspect_ratios = config.RETINANET.ASPECT_RATIOS
+    anchor_strides = config.RETINANET.ANCHOR_STRIDES
+    straddle_thresh = config.RETINANET.STRADDLE_THRESH
+    octave = config.RETINANET.OCTAVE
+    scales_per_octave = config.RETINANET.SCALES_PER_OCTAVE
+    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
+    new_anchor_sizes = []
+    for size in anchor_sizes:
+        per_layer_anchor_sizes = []
+        for scale_per_octave in range(scales_per_octave):
+            octave_scale = octave ** (scale_per_octave / float(
+                scales_per_octave))
+            per_layer_anchor_sizes.append(octave_scale * size)
+        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
+    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes),
+        aspect_ratios, anchor_strides, straddle_thresh)
+    return anchor_generator
+
+
+def make_retinanet_postprocessor(config, fpn_post_nms_top_n, rpn_box_coder):
+    pre_nms_thresh = 0.05
+    pre_nms_top_n = 100000000000000
+    fpn_post_nms_top_n = 1000000000000000
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
+        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
+        fpn_post_nms_top_n=fpn_post_nms_top_n, box_coder=rpn_box_coder,
+        min_size=min_size)
+    return box_selector
 
 
 class Clip(Function):
@@ -2144,6 +2283,11 @@ def positive_bag_loss(logits, *args, **kwargs):
     bag_prob = (weight * logits).sum(*args, **kwargs)
     return F.binary_cross_entropy(bag_prob, torch.ones_like(bag_prob),
         reduction='none')
+
+
+def focal_loss(logits, gamma):
+    return torch.sum(logits ** gamma * F.binary_cross_entropy(logits, torch
+        .zeros_like(logits), reduction='none'))
 
 
 class FreeAnchorLossComputation(object):
@@ -2270,194 +2414,6 @@ class FreeAnchorLossComputation(object):
 
 def make_free_anchor_loss_evaluator(cfg, box_coder):
     return FreeAnchorLossComputation(cfg, box_coder)
-
-
-class Matcher(object):
-    """
-    This class assigns to each predicted "element" (e.g., a box) a ground-truth
-    element. Each predicted element will have exactly zero or one matches; each
-    ground-truth element may be assigned to zero or more predicted elements.
-
-    Matching is based on the MxN match_quality_matrix, that characterizes how well
-    each (ground-truth, predicted)-pair match. For example, if the elements are
-    boxes, the matrix may contain box IoU overlap values.
-
-    The matcher returns a tensor of size N containing the index of the ground-truth
-    element m that matches to prediction n. If there is no match, a negative value
-    is returned.
-    """
-    BELOW_LOW_THRESHOLD = -1
-    BETWEEN_THRESHOLDS = -2
-
-    def __init__(self, high_threshold, low_threshold,
-        allow_low_quality_matches=False, low_quality_threshold=0.0):
-        """
-        Args:
-            high_threshold (float): quality values greater than or equal to
-                this value are candidate matches.
-            low_threshold (float): a lower quality threshold used to stratify
-                matches into three levels:
-                1) matches >= high_threshold
-                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
-                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
-            allow_low_quality_matches (bool): if True, produce additional matches
-                for predictions that have only low-quality match candidates. See
-                set_low_quality_matches_ for more details.
-        """
-        assert low_threshold <= high_threshold
-        self.high_threshold = high_threshold
-        self.low_threshold = low_threshold
-        self.allow_low_quality_matches = allow_low_quality_matches
-        self.low_quality_threshold = low_quality_threshold
-
-    def __call__(self, match_quality_matrix):
-        """
-        Args:
-            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
-            pairwise quality between M ground-truth elements and N predicted elements.
-
-        Returns:
-            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
-            [0, M - 1] or a negative value indicating that prediction i could not
-            be matched.
-        """
-        if match_quality_matrix.numel() == 0:
-            device = match_quality_matrix.device
-            return torch.empty((0,), dtype=torch.int64, device=device)
-        matched_vals, matches = match_quality_matrix.max(dim=0)
-        if self.allow_low_quality_matches:
-            all_matches = matches.clone()
-        below_low_threshold = matched_vals < self.low_threshold
-        between_thresholds = (matched_vals >= self.low_threshold) & (
-            matched_vals < self.high_threshold)
-        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
-        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
-        if self.allow_low_quality_matches:
-            self.set_low_quality_matches_(matches, all_matches,
-                match_quality_matrix)
-        return matches
-
-    def set_low_quality_matches_(self, matches, all_matches,
-        match_quality_matrix):
-        """
-        Produce additional matches for predictions that have only low-quality matches.
-        Specifically, for each ground-truth find the set of predictions that have
-        maximum overlap with it (including ties); for each prediction in that set, if
-        it is unmatched, then match it to the ground-truth with which it has the highest
-        quality value.
-        """
-        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        if self.low_quality_threshold > 0.0:
-            select = highest_quality_foreach_gt >= self.low_quality_threshold
-            highest_quality_foreach_gt = highest_quality_foreach_gt[select]
-            match_quality_matrix = match_quality_matrix[select]
-        gt_pred_pairs_of_highest_quality = torch.nonzero(
-            match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
-        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
-
-
-class RetinaNetLossComputation(object):
-    """
-    This class computes the RetinaNet loss.
-    """
-
-    def __init__(self, cfg, proposal_matcher, box_coder):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.box_coder = box_coder
-        self.num_classes = cfg.RETINANET.NUM_CLASSES - 1
-        self.box_cls_loss_func = SigmoidFocalLoss(self.num_classes, cfg.
-            RETINANET.LOSS_GAMMA, cfg.RETINANET.LOSS_ALPHA)
-        self.regression_loss = SmoothL1Loss(beta=cfg.RETINANET.BBOX_REG_BETA)
-
-    def match_targets_to_anchors(self, anchor, target):
-        match_quality_matrix = boxlist_iou(target, anchor)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(['labels'])
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, anchors, targets):
-        labels = []
-        regression_targets = []
-        for anchors_per_image, targets_per_image in zip(anchors, targets):
-            matched_targets = self.match_targets_to_anchors(anchors_per_image,
-                targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_targets.get_field('labels').clone()
-            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[bg_indices] = 0
-            inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
-            labels_per_image[inds_to_discard] = -1
-            labels_per_image = labels_per_image.to(dtype=torch.float32)
-            regression_targets_per_image = self.box_coder.encode(
-                matched_targets.bbox, anchors_per_image.bbox)
-            labels.append(labels_per_image)
-            regression_targets.append(regression_targets_per_image)
-        return labels, regression_targets
-
-    def __call__(self, anchors, box_cls, box_regression, targets):
-        """
-        Arguments:
-            anchors (list[BoxList])
-            objectness (list[Tensor])
-            box_regression (list[Tensor])
-            targets (list[BoxList])
-
-        Returns:
-            objectness_loss (Tensor)
-            box_loss (Tensor
-        """
-        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in
-            anchors]
-        labels, regression_targets = self.prepare_targets(anchors, targets)
-        num_layers = len(box_cls)
-        box_cls_flattened = []
-        box_regression_flattened = []
-        for box_cls_per_level, box_regression_per_level in zip(box_cls,
-            box_regression):
-            N, A, H, W = box_cls_per_level.shape
-            C = self.num_classes
-            box_cls_per_level = box_cls_per_level.view(N, -1, C, H, W)
-            box_cls_per_level = box_cls_per_level.permute(0, 3, 4, 1, 2)
-            box_cls_per_level = box_cls_per_level.reshape(N, -1, C)
-            box_regression_per_level = box_regression_per_level.view(N, -1,
-                4, H, W)
-            box_regression_per_level = box_regression_per_level.permute(0, 
-                3, 4, 1, 2)
-            box_regression_per_level = box_regression_per_level.reshape(N, 
-                -1, 4)
-            box_cls_flattened.append(box_cls_per_level)
-            box_regression_flattened.append(box_regression_per_level)
-        box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
-        box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
-        labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        pos_inds = labels > 0
-        retinanet_regression_loss = self.regression_loss(box_regression[
-            pos_inds], regression_targets[pos_inds], size_average=False) / (
-            pos_inds.sum() * 4)
-        labels = labels.int()
-        retinanet_cls_loss = self.box_cls_loss_func(box_cls, labels) / ((
-            labels > 0).sum() + N)
-        losses = {'loss_retina_cls': retinanet_cls_loss, 'loss_retina_reg':
-            retinanet_regression_loss}
-        return losses
-
-
-def make_retinanet_loss_evaluator(cfg, box_coder):
-    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.
-        BG_IOU_THRESHOLD, allow_low_quality_matches=cfg.RETINANET.
-        LOW_QUALITY_MATCHES, low_quality_threshold=cfg.RETINANET.
-        LOW_QUALITY_THRESHOLD)
-    loss_evaluator = RetinaNetLossComputation(cfg, matcher, box_coder)
-    return loss_evaluator
 
 
 class RetinaNetModule(torch.nn.Module):
@@ -2712,6 +2668,24 @@ class RPNHead(nn.Module):
         return logits, bbox_reg
 
 
+def make_rpn_postprocessor(config, rpn_box_coder, is_train):
+    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
+    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
+    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
+        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
+        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
+        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
+        fpn_post_nms_top_n)
+    return box_selector
+
+
 def make_anchor_generator(config):
     anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
     aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
@@ -2881,24 +2855,6 @@ def make_rpn_loss_evaluator(cfg, box_coder):
         BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
     loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder)
     return loss_evaluator
-
-
-def make_rpn_postprocessor(config, rpn_box_coder, is_train):
-    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
-    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
-    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
-        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n,
-        post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=
-        min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=
-        fpn_post_nms_top_n)
-    return box_selector
 
 
 class RPNModule(torch.nn.Module):
@@ -3225,19 +3181,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhangxiaosong18_FreeAnchor(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(SmoothL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -3246,10 +3201,11 @@ class Test_zhangxiaosong18_FreeAnchor(_paritybench_base):
 
     def test_005(self):
         self._check(LastLevelP6P7(*[], **{'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(BottleneckWithFixedBatchNorm(*[], **{'in_channels': 4, 'bottleneck_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(RPNHead(*[], **{'in_channels': 4, 'num_anchors': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+

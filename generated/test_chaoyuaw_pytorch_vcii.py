@@ -321,7 +321,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_chaoyuaw_pytorch_vcii(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(UNet(*[], **{'n_channels': 4, 'shrink': 4}), [torch.rand([4, 4, 64, 64])], {})
 
@@ -339,3 +338,4 @@ class Test_chaoyuaw_pytorch_vcii(_paritybench_base):
 
     def test_005(self):
         self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -388,20 +388,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lucidrains_stylegan2_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(VectorQuantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(StyleVectorizer(*[], **{'emb': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(RGBBlock(*[], **{'latent_dim': 4, 'input_channel': 4, 'upsample': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
         self._check(DiscriminatorBlock(*[], **{'input_channels': 4, 'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+

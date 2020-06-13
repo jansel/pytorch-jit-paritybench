@@ -102,6 +102,9 @@ from torch.optim.lr_scheduler import MultiStepLR
 import scipy.stats
 
 
+models = {}
+
+
 datasets = {}
 
 
@@ -111,9 +114,6 @@ def register(name):
         datasets[name] = cls
         return cls
     return decorator
-
-
-models = {}
 
 
 @register('classifier')
@@ -792,7 +792,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_cyvius96_few_shot_meta_baseline(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LinearClassifier(*[], **{'in_dim': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -801,3 +800,4 @@ class Test_cyvius96_few_shot_meta_baseline(_paritybench_base):
 
     def test_002(self):
         self._check(ResNet12(*[], **{'channels': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+

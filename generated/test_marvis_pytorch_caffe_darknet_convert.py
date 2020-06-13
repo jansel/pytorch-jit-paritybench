@@ -98,6 +98,49 @@ class Eltwise(nn.Module):
         return x
 
 
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def print_prototxt(net_info):
+
+    def format_value(value):
+        if is_number(value):
+            return value
+        elif value == 'true' or value == 'false' or value == 'MAX' or value == 'SUM' or value == 'AVE':
+            return value
+        else:
+            return '"%s"' % value
+
+    def print_block(block_info, prefix, indent):
+        blanks = ''.join([' '] * indent)
+        print('%s%s {' % (blanks, prefix))
+        for key, value in list(block_info.items()):
+            if type(value) == OrderedDict:
+                print_block(value, key, indent + 4)
+            elif type(value) == list:
+                for v in value:
+                    print('%s    %s: %s' % (blanks, key, format_value(v)))
+            else:
+                print('%s    %s: %s' % (blanks, key, format_value(value)))
+        print('%s}' % blanks)
+    props = net_info['props']
+    layers = net_info['layers']
+    print('name: "%s"' % props['name'])
+    print('input: "%s"' % props['input'])
+    print('input_dim: %s' % props['input_dim'][0])
+    print('input_dim: %s' % props['input_dim'][1])
+    print('input_dim: %s' % props['input_dim'][2])
+    print('input_dim: %s' % props['input_dim'][3])
+    print('')
+    for layer in layers:
+        print_block(layer, 'layer', 0)
+
+
 def parse_caffemodel(caffemodel):
     model = caffe_pb2.NetParameter()
     print('Loading caffemodel: ', caffemodel)
@@ -177,49 +220,6 @@ def parse_prototxt(protofile):
         return props
 
 
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
-
-
-def print_prototxt(net_info):
-
-    def format_value(value):
-        if is_number(value):
-            return value
-        elif value == 'true' or value == 'false' or value == 'MAX' or value == 'SUM' or value == 'AVE':
-            return value
-        else:
-            return '"%s"' % value
-
-    def print_block(block_info, prefix, indent):
-        blanks = ''.join([' '] * indent)
-        print('%s%s {' % (blanks, prefix))
-        for key, value in list(block_info.items()):
-            if type(value) == OrderedDict:
-                print_block(value, key, indent + 4)
-            elif type(value) == list:
-                for v in value:
-                    print('%s    %s: %s' % (blanks, key, format_value(v)))
-            else:
-                print('%s    %s: %s' % (blanks, key, format_value(value)))
-        print('%s}' % blanks)
-    props = net_info['props']
-    layers = net_info['layers']
-    print('name: "%s"' % props['name'])
-    print('input: "%s"' % props['input'])
-    print('input_dim: %s' % props['input_dim'][0])
-    print('input_dim: %s' % props['input_dim'][1])
-    print('input_dim: %s' % props['input_dim'][2])
-    print('input_dim: %s' % props['input_dim'][3])
-    print('')
-    for layer in layers:
-        print_block(layer, 'layer', 0)
-
-
 class FCView(nn.Module):
 
     def __init__(self):
@@ -292,6 +292,53 @@ class EmptyModule(nn.Module):
         return x
 
 
+def save_cfg(blocks, cfgfile):
+    with open(cfgfile, 'w') as fp:
+        for block in blocks:
+            fp.write('[%s]\n' % block['type'])
+            for key, value in block.items():
+                if key != 'type':
+                    fp.write('%s=%s\n' % (key, value))
+            fp.write('\n')
+
+
+def print_cfg(blocks):
+    for block in blocks:
+        print('[%s]' % block['type'])
+        for key, value in block.items():
+            if key != 'type':
+                print('%s=%s' % (key, value))
+        print('')
+
+
+def convert2cpu(gpu_matrix):
+    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
+
+
+def save_conv(fp, conv_model):
+    if conv_model.bias.is_cuda:
+        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
+        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
+    else:
+        conv_model.bias.data.numpy().tofile(fp)
+        conv_model.weight.data.numpy().tofile(fp)
+
+
+def save_fc(fp, fc_model):
+    fc_model.bias.data.numpy().tofile(fp)
+    fc_model.weight.data.numpy().tofile(fp)
+
+
+def load_fc(buf, start, fc_model):
+    num_w = fc_model.weight.numel()
+    num_b = fc_model.bias.numel()
+    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    start = start + num_w
+    return start
+
+
 def parse_cfg(cfgfile):
 
     def erase_comment(line):
@@ -328,14 +375,19 @@ def parse_cfg(cfgfile):
     return blocks
 
 
-def load_fc(buf, start, fc_model):
-    num_w = fc_model.weight.numel()
-    num_b = fc_model.bias.numel()
-    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
+def save_conv_bn(fp, conv_model, bn_model):
+    if bn_model.bias.is_cuda:
+        convert2cpu(bn_model.bias.data).numpy().tofile(fp)
+        convert2cpu(bn_model.weight.data).numpy().tofile(fp)
+        convert2cpu(bn_model.running_mean).numpy().tofile(fp)
+        convert2cpu(bn_model.running_var).numpy().tofile(fp)
+        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
+    else:
+        bn_model.bias.data.numpy().tofile(fp)
+        bn_model.weight.data.numpy().tofile(fp)
+        bn_model.running_mean.numpy().tofile(fp)
+        bn_model.running_var.numpy().tofile(fp)
+        conv_model.weight.data.numpy().tofile(fp)
 
 
 def load_conv(buf, start, conv_model):
@@ -346,28 +398,6 @@ def load_conv(buf, start, conv_model):
     conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
     start = start + num_w
     return start
-
-
-def convert2cpu(gpu_matrix):
-    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
-
-
-def save_conv(fp, conv_model):
-    if conv_model.bias.is_cuda:
-        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        conv_model.bias.data.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
-
-
-def print_cfg(blocks):
-    for block in blocks:
-        print('[%s]' % block['type'])
-        for key, value in block.items():
-            if key != 'type':
-                print('%s=%s' % (key, value))
-        print('')
 
 
 def save_conv_shrink_bn(fp, conv_model, bn_model, eps=1e-05):
@@ -407,36 +437,6 @@ def load_conv_bn(buf, start, conv_model, bn_model):
     return start
 
 
-def save_cfg(blocks, cfgfile):
-    with open(cfgfile, 'w') as fp:
-        for block in blocks:
-            fp.write('[%s]\n' % block['type'])
-            for key, value in block.items():
-                if key != 'type':
-                    fp.write('%s=%s\n' % (key, value))
-            fp.write('\n')
-
-
-def save_fc(fp, fc_model):
-    fc_model.bias.data.numpy().tofile(fp)
-    fc_model.weight.data.numpy().tofile(fp)
-
-
-def save_conv_bn(fp, conv_model, bn_model):
-    if bn_model.bias.is_cuda:
-        convert2cpu(bn_model.bias.data).numpy().tofile(fp)
-        convert2cpu(bn_model.weight.data).numpy().tofile(fp)
-        convert2cpu(bn_model.running_mean).numpy().tofile(fp)
-        convert2cpu(bn_model.running_var).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        bn_model.bias.data.numpy().tofile(fp)
-        bn_model.weight.data.numpy().tofile(fp)
-        bn_model.running_mean.numpy().tofile(fp)
-        bn_model.running_var.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
-
-
 class Net(nn.Module):
 
     def __init__(self):
@@ -471,11 +471,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_marvis_pytorch_caffe_darknet_convert(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Eltwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -487,3 +486,4 @@ class Test_marvis_pytorch_caffe_darknet_convert(_paritybench_base):
 
     def test_004(self):
         self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -209,13 +209,13 @@ class MaskLoss(nn.Module):
             return loss
 
 
-bn_mom = 0.0003
-
-
 def conv3x3(in_planes, out_planes, stride=1, atrous=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1 * atrous, dilation=atrous, bias=False)
+
+
+bn_mom = 0.0003
 
 
 class BasicBlock(nn.Module):
@@ -360,17 +360,7 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class FutureResult(object):
@@ -394,9 +384,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -492,6 +479,19 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -852,6 +852,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_YudeWang_deeplabv3plus_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

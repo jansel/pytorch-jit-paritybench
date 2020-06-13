@@ -132,6 +132,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_orobix_Prototypical_Networks_for_Few_shot_Learning_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ProtoNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

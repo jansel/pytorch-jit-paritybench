@@ -153,9 +153,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_davidtvs_pytorch_lr_finder(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LinearMLP(*[], **{'layer_dim': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

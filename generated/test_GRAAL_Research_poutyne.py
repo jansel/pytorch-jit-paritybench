@@ -192,6 +192,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_GRAAL_Research_poutyne(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(DictOutputModel(*[], **{}), [torch.rand([1, 1])], {})
+

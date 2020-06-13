@@ -314,18 +314,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pclucas14_pixel_cnn_pp(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(nin(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(down_shifted_conv2d(*[], **{'num_filters_in': 4, 'num_filters_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(down_right_shifted_conv2d(*[], **{'num_filters_in': 4, 'num_filters_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(PixelCNN(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+

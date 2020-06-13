@@ -458,18 +458,6 @@ class NoEmbedding(nn.Module):
         return CS.ConfigurationSpace()
 
 
-def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
-    is_training, is_cuda):
-    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
-    if not is_training:
-        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
-    if is_training:
-        bl = torch.tensor(pl)
-    if is_cuda:
-        bl = bl.cuda()
-    return bl
-
-
 class ShakeDrop(Function):
 
     @staticmethod
@@ -511,6 +499,18 @@ def shake_get_alpha_beta(is_training, is_cuda):
         alpha = alpha.cuda()
         beta = beta.cuda()
     return alpha, beta
+
+
+def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
+    is_training, is_cuda):
+    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
+    if not is_training:
+        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
+    if is_training:
+        bl = torch.tensor(pl)
+    if is_cuda:
+        bl = bl.cuda()
+    return bl
 
 
 class ShakeShakeBlock(Function):
@@ -976,27 +976,6 @@ class ResidualBranch(nn.Module):
         return self.residual_branch(x)
 
 
-def generate_alpha_beta_single(tensor_size, shake_config, is_cuda):
-    forward_shake, backward_shake, shake_image = shake_config
-    if forward_shake and not shake_image:
-        alpha = torch.rand(tensor_size).mul(2).add(-1)
-    elif forward_shake and shake_image:
-        alpha = torch.rand(tensor_size[0]).view(tensor_size[0], 1, 1, 1)
-        alpha.mul_(2).add_(-1)
-    else:
-        alpha = torch.FloatTensor([0.5])
-    if backward_shake and not shake_image:
-        beta = torch.rand(tensor_size)
-    elif backward_shake and shake_image:
-        beta = torch.rand(tensor_size[0]).view(tensor_size[0], 1, 1, 1)
-    else:
-        beta = torch.FloatTensor([0.5])
-    if is_cuda:
-        alpha = alpha.cuda()
-        beta = beta.cuda()
-    return Variable(alpha), Variable(beta)
-
-
 def generate_alpha_beta(num_branches, batch_size, shake_config, is_cuda):
     forward_shake, backward_shake, shake_image = shake_config
     if forward_shake and not shake_image:
@@ -1019,6 +998,27 @@ def generate_alpha_beta(num_branches, batch_size, shake_config, is_cuda):
         alpha = alpha.cuda()
         beta = beta.cuda()
     return alpha, beta
+
+
+def generate_alpha_beta_single(tensor_size, shake_config, is_cuda):
+    forward_shake, backward_shake, shake_image = shake_config
+    if forward_shake and not shake_image:
+        alpha = torch.rand(tensor_size).mul(2).add(-1)
+    elif forward_shake and shake_image:
+        alpha = torch.rand(tensor_size[0]).view(tensor_size[0], 1, 1, 1)
+        alpha.mul_(2).add_(-1)
+    else:
+        alpha = torch.FloatTensor([0.5])
+    if backward_shake and not shake_image:
+        beta = torch.rand(tensor_size)
+    elif backward_shake and shake_image:
+        beta = torch.rand(tensor_size[0]).view(tensor_size[0], 1, 1, 1)
+    else:
+        beta = torch.FloatTensor([0.5])
+    if is_cuda:
+        alpha = alpha.cuda()
+        beta = beta.cuda()
+    return Variable(alpha), Variable(beta)
 
 
 class BasicBlock(nn.Module):
@@ -1171,19 +1171,13 @@ class Conv2dSame(nn.Conv2d):
             padding, self.dilation, self.groups)
 
 
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
-
-
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
@@ -1207,6 +1201,12 @@ def conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
     else:
         return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
             kwargs)
+
+
+def _split_channels(num_chan, num_groups):
+    split = [(num_chan // num_groups) for _ in range(num_groups)]
+    split[0] += num_chan - sum(split)
+    return split
 
 
 class MixedConv2d(nn.Module):
@@ -1351,6 +1351,15 @@ class SqueezeExcite(nn.Module):
         return x
 
 
+_BN_EPS_PT_DEFAULT = 1e-05
+
+
+_BN_MOMENTUM_PT_DEFAULT = 0.01
+
+
+_BN_ARGS_PT = dict(momentum=_BN_MOMENTUM_PT_DEFAULT, eps=_BN_EPS_PT_DEFAULT)
+
+
 def select_conv2d(in_chs, out_chs, kernel_size, **kwargs):
     assert 'groups' not in kwargs
     if isinstance(kernel_size, list):
@@ -1360,15 +1369,6 @@ def select_conv2d(in_chs, out_chs, kernel_size, **kwargs):
         groups = out_chs if depthwise else 1
         return conv2d_pad(in_chs, out_chs, kernel_size, groups=groups, **kwargs
             )
-
-
-_BN_EPS_PT_DEFAULT = 1e-05
-
-
-_BN_MOMENTUM_PT_DEFAULT = 0.01
-
-
-_BN_ARGS_PT = dict(momentum=_BN_MOMENTUM_PT_DEFAULT, eps=_BN_EPS_PT_DEFAULT)
 
 
 class ConvBnAct(nn.Module):
@@ -1498,18 +1498,36 @@ class InvertedResidual(nn.Module):
         return x
 
 
-def _initialize_weight_default(m):
+_DEBUG = False
+
+
+def _initialize_weight_goog(m):
     if isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1.0)
         m.bias.data.zero_()
     elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
+        n = m.weight.size(0)
+        init_range = 1.0 / math.sqrt(n)
+        m.weight.data.uniform_(-init_range, init_range)
+        m.bias.data.zero_()
 
 
-_DEBUG = False
+def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
+    """Round number of filters based on depth multiplier."""
+    if not multiplier:
+        return channels
+    channels *= multiplier
+    channel_min = channel_min or divisor
+    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
+        channel_min)
+    if new_channels < 0.9 * channels:
+        new_channels += divisor
+    return new_channels
 
 
 class _BlockBuilder:
@@ -1614,33 +1632,15 @@ class _BlockBuilder:
         return blocks
 
 
-def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
-    """Round number of filters based on depth multiplier."""
-    if not multiplier:
-        return channels
-    channels *= multiplier
-    channel_min = channel_min or divisor
-    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
-        channel_min)
-    if new_channels < 0.9 * channels:
-        new_channels += divisor
-    return new_channels
-
-
-def _initialize_weight_goog(m):
+def _initialize_weight_default(m):
     if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1.0)
         m.bias.data.zero_()
     elif isinstance(m, nn.Linear):
-        n = m.weight.size(0)
-        init_range = 1.0 / math.sqrt(n)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
 
 
 class GenEfficientNet(nn.Module):
@@ -1754,7 +1754,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_automl_Auto_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(NoEmbedding(*[], **{'config': _mock_config(), 'in_features': 4, 'one_hot_encoder': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1775,8 +1774,8 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
 
     def test_006(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(PrintNode(*[], **{'msg': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1788,20 +1787,20 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
 
     def test_010(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(AdaptiveCatAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1810,21 +1809,22 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
 
     def test_016(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
         self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_019(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_020(self):
         self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
         self._check(Reshape(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -317,9 +317,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_scaelles_DEXTR_PyTorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ClassifierModule(*[], **{'dilation_series': [4, 4], 'padding_series': [4, 4], 'n_classes': 4}), [torch.rand([4, 2048, 64, 64])], {})
 
     def test_001(self):
         self._check(PSPModule(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+

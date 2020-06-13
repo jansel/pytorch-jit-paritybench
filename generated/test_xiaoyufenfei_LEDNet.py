@@ -118,6 +118,14 @@ class DownsamplerBlock(nn.Module):
         return output
 
 
+def split(x):
+    c = int(x.size()[1])
+    c1 = round(c * 0.5)
+    x1 = x[:, :c1, :, :].contiguous()
+    x2 = x[:, c1:, :, :].contiguous()
+    return x1, x2
+
+
 def channel_shuffle(x, groups):
     batchsize, num_channels, height, width = x.data.size()
     channels_per_group = num_channels // groups
@@ -125,14 +133,6 @@ def channel_shuffle(x, groups):
     x = torch.transpose(x, 1, 2).contiguous()
     x = x.view(batchsize, -1, height, width)
     return x
-
-
-def split(x):
-    c = int(x.size()[1])
-    c1 = round(c * 0.5)
-    x1 = x[:, :c1, :, :].contiguous()
-    x2 = x[:, c1:, :, :].contiguous()
-    return x1, x2
 
 
 class SS_nbt_module(nn.Module):
@@ -917,17 +917,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_xiaoyufenfei_LEDNet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Conv2dBnRelu(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Encoder(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
         self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Net(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+

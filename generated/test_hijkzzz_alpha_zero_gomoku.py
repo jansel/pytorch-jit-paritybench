@@ -147,9 +147,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hijkzzz_alpha_zero_gomoku(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(AlphaLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

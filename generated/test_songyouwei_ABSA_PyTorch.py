@@ -1161,14 +1161,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_songyouwei_ABSA_PyTorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Attention(*[], **{'embed_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(PositionwiseFeedForward(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(NoQueryAttention(*[], **{'embed_dim': 4}), [torch.rand([4, 4])], {})
+

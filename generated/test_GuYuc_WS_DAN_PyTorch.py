@@ -632,7 +632,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CBAMLayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
@@ -656,10 +655,11 @@ class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):
 
     def test_007(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(BAP(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
         self._check(CenterLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

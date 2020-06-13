@@ -324,7 +324,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pytorchbearer_torchbearer(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ToyModel(*[], **{}), [torch.rand([784, 784])], {})
 
@@ -336,7 +335,8 @@ class Test_pytorchbearer_torchbearer(_paritybench_base):
 
     def test_003(self):
         self._check(TestModel(*[], **{}), [torch.rand([1, 1])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MockModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

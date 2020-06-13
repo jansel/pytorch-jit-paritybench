@@ -353,6 +353,19 @@ class eSEModule(nn.Module):
         return input * x
 
 
+def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
+    kernel_size=3, padding=1):
+    """3x3 convolution with padding"""
+    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
+        padding=padding, groups=out_channels, bias=False)), (
+        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
+        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
+        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
+        module_name, postfix), nn.ReLU(inplace=True))]
+
+
 def conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
     groups=1, kernel_size=3, padding=1):
     """3x3 convolution with padding"""
@@ -371,19 +384,6 @@ def conv1x1(in_channels, out_channels, module_name, postfix, stride=1,
         padding, groups=groups, bias=False)), (
         f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
         f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
-
-
-def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
-    kernel_size=3, padding=1):
-    """3x3 convolution with padding"""
-    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
-        padding=padding, groups=out_channels, bias=False)), (
-        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
-        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
-        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
-        module_name, postfix), nn.ReLU(inplace=True))]
 
 
 class _OSA_module(nn.Module):
@@ -585,6 +585,71 @@ def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
     return keypoint_loss
 
 
+def convert_boxes_to_pooler_format(box_lists):
+    """
+    Convert all boxes in `box_lists` to the low-level format used by ROI pooling ops
+    (see description under Returns).
+
+    Args:
+        box_lists (list[Boxes] | list[RotatedBoxes]):
+            A list of N Boxes or N RotatedBoxes, where N is the number of images in the batch.
+
+    Returns:
+        When input is list[Boxes]:
+            A tensor of shape (M, 5), where M is the total number of boxes aggregated over all
+            N batch images.
+            The 5 columns are (batch index, x0, y0, x1, y1), where batch index
+            is the index in [0, N) identifying which batch image the box with corners at
+            (x0, y0, x1, y1) comes from.
+        When input is list[RotatedBoxes]:
+            A tensor of shape (M, 6), where M is the total number of boxes aggregated over all
+            N batch images.
+            The 6 columns are (batch index, x_ctr, y_ctr, width, height, angle_degrees),
+            where batch index is the index in [0, N) identifying which batch image the
+            rotated box (x_ctr, y_ctr, width, height, angle_degrees) comes from.
+    """
+
+    def fmt_box_list(box_tensor, batch_index):
+        repeated_index = torch.full((len(box_tensor), 1), batch_index,
+            dtype=box_tensor.dtype, device=box_tensor.device)
+        return cat((repeated_index, box_tensor), dim=1)
+    pooler_fmt_boxes = cat([fmt_box_list(box_list.tensor, i) for i,
+        box_list in enumerate(box_lists)], dim=0)
+    return pooler_fmt_boxes
+
+
+def assign_boxes_to_levels(box_lists, min_level, max_level,
+    canonical_box_size, canonical_level):
+    """
+    Map each box in `box_lists` to a feature map level index and return the assignment
+    vector.
+
+    Args:
+        box_lists (list[Boxes] | list[RotatedBoxes]): A list of N Boxes or N RotatedBoxes,
+            where N is the number of images in the batch.
+        min_level (int): Smallest feature map level index. The input is considered index 0,
+            the output of stage 1 is index 1, and so.
+        max_level (int): Largest feature map level index.
+        canonical_box_size (int): A canonical box size in pixels (sqrt(box area)).
+        canonical_level (int): The feature map level index on which a canonically-sized box
+            should be placed.
+
+    Returns:
+        A tensor of length M, where M is the total number of boxes aggregated over all
+            N batch images. The memory layout corresponds to the concatenation of boxes
+            from all images. Each element is the feature map index, as an offset from
+            `self.min_level`, for the corresponding box (so value i means the box is at
+            `self.min_level + i`).
+    """
+    eps = sys.float_info.epsilon
+    box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
+    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes /
+        canonical_box_size + eps))
+    level_assignments = torch.clamp(level_assignments, min=min_level, max=
+        max_level)
+    return level_assignments.to(torch.int64) - min_level
+
+
 def _img_area(instance):
     device = instance.pred_classes.device
     image_size = instance.image_size
@@ -627,71 +692,6 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level,
     level_assignments = torch.clamp(level_assignments, min=min_level, max=
         max_level)
     return level_assignments.to(torch.int64) - min_level
-
-
-def assign_boxes_to_levels(box_lists, min_level, max_level,
-    canonical_box_size, canonical_level):
-    """
-    Map each box in `box_lists` to a feature map level index and return the assignment
-    vector.
-
-    Args:
-        box_lists (list[Boxes] | list[RotatedBoxes]): A list of N Boxes or N RotatedBoxes,
-            where N is the number of images in the batch.
-        min_level (int): Smallest feature map level index. The input is considered index 0,
-            the output of stage 1 is index 1, and so.
-        max_level (int): Largest feature map level index.
-        canonical_box_size (int): A canonical box size in pixels (sqrt(box area)).
-        canonical_level (int): The feature map level index on which a canonically-sized box
-            should be placed.
-
-    Returns:
-        A tensor of length M, where M is the total number of boxes aggregated over all
-            N batch images. The memory layout corresponds to the concatenation of boxes
-            from all images. Each element is the feature map index, as an offset from
-            `self.min_level`, for the corresponding box (so value i means the box is at
-            `self.min_level + i`).
-    """
-    eps = sys.float_info.epsilon
-    box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
-    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes /
-        canonical_box_size + eps))
-    level_assignments = torch.clamp(level_assignments, min=min_level, max=
-        max_level)
-    return level_assignments.to(torch.int64) - min_level
-
-
-def convert_boxes_to_pooler_format(box_lists):
-    """
-    Convert all boxes in `box_lists` to the low-level format used by ROI pooling ops
-    (see description under Returns).
-
-    Args:
-        box_lists (list[Boxes] | list[RotatedBoxes]):
-            A list of N Boxes or N RotatedBoxes, where N is the number of images in the batch.
-
-    Returns:
-        When input is list[Boxes]:
-            A tensor of shape (M, 5), where M is the total number of boxes aggregated over all
-            N batch images.
-            The 5 columns are (batch index, x0, y0, x1, y1), where batch index
-            is the index in [0, N) identifying which batch image the box with corners at
-            (x0, y0, x1, y1) comes from.
-        When input is list[RotatedBoxes]:
-            A tensor of shape (M, 6), where M is the total number of boxes aggregated over all
-            N batch images.
-            The 6 columns are (batch index, x_ctr, y_ctr, width, height, angle_degrees),
-            where batch index is the index in [0, N) identifying which batch image the
-            rotated box (x_ctr, y_ctr, width, height, angle_degrees) comes from.
-    """
-
-    def fmt_box_list(box_tensor, batch_index):
-        repeated_index = torch.full((len(box_tensor), 1), batch_index,
-            dtype=box_tensor.dtype, device=box_tensor.device)
-        return cat((repeated_index, box_tensor), dim=1)
-    pooler_fmt_boxes = cat([fmt_box_list(box_list.tensor, i) for i,
-        box_list in enumerate(box_lists)], dim=0)
-    return pooler_fmt_boxes
 
 
 class ROIPooler(nn.Module):
@@ -858,6 +858,9 @@ class Scale(nn.Module):
         return input * self.scale
 
 
+INF = 100000000
+
+
 def compute_ctrness_targets(reg_targets):
     if len(reg_targets) == 0:
         return reg_targets.new_zeros(len(reg_targets))
@@ -928,9 +931,6 @@ def ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores',
         keep = keep[:max_proposals]
     boxlist = boxlist[keep]
     return boxlist
-
-
-INF = 100000000
 
 
 class FCOSOutputs(object):
@@ -1174,15 +1174,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_youngwanLEE_centermask2(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(IOULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(MaxPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1194,3 +1193,4 @@ class Test_youngwanLEE_centermask2(_paritybench_base):
 
     def test_005(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

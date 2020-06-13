@@ -891,50 +891,6 @@ class ChunkEnergy(nn.Module):
         return energy
 
 
-def add_gaussian_noise(xs, std):
-    """Additive gaussian nosie to encourage discreteness."""
-    noise = xs.new_zeros(xs.size()).normal_(std=std)
-    return xs + noise
-
-
-def exclusive_cumsum(x):
-    """Exclusive cumulative summation [a, b, c] => [0, a, a + b].
-
-        Args:
-            x (FloatTensor): `[B, H, qlen, klen]`
-        Returns:
-            x (FloatTensor): `[B, H, qlen, klen]`
-
-    """
-    return torch.cumsum(torch.cat([x.new_zeros(x.size(0), x.size(1), x.size
-        (2), 1), x[:, :, :, :-1]], dim=-1), dim=-1)
-
-
-def safe_cumprod(x, eps):
-    """Numerically stable cumulative product by cumulative sum in log-space.
-        Args:
-            x (FloatTensor): `[B, H, qlen, klen]`
-        Returns:
-            x (FloatTensor): `[B, H, qlen, klen]`
-
-    """
-    return torch.exp(exclusive_cumsum(torch.log(torch.clamp(x, min=eps, max
-        =1.0))))
-
-
-def exclusive_cumprod(x):
-    """Exclusive cumulative product [a, b, c] => [1, a, a * b].
-
-        Args:
-            x (FloatTensor): `[B, H, qlen, klen]`
-        Returns:
-            x (FloatTensor): `[B, H, qlen, klen]`
-
-    """
-    return torch.cumprod(torch.cat([x.new_ones(x.size(0), x.size(1), x.size
-        (2), 1), x[:, :, :, :-1]], dim=-1), dim=-1)
-
-
 def moving_sum(x, back, forward):
     """Compute the moving sum of x over a chunk_size with the provided bounds.
 
@@ -992,6 +948,50 @@ def efficient_chunkwise_attention(alpha, e, mask, chunk_size, n_heads,
         beta = softmax_exp * moving_sum(alpha * sharpening_factor /
             softmax_denominators, back=0, forward=chunk_size - 1)
     return beta.view(bs, -1, qlen, klen)
+
+
+def exclusive_cumprod(x):
+    """Exclusive cumulative product [a, b, c] => [1, a, a * b].
+
+        Args:
+            x (FloatTensor): `[B, H, qlen, klen]`
+        Returns:
+            x (FloatTensor): `[B, H, qlen, klen]`
+
+    """
+    return torch.cumprod(torch.cat([x.new_ones(x.size(0), x.size(1), x.size
+        (2), 1), x[:, :, :, :-1]], dim=-1), dim=-1)
+
+
+def exclusive_cumsum(x):
+    """Exclusive cumulative summation [a, b, c] => [0, a, a + b].
+
+        Args:
+            x (FloatTensor): `[B, H, qlen, klen]`
+        Returns:
+            x (FloatTensor): `[B, H, qlen, klen]`
+
+    """
+    return torch.cumsum(torch.cat([x.new_zeros(x.size(0), x.size(1), x.size
+        (2), 1), x[:, :, :, :-1]], dim=-1), dim=-1)
+
+
+def safe_cumprod(x, eps):
+    """Numerically stable cumulative product by cumulative sum in log-space.
+        Args:
+            x (FloatTensor): `[B, H, qlen, klen]`
+        Returns:
+            x (FloatTensor): `[B, H, qlen, klen]`
+
+    """
+    return torch.exp(exclusive_cumsum(torch.log(torch.clamp(x, min=eps, max
+        =1.0))))
+
+
+def add_gaussian_noise(xs, std):
+    """Additive gaussian nosie to encourage discreteness."""
+    noise = xs.new_zeros(xs.size()).normal_(std=std)
+    return xs + noise
 
 
 class MoChA(nn.Module):
@@ -1451,13 +1451,13 @@ class XLPositionalEmbedding(nn.Module):
         return pos_emb.unsqueeze(1)
 
 
-def gelu(x):
-    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
 def gelu_accurate(x):
     return 0.5 * x * (1 + torch.tanh(gelu_accurate._a * (x + 0.044715 *
         torch.pow(x, 3))))
+
+
+def gelu(x):
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
 class PositionwiseFeedForward(nn.Module):
@@ -2381,26 +2381,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hirofumi0810_neural_sp(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CausalConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
         self._check(LinearGLUBlock(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MaxpoolSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Conv1dSubsampler(*[], **{'factor': 4, 'n_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(DropSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4]), [4, 4]], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(ConcatSubsampler(*[], **{'factor': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -2409,3 +2408,4 @@ class Test_hirofumi0810_neural_sp(_paritybench_base):
 
     def test_007(self):
         self._check(SubsampelBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'in_freq': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+

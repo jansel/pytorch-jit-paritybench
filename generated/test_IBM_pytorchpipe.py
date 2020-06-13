@@ -311,31 +311,6 @@ class AppState(metaclass=SingletonMetaClass):
             return self.__globals[key]
 
 
-class KeyMappingsFacade(object):
-    """
-    Simple facility for accessing key names using provided mappings using list-like (read-only) access.
-    """
-
-    def __init__(self, key_mappings):
-        """
-        Constructor. Stores key mappings.
-
-        :param key_mappings: Dictionary of key mappings of the parent object.
-        """
-        self.keys_mappings = key_mappings
-
-    def __getitem__(self, key):
-        """
-        Global value getter function.
-        Uses parent object key mapping for accesing the value.
-
-        :param key: Global key name (that will be mapped).
-
-        :return: Associated Value.
-        """
-        return self.keys_mappings.get(key, key)
-
-
 class GlobalsFacade(object):
     """
     Simple facility for accessing global variables using provided mappings using list-like read-write access.
@@ -406,6 +381,31 @@ def load_class_default_config_file(class_type):
   {}"""
             .format(abs_default_config, e))
         exit(-2)
+
+
+class KeyMappingsFacade(object):
+    """
+    Simple facility for accessing key names using provided mappings using list-like (read-only) access.
+    """
+
+    def __init__(self, key_mappings):
+        """
+        Constructor. Stores key mappings.
+
+        :param key_mappings: Dictionary of key mappings of the parent object.
+        """
+        self.keys_mappings = key_mappings
+
+    def __getitem__(self, key):
+        """
+        Global value getter function.
+        Uses parent object key mapping for accesing the value.
+
+        :param key: Global key name (that will be mapped).
+
+        :return: Associated Value.
+        """
+        return self.keys_mappings.get(key, key)
 
 
 import torch

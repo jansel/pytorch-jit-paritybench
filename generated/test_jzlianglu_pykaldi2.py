@@ -193,14 +193,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_jzlianglu_pykaldi2(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(PositionalEncoding(*[], **{'dim_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(TransformerEncoderLayerWithConv1d(*[], **{'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'dropout': 0.5, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(TransformerAM(*[], **{'dim_feat': 4, 'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'nlayers': 1, 'dropout': 0.5, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+

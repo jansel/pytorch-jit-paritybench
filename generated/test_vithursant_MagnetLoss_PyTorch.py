@@ -59,10 +59,6 @@ from math import ceil
 import torch.nn.init as init
 
 
-def compute_euclidean_distance(x, y):
-    return torch.sum((x - y) ** 2, dim=2)
-
-
 def expand_dims(var, dim=0):
     """ Is similar to [numpy.expand_dims](https://docs.scipy.org/doc/numpy/reference/generated/numpy.expand_dims.html).
         var = torch.range(0, 9).view(-1, 2)
@@ -77,6 +73,10 @@ def expand_dims(var, dim=0):
 def comparison_mask(a_labels, b_labels):
     """Computes boolean mask for distance comparisons"""
     return torch.eq(expand_dims(a_labels, 1), expand_dims(b_labels, 0))
+
+
+def compute_euclidean_distance(x, y):
+    return torch.sum((x - y) ** 2, dim=2)
 
 
 def dynamic_partition(X, partitions, n_clusters):

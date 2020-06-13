@@ -546,15 +546,6 @@ class ModelWrapper(torch.nn.Module):
         return self.model(x)['out']
 
 
-def torch_device_from_trt(device):
-    if device == trt.TensorLocation.DEVICE:
-        return torch.device('cuda')
-    elif device == trt.TensorLocation.HOST:
-        return torch.device('cpu')
-    else:
-        return TypeError('%s is not supported by torch' % device)
-
-
 def torch_dtype_from_trt(dtype):
     if dtype == trt.int8:
         return torch.int8
@@ -566,6 +557,15 @@ def torch_dtype_from_trt(dtype):
         return torch.float32
     else:
         raise TypeError('%s is not supported by torch' % dtype)
+
+
+def torch_device_from_trt(device):
+    if device == trt.TensorLocation.DEVICE:
+        return torch.device('cuda')
+    elif device == trt.TensorLocation.HOST:
+        return torch.device('cpu')
+    else:
+        return TypeError('%s is not supported by torch' % device)
 
 
 class TRTModule(torch.nn.Module):
@@ -625,7 +625,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Add(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -712,8 +711,8 @@ class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
 
     def test_028(self):
         self._check(RMulFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_029(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -746,3 +745,4 @@ class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
 
     def test_039(self):
         self._check(Transpose(*[], **{'dim0': 4, 'dim1': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+

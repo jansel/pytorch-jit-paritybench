@@ -498,6 +498,9 @@ class Encoder(_EncDec):
         return batched_conv.view(output_shape)
 
 
+EPS = 1e-08
+
+
 def check_complex(tensor, dim=-2):
     """ Assert tensor in complex-like in a given dimension.
 
@@ -514,9 +517,6 @@ def check_complex(tensor, dim=-2):
         raise AssertionError(
             'Could not equally chunk the tensor (shape {}) along the given dimension ({}). Dim axis is probably wrong'
             )
-
-
-EPS = 1e-08
 
 
 def take_mag(x, dim=-2):
@@ -2020,20 +2020,8 @@ class BaseTasNet(nn.Module):
         return model_conf
 
 
-def apply_real_mask(tf_rep, mask, dim=-2):
-    """ Applies a real-valued mask to a real-valued representation.
-
-    It corresponds to ReIm mask in [1].
-
-    Args:
-        tf_rep (:class:`torch.Tensor`): The time frequency representation to
-            apply the mask to.
-        mask (:class:`torch.Tensor`): The real-valued mask to be applied.
-        dim (int): Kept to have the same interface with the other ones.
-    Returns:
-        :class:`torch.Tensor`: `tf_rep` multiplied by the `mask`.
-    """
-    return tf_rep * mask
+def take_cat(x, dim=-2):
+    return torch.cat([take_mag(x, dim=dim), x], dim=dim)
 
 
 def apply_mag_mask(tf_rep, mask, dim=-2):
@@ -2074,8 +2062,20 @@ def apply_mag_mask(tf_rep, mask, dim=-2):
     return tf_rep * mask
 
 
-def take_cat(x, dim=-2):
-    return torch.cat([take_mag(x, dim=dim), x], dim=dim)
+def apply_real_mask(tf_rep, mask, dim=-2):
+    """ Applies a real-valued mask to a real-valued representation.
+
+    It corresponds to ReIm mask in [1].
+
+    Args:
+        tf_rep (:class:`torch.Tensor`): The time frequency representation to
+            apply the mask to.
+        mask (:class:`torch.Tensor`): The real-valued mask to be applied.
+        dim (int): Kept to have the same interface with the other ones.
+    Returns:
+        :class:`torch.Tensor`: `tf_rep` multiplied by the `mask`.
+    """
+    return tf_rep * mask
 
 
 class Model(nn.Module):
@@ -2885,18 +2885,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mpariente_asteroid(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(PairwiseMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(SimpleModel(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
@@ -2908,11 +2907,12 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     def test_006(self):
         self._check(AdaptiveDecoder1D(*[], **{'freq_res': 4, 'sample_res': 4, 'n_sources': 4}), [torch.rand([4, 16, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(GlobLN(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(Chimera(*[], **{'in_chan': 4, 'n_src': 4}), [torch.rand([4, 4, 4])], {})
+

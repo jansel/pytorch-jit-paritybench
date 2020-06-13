@@ -372,11 +372,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ybabakhin_kaggle_salt_bes_phalanx(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(FPAv2(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 16, 16])], {})
 
@@ -385,8 +384,8 @@ class Test_ybabakhin_kaggle_salt_bes_phalanx(_paritybench_base):
 
     def test_003(self):
         self._check(GAB(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Decoder(*[], **{'in_channels': 4, 'channels': 4, 'out_channels': 64}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -395,3 +394,4 @@ class Test_ybabakhin_kaggle_salt_bes_phalanx(_paritybench_base):
 
     def test_006(self):
         self._check(SCse(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+

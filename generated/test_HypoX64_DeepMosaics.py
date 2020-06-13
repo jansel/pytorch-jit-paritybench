@@ -1608,7 +1608,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_HypoX64_DeepMosaics(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1623,8 +1622,8 @@ class Test_HypoX64_DeepMosaics(_paritybench_base):
 
     def test_004(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1651,15 +1650,15 @@ class Test_HypoX64_DeepMosaics(_paritybench_base):
 
     def test_013(self):
         self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
     def test_015(self):
         self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(UNet(*[], **{'n_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
 
@@ -1674,3 +1673,4 @@ class Test_HypoX64_DeepMosaics(_paritybench_base):
 
     def test_020(self):
         self._check(conv_2d(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

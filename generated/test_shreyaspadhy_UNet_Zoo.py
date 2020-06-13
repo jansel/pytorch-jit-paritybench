@@ -373,18 +373,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_shreyaspadhy_UNet_Zoo(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(CLSTMCell(*[], **{'input_channels': 4, 'hidden_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 3, 3])], {})
 
     def test_001(self):
         self._check(DICELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(UNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(UNetSmall(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
@@ -402,3 +401,4 @@ class Test_shreyaspadhy_UNet_Zoo(_paritybench_base):
 
     def test_008(self):
         self._check(UpSample(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+

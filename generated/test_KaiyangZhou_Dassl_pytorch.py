@@ -313,17 +313,6 @@ class Registry:
         return list(self._obj_map.keys())
 
 
-HEAD_REGISTRY = Registry('HEAD')
-
-
-def build_head(name, verbose=True, **kwargs):
-    avai_heads = HEAD_REGISTRY.registered_names()
-    check_availability(name, avai_heads)
-    if verbose:
-        print('Head: {}'.format(name))
-    return HEAD_REGISTRY.get(name)(**kwargs)
-
-
 BACKBONE_REGISTRY = Registry('BACKBONE')
 
 
@@ -333,6 +322,17 @@ def build_backbone(name, verbose=True, **kwargs):
     if verbose:
         print('Backbone: {}'.format(name))
     return BACKBONE_REGISTRY.get(name)(**kwargs)
+
+
+HEAD_REGISTRY = Registry('HEAD')
+
+
+def build_head(name, verbose=True, **kwargs):
+    avai_heads = HEAD_REGISTRY.registered_names()
+    check_availability(name, avai_heads)
+    if verbose:
+        print('Head: {}'.format(name))
+    return HEAD_REGISTRY.get(name)(**kwargs)
 
 
 class SimpleNet(nn.Module):
@@ -400,6 +400,20 @@ class Convolution(nn.Module):
         return self.relu(self.conv(x))
 
 
+def drop_connect(inputs, p, training):
+    """ Drop connect. """
+    if not training:
+        return inputs
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
+        device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    output = inputs / keep_prob * binary_tensor
+    return output
+
+
 def get_width_and_height_from_size(x):
     """ Obtains width and height from a int or tuple """
     if isinstance(x, int):
@@ -423,20 +437,6 @@ def calculate_output_image_size(input_image_size, stride):
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
     return [image_height, image_width]
-
-
-def drop_connect(inputs, p, training):
-    """ Drop connect. """
-    if not training:
-        return inputs
-    batch_size = inputs.shape[0]
-    keep_prob = 1 - p
-    random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
-    binary_tensor = torch.floor(random_tensor)
-    output = inputs / keep_prob * binary_tensor
-    return output
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -1337,15 +1337,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Experts(*[], **{'n_source': 4, 'fdim': 4, 'num_classes': 4}), [0, torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(PairClassifiers(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Prototypes(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1354,8 +1353,8 @@ class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(Convolution(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1370,34 +1369,35 @@ class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
 
     def test_009(self):
         self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_011(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(FCN(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_015(self):
         self._check(MaximumMeanDiscrepancy(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(ReverseGrad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_017(self):
         self._check(Sequential2(*[], **{}), [], {})
+

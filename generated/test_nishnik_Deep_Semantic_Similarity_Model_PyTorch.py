@@ -31,6 +31,12 @@ import torch.nn.functional as F
 import numpy as np
 
 
+K = 300
+
+
+FILTER_LENGTH = 1
+
+
 def kmax_pooling(x, dim, k):
     index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
     return x.gather(dim, index)
@@ -40,12 +46,6 @@ J = 4
 
 
 L = 128
-
-
-K = 300
-
-
-FILTER_LENGTH = 1
 
 
 WINDOW_SIZE = 3

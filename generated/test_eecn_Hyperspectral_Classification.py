@@ -700,7 +700,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_eecn_Hyperspectral_Classification(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Baseline(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -712,3 +711,4 @@ class Test_eecn_Hyperspectral_Classification(_paritybench_base):
 
     def test_003(self):
         self._check(MouEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+

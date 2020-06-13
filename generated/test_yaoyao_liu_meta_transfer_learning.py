@@ -472,7 +472,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yaoyao_liu_meta_transfer_learning(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(BaseLearner(*[], **{'args': _mock_config(way=4), 'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -484,3 +483,4 @@ class Test_yaoyao_liu_meta_transfer_learning(_paritybench_base):
 
     def test_003(self):
         self._check(BasicBlockMtl(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

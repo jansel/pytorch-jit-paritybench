@@ -136,54 +136,6 @@ class WeightNet(nn.Module):
         return weights
 
 
-def sample_and_group_all(xyz, points, density_scale=None):
-    """
-    Input:
-        xyz: input points position data, [B, N, C]
-        points: input points data, [B, N, D]
-    Return:
-        new_xyz: sampled points position data, [B, 1, C]
-        new_points: sampled points data, [B, 1, N, C+D]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    new_xyz = xyz.mean(dim=1, keepdim=True)
-    grouped_xyz = xyz.view(B, 1, N, C) - new_xyz.view(B, 1, 1, C)
-    if points is not None:
-        new_points = torch.cat([grouped_xyz, points.view(B, 1, N, -1)], dim=-1)
-    else:
-        new_points = grouped_xyz
-    if density_scale is None:
-        return new_xyz, new_points, grouped_xyz
-    else:
-        grouped_density = density_scale.view(B, 1, N, 1)
-        return new_xyz, new_points, grouped_xyz, grouped_density
-
-
-def farthest_point_sample(xyz, npoint):
-    """
-    Input:
-        xyz: pointcloud data, [B, N, C]
-        npoint: number of samples
-    Return:
-        centroids: sampled pointcloud index, [B, npoint]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(device) * 10000000000.0
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
-    for i in range(npoint):
-        centroids[:, (i)] = farthest
-        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
-    return centroids
-
-
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -221,6 +173,30 @@ def knn_point(nsample, xyz, new_xyz):
     _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False,
         sorted=False)
     return group_idx
+
+
+def farthest_point_sample(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, C]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 10000000000.0
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    for i in range(npoint):
+        centroids[:, (i)] = farthest
+        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
+        dist = torch.sum((xyz - centroid) ** 2, -1)
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
+    return centroids
 
 
 def index_points(points, idx):
@@ -272,6 +248,30 @@ def sample_and_group(npoint, nsample, xyz, points, density_scale=None):
     else:
         grouped_density = index_points(density_scale, idx)
         return new_xyz, new_points, grouped_xyz_norm, idx, grouped_density
+
+
+def sample_and_group_all(xyz, points, density_scale=None):
+    """
+    Input:
+        xyz: input points position data, [B, N, C]
+        points: input points data, [B, N, D]
+    Return:
+        new_xyz: sampled points position data, [B, 1, C]
+        new_points: sampled points data, [B, 1, N, C+D]
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+    new_xyz = xyz.mean(dim=1, keepdim=True)
+    grouped_xyz = xyz.view(B, 1, N, C) - new_xyz.view(B, 1, 1, C)
+    if points is not None:
+        new_points = torch.cat([grouped_xyz, points.view(B, 1, N, -1)], dim=-1)
+    else:
+        new_points = grouped_xyz
+    if density_scale is None:
+        return new_xyz, new_points, grouped_xyz
+    else:
+        grouped_density = density_scale.view(B, 1, N, 1)
+        return new_xyz, new_points, grouped_xyz, grouped_density
 
 
 class PointConvSetAbstraction(nn.Module):
@@ -403,10 +403,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_DylanWusee_pointconv_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(DensityNet(*[], **{}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(WeightNet(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

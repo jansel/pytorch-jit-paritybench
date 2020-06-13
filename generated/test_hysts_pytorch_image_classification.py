@@ -1011,25 +1011,6 @@ class SkipConnection(nn.Module):
         return z
 
 
-def get_alpha_beta(batch_size, shake_config, device):
-    forward_shake, backward_shake, shake_image = shake_config
-    if forward_shake and not shake_image:
-        alpha = torch.rand(1)
-    elif forward_shake and shake_image:
-        alpha = torch.rand(batch_size).view(batch_size, 1, 1, 1)
-    else:
-        alpha = torch.FloatTensor([0.5])
-    if backward_shake and not shake_image:
-        beta = torch.rand(1)
-    elif backward_shake and shake_image:
-        beta = torch.rand(batch_size).view(batch_size, 1, 1, 1)
-    else:
-        beta = torch.FloatTensor([0.5])
-    alpha = alpha.to(device)
-    beta = beta.to(device)
-    return alpha, beta
-
-
 class ShakeFunction(Function):
 
     @staticmethod
@@ -1050,6 +1031,25 @@ class ShakeFunction(Function):
 
 
 shake_function = ShakeFunction.apply
+
+
+def get_alpha_beta(batch_size, shake_config, device):
+    forward_shake, backward_shake, shake_image = shake_config
+    if forward_shake and not shake_image:
+        alpha = torch.rand(1)
+    elif forward_shake and shake_image:
+        alpha = torch.rand(batch_size).view(batch_size, 1, 1, 1)
+    else:
+        alpha = torch.FloatTensor([0.5])
+    if backward_shake and not shake_image:
+        beta = torch.rand(1)
+    elif backward_shake and shake_image:
+        beta = torch.rand(batch_size).view(batch_size, 1, 1, 1)
+    else:
+        beta = torch.FloatTensor([0.5])
+    alpha = alpha.to(device)
+    beta = beta.to(device)
+    return alpha, beta
 
 
 class BasicBlock(nn.Module):
@@ -2028,7 +2028,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hysts_pytorch_image_classification(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'remove_first_relu': 4, 'add_last_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2046,3 +2045,4 @@ class Test_hysts_pytorch_image_classification(_paritybench_base):
 
     def test_005(self):
         self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+

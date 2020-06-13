@@ -576,28 +576,28 @@ class NMT(nn.Module):
         torch.save(params, path)
 
 
-_global_config['dropout'] = 0.5
-
-
-_global_config['embed_size'] = 4
+_global_config['beam_size'] = 4
 
 
 _global_config['decode_max_time_step'] = 4
 
 
-_global_config['sample_size'] = 4
-
-
-_global_config['beam_size'] = 4
+_global_config['dropout'] = 0.5
 
 
 _global_config['cuda'] = 4
 
 
-_global_config['sample_method'] = 4
+_global_config['embed_size'] = 4
 
 
 _global_config['hidden_size'] = 4
+
+
+_global_config['sample_method'] = 4
+
+
+_global_config['sample_size'] = 4
 
 
 class NMT(nn.Module):

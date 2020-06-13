@@ -1279,13 +1279,13 @@ class BiSeNet(nn.Module):
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
 
 
 class ABN(nn.Module):
@@ -1632,7 +1632,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_CoinCheung_BiSeNet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1653,12 +1652,12 @@ class Test_CoinCheung_BiSeNet(_paritybench_base):
 
     def test_006(self):
         self._check(BGALayer(*[], **{}), [torch.rand([4, 128, 16, 16]), torch.rand([4, 128, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(SegmentHead(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(BiSeNetV2(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
@@ -1670,22 +1669,23 @@ class Test_CoinCheung_BiSeNet(_paritybench_base):
 
     def test_011(self):
         self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_013(self):
         self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_016(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+

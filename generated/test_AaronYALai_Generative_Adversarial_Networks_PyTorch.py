@@ -521,13 +521,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_AaronYALai_Generative_Adversarial_Networks_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Discriminator(*[], **{}), [torch.rand([784, 784])], {})
 
     def test_001(self):
         self._check(Generator(*[], **{}), [torch.rand([4, 4, 4, 2])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(InfoGAN_Discriminator(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

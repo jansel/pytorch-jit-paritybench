@@ -1435,10 +1435,10 @@ class LstmCellWithProjection(torch.nn.Module):
         return output_accumulator, final_state
 
 
-RnnStateStorage = Tuple[torch.Tensor, ...]
-
-
 RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+
+
+RnnStateStorage = Tuple[torch.Tensor, ...]
 
 
 def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
@@ -1925,6 +1925,9 @@ class ScalarMix(torch.nn.Module):
             return self.gamma * sum(pieces)
 
 
+logger = logging.getLogger(__name__)
+
+
 def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.Tensor
     ) ->Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -1961,9 +1964,6 @@ def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.Tensor
                 j - 1, :]
             new_mask[(i), :j - 2] = 1
     return tensor_without_boundary_tokens, new_mask
-
-
-logger = logging.getLogger(__name__)
 
 
 class Elmo(torch.nn.Module):
@@ -2112,6 +2112,59 @@ class Elmo(torch.nn.Module):
             num_output_representations=num_output_representations,
             requires_grad=requires_grad, do_layer_norm=do_layer_norm,
             dropout=dropout)
+
+
+def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
+    Tensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[
+    torch.Tensor, torch.Tensor]:
+    """
+    Add begin/end of sentence tokens to the batch of sentences.
+    Given a batch of sentences with size ``(batch_size, timesteps)`` or
+    ``(batch_size, timesteps, dim)`` this returns a tensor of shape
+    ``(batch_size, timesteps + 2)`` or ``(batch_size, timesteps + 2, dim)`` respectively.
+    Returns both the new tensor and updated mask.
+    Parameters
+    ----------
+    tensor : ``torch.Tensor``
+        A tensor of shape ``(batch_size, timesteps)`` or ``(batch_size, timesteps, dim)``
+    mask : ``torch.Tensor``
+         A tensor of shape ``(batch_size, timesteps)``
+    sentence_begin_token: Any (anything that can be broadcast in torch for assignment)
+        For 2D input, a scalar with the <S> id. For 3D input, a tensor with length dim.
+    sentence_end_token: Any (anything that can be broadcast in torch for assignment)
+        For 2D input, a scalar with the </S> id. For 3D input, a tensor with length dim.
+    Returns
+    -------
+    tensor_with_boundary_tokens : ``torch.Tensor``
+        The tensor with the appended and prepended boundary tokens. If the input was 2D,
+        it has shape (batch_size, timesteps + 2) and if the input was 3D, it has shape
+        (batch_size, timesteps + 2, dim).
+    new_mask : ``torch.Tensor``
+        The new mask for the tensor, taking into account the appended tokens
+        marking the beginning and end of the sentence.
+    """
+    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
+    tensor_shape = list(tensor.data.shape)
+    new_shape = list(tensor_shape)
+    new_shape[1] = tensor_shape[1] + 2
+    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape)
+    if len(tensor_shape) == 2:
+        tensor_with_boundary_tokens[:, 1:-1] = tensor
+        tensor_with_boundary_tokens[:, (0)] = sentence_begin_token
+        for i, j in enumerate(sequence_lengths):
+            tensor_with_boundary_tokens[i, j + 1] = sentence_end_token
+        new_mask = (tensor_with_boundary_tokens != 0).long()
+    elif len(tensor_shape) == 3:
+        tensor_with_boundary_tokens[:, 1:-1, :] = tensor
+        for i, j in enumerate(sequence_lengths):
+            tensor_with_boundary_tokens[(i), (0), :] = sentence_begin_token
+            tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
+        new_mask = ((tensor_with_boundary_tokens > 0).long().sum(dim=-1) > 0
+            ).long()
+    else:
+        raise ValueError(
+            'add_sentence_boundary_token_ids only accepts 2D and 3D input')
+    return tensor_with_boundary_tokens, new_mask
 
 
 class ElmoLstm(_EncoderBase):
@@ -2346,59 +2399,6 @@ class ElmoLstm(_EncoderBase):
                     lstm.state_projection.weight.requires_grad = requires_grad
 
 
-def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
-    Tensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[
-    torch.Tensor, torch.Tensor]:
-    """
-    Add begin/end of sentence tokens to the batch of sentences.
-    Given a batch of sentences with size ``(batch_size, timesteps)`` or
-    ``(batch_size, timesteps, dim)`` this returns a tensor of shape
-    ``(batch_size, timesteps + 2)`` or ``(batch_size, timesteps + 2, dim)`` respectively.
-    Returns both the new tensor and updated mask.
-    Parameters
-    ----------
-    tensor : ``torch.Tensor``
-        A tensor of shape ``(batch_size, timesteps)`` or ``(batch_size, timesteps, dim)``
-    mask : ``torch.Tensor``
-         A tensor of shape ``(batch_size, timesteps)``
-    sentence_begin_token: Any (anything that can be broadcast in torch for assignment)
-        For 2D input, a scalar with the <S> id. For 3D input, a tensor with length dim.
-    sentence_end_token: Any (anything that can be broadcast in torch for assignment)
-        For 2D input, a scalar with the </S> id. For 3D input, a tensor with length dim.
-    Returns
-    -------
-    tensor_with_boundary_tokens : ``torch.Tensor``
-        The tensor with the appended and prepended boundary tokens. If the input was 2D,
-        it has shape (batch_size, timesteps + 2) and if the input was 3D, it has shape
-        (batch_size, timesteps + 2, dim).
-    new_mask : ``torch.Tensor``
-        The new mask for the tensor, taking into account the appended tokens
-        marking the beginning and end of the sentence.
-    """
-    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
-    tensor_shape = list(tensor.data.shape)
-    new_shape = list(tensor_shape)
-    new_shape[1] = tensor_shape[1] + 2
-    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape)
-    if len(tensor_shape) == 2:
-        tensor_with_boundary_tokens[:, 1:-1] = tensor
-        tensor_with_boundary_tokens[:, (0)] = sentence_begin_token
-        for i, j in enumerate(sequence_lengths):
-            tensor_with_boundary_tokens[i, j + 1] = sentence_end_token
-        new_mask = (tensor_with_boundary_tokens != 0).long()
-    elif len(tensor_shape) == 3:
-        tensor_with_boundary_tokens[:, 1:-1, :] = tensor
-        for i, j in enumerate(sequence_lengths):
-            tensor_with_boundary_tokens[(i), (0), :] = sentence_begin_token
-            tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
-        new_mask = ((tensor_with_boundary_tokens > 0).long().sum(dim=-1) > 0
-            ).long()
-    else:
-        raise ValueError(
-            'add_sentence_boundary_token_ids only accepts 2D and 3D input')
-    return tensor_with_boundary_tokens, new_mask
-
-
 class _ElmoBiLm(torch.nn.Module):
     """
     Run a pre-trained bidirectional language model, outputing the activations at each
@@ -2572,26 +2572,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_naver_claf(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(NoAnswer(*[], **{'embed_dim': 4, 'bias_hidden_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(EncoderBlock(*[], **{}), [torch.rand([4, 1, 128])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(CoAttention(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(SeqAttnMatch(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
         self._check(BilinearSeqAttn(*[], **{'x_size': 4, 'y_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(PointwiseConv(*[], **{'input_size': 4, 'num_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2603,11 +2602,12 @@ class Test_naver_claf(_paritybench_base):
 
     def test_008(self):
         self._check(LayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(PositionwiseFeedForward(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

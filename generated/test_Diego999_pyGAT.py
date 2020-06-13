@@ -204,18 +204,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Diego999_pyGAT(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(GraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SpGraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(GAT(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(SpGAT(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+

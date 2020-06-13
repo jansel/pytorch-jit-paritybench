@@ -127,6 +127,25 @@ class DeformConvNet(nn.Module):
             .parameters())
 
 
+def np_repeat_2d(a, repeats):
+    """Tensorflow version of np.repeat for 2D"""
+    assert len(a.shape) == 2
+    a = np.expand_dims(a, 0)
+    a = np.tile(a, [repeats, 1, 1])
+    return a
+
+
+def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
+    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
+    grid = np.stack(grid, axis=-1)
+    grid = grid.reshape(-1, 2)
+    grid = np_repeat_2d(grid, batch_size)
+    grid = torch.from_numpy(grid).type(dtype)
+    if cuda:
+        grid = grid.cuda()
+    return Variable(grid, requires_grad=False)
+
+
 def th_flatten(a):
     """Flatten tensor"""
     return a.contiguous().view(a.nelement())
@@ -182,25 +201,6 @@ def th_batch_map_coordinates(input, coords, order=1):
     vals_b = coords_offset_lt[..., 0] * (vals_rb - vals_lb) + vals_lb
     mapped_vals = coords_offset_lt[..., 1] * (vals_b - vals_t) + vals_t
     return mapped_vals
-
-
-def np_repeat_2d(a, repeats):
-    """Tensorflow version of np.repeat for 2D"""
-    assert len(a.shape) == 2
-    a = np.expand_dims(a, 0)
-    a = np.tile(a, [repeats, 1, 1])
-    return a
-
-
-def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
-    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
-    grid = np.stack(grid, axis=-1)
-    grid = grid.reshape(-1, 2)
-    grid = np_repeat_2d(grid, batch_size)
-    grid = torch.from_numpy(grid).type(dtype)
-    if cuda:
-        grid = grid.cuda()
-    return Variable(grid, requires_grad=False)
 
 
 def th_batch_map_offsets(input, offsets, grid=None, order=1):
@@ -309,14 +309,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_oeway_pytorch_deform_conv(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(DeformConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ConvOffset2D(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+

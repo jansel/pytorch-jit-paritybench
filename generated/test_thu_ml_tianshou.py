@@ -497,18 +497,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_thu_ml_tianshou(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ActorProb(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Net(*[], **{'layer_num': 1, 'state_shape': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(RecurrentActorProb(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Recurrent(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4}), [torch.rand([4, 4, 4])], {})
+

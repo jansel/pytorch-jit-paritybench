@@ -105,6 +105,9 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -126,9 +129,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -220,17 +220,17 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _unsqueeze_ft(tensor):
     """add new dementions at the front and the tail"""
     return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -394,15 +394,6 @@ class DictGatherDataParallel(nn.DataParallel):
         return dict_gather(outputs, output_device, dim=self.dim)
 
 
-BN_MOMENTUM = 0.1
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
-
-
 class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
     """Applies Batch Normalization over a 4d input that is seen as a mini-batch
     of 3d inputs
@@ -467,6 +458,15 @@ class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
 
 
 BatchNorm2d = SynchronizedBatchNorm2d
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
+BN_MOMENTUM = 0.1
 
 
 class BasicBlock(nn.Module):
@@ -836,13 +836,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 

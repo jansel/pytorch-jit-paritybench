@@ -119,6 +119,14 @@ class ScaledDotProductAttention(nn.Module):
         return output, attn
 
 
+def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(pad_idx)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
+
+
 def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
     """padding position is set to 0, either use input_lengths or pad_idx
     """
@@ -134,29 +142,15 @@ def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
     return non_pad_mask.unsqueeze(-1)
 
 
+IGNORE_ID = -1
+
+
 def get_attn_pad_mask(padded_input, input_lengths, expand_length):
     """mask position is set to 1"""
     non_pad_mask = get_non_pad_mask(padded_input, input_lengths=input_lengths)
     pad_mask = non_pad_mask.squeeze(-1).lt(1)
     attn_mask = pad_mask.unsqueeze(1).expand(-1, expand_length, -1)
     return attn_mask
-
-
-def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(pad_idx)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
-
-
-def get_subsequent_mask(seq):
-    """ For masking out the subsequent info. """
-    sz_b, len_s = seq.size()
-    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.
-        device, dtype=torch.uint8), diagonal=1)
-    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
-    return subsequent_mask
 
 
 def pad_list(xs, pad_value):
@@ -168,7 +162,13 @@ def pad_list(xs, pad_value):
     return pad
 
 
-IGNORE_ID = -1
+def get_subsequent_mask(seq):
+    """ For masking out the subsequent info. """
+    sz_b, len_s = seq.size()
+    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.
+        device, dtype=torch.uint8), diagonal=1)
+    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
+    return subsequent_mask
 
 
 class Decoder(nn.Module):
@@ -583,15 +583,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kaituoxu_Speech_Transformer(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Encoder(*[], **{'d_input': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
@@ -603,3 +602,4 @@ class Test_kaituoxu_Speech_Transformer(_paritybench_base):
 
     def test_005(self):
         self._check(PositionwiseFeedForwardUseConv(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4])], {})
+

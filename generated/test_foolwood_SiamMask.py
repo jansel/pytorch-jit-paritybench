@@ -189,9 +189,6 @@ class Bottleneck_nop(nn.Module):
         return out
 
 
-logs = set()
-
-
 class Filter:
 
     def __init__(self, flag):
@@ -212,6 +209,9 @@ def get_format(logger, level):
         .format(rank))
     formatter = logging.Formatter(format_str)
     return formatter
+
+
+logs = set()
 
 
 def init_log(name, level=logging.INFO, format_func=get_format):
@@ -711,6 +711,24 @@ class DepthCorr(nn.Module):
         return out
 
 
+def get_cls_loss(pred, label, select):
+    if len(select.size()) == 0:
+        return 0
+    pred = torch.index_select(pred, 0, select)
+    label = torch.index_select(label, 0, select)
+    return F.nll_loss(pred, label)
+
+
+def select_cross_entropy_loss(pred, label):
+    pred = pred.view(-1, 2)
+    label = label.view(-1)
+    pos = Variable(label.data.eq(1).nonzero().squeeze()).cuda()
+    neg = Variable(label.data.eq(0).nonzero().squeeze()).cuda()
+    loss_pos = get_cls_loss(pred, label, pos)
+    loss_neg = get_cls_loss(pred, label, neg)
+    return loss_pos * 0.5 + loss_neg * 0.5
+
+
 def iou_measure(pred, label):
     pred = pred.ge(0)
     mask_sum = pred.eq(1).add(label.eq(1))
@@ -754,24 +772,6 @@ def weight_l1_loss(pred_loc, label_loc, loss_weight):
     diff = diff.sum(dim=1).view(b, -1, sh, sw)
     loss = diff * loss_weight
     return loss.sum().div(b)
-
-
-def get_cls_loss(pred, label, select):
-    if len(select.size()) == 0:
-        return 0
-    pred = torch.index_select(pred, 0, select)
-    label = torch.index_select(label, 0, select)
-    return F.nll_loss(pred, label)
-
-
-def select_cross_entropy_loss(pred, label):
-    pred = pred.view(-1, 2)
-    label = label.view(-1)
-    pos = Variable(label.data.eq(1).nonzero().squeeze()).cuda()
-    neg = Variable(label.data.eq(0).nonzero().squeeze()).cuda()
-    loss_pos = get_cls_loss(pred, label, pos)
-    loss_neg = get_cls_loss(pred, label, neg)
-    return loss_pos * 0.5 + loss_neg * 0.5
 
 
 class SiamMask(nn.Module):
@@ -987,7 +987,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_foolwood_SiamMask(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ResDownS(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -996,3 +995,4 @@ class Test_foolwood_SiamMask(_paritybench_base):
 
     def test_002(self):
         self._check(DepthCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

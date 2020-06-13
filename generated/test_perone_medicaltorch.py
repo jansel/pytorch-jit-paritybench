@@ -432,7 +432,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_perone_medicaltorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ConfidentMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -441,7 +440,8 @@ class Test_perone_medicaltorch(_paritybench_base):
 
     def test_002(self):
         self._check(DownConv(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(Unet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

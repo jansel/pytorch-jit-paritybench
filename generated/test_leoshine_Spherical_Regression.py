@@ -146,36 +146,88 @@ from torch.nn.parameter import Parameter
 from torch.nn.functional import *
 
 
-def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
-    kaiming_normal=True, silent=False):
-    """ Note: gaussian_std is fully connected layer (nn.Linear) only.
-        For nn.Conv2d:
-           If kaiming_normal is enable, nn.Conv2d is initialized by kaiming_normal.
-           Otherwise, initialized based on kernel size.
-    """
-    if not silent:
-        print(
-            '[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s'
-             % (gaussian_std, kaiming_normal, nn_module_or_seq))
-    for name, m in nn_module_or_seq.named_modules():
-        if isinstance(m, nn.Conv2d):
-            if kaiming_normal:
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+class down(nn.Module):
+
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
+        ):
+        super(down, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
+                    return_indices=True)]
             else:
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            if m.bias is not None:
-                m.bias.data.zero_()
-        elif isinstance(m, nn.BatchNorm2d):
-            if m.weight is not None:
-                m.weight.data.fill_(1)
-            if m.bias is not None:
-                m.bias.data.zero_()
-        elif isinstance(m, nn.Linear):
-            m.weight.data.normal_(mean=0, std=gaussian_std)
-            m.bias.data.zero_()
-    return nn_module_or_seq
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        self.conv = nn.Sequential(*layers)
+        if block_cfg[0] == 'M':
+            self.pool = layers[0]
+            self.conv = nn.Sequential(*layers[1:])
+        else:
+            self.pool = None
+            self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.pool is not None:
+            x, poolInd = self.pool(x)
+            x = self.conv(x)
+            return x, poolInd
+        else:
+            x = self.conv(x)
+            return x
+
+
+class up(nn.Module):
+
+    def __init__(self, block_cfg, in_channels, batch_norm=True):
+        super(up, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
+            else:
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
+                    padding=1, bias=True)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        if block_cfg[-1] == 'M':
+            self.deconv = nn.Sequential(*layers[:-1])
+            self.uppool = layers[-1]
+        else:
+            self.deconv = nn.Sequential(*layers)
+
+    def forward(self, x1, poolInd=None, x2=None):
+        """First deconv and then do uppool,cat if needed."""
+        x1 = self.deconv(x1)
+        if x2 is not None:
+            x1 = self.uppool(x1, poolInd, output_size=x2.size())
+            x1 = torch.cat([x2, x1], dim=1)
+        return x1
+
+
+def get_upsampling_weight(in_channels, out_channels, kernel_size):
+    """Make a 2D bilinear kernel suitable for upsampling"""
+    factor = (kernel_size + 1) // 2
+    if kernel_size % 2 == 1:
+        center = factor - 1
+    else:
+        center = factor - 0.5
+    og = np.ogrid[:kernel_size, :kernel_size]
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
+        factor)
+    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
+        dtype=np.float64)
+    weight[(range(in_channels)), (range(out_channels)), :, :] = filt
+    return torch.from_numpy(weight).float()
 
 
 class down(nn.Module):
@@ -244,6 +296,38 @@ class up(nn.Module):
             x1 = self.uppool(x1, poolInd, output_size=x2.size())
             x1 = torch.cat([x2, x1], dim=1)
         return x1
+
+
+def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
+    kaiming_normal=True, silent=False):
+    """ Note: gaussian_std is fully connected layer (nn.Linear) only.
+        For nn.Conv2d:
+           If kaiming_normal is enable, nn.Conv2d is initialized by kaiming_normal.
+           Otherwise, initialized based on kernel size.
+    """
+    if not silent:
+        print(
+            '[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s'
+             % (gaussian_std, kaiming_normal, nn_module_or_seq))
+    for name, m in nn_module_or_seq.named_modules():
+        if isinstance(m, nn.Conv2d):
+            if kaiming_normal:
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+            else:
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.BatchNorm2d):
+            if m.weight is not None:
+                m.weight.data.fill_(1)
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            m.weight.data.normal_(mean=0, std=gaussian_std)
+            m.bias.data.zero_()
+    return nn_module_or_seq
 
 
 def get_weights_from_caffesnapeshot(proto_file, model_file):
@@ -436,90 +520,6 @@ def copy_weights(own_state, pretrained_type, **kwargs):
         print('Unkonw type(pretrained_type): ', type(pretrained_type))
         raise NotImplementedError
     copy_func(own_state, pretrained_type, **kwargs)
-
-
-class down(nn.Module):
-
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
-        super(down, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        self.conv = nn.Sequential(*layers)
-        if block_cfg[0] == 'M':
-            self.pool = layers[0]
-            self.conv = nn.Sequential(*layers[1:])
-        else:
-            self.pool = None
-            self.conv = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.pool is not None:
-            x, poolInd = self.pool(x)
-            x = self.conv(x)
-            return x, poolInd
-        else:
-            x = self.conv(x)
-            return x
-
-
-class up(nn.Module):
-
-    def __init__(self, block_cfg, in_channels, batch_norm=True):
-        super(up, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
-            else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        if block_cfg[-1] == 'M':
-            self.deconv = nn.Sequential(*layers[:-1])
-            self.uppool = layers[-1]
-        else:
-            self.deconv = nn.Sequential(*layers)
-
-    def forward(self, x1, poolInd=None, x2=None):
-        """First deconv and then do uppool,cat if needed."""
-        x1 = self.deconv(x1)
-        if x2 is not None:
-            x1 = self.uppool(x1, poolInd, output_size=x2.size())
-            x1 = torch.cat([x2, x1], dim=1)
-        return x1
-
-
-def get_upsampling_weight(in_channels, out_channels, kernel_size):
-    """Make a 2D bilinear kernel suitable for upsampling"""
-    factor = (kernel_size + 1) // 2
-    if kernel_size % 2 == 1:
-        center = factor - 1
-    else:
-        center = factor - 0.5
-    og = np.ogrid[:kernel_size, :kernel_size]
-    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
-    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
-        dtype=np.float64)
-    weight[(range(in_channels)), (range(out_channels)), :, :] = filt
-    return torch.from_numpy(weight).float()
 
 
 class VGG16_Trunk(nn.Module):
@@ -1299,6 +1299,12 @@ class nnAdd(nn.Module):
         return x0 + x1
 
 
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
 def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
     """ E.g.
          Fixed BN:   xNorm='BN', affine=False
@@ -1311,12 +1317,6 @@ def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
         return nn.InstanceNorm2d(num_channels, **kwargs)
     elif xNorm == 'LN':
         raise NotImplementedError
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -1531,38 +1531,10 @@ class Test_Net(nn.Module):
         return Pred
 
 
-def make_layers(cfg, batch_norm=False):
-    layers = []
-    in_channels = 3
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    return nn.Sequential(*layers)
-
-
-def make_layers_vggm():
-    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=
-        True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3),
-        (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2),
-        (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 
-        2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d
-        (256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.
-        Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn
-        .Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True),
-        nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
+_global_config['D'] = 4
 
 
 _global_config['E'] = 4
-
-
-_global_config['D'] = 4
 
 
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])
@@ -1593,6 +1565,34 @@ def get_caffeSrc2Dst(net_arch='vgg16'):
             'classifier.0', fc7='classifier.3')
     else:
         raise NotImplementedError
+
+
+def make_layers(cfg, batch_norm=False):
+    layers = []
+    in_channels = 3
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
+
+
+def make_layers_vggm():
+    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=
+        True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3),
+        (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2),
+        (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 
+        2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d
+        (256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.
+        Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn
+        .Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True),
+        nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
 
 
 class _VGG_Trunk(nn.Module):
@@ -1767,7 +1767,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_leoshine_Spherical_Regression(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1809,7 +1808,8 @@ class Test_leoshine_Spherical_Regression(_paritybench_base):
 
     def test_013(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(LocalResponseNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

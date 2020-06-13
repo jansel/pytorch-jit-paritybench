@@ -435,10 +435,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yl_1993_learn_to_cluster(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MeanAggregator(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(GCN_V(*[], **{'feature_dim': 4, 'nhid': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
+

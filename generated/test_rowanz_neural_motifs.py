@@ -336,54 +336,48 @@ def block_orthogonal(tensor, split_sizes, gain=1.0):
         tensor[block_slice] = tensor_copy[0:sizes[0], 0:sizes[1]]
 
 
-def _nms_single_im(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
-    nms_thresh=0.7):
-    keep = torch.IntTensor(scores.size(0))
-    vs, idx = torch.sort(scores, dim=0, descending=True)
-    if idx.size(0) > pre_nms_topn:
-        idx = idx[:pre_nms_topn]
-    boxes_sorted = boxes[idx].contiguous()
-    num_out = nms.nms_apply(keep, boxes_sorted, nms_thresh)
-    num_out = min(num_out, post_nms_topn)
-    keep = keep[:num_out].long()
-    keep = idx[keep.cuda(scores.get_device())]
-    return keep
-
-
-def apply_nms(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
-    boxes_per_im=None, nms_thresh=0.7):
+def to_variable(f):
     """
-    Note - this function is non-differentiable so everything is assumed to be a tensor, not
-    a variable.
-        """
-    just_inds = boxes_per_im is None
-    if boxes_per_im is None:
-        boxes_per_im = [boxes.size(0)]
-    s = 0
-    keep = []
-    im_per = []
-    for bpi in boxes_per_im:
-        e = s + int(bpi)
-        keep_im = _nms_single_im(scores[s:e], boxes[s:e], pre_nms_topn,
-            post_nms_topn, nms_thresh)
-        keep.append(keep_im + s)
-        im_per.append(keep_im.size(0))
-        s = e
-    inds = torch.cat(keep, 0)
-    if just_inds:
-        return inds
-    return inds, im_per
+    Decorator that pushes all the outputs to a variable
+    :param f: 
+    :return: 
+    """
+
+    def variable_wrapper(*args, **kwargs):
+        rez = f(*args, **kwargs)
+        if isinstance(rez, tuple):
+            return tuple([Variable(x) for x in rez])
+        return Variable(rez)
+    return variable_wrapper
 
 
-def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=
-    0.7, pre_nms_topn=12000, post_nms_topn=2000):
-    inds, im_per = apply_nms(class_preds, box_preds, pre_nms_topn=
-        pre_nms_topn, post_nms_topn=post_nms_topn, boxes_per_im=
-        boxes_per_im, nms_thresh=nms_thresh)
-    img_inds = torch.cat([(val * torch.ones(i)) for val, i in enumerate(
-        im_per)], 0).cuda(box_preds.get_device())
-    rois = torch.cat((img_inds[:, (None)], box_preds[inds]), 1)
-    return rois
+BG_THRESH_LO = 0.0
+
+
+BG_THRESH_HI = 0.5
+
+
+def _sel_inds(max_overlaps, fg_thresh=0.5, fg_rois_per_image=128,
+    rois_per_image=256):
+    fg_inds = np.where(max_overlaps >= fg_thresh)[0]
+    fg_rois_per_this_image = min(fg_rois_per_image, fg_inds.shape[0])
+    if fg_inds.size > 0:
+        fg_inds = npr.choice(fg_inds, size=fg_rois_per_this_image, replace=
+            False)
+    bg_inds = np.where((max_overlaps < BG_THRESH_HI) & (max_overlaps >=
+        BG_THRESH_LO))[0]
+    bg_rois_per_this_image = rois_per_image - fg_rois_per_this_image
+    bg_rois_per_this_image = min(bg_rois_per_this_image, bg_inds.size)
+    if bg_inds.size > 0:
+        bg_inds = npr.choice(bg_inds, size=bg_rois_per_this_image, replace=
+            False)
+    return np.append(fg_inds, bg_inds), fg_rois_per_this_image
+
+
+FG_FRACTION = 0.25
+
+
+ROIS_PER_IMG = 256
 
 
 def bbox_intersections(box_a, box_b):
@@ -432,119 +426,6 @@ def bbox_overlaps(box_a, box_b):
         box_b[:, (1)] + 1.0)).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def resnet101(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
-    return model
-
-
-def load_resnet():
-    model = resnet101(pretrained=True)
-    del model.layer4
-    del model.avgpool
-    del model.fc
-    return model
-
-
-def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001,
-    pre_nms_topn=6000, post_nms_topn=300, nms_thresh=0.3,
-    nms_filter_duplicates=True):
-    """
-    Filters the detections for a single image
-    :param scores: [num_rois, num_classes]
-    :param boxes: [num_rois, num_classes, 4]. Assumes the boxes have been clamped
-    :param max_per_img: Max detections per image
-    :param thresh: Threshold for calling it a good box
-    :param nms_filter_duplicates: True if we shouldn't allow for mulitple detections of the
-           same box (with different labels)
-    :return: A numpy concatenated array with up to 100 detections/img [num_im, x1, y1, x2, y2, score, cls]
-    """
-    valid_cls = (scores[:, 1:].data.max(0)[0] > thresh).nonzero() + 1
-    if valid_cls.dim() == 0:
-        return None
-    nms_mask = scores.data.clone()
-    nms_mask.zero_()
-    for c_i in valid_cls.squeeze(1).cpu():
-        scores_ci = scores.data[:, (c_i)]
-        boxes_ci = boxes.data[:, (c_i)]
-        keep = apply_nms(scores_ci, boxes_ci, pre_nms_topn=pre_nms_topn,
-            post_nms_topn=post_nms_topn, nms_thresh=nms_thresh)
-        nms_mask[:, (c_i)][keep] = 1
-    dists_all = Variable(nms_mask * scores.data, volatile=True)
-    if nms_filter_duplicates:
-        scores_pre, labels_pre = dists_all.data.max(1)
-        inds_all = scores_pre.nonzero()
-        assert inds_all.dim() != 0
-        inds_all = inds_all.squeeze(1)
-        labels_all = labels_pre[inds_all]
-        scores_all = scores_pre[inds_all]
-    else:
-        nz = nms_mask.nonzero()
-        assert nz.dim() != 0
-        inds_all = nz[:, (0)]
-        labels_all = nz[:, (1)]
-        scores_all = scores.data.view(-1)[inds_all * scores.data.size(1) +
-            labels_all]
-    vs, idx = torch.sort(scores_all, dim=0, descending=True)
-    idx = idx[vs > thresh]
-    if max_per_img < idx.size(0):
-        idx = idx[:max_per_img]
-    inds_all = inds_all[idx] + start_ind
-    scores_all = Variable(scores_all[idx], volatile=True)
-    labels_all = Variable(labels_all[idx], volatile=True)
-    return inds_all, scores_all, labels_all
-
-
-ROIS_PER_IMG = 256
-
-
-BG_THRESH_LO = 0.0
-
-
-BG_THRESH_HI = 0.5
-
-
-def _sel_inds(max_overlaps, fg_thresh=0.5, fg_rois_per_image=128,
-    rois_per_image=256):
-    fg_inds = np.where(max_overlaps >= fg_thresh)[0]
-    fg_rois_per_this_image = min(fg_rois_per_image, fg_inds.shape[0])
-    if fg_inds.size > 0:
-        fg_inds = npr.choice(fg_inds, size=fg_rois_per_this_image, replace=
-            False)
-    bg_inds = np.where((max_overlaps < BG_THRESH_HI) & (max_overlaps >=
-        BG_THRESH_LO))[0]
-    bg_rois_per_this_image = rois_per_image - fg_rois_per_this_image
-    bg_rois_per_this_image = min(bg_rois_per_this_image, bg_inds.size)
-    if bg_inds.size > 0:
-        bg_inds = npr.choice(bg_inds, size=bg_rois_per_this_image, replace=
-            False)
-    return np.append(fg_inds, bg_inds), fg_rois_per_this_image
-
-
-def to_variable(f):
-    """
-    Decorator that pushes all the outputs to a variable
-    :param f: 
-    :return: 
-    """
-
-    def variable_wrapper(*args, **kwargs):
-        rez = f(*args, **kwargs)
-        if isinstance(rez, tuple):
-            return tuple([Variable(x) for x in rez])
-        return Variable(rez)
-    return variable_wrapper
-
-
-FG_FRACTION = 0.25
 
 
 @to_variable
@@ -606,63 +487,7 @@ def proposal_assignments_det(rpn_rois, gt_boxes, gt_classes, image_offset,
     return rois, labels, bbox_targets
 
 
-class Result(object):
-    """ little container class for holding the detection result
-        od: object detector, rm: rel model"""
-
-    def __init__(self, od_obj_dists=None, rm_obj_dists=None, obj_scores=
-        None, obj_preds=None, obj_fmap=None, od_box_deltas=None,
-        rm_box_deltas=None, od_box_targets=None, rm_box_targets=None,
-        od_box_priors=None, rm_box_priors=None, boxes_assigned=None,
-        boxes_all=None, od_obj_labels=None, rm_obj_labels=None, rpn_scores=
-        None, rpn_box_deltas=None, rel_labels=None, im_inds=None, fmap=None,
-        rel_dists=None, rel_inds=None, rel_rep=None):
-        self.__dict__.update(locals())
-        del self.__dict__['self']
-
-    def is_none(self):
-        return all([(v is None) for k, v in self.__dict__.items() if k !=
-            'self'])
-
-
-def load_vgg(use_dropout=True, use_relu=True, use_linear=True, pretrained=True
-    ):
-    model = vgg16(pretrained=pretrained)
-    del model.features._modules['30']
-    del model.classifier._modules['6']
-    if not use_dropout:
-        del model.classifier._modules['5']
-        if not use_relu:
-            del model.classifier._modules['4']
-            if not use_linear:
-                del model.classifier._modules['3']
-    return model
-
-
-def enumerate_by_image(im_inds):
-    im_inds_np = im_inds.cpu().numpy()
-    initial_ind = int(im_inds_np[0])
-    s = 0
-    for i, val in enumerate(im_inds_np):
-        if val != initial_ind:
-            yield initial_ind, s, i
-            initial_ind = int(val)
-            s = i
-    yield initial_ind, s, len(im_inds_np)
-
-
-def diagonal_inds(tensor):
-    """
-    Returns the indices required to go along first 2 dims of tensor in diag fashion
-    :param tensor: thing
-    :return: 
-    """
-    assert tensor.dim() >= 2
-    assert tensor.size(0) == tensor.size(1)
-    size = tensor.size(0)
-    arange_inds = tensor.new(size).long()
-    torch.arange(0, tensor.size(0), out=arange_inds)
-    return (size + 1) * arange_inds
+REL_FG_FRACTION = 0.25
 
 
 RELS_PER_IMG = 256
@@ -679,7 +504,30 @@ def random_choose(tensor, num):
     return chosen
 
 
-REL_FG_FRACTION = 0.25
+def diagonal_inds(tensor):
+    """
+    Returns the indices required to go along first 2 dims of tensor in diag fashion
+    :param tensor: thing
+    :return: 
+    """
+    assert tensor.dim() >= 2
+    assert tensor.size(0) == tensor.size(1)
+    size = tensor.size(0)
+    arange_inds = tensor.new(size).long()
+    torch.arange(0, tensor.size(0), out=arange_inds)
+    return (size + 1) * arange_inds
+
+
+def enumerate_by_image(im_inds):
+    im_inds_np = im_inds.cpu().numpy()
+    initial_ind = int(im_inds_np[0])
+    s = 0
+    for i, val in enumerate(im_inds_np):
+        if val != initial_ind:
+            yield initial_ind, s, i
+            initial_ind = int(val)
+            s = i
+    yield initial_ind, s, len(im_inds_np)
 
 
 @to_variable
@@ -734,14 +582,112 @@ def proposal_assignments_gtbox(rois, gt_boxes, gt_classes, gt_rels,
     return rois, labels, rel_labels
 
 
-def gather_res(outputs, target_device, dim=0):
+def resnet101(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    Assuming the signatures are the same accross results!
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+def load_resnet():
+    model = resnet101(pretrained=True)
+    del model.layer4
+    del model.avgpool
+    del model.fc
+    return model
+
+
+def _nms_single_im(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
+    nms_thresh=0.7):
+    keep = torch.IntTensor(scores.size(0))
+    vs, idx = torch.sort(scores, dim=0, descending=True)
+    if idx.size(0) > pre_nms_topn:
+        idx = idx[:pre_nms_topn]
+    boxes_sorted = boxes[idx].contiguous()
+    num_out = nms.nms_apply(keep, boxes_sorted, nms_thresh)
+    num_out = min(num_out, post_nms_topn)
+    keep = keep[:num_out].long()
+    keep = idx[keep.cuda(scores.get_device())]
+    return keep
+
+
+def apply_nms(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
+    boxes_per_im=None, nms_thresh=0.7):
     """
-    out = outputs[0]
-    args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for
-        o in outputs]) for field, v in out.__dict__.items() if v is not None}
-    return type(out)(**args)
+    Note - this function is non-differentiable so everything is assumed to be a tensor, not
+    a variable.
+        """
+    just_inds = boxes_per_im is None
+    if boxes_per_im is None:
+        boxes_per_im = [boxes.size(0)]
+    s = 0
+    keep = []
+    im_per = []
+    for bpi in boxes_per_im:
+        e = s + int(bpi)
+        keep_im = _nms_single_im(scores[s:e], boxes[s:e], pre_nms_topn,
+            post_nms_topn, nms_thresh)
+        keep.append(keep_im + s)
+        im_per.append(keep_im.size(0))
+        s = e
+    inds = torch.cat(keep, 0)
+    if just_inds:
+        return inds
+    return inds, im_per
+
+
+def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001,
+    pre_nms_topn=6000, post_nms_topn=300, nms_thresh=0.3,
+    nms_filter_duplicates=True):
+    """
+    Filters the detections for a single image
+    :param scores: [num_rois, num_classes]
+    :param boxes: [num_rois, num_classes, 4]. Assumes the boxes have been clamped
+    :param max_per_img: Max detections per image
+    :param thresh: Threshold for calling it a good box
+    :param nms_filter_duplicates: True if we shouldn't allow for mulitple detections of the
+           same box (with different labels)
+    :return: A numpy concatenated array with up to 100 detections/img [num_im, x1, y1, x2, y2, score, cls]
+    """
+    valid_cls = (scores[:, 1:].data.max(0)[0] > thresh).nonzero() + 1
+    if valid_cls.dim() == 0:
+        return None
+    nms_mask = scores.data.clone()
+    nms_mask.zero_()
+    for c_i in valid_cls.squeeze(1).cpu():
+        scores_ci = scores.data[:, (c_i)]
+        boxes_ci = boxes.data[:, (c_i)]
+        keep = apply_nms(scores_ci, boxes_ci, pre_nms_topn=pre_nms_topn,
+            post_nms_topn=post_nms_topn, nms_thresh=nms_thresh)
+        nms_mask[:, (c_i)][keep] = 1
+    dists_all = Variable(nms_mask * scores.data, volatile=True)
+    if nms_filter_duplicates:
+        scores_pre, labels_pre = dists_all.data.max(1)
+        inds_all = scores_pre.nonzero()
+        assert inds_all.dim() != 0
+        inds_all = inds_all.squeeze(1)
+        labels_all = labels_pre[inds_all]
+        scores_all = scores_pre[inds_all]
+    else:
+        nz = nms_mask.nonzero()
+        assert nz.dim() != 0
+        inds_all = nz[:, (0)]
+        labels_all = nz[:, (1)]
+        scores_all = scores.data.view(-1)[inds_all * scores.data.size(1) +
+            labels_all]
+    vs, idx = torch.sort(scores_all, dim=0, descending=True)
+    idx = idx[vs > thresh]
+    if max_per_img < idx.size(0):
+        idx = idx[:max_per_img]
+    inds_all = inds_all[idx] + start_ind
+    scores_all = Variable(scores_all[idx], volatile=True)
+    labels_all = Variable(labels_all[idx], volatile=True)
+    return inds_all, scores_all, labels_all
 
 
 def center_size(boxes):
@@ -790,6 +736,60 @@ def bbox_preds(boxes, deltas):
     xys = prior_centers[:, :2] + prior_centers[:, 2:] * deltas[:, :2]
     whs = torch.exp(deltas[:, 2:]) * prior_centers[:, 2:]
     return point_form(torch.cat((xys, whs), 1))
+
+
+def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=
+    0.7, pre_nms_topn=12000, post_nms_topn=2000):
+    inds, im_per = apply_nms(class_preds, box_preds, pre_nms_topn=
+        pre_nms_topn, post_nms_topn=post_nms_topn, boxes_per_im=
+        boxes_per_im, nms_thresh=nms_thresh)
+    img_inds = torch.cat([(val * torch.ones(i)) for val, i in enumerate(
+        im_per)], 0).cuda(box_preds.get_device())
+    rois = torch.cat((img_inds[:, (None)], box_preds[inds]), 1)
+    return rois
+
+
+class Result(object):
+    """ little container class for holding the detection result
+        od: object detector, rm: rel model"""
+
+    def __init__(self, od_obj_dists=None, rm_obj_dists=None, obj_scores=
+        None, obj_preds=None, obj_fmap=None, od_box_deltas=None,
+        rm_box_deltas=None, od_box_targets=None, rm_box_targets=None,
+        od_box_priors=None, rm_box_priors=None, boxes_assigned=None,
+        boxes_all=None, od_obj_labels=None, rm_obj_labels=None, rpn_scores=
+        None, rpn_box_deltas=None, rel_labels=None, im_inds=None, fmap=None,
+        rel_dists=None, rel_inds=None, rel_rep=None):
+        self.__dict__.update(locals())
+        del self.__dict__['self']
+
+    def is_none(self):
+        return all([(v is None) for k, v in self.__dict__.items() if k !=
+            'self'])
+
+
+def gather_res(outputs, target_device, dim=0):
+    """
+    Assuming the signatures are the same accross results!
+    """
+    out = outputs[0]
+    args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for
+        o in outputs]) for field, v in out.__dict__.items() if v is not None}
+    return type(out)(**args)
+
+
+def load_vgg(use_dropout=True, use_relu=True, use_linear=True, pretrained=True
+    ):
+    model = vgg16(pretrained=pretrained)
+    del model.features._modules['30']
+    del model.classifier._modules['6']
+    if not use_dropout:
+        del model.classifier._modules['5']
+        if not use_relu:
+            del model.classifier._modules['4']
+            if not use_linear:
+                del model.classifier._modules['3']
+    return model
 
 
 class ObjectDetector(nn.Module):
@@ -1114,12 +1114,6 @@ class ObjectDetector(nn.Module):
         return gather_res(outputs, 0, dim=0)
 
 
-ANCHOR_SCALES = 2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731
-
-
-ANCHOR_SIZE = 16
-
-
 def gather_nd(x, index):
     """
 
@@ -1141,10 +1135,7 @@ def gather_nd(x, index):
     return grouped
 
 
-ANCHOR_RATIOS = 0.23232838, 0.63365731, 1.28478321, 3.15089189
-
-
-IM_SCALE = 592
+ANCHOR_SCALES = 2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731
 
 
 def _whctrs(anchor):
@@ -1170,6 +1161,17 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     return anchors
 
 
+def _scale_enum(anchor, scales):
+    """
+  Enumerate a set of anchors for each scale wrt an anchor.
+  """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
 def _ratio_enum(anchor, ratios):
     """
   Enumerate a set of anchors for each aspect ratio wrt an anchor.
@@ -1179,17 +1181,6 @@ def _ratio_enum(anchor, ratios):
     size_ratios = size / ratios
     ws = np.sqrt(size_ratios)
     hs = ws * ratios
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _scale_enum(anchor, scales):
-    """
-  Enumerate a set of anchors for each scale wrt an anchor.
-  """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
     return anchors
 
@@ -1207,6 +1198,9 @@ def generate_base_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
     return anchors
 
 
+IM_SCALE = 592
+
+
 def generate_anchors(base_size=16, feat_stride=16, anchor_scales=(8, 16, 32
     ), anchor_ratios=(0.5, 1, 2)):
     """ A wrapper function to generate anchors given different scales
@@ -1220,6 +1214,12 @@ def generate_anchors(base_size=16, feat_stride=16, anchor_scales=(8, 16, 32
     shifts = np.stack([shift_x, shift_y, shift_x, shift_y], -1)
     all_anchors = shifts[:, :, (None)] + anchors[None, None]
     return all_anchors
+
+
+ANCHOR_RATIOS = 0.23232838, 0.63365731, 1.28478321, 3.15089189
+
+
+ANCHOR_SIZE = 16
 
 
 class RPNHead(nn.Module):
@@ -1327,9 +1327,6 @@ class Flattener(nn.Module):
         return x.view(x.size(0), -1)
 
 
-MODES = 'sgdet', 'sgcls', 'predcls'
-
-
 def to_onehot(vec, num_classes, fill=1000):
     """
     Creates a [size, num_classes] torch FloatTensor where
@@ -1347,11 +1344,7 @@ def to_onehot(vec, num_classes, fill=1000):
     return onehot_result
 
 
-def arange(base_tensor, n=None):
-    new_size = base_tensor.size(0) if n is None else n
-    new_vec = base_tensor.new(new_size).long()
-    torch.arange(0, new_size, out=new_vec)
-    return new_vec
+MODES = 'sgdet', 'sgcls', 'predcls'
 
 
 def transpose_packed_sequence_inds(lengths):
@@ -1399,6 +1392,13 @@ def _sort_by_score(im_inds, scores):
     perm = perm[inds]
     _, inv_perm = torch.sort(perm)
     return perm, inv_perm, ls_transposed
+
+
+def arange(base_tensor, n=None):
+    new_size = base_tensor.size(0) if n is None else n
+    new_vec = base_tensor.new(new_size).long()
+    torch.arange(0, new_size, out=new_vec)
+    return new_vec
 
 
 class LinearizedContext(nn.Module):
@@ -2047,7 +2047,58 @@ class ResNet(nn.Module):
         return x
 
 
-BOX_SCALE = 1024
+VG_IMAGES = '/home/rowan/datasets2/VG_100K_2/VG_100K'
+
+
+def load_image_filenames(image_file, image_dir=VG_IMAGES):
+    """
+    Loads the image filenames from visual genome from the JSON file that contains them.
+    This matches the preprocessing in scene-graph-TF-release/data_tools/vg_to_imdb.py.
+    :param image_file: JSON file. Elements contain the param "image_id".
+    :param image_dir: directory where the VisualGenome images are located
+    :return: List of filenames corresponding to the good images
+    """
+    with open(image_file, 'r') as f:
+        im_data = json.load(f)
+    corrupted_ims = ['1592.jpg', '1722.jpg', '4616.jpg', '4617.jpg']
+    fns = []
+    for i, img in enumerate(im_data):
+        basename = '{}.jpg'.format(img['image_id'])
+        if basename in corrupted_ims:
+            continue
+        filename = os.path.join(image_dir, basename)
+        if os.path.exists(filename):
+            fns.append(filename)
+    assert len(fns) == 108073
+    return fns
+
+
+def load_info(info_file):
+    """
+    Loads the file containing the visual genome label meanings
+    :param info_file: JSON
+    :return: ind_to_classes: sorted list of classes
+             ind_to_predicates: sorted list of predicates
+    """
+    info = json.load(open(info_file, 'r'))
+    info['label_to_idx']['__background__'] = 0
+    info['predicate_to_idx']['__background__'] = 0
+    class_to_ind = info['label_to_idx']
+    predicate_to_ind = info['predicate_to_idx']
+    ind_to_classes = sorted(class_to_ind, key=lambda k: class_to_ind[k])
+    ind_to_predicates = sorted(predicate_to_ind, key=lambda k:
+        predicate_to_ind[k])
+    return ind_to_classes, ind_to_predicates
+
+
+class SquarePad(object):
+
+    def __call__(self, img):
+        w, h = img.size
+        img_padded = ImageOps.expand(img, border=(0, 0, max(h - w, 0), max(
+            w - h, 0)), fill=(int(0.485 * 256), int(0.456 * 256), int(0.406 *
+            256)))
+        return img_padded
 
 
 def stanford_path(fn):
@@ -2060,9 +2111,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rowanz_neural_motifs(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(RPNHead(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_001(self):
         self._check(Flattener(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

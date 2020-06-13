@@ -109,6 +109,12 @@ from abc import abstractmethod
 from collections import defaultdict
 
 
+TQDM = True
+
+
+logger = logging.getLogger(__name__)
+
+
 REGISTRY = {}
 
 
@@ -127,12 +133,6 @@ def register_plugin(registrable: Any, alias: str=None):
             )
     REGISTRY[alias] = registrable
     return registrable
-
-
-logger = logging.getLogger(__name__)
-
-
-TQDM = True
 
 
 class ElmanRNN(torch.nn.Module):
@@ -451,6 +451,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_feedly_transfer_nlp(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(ElmanRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+

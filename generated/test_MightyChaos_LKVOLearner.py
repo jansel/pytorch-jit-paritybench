@@ -192,11 +192,24 @@ def gradient(input, do_normalize=False):
     return Dx, Dy
 
 
-def inv_rigid_transformation(rot_mat_batch, trans_batch):
-    inv_rot_mat_batch = rot_mat_batch.transpose(1, 2)
-    inv_trans_batch = -inv_rot_mat_batch.bmm(trans_batch.unsqueeze(-1)
-        ).squeeze(-1)
-    return inv_rot_mat_batch, inv_trans_batch
+def compute_SSIM(img0, mu0, sigma0, img1, mu1, sigma1):
+    img0_img1_pad = img0 * img1
+    sigma01 = AvgPool2d(kernel_size=3, stride=1, padding=0)(img0_img1_pad
+        ) - mu0 * mu1
+    C1 = 0.001
+    C2 = 0.009
+    ssim_n = (2 * mu0 * mu1 + C1) * (2 * sigma01 + C2)
+    ssim_d = (mu0 ** 2 + mu1 ** 2 + C1) * (sigma0 + sigma1 + C2)
+    ssim = ssim_n / ssim_d
+    return ((1 - ssim) * 0.5).clamp(0, 1)
+
+
+def meshgrid(x, y):
+    imW = x.size(0)
+    imH = y.size(0)
+    X = x.unsqueeze(0).repeat(imH, 1)
+    Y = y.unsqueeze(1).repeat(1, imW)
+    return X, Y
 
 
 class Inverse(torch.autograd.Function):
@@ -223,6 +236,9 @@ def inv(input):
     return Inverse()(input)
 
 
+IMG_CHAN = 3
+
+
 def grid_bilinear_sampling(A, x, y):
     batch_size, k, h, w = A.size()
     x_norm = x / ((w - 1) / 2) - 1
@@ -236,31 +252,11 @@ def grid_bilinear_sampling(A, x, y):
     return Q.view(batch_size, k, h * w), in_view_mask
 
 
-def compute_photometric_cost_norm(img_diff, mask):
-    cost = img_diff.abs().sum(1) * mask
-    num_in_view = mask.sum(1)
-    cost_norm = cost.sum(1) / (num_in_view + 1e-10)
-    return cost_norm * (1 / 127.5), (num_in_view / mask.size(1)).min()
-
-
-def meshgrid(x, y):
-    imW = x.size(0)
-    imH = y.size(0)
-    X = x.unsqueeze(0).repeat(imH, 1)
-    Y = y.unsqueeze(1).repeat(1, imW)
-    return X, Y
-
-
-def compute_SSIM(img0, mu0, sigma0, img1, mu1, sigma1):
-    img0_img1_pad = img0 * img1
-    sigma01 = AvgPool2d(kernel_size=3, stride=1, padding=0)(img0_img1_pad
-        ) - mu0 * mu1
-    C1 = 0.001
-    C2 = 0.009
-    ssim_n = (2 * mu0 * mu1 + C1) * (2 * sigma01 + C2)
-    ssim_d = (mu0 ** 2 + mu1 ** 2 + C1) * (sigma0 + sigma1 + C2)
-    ssim = ssim_n / ssim_d
-    return ((1 - ssim) * 0.5).clamp(0, 1)
+def inv_rigid_transformation(rot_mat_batch, trans_batch):
+    inv_rot_mat_batch = rot_mat_batch.transpose(1, 2)
+    inv_trans_batch = -inv_rot_mat_batch.bmm(trans_batch.unsqueeze(-1)
+        ).squeeze(-1)
+    return inv_rot_mat_batch, inv_trans_batch
 
 
 def compute_img_stats(img):
@@ -271,7 +267,11 @@ def compute_img_stats(img):
     return mu, sigma
 
 
-IMG_CHAN = 3
+def compute_photometric_cost_norm(img_diff, mask):
+    cost = img_diff.abs().sum(1) * mask
+    num_in_view = mask.sum(1)
+    cost_norm = cost.sum(1) / (num_in_view + 1e-10)
+    return cost_norm * (1 / 127.5), (num_in_view / mask.size(1)).min()
 
 
 class DirectVO(nn.Module):
@@ -1168,10 +1168,10 @@ class Conv(nn.Module):
             return self.activation_fn(self.conv(self.pad_fn(input)))
 
 
-DISP_SCALING = 10
-
-
 MIN_DISP = 0.01
+
+
+DISP_SCALING = 10
 
 
 class VggDepthEstimator(nn.Module):
@@ -1350,36 +1350,36 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_MightyChaos_LKVOLearner(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LaplacianLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Twist2Mat(*[], **{}), [torch.rand([4, 3])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ImageSmoothLayer(*[], **{'chan': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ImagePyramidLayer(*[], **{'chan': 4, 'pyramid_layer_num': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(FlipLR(*[], **{'imW': 4, 'dim_w': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(ConvBlock(*[], **{'input_nc': 4, 'output_nc': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(UpConv(*[], **{'input_nc': 4, 'output_nc': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(Conv(*[], **{'input_nc': 4, 'output_nc': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(PoseExpNet(*[], **{'bundle_size': 4}), [torch.rand([4, 12, 64, 64])], {})
+

@@ -231,6 +231,19 @@ class VGGLoss(nn.Module):
         return g
 
 
+def L2(input_flow, target_flow, vis_mask):
+    """
+    compute l1-loss
+    input_flow: (N,C=2,H,W)
+    target_flow: (N,C=2,H,W)
+    vis_mask: (N,1,H,W)
+    """
+    bsz = input_flow.size(0)
+    err = (target_flow - input_flow).norm(dim=1, p=2, keepdim=True) * vis_mask
+    count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
+    return (err.view(bsz, -1) / (count * bsz + 1e-08)).sum()
+
+
 def EPE(input_flow, target_flow, vis_mask):
     """
     compute endpoint-error
@@ -255,19 +268,6 @@ def L1(input_flow, target_flow, vis_mask):
     err = (target_flow - input_flow).abs() * vis_mask
     count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
     return (err.view(bsz, -1) / (count * bsz * 2 + 1e-08)).sum()
-
-
-def L2(input_flow, target_flow, vis_mask):
-    """
-    compute l1-loss
-    input_flow: (N,C=2,H,W)
-    target_flow: (N,C=2,H,W)
-    vis_mask: (N,1,H,W)
-    """
-    bsz = input_flow.size(0)
-    err = (target_flow - input_flow).norm(dim=1, p=2, keepdim=True) * vis_mask
-    count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
-    return (err.view(bsz, -1) / (count * bsz + 1e-08)).sum()
 
 
 class MultiScaleFlowLoss(nn.Module):
@@ -1146,7 +1146,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ly015_intrinsic_flow(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SS_FlowLoss(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
 
@@ -1155,11 +1154,12 @@ class Test_ly015_intrinsic_flow(_paritybench_base):
 
     def test_002(self):
         self._check(GateBlock(*[], **{'dim': 4, 'dim_a': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(FlowUnet(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+

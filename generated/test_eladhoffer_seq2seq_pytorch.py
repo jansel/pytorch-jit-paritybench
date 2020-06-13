@@ -1011,20 +1011,6 @@ class TimeRecurrentCell(nn.Module):
             return outputs, hidden
 
 
-def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False,
-    weight_norm=False):
-
-    def f(*kargs, **kwargs):
-        module = StackedRecurrent(residual)
-        for i in range(num_layers):
-            rnn = recurrent_func(*kargs, **kwargs)
-            if weight_norm:
-                rnn = wn(rnn)
-            module.add_module(str(i), rnn)
-        return module
-    return f
-
-
 class StackedsAttentionCell(StackedCell):
 
     def __init__(self, input_size, hidden_size, attention_layer, num_layers
@@ -1057,6 +1043,20 @@ def wrap_zoneout_cell(cell_func, zoneout_prob=0):
 
     def f(*kargs, **kwargs):
         return ZoneOutCell(cell_func(*kargs, **kwargs), zoneout_prob)
+    return f
+
+
+def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False,
+    weight_norm=False):
+
+    def f(*kargs, **kwargs):
+        module = StackedRecurrent(residual)
+        for i in range(num_layers):
+            rnn = recurrent_func(*kargs, **kwargs)
+            if weight_norm:
+                rnn = wn(rnn)
+            module.add_module(str(i), rnn)
+        return module
     return f
 
 
@@ -1534,10 +1534,6 @@ class WeightDrop(torch.nn.Module):
         return self.module.forward(*args)
 
 
-def _dummy(*args, **kwargs):
-    return
-
-
 def _norm(p, dim):
     """Computes the norm over all dimensions except dim"""
     if dim is None:
@@ -1552,6 +1548,10 @@ def _norm(p, dim):
             output_size)
     else:
         return _norm(p.transpose(0, dim), 0).transpose(0, dim)
+
+
+def _dummy(*args, **kwargs):
+    return
 
 
 class WeightNorm(torch.nn.Module):
@@ -2415,6 +2415,51 @@ class TransformerAttentionEncoder(nn.Module):
             )
 
 
+@torch.jit.script
+def _reorder(order):
+    B, T = order.shape
+    reorder_list = []
+    for j in range(T):
+        reorder_list.append(order.eq(j).nonzero()[:, (-1)])
+    return torch.stack(reorder_list, dim=-1)
+
+
+def rand_order(T, block_size=None, block_ratio=0.25, out=None):
+    if block_size is None:
+        block_size = max(int(round(T * block_ratio)), 1)
+    if block_size == 1:
+        return torch.randperm(T, out=out)
+    else:
+        if out is None:
+            out = torch.empty((T,), dtype=torch.long)
+        order = list(range(T))
+        offset = randrange(T)
+        order = torch.tensor(order[offset:] + order[:offset])
+        order = list(order.split(block_size))
+        shuffle(order)
+        order = torch.cat(order)
+        out.copy_(order)
+    return out
+
+
+def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
+    time_dim, batch_dim = (1, 0) if batch_first else (0, 1)
+    B, T = inputs.size(batch_dim), inputs.size(time_dim)
+    order = torch.arange(-1, T, dtype=torch.long, device=inputs.device)
+    order = order.view(1, -1).expand(B, T + 1).contiguous()
+    max_time = inputs.ne(padding_idx).sum(time_dim) - 1
+    for i in range(B):
+        t = int(max_time[i])
+        scope = order[i].narrow(0, 1, t)
+        rand_order(t, out=scope)
+    order.add_(1)
+    reorder = _reorder(order.narrow(time_dim, 1, T) - 1)
+    if not batch_first:
+        order = order.t()
+        reorder = reorder.t()
+    return order, reorder
+
+
 class DecoderBlockPreNorm(DecoderBlock):
 
     def __init__(self, *kargs, **kwargs):
@@ -2445,51 +2490,6 @@ class DecoderBlockPreNorm(DecoderBlock):
         x = self.fc(x)
         x = self.dropout(x).add_(res)
         return x, attn_enc, state
-
-
-def rand_order(T, block_size=None, block_ratio=0.25, out=None):
-    if block_size is None:
-        block_size = max(int(round(T * block_ratio)), 1)
-    if block_size == 1:
-        return torch.randperm(T, out=out)
-    else:
-        if out is None:
-            out = torch.empty((T,), dtype=torch.long)
-        order = list(range(T))
-        offset = randrange(T)
-        order = torch.tensor(order[offset:] + order[:offset])
-        order = list(order.split(block_size))
-        shuffle(order)
-        order = torch.cat(order)
-        out.copy_(order)
-    return out
-
-
-@torch.jit.script
-def _reorder(order):
-    B, T = order.shape
-    reorder_list = []
-    for j in range(T):
-        reorder_list.append(order.eq(j).nonzero()[:, (-1)])
-    return torch.stack(reorder_list, dim=-1)
-
-
-def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
-    time_dim, batch_dim = (1, 0) if batch_first else (0, 1)
-    B, T = inputs.size(batch_dim), inputs.size(time_dim)
-    order = torch.arange(-1, T, dtype=torch.long, device=inputs.device)
-    order = order.view(1, -1).expand(B, T + 1).contiguous()
-    max_time = inputs.ne(padding_idx).sum(time_dim) - 1
-    for i in range(B):
-        t = int(max_time[i])
-        scope = order[i].narrow(0, 1, t)
-        rand_order(t, out=scope)
-    order.add_(1)
-    reorder = _reorder(order.narrow(time_dim, 1, T) - 1)
-    if not batch_first:
-        order = order.t()
-        reorder = reorder.t()
-    return order, reorder
 
 
 def index_select_2d(x, order):
@@ -2683,45 +2683,45 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(OrderAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(SDPAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(MultiHeadAttentionV2(*[], **{'input_size': 4, 'output_size': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(TimeNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_008(self):
         self._check(PositionalEmbedding(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(AverageNetwork(*[], **{'input_size': 4, 'inner_linear': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(HiddenTransform(*[], **{'input_shape': 4, 'output_shape': 4}), [torch.rand([4, 4])], {})
+

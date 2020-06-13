@@ -57,6 +57,20 @@ import copy
 from torch.utils.data import Dataset
 
 
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
+        shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
+        ).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
+
+
 def generate_anchors(base_size=16, ratios=None, scales=None):
     """
     Generate anchor (reference) windows by enumerating aspect ratios X
@@ -75,20 +89,6 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
     anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
     anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
     return anchors
-
-
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
-        shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
-        ).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
 
 
 class Anchors(nn.Module):
@@ -597,7 +597,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yhenon_pytorch_retinanet(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -615,3 +614,4 @@ class Test_yhenon_pytorch_retinanet(_paritybench_base):
 
     def test_005(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

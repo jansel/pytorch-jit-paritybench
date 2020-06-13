@@ -425,17 +425,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yanx27_3DGNN_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(MedianPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(EnetInitialBlock(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(EnetEncoderOtherPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(EnetDecoderOtherPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

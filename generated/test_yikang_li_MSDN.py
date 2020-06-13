@@ -317,19 +317,6 @@ class Language_Model(nn.Module):
             )
 
 
-def clip_boxes(boxes, im_shape):
-    """
-    Clip boxes to image boundaries.
-    """
-    if boxes.shape[0] == 0:
-        return boxes
-    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
-    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
-    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
-    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
-    return boxes
-
-
 class Timer(object):
     """A simple timer."""
 
@@ -352,21 +339,6 @@ class Timer(object):
             return self.average_time
         else:
             return self.diff
-
-
-def im_list_to_blob(ims):
-    """Convert a list of images into a network input.
-
-    Assumes images are already prepared (means subtracted, BGR order, ...).
-    """
-    max_shape = np.array([im.shape for im in ims]).max(axis=0)
-    num_images = len(ims)
-    blob = np.zeros((num_images, max_shape[0], max_shape[1], 3), dtype=np.
-        float32)
-    for i in xrange(num_images):
-        im = ims[i]
-        blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
-    return blob
 
 
 _global_config['TRAIN'] = 4
@@ -397,6 +369,34 @@ def bbox_transform_inv_hdn(boxes, deltas):
     pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w - 1.0
     pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h - 1.0
     return pred_boxes
+
+
+def im_list_to_blob(ims):
+    """Convert a list of images into a network input.
+
+    Assumes images are already prepared (means subtracted, BGR order, ...).
+    """
+    max_shape = np.array([im.shape for im in ims]).max(axis=0)
+    num_images = len(ims)
+    blob = np.zeros((num_images, max_shape[0], max_shape[1], 3), dtype=np.
+        float32)
+    for i in xrange(num_images):
+        im = ims[i]
+        blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
+    return blob
+
+
+def clip_boxes(boxes, im_shape):
+    """
+    Clip boxes to image boundaries.
+    """
+    if boxes.shape[0] == 0:
+        return boxes
+    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
+    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
+    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
+    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
+    return boxes
 
 
 DEBUG = False
@@ -941,7 +941,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yikang_li_MSDN(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Message_Passing_Unit_v2(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
@@ -956,3 +955,4 @@ class Test_yikang_li_MSDN(_paritybench_base):
 
     def test_004(self):
         self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

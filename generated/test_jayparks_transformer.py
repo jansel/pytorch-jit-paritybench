@@ -449,11 +449,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jayparks_transformer(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(ScaledDotProductAttention(*[], **{'d_k': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -462,3 +461,4 @@ class Test_jayparks_transformer(_paritybench_base):
 
     def test_003(self):
         self._check(PoswiseFeedForwardNet(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4])], {})
+

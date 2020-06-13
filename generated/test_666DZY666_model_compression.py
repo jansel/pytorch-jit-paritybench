@@ -1013,23 +1013,26 @@ class Quantizer(nn.Module):
         return output
 
 
-class AveragedRangeTracker(RangeTracker):
+class GlobalRangeTracker(RangeTracker):
 
-    def __init__(self, q_level, momentum=0.1):
+    def __init__(self, q_level, out_channels):
         super().__init__(q_level)
-        self.momentum = momentum
-        self.register_buffer('min_val', torch.zeros(1))
-        self.register_buffer('max_val', torch.zeros(1))
-        self.register_buffer('first_a', torch.zeros(1))
+        self.register_buffer('min_val', torch.zeros(out_channels, 1, 1, 1))
+        self.register_buffer('max_val', torch.zeros(out_channels, 1, 1, 1))
+        self.register_buffer('first_w', torch.zeros(1))
 
     def update_range(self, min_val, max_val):
-        if self.first_a == 0:
-            self.first_a.add_(1)
+        temp_minval = self.min_val
+        temp_maxval = self.max_val
+        if self.first_w == 0:
+            self.first_w.add_(1)
             self.min_val.add_(min_val)
             self.max_val.add_(max_val)
         else:
-            self.min_val.mul_(1 - self.momentum).add_(min_val * self.momentum)
-            self.max_val.mul_(1 - self.momentum).add_(max_val * self.momentum)
+            self.min_val.add_(-temp_minval).add_(torch.min(temp_minval,
+                min_val))
+            self.max_val.add_(-temp_maxval).add_(torch.max(temp_maxval,
+                max_val))
 
 
 class SignedQuantizer(Quantizer):
@@ -1051,21 +1054,23 @@ class SymmetricQuantizer(SignedQuantizer):
         self.zero_point = torch.zeros_like(self.scale)
 
 
-class UnsignedQuantizer(Quantizer):
+class AveragedRangeTracker(RangeTracker):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer('min_val', torch.tensor(0))
-        self.register_buffer('max_val', torch.tensor((1 << self.bits) - 1))
+    def __init__(self, q_level, momentum=0.1):
+        super().__init__(q_level)
+        self.momentum = momentum
+        self.register_buffer('min_val', torch.zeros(1))
+        self.register_buffer('max_val', torch.zeros(1))
+        self.register_buffer('first_a', torch.zeros(1))
 
-
-class AsymmetricQuantizer(UnsignedQuantizer):
-
-    def update_params(self):
-        quantized_range = self.max_val - self.min_val
-        float_range = self.range_tracker.max_val - self.range_tracker.min_val
-        self.scale = quantized_range / float_range
-        self.zero_point = torch.round(self.range_tracker.min_val * self.scale)
+    def update_range(self, min_val, max_val):
+        if self.first_a == 0:
+            self.first_a.add_(1)
+            self.min_val.add_(min_val)
+            self.max_val.add_(max_val)
+        else:
+            self.min_val.mul_(1 - self.momentum).add_(min_val * self.momentum)
+            self.max_val.mul_(1 - self.momentum).add_(max_val * self.momentum)
 
 
 class Conv2d_Q(nn.Conv2d):
@@ -1315,33 +1320,33 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_666DZY666_model_compression(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(activation_bin(*[], **{'A': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(weight_tnn_bin(*[], **{'W': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Conv2d_Q(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(activation_quantize(*[], **{'a_bits': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(weight_quantize(*[], **{'w_bits': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(Linear_Q(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

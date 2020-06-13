@@ -188,6 +188,20 @@ class ListDataParallel(DataParallel):
         return pose_gather(outputs, output_device, dim=self.dim)
 
 
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
+        shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
+        ).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
+
+
 def generate_anchors(base_size=16, ratios=None, scales=None):
     """
     Generate anchor (reference) windows by enumerating aspect ratios X
@@ -206,20 +220,6 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
     anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
     anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
     return anchors
-
-
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
-        shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
-        ).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
 
 
 class Anchors(nn.Module):
@@ -589,39 +589,6 @@ class PRN(nn.Module):
         return out
 
 
-def build_names():
-    names = []
-    for j in range(2, 6):
-        names.append('heatmap_loss_k%d' % j)
-        names.append('seg_loss_k%d' % j)
-    names.append('heatmap_loss')
-    names.append('seg_loss')
-    return names
-
-
-def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
-    names = build_names()
-    saved_for_log = OrderedDict()
-    criterion = nn.MSELoss(size_average=True).cuda()
-    total_loss = 0
-    div1 = 1.0
-    for j in range(5):
-        pred1 = saved_for_loss[j][:, :18, :, :] * heat_weight
-        gt1 = heat_weight * heat_temp
-        loss1 = criterion(pred1, gt1) / div1
-        total_loss += loss1
-        saved_for_log[names[j * 2]] = loss1.item()
-    saved_for_log['max_ht'] = torch.max(saved_for_loss[-1].data[:, :18, :, :]
-        ).item()
-    saved_for_log['min_ht'] = torch.min(saved_for_loss[-1].data[:, :18, :, :]
-        ).item()
-    return total_loss, saved_for_log
-
-
-def FPN101():
-    return FPN(Bottleneck, [3, 4, 23, 3])
-
-
 def pth_nms(dets, thresh):
     """
   dets has to be a tensor
@@ -662,21 +629,6 @@ def FPN50():
     return FPN(Bottleneck, [3, 4, 6, 3])
 
 
-def build_prn_loss(saved_for_loss, label):
-    """
-    :param saved_for_loss: [out]
-    :param label: label
-    :return: prn loss
-    """
-    saved_for_log = OrderedDict()
-    criterion = nn.BCELoss(size_average=True).cuda()
-    total_loss = 0
-    loss1 = criterion(saved_for_loss[0], label)
-    total_loss += loss1
-    saved_for_log['PRN loss'] = loss1.item()
-    return total_loss, saved_for_log
-
-
 def build_detection_loss(saved_for_loss, anno):
     """
     :param saved_for_loss: [classifications, regressions, anchors]
@@ -692,6 +644,54 @@ def build_detection_loss(saved_for_loss, anno):
     saved_for_log['total_loss'] = total_loss.item()
     saved_for_log['classification_loss'] = classification_loss.item()
     saved_for_log['regression_loss'] = regression_loss.item()
+    return total_loss, saved_for_log
+
+
+def FPN101():
+    return FPN(Bottleneck, [3, 4, 23, 3])
+
+
+def build_prn_loss(saved_for_loss, label):
+    """
+    :param saved_for_loss: [out]
+    :param label: label
+    :return: prn loss
+    """
+    saved_for_log = OrderedDict()
+    criterion = nn.BCELoss(size_average=True).cuda()
+    total_loss = 0
+    loss1 = criterion(saved_for_loss[0], label)
+    total_loss += loss1
+    saved_for_log['PRN loss'] = loss1.item()
+    return total_loss, saved_for_log
+
+
+def build_names():
+    names = []
+    for j in range(2, 6):
+        names.append('heatmap_loss_k%d' % j)
+        names.append('seg_loss_k%d' % j)
+    names.append('heatmap_loss')
+    names.append('seg_loss')
+    return names
+
+
+def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
+    names = build_names()
+    saved_for_log = OrderedDict()
+    criterion = nn.MSELoss(size_average=True).cuda()
+    total_loss = 0
+    div1 = 1.0
+    for j in range(5):
+        pred1 = saved_for_loss[j][:, :18, :, :] * heat_weight
+        gt1 = heat_weight * heat_temp
+        loss1 = criterion(pred1, gt1) / div1
+        total_loss += loss1
+        saved_for_log[names[j * 2]] = loss1.item()
+    saved_for_log['max_ht'] = torch.max(saved_for_loss[-1].data[:, :18, :, :]
+        ).item()
+    saved_for_log['min_ht'] = torch.min(saved_for_loss[-1].data[:, :18, :, :]
+        ).item()
     return total_loss, saved_for_log
 
 
@@ -925,7 +925,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_LiMeng95_MultiPoseNet_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -952,3 +951,4 @@ class Test_LiMeng95_MultiPoseNet_pytorch(_paritybench_base):
 
     def test_008(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

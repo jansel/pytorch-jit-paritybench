@@ -86,41 +86,6 @@ class LayerNorm(torch.nn.Module):
         return self.g * x + self.b
 
 
-seq_re = '\\((.+)\\)\\*'
-
-
-def tsn_to_str_list(ss: str):
-    ss = re.sub('\\s+', '', ss)
-    is_seq = False
-    m = re.search(seq_re, ss)
-    if m is not None:
-        ss = m.groups()[0]
-        is_seq = True
-    if ',' in ss:
-        exprs = ss.strip().split(',')
-    else:
-        exprs = list(ss)
-    return exprs, is_seq
-
-
-def arith_op(op, s1, s2):
-    assert isinstance(s1, DimExpr)
-    s2 = DimExpr(s2)
-    s1e = s1.exp
-    s2e = s2.exp
-    if op == 'add':
-        se = s1e + s2e
-    elif op == 'mul':
-        se = s1e * s2e
-    elif op == 'truediv':
-        se = s1e / s2e
-    elif op == 'floordiv':
-        se = s1e // s2e
-    else:
-        raise NotImplementedError(f'{op}')
-    return DimExpr(se)
-
-
 class DimVar:
     decls = {}
     parse_regexp = '(\\w+)(?:\\((\\w+)\\))?(?::(\\d+))?'
@@ -200,6 +165,24 @@ class DimVar:
     def eval_name(e):
         sub_map = [(e, dv.shortname) for e, dv in DimVar.decls.items()]
         return str(e.subs(sub_map))
+
+
+def arith_op(op, s1, s2):
+    assert isinstance(s1, DimExpr)
+    s2 = DimExpr(s2)
+    s1e = s1.exp
+    s2e = s2.exp
+    if op == 'add':
+        se = s1e + s2e
+    elif op == 'mul':
+        se = s1e * s2e
+    elif op == 'truediv':
+        se = s1e / s2e
+    elif op == 'floordiv':
+        se = s1e // s2e
+    else:
+        raise NotImplementedError(f'{op}')
+    return DimExpr(se)
 
 
 class DimExpr:
@@ -295,6 +278,29 @@ class DimExpr:
         return s
 
 
+def resolve_to_int_tuple(s):
+    """
+    resolve non-int elements by casting to int or looking up their DimVar values
+    """
+    res = []
+    for d in s:
+        try:
+            d = int(d)
+            res.append(d)
+        except:
+            if isinstance(d, DimExpr):
+                e = d.exp
+            else:
+                e = d
+            r = DimVar.eval(e)
+            try:
+                r = int(r)
+                res.append(r)
+            except:
+                raise ValueError(f'Unable to resolve {d}')
+    return tuple(res)
+
+
 class TupleSeq:
 
     def __init__(self, s):
@@ -302,6 +308,23 @@ class TupleSeq:
 
     def item(self):
         return self.s
+
+
+seq_re = '\\((.+)\\)\\*'
+
+
+def tsn_to_str_list(ss: str):
+    ss = re.sub('\\s+', '', ss)
+    is_seq = False
+    m = re.search(seq_re, ss)
+    if m is not None:
+        ss = m.groups()[0]
+        is_seq = True
+    if ',' in ss:
+        exprs = ss.strip().split(',')
+    else:
+        exprs = list(ss)
+    return exprs, is_seq
 
 
 def dim_var(name, exists_ok=False, cache=True):
@@ -383,121 +406,12 @@ def tsn_to_tuple(ss, num_to_sym=False):
         raise ValueError('Unknown type of ss')
 
 
-def _permute_transform(src, to):
-    """
-    Permute Transform
-    src, to: Union[str, Tuple]
-
-    :src is the current dimension arrangement, list of named dim variables
-    :to is the target dimension arragement, list of named dim variables
-    :returns the index tuple for the permutation (backend independent)
-    """
-    lhs = tsn_to_tuple(src, num_to_sym=True)
-    rhs = tsn_to_tuple(to, num_to_sym=True)
-    assert isinstance(lhs, tuple)
-    assert isinstance(rhs, tuple)
-    assert len(lhs) == len(rhs
-        ), 'Source and Target shapes for permutation are not same'
-    sub_map = [(d.exp, f'{i}') for i, d in enumerate(lhs)]
-    perm_indices = tuple([t.exp.subs(sub_map) for t in rhs])
-    perm_indices = tuple([int(str(s)) for s in perm_indices])
-    return perm_indices
-
-
-def tsnseq2shape_pairs(tfms):
-    res = [tsn_to_tuple(t.strip()) for t in tfms.split('->')]
-    assert len(res) >= 2, 'At least 2 tfms required: {res}'
-    shape_pairs = list(zip(res[:-1], res[1:]))
-    return shape_pairs
-
-
-def norm_tfms_to_shape_pairs(tfms):
-    """
-    tfms  'x -> y -> z -> u' or ['x -> y', 'y -> z', 'z -> u'] or ['x -> y -> z', 'z -> u']
-    'x', 'y', 'z' are tsns
-    returns: [(X, Y), (Y, Z), (Z, U)], where X is the tuple rep for tsn 'x', ...
-    """
-    res = []
-    if isinstance(tfms, str):
-        shape_pairs = tsnseq2shape_pairs(tfms)
-        res.extend(shape_pairs)
-    elif isinstance(tfms, (list, tuple)):
-        for pos, tfm in enumerate(tfms):
-            assert isinstance(tfm, str)
-            shape_pairs = tsnseq2shape_pairs(tfm)
-            res.extend(shape_pairs)
-    else:
-        raise ValueError(f'unknown format: {tfms}')
-    return res
-
-
-def norm_tfm_names(tfm_names):
-    """
-    tfm_names: 'abc' or ['a', 'bc'] 
-    returns: ['a', 'b', 'c']
-    """
-    res = []
-    if isinstance(tfm_names, str):
-        res = list(tfm_names)
-    elif isinstance(tfm_names, (list, tuple)):
-        for n in tfm_names:
-            assert isinstance(n, str)
-            res.extend(list(n))
-    return res
-
-
-def tfm_seq_decompose(tfms, tfm_names):
-    """
-    Decompose a multi-step transform into basic (view, permute, expand) transforms
-    tfms  'btd -> b,t,2,d//2 -> b,2,t,d//2'
-    tfm_names 'vp' , i.e., view, then permute transform
-    """
-    tfm_symbols = norm_tfm_names(tfm_names)
-    tfm_symbols_no_c = [n for n in tfm_symbols if n != 'c']
-    shape_pairs = norm_tfms_to_shape_pairs(tfms)
-    assert len(tfm_symbols_no_c) == len(shape_pairs
-        ), f'Num of transform steps {len(shape_pairs)} and names {len(tfm_symbols_no_c)} do not match'
-    tfm_list = []
-    curr_pos = 0
-    for sym in tfm_symbols:
-        if sym == 'c':
-            tfm_list.append((sym, None, None))
-        else:
-            l, r = shape_pairs[curr_pos]
-            tfm_list.append((sym, l, r))
-            curr_pos += 1
-    return tfm_list
-
-
 def check_int_tuple(s):
     for d in s:
         try:
             d = int(d)
         except:
             raise ValueError(f'Unable to resolve expression {d}')
-
-
-def resolve_to_int_tuple(s):
-    """
-    resolve non-int elements by casting to int or looking up their DimVar values
-    """
-    res = []
-    for d in s:
-        try:
-            d = int(d)
-            res.append(d)
-        except:
-            if isinstance(d, DimExpr):
-                e = d.exp
-            else:
-                e = d
-            r = DimVar.eval(e)
-            try:
-                r = int(r)
-                res.append(r)
-            except:
-                raise ValueError(f'Unable to resolve {d}')
-    return tuple(res)
 
 
 def _view_transform(src, to, in_shape, checkin=False):
@@ -526,6 +440,92 @@ def _view_transform(src, to, in_shape, checkin=False):
     return out_shape
 
 
+def align_transform(src, to, tile=False):
+    """
+    src: tsn 'd,d'
+    to: tsn '6, d, t, d'
+    tile: duplicate src values along new dimensions
+    return: '^,,^,' [expansion shorthand for src]
+        if tile is True: also return (6,1,int(T),1)
+    """
+    lhs = tsn_to_tuple(src)
+    rhs = tsn_to_tuple(to)
+    assert isinstance(lhs, tuple)
+    assert isinstance(rhs, tuple)
+    lhs_pos, rhs_pos = 0, 0
+    expand_dims = []
+    expand_ratio = []
+    for rhs_pos, S in enumerate(rhs):
+        if lhs_pos < len(lhs) and lhs[lhs_pos] == S:
+            expand_dims.append('')
+            if tile:
+                expand_ratio.append(1)
+            lhs_pos += 1
+        else:
+            expand_dims.append('^')
+            if tile:
+                try:
+                    expand_ratio.append(int(S))
+                except:
+                    expand_ratio.append(S)
+    if lhs_pos != len(lhs):
+        print(f'Unable to align {src} to {to}: {src} not a subsequence of {to}'
+            )
+        raise ValueError
+    return ','.join(expand_dims), expand_ratio
+
+
+def expand_dims_transform(x, tfm):
+    """
+    x: (backend) tensor, e.g., shape 'd,d'
+    tfm: expand tsn: '^,,^,'
+    returns tensor of shape '1,d,1,d'
+    """
+    colon = slice(None)
+    expand_tup = tuple(None if c == '^' else colon for c in tfm.split(','))
+    res = x[expand_tup]
+    return res
+
+
+def alignto(x, ys, tile=False):
+    """
+    Align tensor x's shape to y's shape.
+    Assume x's shape is a subsequence of y's shape
+    Assume tensors x and y support numpy's "None, :"" indexing notation
+    x: (tensor_var, x_shape)
+    ys: y_shape (tsn of target tensor)
+    """
+    if tile:
+        raise NotImplementedError('tiling to be implemented.')
+    assert isinstance(x, tuple), 'First argument is of form (tensor_var, tsn)'
+    assert isinstance(ys, (str, tuple))
+    xt, xs = x
+    expand_tfm, expand_ratio = align_transform(xs, ys, tile)
+    exp_1 = expand_dims_transform(xt, expand_tfm)
+    return exp_1
+
+
+def _permute_transform(src, to):
+    """
+    Permute Transform
+    src, to: Union[str, Tuple]
+
+    :src is the current dimension arrangement, list of named dim variables
+    :to is the target dimension arragement, list of named dim variables
+    :returns the index tuple for the permutation (backend independent)
+    """
+    lhs = tsn_to_tuple(src, num_to_sym=True)
+    rhs = tsn_to_tuple(to, num_to_sym=True)
+    assert isinstance(lhs, tuple)
+    assert isinstance(rhs, tuple)
+    assert len(lhs) == len(rhs
+        ), 'Source and Target shapes for permutation are not same'
+    sub_map = [(d.exp, f'{i}') for i, d in enumerate(lhs)]
+    perm_indices = tuple([t.exp.subs(sub_map) for t in rhs])
+    perm_indices = tuple([int(str(s)) for s in perm_indices])
+    return perm_indices
+
+
 becache = {}
 
 
@@ -534,30 +534,6 @@ def from_cache(C):
     if s not in becache:
         becache[s] = C()
     return becache[s]
-
-
-def get_tf_shape(tf, tensor):
-    """Returns a list of the shape of tensor, preferring static dimensions.
-  (inspired by get_shape_list in BERT code)
-
-  Args:
-    tensor: A tf.Tensor object to find the shape of.
-  Returns:
-    A list of dimensions of the shape of tensor. All static dimensions will
-    be returned as python integers, and dynamic dimensions will be returned
-    as tf.Tensor scalars.
-  """
-    shape = tuple(tensor.shape.as_list())
-    non_static_indexes = []
-    for index, dim in enumerate(shape):
-        if dim is None:
-            non_static_indexes.append(index)
-    if not non_static_indexes:
-        return shape
-    dyn_shape = tf.shape(tensor)
-    for index in non_static_indexes:
-        shape[index] = dyn_shape[index]
-    return shape
 
 
 class ABackend:
@@ -588,6 +564,38 @@ class ABackend:
         raise NotImplementedError
 
 
+class PyTorch(ABackend):
+    name = 'pytorch'
+
+    def __init__(self):
+        import torch
+        self.torch = torch
+
+    def shape(self, x):
+        return x.size()
+
+    def contiguous(self, x):
+        return x.contiguous()
+
+    def view(self, x, shape):
+        return x.view(shape)
+
+    def transpose(self, x, dims):
+        return x.permute(dims)
+
+    def expand(self, x, mul_shape):
+        return x.expand(mul_shape)
+
+    def stack(self, xlist, axis):
+        return self.torch.stack(xlist, dim=axis)
+
+    def concat(self, xlist, axis):
+        return self.torch.cat(xlist, dim=axis)
+
+    def einsum(self, eqn, args):
+        return self.torch.einsum(eqn, args)
+
+
 def int_shape(*s):
     if len(s) == 1:
         assert isinstance(s, (tuple, list))
@@ -595,6 +603,30 @@ def int_shape(*s):
     else:
         s = tuple(s)
     return tuple([int(d) for d in s])
+
+
+def get_tf_shape(tf, tensor):
+    """Returns a list of the shape of tensor, preferring static dimensions.
+  (inspired by get_shape_list in BERT code)
+
+  Args:
+    tensor: A tf.Tensor object to find the shape of.
+  Returns:
+    A list of dimensions of the shape of tensor. All static dimensions will
+    be returned as python integers, and dynamic dimensions will be returned
+    as tf.Tensor scalars.
+  """
+    shape = tuple(tensor.shape.as_list())
+    non_static_indexes = []
+    for index, dim in enumerate(shape):
+        if dim is None:
+            non_static_indexes.append(index)
+    if not non_static_indexes:
+        return shape
+    dyn_shape = tf.shape(tensor)
+    for index in non_static_indexes:
+        shape[index] = dyn_shape[index]
+    return shape
 
 
 class TF(ABackend):
@@ -632,36 +664,13 @@ class TF(ABackend):
         return self.tf.einsum(eqn, args)
 
 
-class PyTorch(ABackend):
-    name = 'pytorch'
-
-    def __init__(self):
-        import torch
-        self.torch = torch
-
-    def shape(self, x):
-        return x.size()
-
-    def contiguous(self, x):
-        return x.contiguous()
-
-    def view(self, x, shape):
-        return x.view(shape)
-
-    def transpose(self, x, dims):
-        return x.permute(dims)
-
-    def expand(self, x, mul_shape):
-        return x.expand(mul_shape)
-
-    def stack(self, xlist, axis):
-        return self.torch.stack(xlist, dim=axis)
-
-    def concat(self, xlist, axis):
-        return self.torch.cat(xlist, dim=axis)
-
-    def einsum(self, eqn, args):
-        return self.torch.einsum(eqn, args)
+def get_str_type(x):
+    if isinstance(x, (tuple, list)):
+        if len(x) == 0:
+            return ''
+        x = x[0]
+    t = str(type(x))
+    return t
 
 
 class Numpy(ABackend):
@@ -694,15 +703,6 @@ class Numpy(ABackend):
 
     def einsum(self, eqn, args):
         return self.np.einsum(eqn, *args)
-
-
-def get_str_type(x):
-    if isinstance(x, (tuple, list)):
-        if len(x) == 0:
-            return ''
-        x = x[0]
-    t = str(type(x))
-    return t
 
 
 def get_tensor_lib(x):
@@ -772,6 +772,71 @@ def join(tlist, dims, backend=None):
         return be.concat(tlist, axis=pos)
 
 
+def tsnseq2shape_pairs(tfms):
+    res = [tsn_to_tuple(t.strip()) for t in tfms.split('->')]
+    assert len(res) >= 2, 'At least 2 tfms required: {res}'
+    shape_pairs = list(zip(res[:-1], res[1:]))
+    return shape_pairs
+
+
+def norm_tfms_to_shape_pairs(tfms):
+    """
+    tfms  'x -> y -> z -> u' or ['x -> y', 'y -> z', 'z -> u'] or ['x -> y -> z', 'z -> u']
+    'x', 'y', 'z' are tsns
+    returns: [(X, Y), (Y, Z), (Z, U)], where X is the tuple rep for tsn 'x', ...
+    """
+    res = []
+    if isinstance(tfms, str):
+        shape_pairs = tsnseq2shape_pairs(tfms)
+        res.extend(shape_pairs)
+    elif isinstance(tfms, (list, tuple)):
+        for pos, tfm in enumerate(tfms):
+            assert isinstance(tfm, str)
+            shape_pairs = tsnseq2shape_pairs(tfm)
+            res.extend(shape_pairs)
+    else:
+        raise ValueError(f'unknown format: {tfms}')
+    return res
+
+
+def norm_tfm_names(tfm_names):
+    """
+    tfm_names: 'abc' or ['a', 'bc'] 
+    returns: ['a', 'b', 'c']
+    """
+    res = []
+    if isinstance(tfm_names, str):
+        res = list(tfm_names)
+    elif isinstance(tfm_names, (list, tuple)):
+        for n in tfm_names:
+            assert isinstance(n, str)
+            res.extend(list(n))
+    return res
+
+
+def tfm_seq_decompose(tfms, tfm_names):
+    """
+    Decompose a multi-step transform into basic (view, permute, expand) transforms
+    tfms  'btd -> b,t,2,d//2 -> b,2,t,d//2'
+    tfm_names 'vp' , i.e., view, then permute transform
+    """
+    tfm_symbols = norm_tfm_names(tfm_names)
+    tfm_symbols_no_c = [n for n in tfm_symbols if n != 'c']
+    shape_pairs = norm_tfms_to_shape_pairs(tfms)
+    assert len(tfm_symbols_no_c) == len(shape_pairs
+        ), f'Num of transform steps {len(shape_pairs)} and names {len(tfm_symbols_no_c)} do not match'
+    tfm_list = []
+    curr_pos = 0
+    for sym in tfm_symbols:
+        if sym == 'c':
+            tfm_list.append((sym, None, None))
+        else:
+            l, r = shape_pairs[curr_pos]
+            tfm_list.append((sym, l, r))
+            curr_pos += 1
+    return tfm_list
+
+
 def _join_transform(tlist, src, to):
     """
     src: Union[str, TupleSeq]
@@ -797,71 +862,6 @@ def _join_transform(tlist, src, to):
     else:
         raise ValueError(f'Unable to join from {src} to {to}')
     return dims
-
-
-def expand_dims_transform(x, tfm):
-    """
-    x: (backend) tensor, e.g., shape 'd,d'
-    tfm: expand tsn: '^,,^,'
-    returns tensor of shape '1,d,1,d'
-    """
-    colon = slice(None)
-    expand_tup = tuple(None if c == '^' else colon for c in tfm.split(','))
-    res = x[expand_tup]
-    return res
-
-
-def align_transform(src, to, tile=False):
-    """
-    src: tsn 'd,d'
-    to: tsn '6, d, t, d'
-    tile: duplicate src values along new dimensions
-    return: '^,,^,' [expansion shorthand for src]
-        if tile is True: also return (6,1,int(T),1)
-    """
-    lhs = tsn_to_tuple(src)
-    rhs = tsn_to_tuple(to)
-    assert isinstance(lhs, tuple)
-    assert isinstance(rhs, tuple)
-    lhs_pos, rhs_pos = 0, 0
-    expand_dims = []
-    expand_ratio = []
-    for rhs_pos, S in enumerate(rhs):
-        if lhs_pos < len(lhs) and lhs[lhs_pos] == S:
-            expand_dims.append('')
-            if tile:
-                expand_ratio.append(1)
-            lhs_pos += 1
-        else:
-            expand_dims.append('^')
-            if tile:
-                try:
-                    expand_ratio.append(int(S))
-                except:
-                    expand_ratio.append(S)
-    if lhs_pos != len(lhs):
-        print(f'Unable to align {src} to {to}: {src} not a subsequence of {to}'
-            )
-        raise ValueError
-    return ','.join(expand_dims), expand_ratio
-
-
-def alignto(x, ys, tile=False):
-    """
-    Align tensor x's shape to y's shape.
-    Assume x's shape is a subsequence of y's shape
-    Assume tensors x and y support numpy's "None, :"" indexing notation
-    x: (tensor_var, x_shape)
-    ys: y_shape (tsn of target tensor)
-    """
-    if tile:
-        raise NotImplementedError('tiling to be implemented.')
-    assert isinstance(x, tuple), 'First argument is of form (tensor_var, tsn)'
-    assert isinstance(ys, (str, tuple))
-    xt, xs = x
-    expand_tfm, expand_ratio = align_transform(xs, ys, tile)
-    exp_1 = expand_dims_transform(xt, expand_tfm)
-    return exp_1
 
 
 def warp(x, tfms, tfm_names, backend=None, debug=False):
@@ -897,6 +897,18 @@ def warp(x, tfms, tfm_names, backend=None, debug=False):
         if debug:
             print(f'after transform, shape is: {be.shape(ret)}')
     return ret
+
+
+def swish(x: torch.Tensor) ->torch.Tensor:
+    return x * torch.sigmoid(x)
+
+
+def gelu(x: torch.Tensor) ->torch.Tensor:
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
+        torch.pow(x, 3))))
+
+
+_ACTIVATION_FUNCTIONS = {'relu': torch.nn.ReLU, 'swish': swish, 'gelu': gelu}
 
 
 class TransformerConfig(NamedTuple):
@@ -963,6 +975,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ofnote_tsalib(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerNorm(*[], **{'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+

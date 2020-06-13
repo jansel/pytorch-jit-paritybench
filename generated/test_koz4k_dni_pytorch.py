@@ -130,44 +130,6 @@ class UnidirectionalInterface(torch.nn.Module):
         _Manager.backward(loss)
 
 
-class ForwardInterface(UnidirectionalInterface):
-    """`Interface` for synthesizing activations in the forward pass.
-
-    Can be used to achieve a forward unlock. It does not make too much sense to
-    use it on its own, as it breaks backpropagation (no gradients pass through
-    `ForwardInterface`). To achieve both forward and update unlock, use
-    `BidirectionalInterface`.
-
-    Args:
-        synthesizer: `Synthesizer` to use to generate `messages`.
-    """
-
-    def forward(self, message, trigger):
-        """Synthetic forward pass, no backward pass.
-
-        Convenience method combining `send` and `receive`. Updates the
-        `message` estimate based on `trigger` and returns a synthetic
-        `message`.
-
-        Works only in `training` mode, otherwise just returns the input
-        `message`.
-
-        Args:
-            message: Ground truth `message` that should be synthesized based on
-                `trigger`.
-            trigger: `trigger` that the `message` should be synthesized based
-                on.
-
-        Returns:
-            The synthesized `message`.
-        """
-        if self.training:
-            self.send(message, trigger)
-            return self.receive(trigger)
-        else:
-            return message
-
-
 class _SyntheticGradientUpdater(torch.autograd.Function):
 
     @staticmethod
@@ -262,6 +224,44 @@ class BackwardInterface(UnidirectionalInterface):
                 synthesizer(trigger, _Manager.get_current_context()))
         else:
             return trigger
+
+
+class ForwardInterface(UnidirectionalInterface):
+    """`Interface` for synthesizing activations in the forward pass.
+
+    Can be used to achieve a forward unlock. It does not make too much sense to
+    use it on its own, as it breaks backpropagation (no gradients pass through
+    `ForwardInterface`). To achieve both forward and update unlock, use
+    `BidirectionalInterface`.
+
+    Args:
+        synthesizer: `Synthesizer` to use to generate `messages`.
+    """
+
+    def forward(self, message, trigger):
+        """Synthetic forward pass, no backward pass.
+
+        Convenience method combining `send` and `receive`. Updates the
+        `message` estimate based on `trigger` and returns a synthetic
+        `message`.
+
+        Works only in `training` mode, otherwise just returns the input
+        `message`.
+
+        Args:
+            message: Ground truth `message` that should be synthesized based on
+                `trigger`.
+            trigger: `trigger` that the `message` should be synthesized based
+                on.
+
+        Returns:
+            The synthesized `message`.
+        """
+        if self.training:
+            self.send(message, trigger)
+            return self.receive(trigger)
+        else:
+            return message
 
 
 class BidirectionalInterface(torch.nn.Module):
@@ -410,10 +410,10 @@ def one_hot(indexes, n_classes):
     return Variable(result)
 
 
-_global_config['dni'] = 4
-
-
 _global_config['context'] = 4
+
+
+_global_config['dni'] = 4
 
 
 class Net(nn.Module):
@@ -629,21 +629,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_koz4k_dni_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
-        self._check(ForwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
-
-    def test_001(self):
         self._check(BackwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
+    def test_001(self):
+        self._check(ForwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_002(self):
         self._check(BidirectionalInterface(*[], **{'forward_synthesizer': 4, 'backward_synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(BasicSynthesizer(*[], **{'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Net(*[], **{}), [torch.rand([784, 784])], {})
+

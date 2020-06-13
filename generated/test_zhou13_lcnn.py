@@ -206,17 +206,29 @@ class HourglassNet(nn.Module):
         return out[::-1], y
 
 
-def _recursive_tuples(iterable, box_class, recreate_tuples=False, **kwargs):
-    out_list = []
-    for i in iterable:
-        if isinstance(i, dict):
-            out_list.append(box_class(i, **kwargs))
-        elif isinstance(i, list) or recreate_tuples and isinstance(i, tuple):
-            out_list.append(_recursive_tuples(i, box_class, recreate_tuples,
-                **kwargs))
-        else:
-            out_list.append(i)
-    return tuple(out_list)
+def non_maximum_suppression(a):
+    ap = F.max_pool2d(a, 3, stride=1, padding=1)
+    mask = (a == ap).float().clamp(min=0.0)
+    return a * mask
+
+
+def _to_yaml(obj, filename=None, default_flow_style=False, encoding='utf-8',
+    errors='strict', **yaml_kwargs):
+    if filename:
+        with open(filename, 'w', encoding=encoding, errors=errors) as f:
+            yaml.dump(obj, stream=f, default_flow_style=default_flow_style,
+                **yaml_kwargs)
+    else:
+        return yaml.dump(obj, default_flow_style=default_flow_style, **
+            yaml_kwargs)
+
+
+class BoxError(Exception):
+    """Non standard dictionary exceptions"""
+
+
+class BoxKeyError(BoxError, KeyError, AttributeError):
+    """Key does not exist"""
 
 
 BOX_PARAMETERS = ('default_box', 'default_box_attr', 'conversion_box',
@@ -224,27 +236,14 @@ BOX_PARAMETERS = ('default_box', 'default_box_attr', 'conversion_box',
     'box_duplicates', 'ordered_box')
 
 
+yaml_support = True
+
+
 def _safe_key(key):
     try:
         return str(key)
     except UnicodeEncodeError:
         return key.encode('utf-8', 'ignore')
-
-
-class BoxError(Exception):
-    """Non standard dictionary exceptions"""
-
-
-def _from_yaml(yaml_string=None, filename=None, encoding='utf-8', errors=
-    'strict', **kwargs):
-    if filename:
-        with open(filename, 'r', encoding=encoding, errors=errors) as f:
-            data = yaml.load(f, **kwargs)
-    elif yaml_string:
-        data = yaml.load(yaml_string, **kwargs)
-    else:
-        raise BoxError('from_yaml requires a string or filename')
-    return data
 
 
 class Bottleneck1D(nn.Module):
@@ -349,6 +348,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhou13_lcnn(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Bottleneck1D(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4])], {})
+

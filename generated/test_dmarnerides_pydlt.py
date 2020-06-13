@@ -159,13 +159,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dmarnerides_pydlt(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Generator(*[], **{'num_hidden': 4, 'z_dim': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Discriminator(*[], **{'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(DiscriminatorBEGAN(*[], **{'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4, 4, 4])], {})
+

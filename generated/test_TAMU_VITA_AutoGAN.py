@@ -224,10 +224,10 @@ class Discriminator(nn.Module):
         return output
 
 
-NORMS = ['in', 'bn']
-
-
 UP_MODES = ['nearest', 'bilinear']
+
+
+NORMS = ['in', 'bn']
 
 
 class Cell(nn.Module):
@@ -445,14 +445,14 @@ class PostGenBlock(nn.Module):
         return out
 
 
-CONV_TYPE = {(0): 'post', (1): 'pre'}
-
-
 SHORT_CUT_TYPE = {(0): False, (1): True}
 
 
 def decimal2binary(n):
     return bin(n).replace('0b', '')
+
+
+CONV_TYPE = {(0): 'post', (1): 'pre'}
 
 
 class Cell(nn.Module):
@@ -851,14 +851,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_TAMU_VITA_AutoGAN(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(Discriminator(*[], **{'args': _mock_config(df_dim=4, d_spectral_norm=4)}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(OptimizedDisBlock(*[], **{'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(DisBlock(*[], **{'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

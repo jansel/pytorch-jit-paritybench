@@ -267,14 +267,6 @@ class PointNetFeat(nn.Module):
         return feat1, feat2, feat3, feat4
 
 
-def Conv1d(i_c, o_c, k, s=1, p=0, bn=True):
-    if bn:
-        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p, bias=False), nn.
-            BatchNorm1d(o_c), nn.ReLU(True))
-    else:
-        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p), nn.ReLU(True))
-
-
 def DeConv1d(i_c, o_c, k, s=1, p=0, bn=True):
     if bn:
         return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p, bias=
@@ -282,6 +274,14 @@ def DeConv1d(i_c, o_c, k, s=1, p=0, bn=True):
     else:
         return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p), nn.ReLU
             (True))
+
+
+def Conv1d(i_c, o_c, k, s=1, p=0, bn=True):
+    if bn:
+        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p, bias=False), nn.
+            BatchNorm1d(o_c), nn.ReLU(True))
+    else:
+        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p), nn.ReLU(True))
 
 
 class ConvFeatNet(nn.Module):
@@ -335,77 +335,6 @@ class ConvFeatNet(nn.Module):
         return x
 
 
-def angle_encode(gt_angle, num_bins=12):
-    gt_angle = gt_angle % (2 * np.pi)
-    assert ((gt_angle >= 0) & (gt_angle <= 2 * np.pi)).all()
-    angle_per_class = 2 * np.pi / float(num_bins)
-    shifted_angle = (gt_angle + angle_per_class / 2) % (2 * np.pi)
-    gt_class_id = torch.floor(shifted_angle / angle_per_class).long()
-    gt_res = shifted_angle - (gt_class_id.float() * angle_per_class + 
-        angle_per_class / 2)
-    gt_res /= angle_per_class / 2
-    return gt_class_id, gt_res
-
-
-def huber_loss(error, delta, weight=None):
-    delta = torch.ones_like(error) * delta
-    abs_error = torch.abs(error)
-    quadratic = torch.min(abs_error, delta)
-    linear = abs_error - quadratic
-    losses = 0.5 * quadratic ** 2 + delta * linear
-    if weight is not None:
-        losses *= weight
-    return losses.mean()
-
-
-def size_encode(gt, class_mean_size, size_class_label):
-    ex = class_mean_size[size_class_label]
-    return (gt - ex) / ex
-
-
-def center_encode(gt, ex):
-    return gt - ex
-
-
-def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1
-    ):
-    keep = (target != ignore_idx).nonzero().view(-1)
-    num_fg = (target > 0).data.sum()
-    target = target[keep]
-    prob = prob[(keep), :]
-    alpha_t = (1 - alpha) * (target == 0).float() + alpha * (target >= 1
-        ).float()
-    prob_t = prob[range(len(target)), target]
-    loss = -alpha_t * (1 - prob_t) ** gamma * torch.log(prob_t + 1e-14)
-    loss = loss.sum() / (num_fg + 1e-14)
-    return loss
-
-
-def get_accuracy(output, target, ignore=None):
-    assert output.shape[0] == target.shape[0]
-    if ignore is not None:
-        assert isinstance(ignore, int)
-        keep = (target != ignore).nonzero().view(-1)
-        output = output[keep]
-        target = target[keep]
-    pred = torch.argmax(output, -1)
-    correct = (pred.view(-1) == target.view(-1)).float().sum()
-    acc = correct * (1.0 / target.view(-1).shape[0])
-    return acc
-
-
-def angle_decode(ex_res, ex_class_id, num_bins=12, to_label_format=True):
-    ex_res_select = torch.gather(ex_res, 1, ex_class_id.unsqueeze(1))
-    ex_res_select = ex_res_select.squeeze(1)
-    angle_per_class = 2 * np.pi / float(num_bins)
-    angle = ex_class_id.float() * angle_per_class + ex_res_select * (
-        angle_per_class / 2)
-    if to_label_format:
-        flag = angle > np.pi
-        angle[flag] = angle[flag] - 2 * np.pi
-    return angle
-
-
 class KITTICategory(object):
     CLASSES = ['Car', 'Pedestrian', 'Cyclist']
     CLASS_MEAN_SIZE = {'Car': np.array([3.88311640418, 1.62856739989, 
@@ -419,44 +348,6 @@ class KITTICategory(object):
 
 
 DATASET_INFO = {'KITTI': KITTICategory}
-
-
-def center_decode(ex, offset):
-    return ex + offset
-
-
-def size_decode(offset, class_mean_size, size_class_label):
-    offset_select = torch.gather(offset, 1, size_class_label.view(-1, 1, 1)
-        .expand(-1, -1, 3))
-    offset_select = offset_select.squeeze(1)
-    ex = class_mean_size[size_class_label]
-    return offset_select * ex + ex
-
-
-def get_box3d_corners_helper(centers, headings, sizes):
-    N = centers.shape[0]
-    l = sizes[:, (0)]
-    w = sizes[:, (1)]
-    h = sizes[:, (2)]
-    x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l /
-        2, -l / 2], 1)
-    y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h /
-        2, -h / 2], 1)
-    z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -
-        w / 2, w / 2], 1)
-    corners = torch.stack([x_corners, y_corners, z_corners], 1)
-    c = torch.cos(headings)
-    s = torch.sin(headings)
-    ones = headings.new_ones(N)
-    zeros = headings.new_zeros(N)
-    row1 = torch.stack([c, zeros, s], 1)
-    row2 = torch.stack([zeros, ones, zeros], 1)
-    row3 = torch.stack([-s, zeros, c], 1)
-    R = torch.stack([row1, row2, row3], 1)
-    corners_3d = torch.bmm(R, corners)
-    corners_3d = corners_3d + centers.unsqueeze(2)
-    corners_3d = torch.transpose(corners_3d, 1, 2).contiguous()
-    return corners_3d
 
 
 def boxes3d2corners(boxes_3d):
@@ -498,6 +389,115 @@ def rbbox_iou_3d_pair(boxes_3d, qboxes_3d):
     qbbox_corner_3d = boxes3d2corners(qboxes_3d)
     o = box_ops_cc.rbbox_iou_3d_pair(bbox_corner_3d, qbbox_corner_3d)
     return o
+
+
+def center_encode(gt, ex):
+    return gt - ex
+
+
+def center_decode(ex, offset):
+    return ex + offset
+
+
+def huber_loss(error, delta, weight=None):
+    delta = torch.ones_like(error) * delta
+    abs_error = torch.abs(error)
+    quadratic = torch.min(abs_error, delta)
+    linear = abs_error - quadratic
+    losses = 0.5 * quadratic ** 2 + delta * linear
+    if weight is not None:
+        losses *= weight
+    return losses.mean()
+
+
+def angle_decode(ex_res, ex_class_id, num_bins=12, to_label_format=True):
+    ex_res_select = torch.gather(ex_res, 1, ex_class_id.unsqueeze(1))
+    ex_res_select = ex_res_select.squeeze(1)
+    angle_per_class = 2 * np.pi / float(num_bins)
+    angle = ex_class_id.float() * angle_per_class + ex_res_select * (
+        angle_per_class / 2)
+    if to_label_format:
+        flag = angle > np.pi
+        angle[flag] = angle[flag] - 2 * np.pi
+    return angle
+
+
+def get_box3d_corners_helper(centers, headings, sizes):
+    N = centers.shape[0]
+    l = sizes[:, (0)]
+    w = sizes[:, (1)]
+    h = sizes[:, (2)]
+    x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l /
+        2, -l / 2], 1)
+    y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h /
+        2, -h / 2], 1)
+    z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -
+        w / 2, w / 2], 1)
+    corners = torch.stack([x_corners, y_corners, z_corners], 1)
+    c = torch.cos(headings)
+    s = torch.sin(headings)
+    ones = headings.new_ones(N)
+    zeros = headings.new_zeros(N)
+    row1 = torch.stack([c, zeros, s], 1)
+    row2 = torch.stack([zeros, ones, zeros], 1)
+    row3 = torch.stack([-s, zeros, c], 1)
+    R = torch.stack([row1, row2, row3], 1)
+    corners_3d = torch.bmm(R, corners)
+    corners_3d = corners_3d + centers.unsqueeze(2)
+    corners_3d = torch.transpose(corners_3d, 1, 2).contiguous()
+    return corners_3d
+
+
+def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1
+    ):
+    keep = (target != ignore_idx).nonzero().view(-1)
+    num_fg = (target > 0).data.sum()
+    target = target[keep]
+    prob = prob[(keep), :]
+    alpha_t = (1 - alpha) * (target == 0).float() + alpha * (target >= 1
+        ).float()
+    prob_t = prob[range(len(target)), target]
+    loss = -alpha_t * (1 - prob_t) ** gamma * torch.log(prob_t + 1e-14)
+    loss = loss.sum() / (num_fg + 1e-14)
+    return loss
+
+
+def size_encode(gt, class_mean_size, size_class_label):
+    ex = class_mean_size[size_class_label]
+    return (gt - ex) / ex
+
+
+def angle_encode(gt_angle, num_bins=12):
+    gt_angle = gt_angle % (2 * np.pi)
+    assert ((gt_angle >= 0) & (gt_angle <= 2 * np.pi)).all()
+    angle_per_class = 2 * np.pi / float(num_bins)
+    shifted_angle = (gt_angle + angle_per_class / 2) % (2 * np.pi)
+    gt_class_id = torch.floor(shifted_angle / angle_per_class).long()
+    gt_res = shifted_angle - (gt_class_id.float() * angle_per_class + 
+        angle_per_class / 2)
+    gt_res /= angle_per_class / 2
+    return gt_class_id, gt_res
+
+
+def size_decode(offset, class_mean_size, size_class_label):
+    offset_select = torch.gather(offset, 1, size_class_label.view(-1, 1, 1)
+        .expand(-1, -1, 3))
+    offset_select = offset_select.squeeze(1)
+    ex = class_mean_size[size_class_label]
+    return offset_select * ex + ex
+
+
+def get_accuracy(output, target, ignore=None):
+    assert output.shape[0] == target.shape[0]
+    if ignore is not None:
+        assert isinstance(ignore, int)
+        keep = (target != ignore).nonzero().view(-1)
+        output = output[keep]
+        target = target[keep]
+    pred = torch.argmax(output, -1)
+    correct = (pred.view(-1) == target.view(-1)).float().sum()
+    acc = correct * (1.0 / target.view(-1).shape[0])
+    return acc
 
 
 _global_config['IOU_THRESH'] = 4

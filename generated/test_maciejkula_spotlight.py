@@ -804,7 +804,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_maciejkula_spotlight(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BilinearNet(*[], **{'num_users': 4, 'num_items': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
@@ -813,3 +812,4 @@ class Test_maciejkula_spotlight(_paritybench_base):
 
     def test_002(self):
         self._check(ZeroEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+

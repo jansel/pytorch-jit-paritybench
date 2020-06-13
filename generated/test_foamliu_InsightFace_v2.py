@@ -322,10 +322,10 @@ class MobileNet(nn.Module):
         return x
 
 
-num_classes = 93431
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+num_classes = 93431
 
 
 class ArcMarginModel(nn.Module):
@@ -474,26 +474,16 @@ class ONet(nn.Module):
         return c, b, a
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
-cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
-    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
-    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
-    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
-    'pretrain': True, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
-    3}, 'in_channel': 32, 'out_channel': 64}
-
-
-GPU = cfg_mnet['gpu_train']
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
 
 
 def encode_landm(matched, priors, variances):
@@ -522,6 +512,25 @@ def encode_landm(matched, priors, variances):
     g_cxcy /= variances[0] * priors[:, :, 2:]
     g_cxcy = g_cxcy.reshape(g_cxcy.size(0), -1)
     return g_cxcy
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -564,37 +573,6 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, landms, loc_t,
@@ -643,6 +621,28 @@ def match(threshold, truths, priors, variances, labels, landms, loc_t,
     loc_t[idx] = loc
     conf_t[idx] = conf
     landm_t[idx] = landm
+
+
+cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
+    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
+    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
+    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
+    'pretrain': True, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
+    3}, 'in_channel': 32, 'out_channel': 64}
+
+
+GPU = cfg_mnet['gpu_train']
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -968,7 +968,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_foamliu_InsightFace_v2(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -989,3 +988,4 @@ class Test_foamliu_InsightFace_v2(_paritybench_base):
 
     def test_006(self):
         self._check(LandmarkHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+

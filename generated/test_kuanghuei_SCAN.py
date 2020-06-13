@@ -156,6 +156,12 @@ class EncoderText(nn.Module):
         return cap_emb, cap_len
 
 
+parser = argparse.ArgumentParser()
+
+
+opt = parser.parse_args()
+
+
 def cosine_similarity(x1, x2, dim=1, eps=1e-08):
     """Returns cosine similarity between x1 and x2, computed along dim."""
     w12 = torch.sum(x1 * x2, dim)
@@ -285,12 +291,6 @@ def xattn_score_i2t(images, captions, cap_lens, opt):
     return similarities
 
 
-parser = argparse.ArgumentParser()
-
-
-opt = parser.parse_args()
-
-
 class ContrastiveLoss(nn.Module):
     """
     Compute contrastive loss
@@ -332,10 +332,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kuanghuei_SCAN(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(EncoderImageWeightNormPrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+

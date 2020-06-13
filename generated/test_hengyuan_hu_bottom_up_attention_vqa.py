@@ -238,7 +238,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Attention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
@@ -253,3 +252,4 @@ class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
 
     def test_004(self):
         self._check(WordEmbedding(*[], **{'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
+

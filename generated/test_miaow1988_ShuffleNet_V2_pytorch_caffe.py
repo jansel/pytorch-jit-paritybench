@@ -215,6 +215,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_miaow1988_ShuffleNet_V2_pytorch_caffe(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+

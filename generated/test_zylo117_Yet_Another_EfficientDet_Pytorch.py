@@ -159,38 +159,6 @@ class EfficientDetBackbone(nn.Module):
             None
 
 
-def postprocess(x, anchors, regression, classification, regressBoxes,
-    clipBoxes, threshold, iou_threshold):
-    transformed_anchors = regressBoxes(anchors, regression)
-    transformed_anchors = clipBoxes(transformed_anchors, x)
-    scores = torch.max(classification, dim=2, keepdim=True)[0]
-    scores_over_thresh = (scores > threshold)[:, :, (0)]
-    out = []
-    for i in range(x.shape[0]):
-        if scores_over_thresh[i].sum() == 0:
-            out.append({'rois': np.array(()), 'class_ids': np.array(()),
-                'scores': np.array(())})
-            continue
-        classification_per = classification[i, scores_over_thresh[(i), :], ...
-            ].permute(1, 0)
-        transformed_anchors_per = transformed_anchors[i, scores_over_thresh
-            [(i), :], ...]
-        scores_per = scores[i, scores_over_thresh[(i), :], ...]
-        scores_, classes_ = classification_per.max(dim=0)
-        anchors_nms_idx = batched_nms(transformed_anchors_per, scores_per[:,
-            (0)], classes_, iou_threshold=iou_threshold)
-        if anchors_nms_idx.shape[0] != 0:
-            classes_ = classes_[anchors_nms_idx]
-            scores_ = scores_[anchors_nms_idx]
-            boxes_ = transformed_anchors_per[(anchors_nms_idx), :]
-            out.append({'rois': boxes_.cpu().numpy(), 'class_ids': classes_
-                .cpu().numpy(), 'scores': scores_.cpu().numpy()})
-        else:
-            out.append({'rois': np.array(()), 'class_ids': np.array(()),
-                'scores': np.array(())})
-    return out
-
-
 def calc_iou(a, b):
     area = (b[:, (2)] - b[:, (0)]) * (b[:, (3)] - b[:, (1)])
     iw = torch.min(torch.unsqueeze(a[:, (3)], dim=1), b[:, (2)]) - torch.max(
@@ -224,6 +192,38 @@ def display(preds, imgs, obj_list, imshow=True, imwrite=False):
         if imwrite:
             os.makedirs('test/', exist_ok=True)
             cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
+
+
+def postprocess(x, anchors, regression, classification, regressBoxes,
+    clipBoxes, threshold, iou_threshold):
+    transformed_anchors = regressBoxes(anchors, regression)
+    transformed_anchors = clipBoxes(transformed_anchors, x)
+    scores = torch.max(classification, dim=2, keepdim=True)[0]
+    scores_over_thresh = (scores > threshold)[:, :, (0)]
+    out = []
+    for i in range(x.shape[0]):
+        if scores_over_thresh[i].sum() == 0:
+            out.append({'rois': np.array(()), 'class_ids': np.array(()),
+                'scores': np.array(())})
+            continue
+        classification_per = classification[i, scores_over_thresh[(i), :], ...
+            ].permute(1, 0)
+        transformed_anchors_per = transformed_anchors[i, scores_over_thresh
+            [(i), :], ...]
+        scores_per = scores[i, scores_over_thresh[(i), :], ...]
+        scores_, classes_ = classification_per.max(dim=0)
+        anchors_nms_idx = batched_nms(transformed_anchors_per, scores_per[:,
+            (0)], classes_, iou_threshold=iou_threshold)
+        if anchors_nms_idx.shape[0] != 0:
+            classes_ = classes_[anchors_nms_idx]
+            scores_ = scores_[anchors_nms_idx]
+            boxes_ = transformed_anchors_per[(anchors_nms_idx), :]
+            out.append({'rois': boxes_.cpu().numpy(), 'class_ids': classes_
+                .cpu().numpy(), 'scores': scores_.cpu().numpy()})
+        else:
+            out.append({'rois': np.array(()), 'class_ids': np.array(()),
+                'scores': np.array(())})
+    return out
 
 
 class FocalLoss(nn.Module):
@@ -914,83 +914,6 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-url_map_advprop = {'efficientnet-b0':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b0-b64d5a18.pth'
-    , 'efficientnet-b1':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b1-0f3ce85a.pth'
-    , 'efficientnet-b2':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b2-6e9d97e5.pth'
-    , 'efficientnet-b3':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b3-cdd7c0f4.pth'
-    , 'efficientnet-b4':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b4-44fb3a87.pth'
-    , 'efficientnet-b5':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b5-86493f6b.pth'
-    , 'efficientnet-b6':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b6-ac80338e.pth'
-    , 'efficientnet-b7':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b7-4652b6dd.pth'
-    , 'efficientnet-b8':
-    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b8-22a8fe65.pth'
-    }
-
-
-url_map = {'efficientnet-b0':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b7-dcc49843.pth'
-    }
-
-
-def load_pretrained_weights(model, model_name, load_fc=True, advprop=False):
-    """ Loads pretrained weights, and downloads if loading for the first time. """
-    url_map_ = url_map_advprop if advprop else url_map
-    state_dict = model_zoo.load_url(url_map_[model_name], map_location=
-        torch.device('cpu'))
-    if load_fc:
-        ret = model.load_state_dict(state_dict, strict=False)
-        print(ret)
-    else:
-        state_dict.pop('_fc.weight')
-        state_dict.pop('_fc.bias')
-        res = model.load_state_dict(state_dict, strict=False)
-        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
-        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
-    return params_dict[model_name]
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio'])
@@ -1083,6 +1006,18 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
     return blocks_args, global_params
 
 
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
+        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    return params_dict[model_name]
+
+
 def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
@@ -1095,6 +1030,71 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+url_map = {'efficientnet-b0':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b0-355c32eb.pth'
+    , 'efficientnet-b1':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b1-f1951068.pth'
+    , 'efficientnet-b2':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b2-8bb594d6.pth'
+    , 'efficientnet-b3':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b3-5fb5a3c3.pth'
+    , 'efficientnet-b4':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b4-6ed6700e.pth'
+    , 'efficientnet-b5':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b5-b6417697.pth'
+    , 'efficientnet-b6':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b6-c76e70fd.pth'
+    , 'efficientnet-b7':
+    'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b7-dcc49843.pth'
+    }
+
+
+url_map_advprop = {'efficientnet-b0':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b0-b64d5a18.pth'
+    , 'efficientnet-b1':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b1-0f3ce85a.pth'
+    , 'efficientnet-b2':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b2-6e9d97e5.pth'
+    , 'efficientnet-b3':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b3-cdd7c0f4.pth'
+    , 'efficientnet-b4':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b4-44fb3a87.pth'
+    , 'efficientnet-b5':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b5-86493f6b.pth'
+    , 'efficientnet-b6':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b6-ac80338e.pth'
+    , 'efficientnet-b7':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b7-4652b6dd.pth'
+    , 'efficientnet-b8':
+    'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b8-22a8fe65.pth'
+    }
+
+
+def load_pretrained_weights(model, model_name, load_fc=True, advprop=False):
+    """ Loads pretrained weights, and downloads if loading for the first time. """
+    url_map_ = url_map_advprop if advprop else url_map
+    state_dict = model_zoo.load_url(url_map_[model_name], map_location=
+        torch.device('cpu'))
+    if load_fc:
+        ret = model.load_state_dict(state_dict, strict=False)
+        print(ret)
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        res = model.load_state_dict(state_dict, strict=False)
+        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
+            ), 'issue loading pretrained weights'
+    print('Loaded pretrained weights for {}'.format(model_name))
 
 
 def round_filters(filters, global_params):
@@ -1389,17 +1389,7 @@ _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class FutureResult(object):
@@ -1423,9 +1413,6 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
@@ -1521,6 +1508,19 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -1728,15 +1728,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(SeparableConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Classifier(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_classes': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
 
@@ -1745,8 +1744,8 @@ class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1767,3 +1766,4 @@ class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
 
     def test_011(self):
         self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+

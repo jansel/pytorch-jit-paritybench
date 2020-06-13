@@ -278,20 +278,9 @@ class AdaptiveConcatPool2d(nn.Module):
         return torch.cat([self.mp(x), self.ap(x)], 1)
 
 
-MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
-
-
-MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': 
-    MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
-
-
-def load_pretrained_weights(layers, name, dataset_name):
-    state_dict = model_zoo.load_url(MODEL_URLS[name][dataset_name])
-    mock_module = MockModule(layers)
-    mock_module.load_state_dict(state_dict, strict=False)
+def upsample(size=None, scale_factor=None):
+    return nn.Upsample(size=size, scale_factor=scale_factor, mode=
+        'bilinear', align_corners=False)
 
 
 def replace_bn(bn, act=None):
@@ -457,30 +446,6 @@ def vgg(name, pretrained):
     return layers, bn, n_pretrained
 
 
-def resnext(name, pretrained):
-    import pretrainedmodels
-    if name in ['resnext101_32x4d', 'resnext101_64x4d']:
-        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
-        resnext = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=imagenet_pretrained)
-    else:
-        return NotImplemented
-    resnext_features = resnext.features
-    layer0 = [resnext_features[i] for i in range(4)]
-    layer0 = nn.Sequential(*layer0)
-    layer0.out_channels = layer0[-1].out_channels = 64
-    layer1 = resnext_features[4]
-    layer1.out_channels = layer1[-1].out_channels = 256
-    layer2 = resnext_features[5]
-    layer2.out_channels = layer2[-1].out_channels = 512
-    layer3 = resnext_features[6]
-    layer3.out_channels = layer3[-1].out_channels = 1024
-    layer4 = resnext_features[7]
-    layer4.out_channels = layer4[-1].out_channels = 2048
-    n_pretrained = 5 if imagenet_pretrained else 0
-    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
-
-
 def resnet(name, pretrained):
     if name == 'resnet18':
         net_class = torchvision.models.resnet18
@@ -517,6 +482,22 @@ def resnet(name, pretrained):
         ], True, n_pretrained
 
 
+MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
+
+
+MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': 
+    MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
+
+
+def load_pretrained_weights(layers, name, dataset_name):
+    state_dict = model_zoo.load_url(MODEL_URLS[name][dataset_name])
+    mock_module = MockModule(layers)
+    mock_module.load_state_dict(state_dict, strict=False)
+
+
 def darknet(pretrained):
     from .darknet import KitModel as DarkNet
     net = DarkNet()
@@ -526,6 +507,30 @@ def darknet(pretrained):
         net.load_state_dict(state_dict)
     n_pretrained = 3 if pretrained else 0
     return [net.model0, net.model1, net.model2], True, n_pretrained
+
+
+def resnext(name, pretrained):
+    import pretrainedmodels
+    if name in ['resnext101_32x4d', 'resnext101_64x4d']:
+        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
+        resnext = pretrainedmodels.__dict__[name](num_classes=1000,
+            pretrained=imagenet_pretrained)
+    else:
+        return NotImplemented
+    resnext_features = resnext.features
+    layer0 = [resnext_features[i] for i in range(4)]
+    layer0 = nn.Sequential(*layer0)
+    layer0.out_channels = layer0[-1].out_channels = 64
+    layer1 = resnext_features[4]
+    layer1.out_channels = layer1[-1].out_channels = 256
+    layer2 = resnext_features[5]
+    layer2.out_channels = layer2[-1].out_channels = 512
+    layer3 = resnext_features[6]
+    layer3.out_channels = layer3[-1].out_channels = 1024
+    layer4 = resnext_features[7]
+    layer4.out_channels = layer4[-1].out_channels = 2048
+    n_pretrained = 5 if imagenet_pretrained else 0
+    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
 
 
 def create_basenet(name, pretrained):
@@ -555,11 +560,6 @@ def create_basenet(name, pretrained):
         load_pretrained_weights(layers, name, pretrained)
         n_pretrained = len(layers)
     return layers, bn, n_pretrained
-
-
-def upsample(size=None, scale_factor=None):
-    return nn.Upsample(size=size, scale_factor=scale_factor, mode=
-        'bilinear', align_corners=False)
 
 
 class UNet(nn.Module):
@@ -684,14 +684,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tugstugi_pytorch_saltnet(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -700,3 +699,4 @@ class Test_tugstugi_pytorch_saltnet(_paritybench_base):
 
     def test_004(self):
         self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

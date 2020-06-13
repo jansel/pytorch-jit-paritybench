@@ -876,7 +876,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_iBelieveCJM_Tricks_of_Semi_supervisedDeepLeanring_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -897,3 +896,4 @@ class Test_iBelieveCJM_Tricks_of_Semi_supervisedDeepLeanring_Pytorch(_paritybenc
 
     def test_006(self):
         self._check(ShuffleBlock(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+

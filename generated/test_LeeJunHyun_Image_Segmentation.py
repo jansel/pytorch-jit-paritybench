@@ -348,18 +348,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_LeeJunHyun_Image_Segmentation(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(conv_block(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(up_conv(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Recurrent_block(*[], **{'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(RRCNN_block(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -371,14 +370,15 @@ class Test_LeeJunHyun_Image_Segmentation(_paritybench_base):
 
     def test_006(self):
         self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_007(self):
         self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_008(self):
         self._check(AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(R2AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

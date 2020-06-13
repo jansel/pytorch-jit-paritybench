@@ -418,7 +418,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Logistic_Regression(*[], **{'in_dim': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -445,3 +444,4 @@ class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):
 
     def test_008(self):
         self._check(generator(*[], **{}), [torch.rand([100, 100])], {})
+

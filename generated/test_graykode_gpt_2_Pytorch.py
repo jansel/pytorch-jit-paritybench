@@ -263,22 +263,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_graykode_gpt_2_Pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4)}), [torch.rand([4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(MLP(*[], **{'n_state': 4, 'config': _mock_config(n_embd=4)}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Block(*[], **{'n_ctx': 4, 'config': _mock_config(n_embd=4, layer_norm_epsilon=1, n_head=4)}), [torch.rand([4, 4, 4])], {})
+

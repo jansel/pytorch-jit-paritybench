@@ -97,10 +97,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_chenyuntc_pytorch_best_practice(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Flat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(ResidualBlock(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

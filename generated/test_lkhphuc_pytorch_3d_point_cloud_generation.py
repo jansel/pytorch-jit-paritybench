@@ -51,14 +51,14 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-def conv2d_block(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=2, padding=1), nn
-        .BatchNorm2d(out_c), nn.ReLU())
-
-
 def linear_block(in_c, out_c):
     return nn.Sequential(nn.Linear(in_c, out_c), nn.BatchNorm1d(out_c), nn.
         ReLU())
+
+
+def conv2d_block(in_c, out_c):
+    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=2, padding=1), nn
+        .BatchNorm2d(out_c), nn.ReLU())
 
 
 class Encoder(nn.Module):
@@ -160,10 +160,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lkhphuc_pytorch_3d_point_cloud_generation(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Structure_Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

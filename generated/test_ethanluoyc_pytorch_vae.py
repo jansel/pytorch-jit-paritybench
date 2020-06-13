@@ -92,9 +92,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ethanluoyc_pytorch_vae(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Encoder(*[], **{'D_in': 4, 'H': 4, 'D_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Decoder(*[], **{'D_in': 4, 'H': 4, 'D_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+

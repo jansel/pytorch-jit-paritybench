@@ -39,6 +39,12 @@ def _pairwise_distance(x, squared=False, eps=1e-16):
     return distances
 
 
+def _get_anchor_negative_triplet_mask(labels):
+    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
+    mask = labels_equal ^ 1
+    return mask
+
+
 def _get_anchor_positive_triplet_mask(labels):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     indices_not_equal = torch.eye(labels.shape[0]).to(device).byte() ^ 1
@@ -66,12 +72,6 @@ def _get_triplet_mask(labels):
     i_equal_k = torch.unsqueeze(label_equal, 1)
     valid_labels = i_equal_j * (i_equal_k ^ 1)
     mask = distinct_indices * valid_labels
-    return mask
-
-
-def _get_anchor_negative_triplet_mask(labels):
-    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
-    mask = labels_equal ^ 1
     return mask
 
 
@@ -219,6 +219,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lyakaap_NetVLAD_pytorch(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(NetVLAD(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+

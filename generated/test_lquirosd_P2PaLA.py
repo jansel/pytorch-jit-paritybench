@@ -227,6 +227,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lquirosd_P2PaLA(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(buildDNet(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 8, 64, 64])], {})
+

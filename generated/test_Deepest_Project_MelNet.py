@@ -91,58 +91,6 @@ class GMMLoss(nn.Module):
         return loss
 
 
-def load_hparam(filename):
-    stream = open(filename, 'r')
-    docs = yaml.load_all(stream, Loader=yaml.Loader)
-    hparam_dict = dict()
-    for doc in docs:
-        for k, v in doc.items():
-            hparam_dict[k] = v
-    return hparam_dict
-
-
-class Dotdict(dict):
-    """
-    a dictionary that supports dot notation 
-    as well as dictionary access notation 
-    usage: d = DotDict() or d = DotDict({'val1':'first'})
-    set attributes: d.val2 = 'second' or d['val2'] = 'second'
-    get attributes: d.val2 or d['val2']
-    """
-    __getattr__ = dict.__getitem__
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
-
-    def __init__(self, dct=None):
-        dct = dict() if not dct else dct
-        for key, value in dct.items():
-            if hasattr(value, 'keys'):
-                value = Dotdict(value)
-            self[key] = value
-
-
-class HParam(Dotdict):
-
-    def __init__(self, file):
-        super(Dotdict, self).__init__()
-        hp_dict = load_hparam(file)
-        hp_dotdict = Dotdict(hp_dict)
-        for k, v in hp_dotdict.items():
-            setattr(self, k, v)
-    __getattr__ = Dotdict.__getitem__
-    __setattr__ = Dotdict.__setitem__
-    __delattr__ = Dotdict.__delitem__
-
-
-def load_hparam_str(hp_str):
-    path = os.path.join('temp-restore.yaml')
-    with open(path, 'w') as f:
-        f.write(hp_str)
-    ret = HParam(path)
-    os.remove(path)
-    return ret
-
-
 f_div = {(1): 1, (2): 1, (3): 2, (4): 2, (5): 4, (6): 4, (7): 8}
 
 
@@ -200,22 +148,56 @@ class TierUtil:
         return temp
 
 
-def get_pi_indices(pi):
-    cumsum = torch.cumsum(pi.cpu(), dim=-1)
-    rand = torch.rand(pi.shape[:-1] + (1,))
-    indices = (cumsum < rand).sum(dim=-1)
-    return indices.flatten().detach().numpy()
+def load_hparam(filename):
+    stream = open(filename, 'r')
+    docs = yaml.load_all(stream, Loader=yaml.Loader)
+    hparam_dict = dict()
+    for doc in docs:
+        for k, v in doc.items():
+            hparam_dict[k] = v
+    return hparam_dict
 
 
-def sample_gmm(mu, std, pi):
-    std = std.exp()
-    pi = pi.softmax(dim=-1)
-    indices = get_pi_indices(pi)
-    mu = mu.reshape(-1, mu.shape[-1])
-    mu = mu[np.arange(mu.shape[0]), indices].reshape(std.shape[:-1])
-    std = std.reshape(-1, std.shape[-1])
-    std = std[np.arange(std.shape[0]), indices].reshape(mu.shape)
-    return torch.normal(mu, std).reshape_as(mu).clamp(0.0, 1.0).to(mu.device)
+class Dotdict(dict):
+    """
+    a dictionary that supports dot notation 
+    as well as dictionary access notation 
+    usage: d = DotDict() or d = DotDict({'val1':'first'})
+    set attributes: d.val2 = 'second' or d['val2'] = 'second'
+    get attributes: d.val2 or d['val2']
+    """
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __init__(self, dct=None):
+        dct = dict() if not dct else dct
+        for key, value in dct.items():
+            if hasattr(value, 'keys'):
+                value = Dotdict(value)
+            self[key] = value
+
+
+class HParam(Dotdict):
+
+    def __init__(self, file):
+        super(Dotdict, self).__init__()
+        hp_dict = load_hparam(file)
+        hp_dotdict = Dotdict(hp_dict)
+        for k, v in hp_dotdict.items():
+            setattr(self, k, v)
+    __getattr__ = Dotdict.__getitem__
+    __setattr__ = Dotdict.__setitem__
+    __delattr__ = Dotdict.__delitem__
+
+
+def load_hparam_str(hp_str):
+    path = os.path.join('temp-restore.yaml')
+    with open(path, 'w') as f:
+        f.write(hp_str)
+    ret = HParam(path)
+    os.remove(path)
+    return ret
 
 
 class DelayedRNN(nn.Module):

@@ -581,11 +581,6 @@ def parse_prototxt(protofile):
         return props
 
 
-SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
-    'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss',
-    'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
-
-
 def print_prototxt(net_info):
 
     def format_value(value):
@@ -629,6 +624,11 @@ def parse_caffemodel(caffemodel):
     with open(caffemodel, 'rb') as fp:
         model.ParseFromString(fp.read())
     return model
+
+
+SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
+    'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss',
+    'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
 
 
 class CaffeNet(nn.Module):
@@ -1471,17 +1471,6 @@ class Detection(nn.Module):
             return Variable(outputs.unsqueeze(0).unsqueeze(0))
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
-
-
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -1586,6 +1575,17 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1725,14 +1725,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_marvis_pytorch_caffe(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Scale(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(Crop(*[], **{'axis': 4, 'offset': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1741,11 +1740,12 @@ class Test_marvis_pytorch_caffe(_paritybench_base):
 
     def test_004(self):
         self._check(Flatten(*[], **{'axis': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_006(self):
         self._check(PriorBox(*[], **{'min_size': 4, 'max_size': 4, 'aspects': 4, 'clip': 4, 'flip': 4, 'step': 4, 'offset': 4, 'variances': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

@@ -1251,27 +1251,26 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lRomul_argus_freesound(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(LqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(LSoftLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(NoisyCuratedLoss(*[], **{'noisy_loss': MSELoss(), 'curated_loss': MSELoss()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(OnlyNoisyLqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(OnlyNoisyLSoftLoss(*[], **{'beta': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(BCEMaxOutlierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
@@ -1322,3 +1321,4 @@ class Test_lRomul_argus_freesound(_paritybench_base):
 
     def test_021(self):
         self._check(SEScale(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+

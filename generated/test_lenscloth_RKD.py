@@ -1241,25 +1241,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lenscloth_RKD(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(HardDarkRank(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(FitNet(*[], **{'in_feature': 4, 'out_feature': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(AttentionTransfer(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(RKdAngle(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(RkdDistance(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_005(self):
         self._check(InceptionModule(*[], **{'inplane': 4, 'outplane_a1x1': 4, 'outplane_b3x3_reduce': 4, 'outplane_b3x3': 4, 'outplane_c5x5_reduce': 4, 'outplane_c5x5': 4, 'outplane_pool_proj': 4}), [torch.rand([4, 4, 4, 4])], {})
+

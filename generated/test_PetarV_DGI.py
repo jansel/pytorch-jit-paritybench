@@ -162,9 +162,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_PetarV_DGI(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(AvgReadout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LogReg(*[], **{'ft_in': 4, 'nb_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

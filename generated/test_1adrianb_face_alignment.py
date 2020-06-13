@@ -395,7 +395,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_1adrianb_face_alignment(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -404,11 +403,12 @@ class Test_1adrianb_face_alignment(_paritybench_base):
 
     def test_002(self):
         self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(HourGlass(*[], **{'num_modules': 4, 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(FAN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

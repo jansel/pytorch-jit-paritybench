@@ -164,6 +164,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_prlz77_ResNeXt_pytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}), [torch.rand([4, 64, 64, 64])], {})
+

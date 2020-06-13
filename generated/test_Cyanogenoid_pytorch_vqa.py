@@ -194,10 +194,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Cyanogenoid_pytorch_vqa(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Attention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {})
+

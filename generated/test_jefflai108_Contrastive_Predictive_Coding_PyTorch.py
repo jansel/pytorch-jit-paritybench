@@ -366,6 +366,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jefflai108_Contrastive_Predictive_Coding_PyTorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(SpkClassifier(*[], **{'spk_num': 4}), [torch.rand([256, 256])], {})
+

@@ -152,13 +152,13 @@ class Attention(nn.Module):
         return a
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu(x):
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
         torch.pow(x, 3))))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT_FNS = {'relu': nn.ReLU, 'swish': swish, 'gelu': gelu}
@@ -368,6 +368,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_huggingface_pytorch_openai_transformer_lm(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerNorm(*[], **{'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+

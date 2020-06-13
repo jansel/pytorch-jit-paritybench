@@ -377,17 +377,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hfslyc_AdvSemiSeg(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_001(self):
         self._check(Classifier_Module(*[], **{'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}), [torch.rand([4, 2048, 64, 64])], {})
 
     def test_002(self):
         self._check(FCDiscriminator(*[], **{'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(BCEWithLogitsLoss2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

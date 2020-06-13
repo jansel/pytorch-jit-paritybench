@@ -144,9 +144,6 @@ def generate_default_anchor_maps(anchors_setting=None, input_shape=INPUT_SIZE):
     return center_anchors, edge_anchors, anchor_areas
 
 
-CAT_NUM = 4
-
-
 def hard_nms(cdds, topn=10, iou_thresh=0.25):
     if not (type(cdds).__module__ == 'numpy' and len(cdds.shape) == 2 and 
         cdds.shape[1] >= 5):
@@ -173,6 +170,9 @@ def hard_nms(cdds, topn=10, iou_thresh=0.25):
             intersec_map)
         res = res[iou_map_cur < iou_thresh]
     return np.array(cdd_results)
+
+
+CAT_NUM = 4
 
 
 class attention_net(nn.Module):
@@ -352,9 +352,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yangze0930_NTS_Net(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(ProposalNet(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
 
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

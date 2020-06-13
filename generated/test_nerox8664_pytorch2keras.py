@@ -395,12 +395,12 @@ class LayerTest(nn.Module):
         return x
 
 
+BatchNorm = nn.BatchNorm2d
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-BatchNorm = nn.BatchNorm2d
 
 
 class BasicBlock(nn.Module):
@@ -694,6 +694,11 @@ class ShuffleInitBlock(nn.Module):
         return x
 
 
+def depthwise_conv3x3(channels, stride):
+    return nn.Conv2d(in_channels=channels, out_channels=channels,
+        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
+
+
 def conv1x1(in_channels, out_channels, stride):
     """
     Convolution 1x1 layer.
@@ -714,11 +719,6 @@ def conv1x1(in_channels, out_channels, stride):
 def group_conv1x1(in_channels, out_channels, groups):
     return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
         kernel_size=1, groups=groups, bias=False)
-
-
-def depthwise_conv3x3(channels, stride):
-    return nn.Conv2d(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
 
 
 class MEModule(nn.Module):
@@ -841,13 +841,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
@@ -1591,18 +1591,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_nerox8664_pytorch2keras(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LayerTest(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(FTest(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_002(self):
         self._check(TestUpsampleNearest2d(*[], **{}), [torch.rand([4, 10, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_003(self):
         self._check(ChannelShuffle(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1620,8 +1619,8 @@ class Test_nerox8664_pytorch2keras(_paritybench_base):
 
     def test_008(self):
         self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(PreResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1636,10 +1635,11 @@ class Test_nerox8664_pytorch2keras(_paritybench_base):
 
     def test_013(self):
         self._check(SqnxtConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_014(self):
         self._check(SqnxtUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
         self._check(SqnxtInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+

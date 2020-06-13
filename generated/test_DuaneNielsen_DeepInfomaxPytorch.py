@@ -179,9 +179,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_DuaneNielsen_DeepInfomaxPytorch(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(LocalDiscriminator(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_001(self):
         self._check(PriorDiscriminator(*[], **{}), [torch.rand([64, 64])], {})
+

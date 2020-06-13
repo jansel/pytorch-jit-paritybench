@@ -1244,7 +1244,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -1256,8 +1255,8 @@ class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
 
     def test_003(self):
         self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_004(self):
         self._check(Bottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'expansion': 4, 'M': 4, 'r': 4, 'L': 4}), [torch.rand([4, 64, 64, 64])], {})
 
@@ -1275,14 +1274,15 @@ class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
 
     def test_009(self):
         self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
         self._check(ShakeResNet(*[], **{'depth': 1, 'base_width': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_012(self):
         self._check(SKConv(*[], **{'features': 4, 'M': 4, 'G': 4, 'r': 4}), [torch.rand([4, 4, 4, 4])], {})
+

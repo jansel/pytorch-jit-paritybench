@@ -83,16 +83,20 @@ import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 
 
-def get_uniform_keys(n_keys, dim, normalized, seed):
+def cartesian_product(a, b):
     """
-    Generate random uniform keys (same initialization as nn.Linear).
+    Compute the batched cartesian product between two matrices.
+    Input:
+        a: Tensor(n, d1)
+        b: Tensor(n, d2)
+    Output:
+        output: Tensor(n, d1 * d2, 2)
     """
-    rng = np.random.RandomState(seed)
-    bound = 1 / math.sqrt(dim)
-    X = rng.uniform(-bound, bound, (n_keys, dim))
-    if normalized:
-        X /= np.linalg.norm(X, axis=1, keepdims=True)
-    return X.astype(np.float32)
+    n1, d1 = a.shape
+    n2, d2 = b.shape
+    assert n1 == n2
+    return torch.cat([a.unsqueeze(-1).repeat(1, 1, d2).unsqueeze(-1), b.
+        repeat(1, d1).view(n2, d1, d2).unsqueeze(-1)], 3).view(n1, d1 * d2, 2)
 
 
 def swig_ptr_from_LongTensor(x):
@@ -132,20 +136,16 @@ def get_knn_faiss(xb, xq, k, distance='dot_product'):
     return D, I
 
 
-def cartesian_product(a, b):
+def get_uniform_keys(n_keys, dim, normalized, seed):
     """
-    Compute the batched cartesian product between two matrices.
-    Input:
-        a: Tensor(n, d1)
-        b: Tensor(n, d2)
-    Output:
-        output: Tensor(n, d1 * d2, 2)
+    Generate random uniform keys (same initialization as nn.Linear).
     """
-    n1, d1 = a.shape
-    n2, d2 = b.shape
-    assert n1 == n2
-    return torch.cat([a.unsqueeze(-1).repeat(1, 1, d2).unsqueeze(-1), b.
-        repeat(1, d1).view(n2, d1, d2).unsqueeze(-1)], 3).view(n1, d1 * d2, 2)
+    rng = np.random.RandomState(seed)
+    bound = 1 / math.sqrt(dim)
+    X = rng.uniform(-bound, bound, (n_keys, dim))
+    if normalized:
+        X /= np.linalg.norm(X, axis=1, keepdims=True)
+    return X.astype(np.float32)
 
 
 def get_gaussian_keys(n_keys, dim, normalized, seed):
@@ -607,9 +607,6 @@ def get_masks(slen, lengths, causal):
     return mask, attn_mask
 
 
-N_MAX_POSITIONS = 512
-
-
 def create_sinusoidal_embeddings(n_pos, dim, out):
     position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for
         j in range(dim)] for pos in range(n_pos)])
@@ -617,6 +614,9 @@ def create_sinusoidal_embeddings(n_pos, dim, out):
     out[:, 1::2] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
     out.detach_()
     out.requires_grad = False
+
+
+N_MAX_POSITIONS = 512
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx=None):
@@ -974,9 +974,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_facebookresearch_XLM(_paritybench_base):
     pass
     @_fails_compile()
-
     def test_000(self):
         self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'dropout': 0.5, 'gelu_activation': 4}), [torch.rand([4, 4, 4, 4])], {})
+

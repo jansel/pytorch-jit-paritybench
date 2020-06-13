@@ -286,6 +286,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_WynMew_FaceAttribute(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(Classifier(*[], **{}), [torch.rand([2048, 2048])], {})
+

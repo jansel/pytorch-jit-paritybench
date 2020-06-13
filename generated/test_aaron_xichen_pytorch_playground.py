@@ -593,17 +593,6 @@ class SVHN(nn.Module):
         return x
 
 
-def compute_integral_part(input, overflow_rate):
-    abs_value = input.abs().view(-1)
-    sorted_value = abs_value.sort(dim=0, descending=True)[0]
-    split_idx = int(overflow_rate * len(sorted_value))
-    v = sorted_value[split_idx]
-    if isinstance(v, Variable):
-        v = float(v.data.cpu())
-    sf = math.ceil(math.log2(v + 1e-12))
-    return sf
-
-
 def linear_quantize(input, sf, bits):
     assert bits >= 1, bits
     if bits == 1:
@@ -615,6 +604,17 @@ def linear_quantize(input, sf, bits):
     rounded = torch.floor(input / delta + 0.5)
     clipped_value = torch.clamp(rounded, min_val, max_val) * delta
     return clipped_value
+
+
+def compute_integral_part(input, overflow_rate):
+    abs_value = input.abs().view(-1)
+    sorted_value = abs_value.sort(dim=0, descending=True)[0]
+    split_idx = int(overflow_rate * len(sorted_value))
+    v = sorted_value[split_idx]
+    if isinstance(v, Variable):
+        v = float(v.data.cpu())
+    sf = math.ceil(math.log2(v + 1e-12))
+    return sf
 
 
 class LinearQuant(nn.Module):
@@ -716,7 +716,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_aaron_xichen_pytorch_playground(_paritybench_base):
     pass
-
     def test_000(self):
         self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -743,11 +742,12 @@ class Test_aaron_xichen_pytorch_playground(_paritybench_base):
 
     def test_008(self):
         self._check(MLP(*[], **{'input_dims': 4, 'n_hiddens': 4, 'n_class': 4}), [torch.rand([4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_009(self):
         self._check(LinearQuant(*[], **{'name': 4, 'bits': 4}), [torch.rand([4, 4, 4, 4])], {})
-    @_fails_compile()
 
+    @_fails_compile()
     def test_010(self):
         self._check(LogQuant(*[], **{'name': 4, 'bits': 4}), [torch.rand([4, 4, 4, 4])], {})
+
