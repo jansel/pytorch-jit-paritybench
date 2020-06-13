@@ -288,7 +288,7 @@ class PyTorchModuleExtractor(object):
         self.global_config = None
 
     def search_file(self, filename: str, open_fn=open):
-        if not filename.endswith(".py"):
+        if not filename.endswith(".py") or '.#' in filename:
             return
 
         with open_fn(filename, 'r') as fp:
@@ -418,6 +418,8 @@ class PyTorchModuleExtractor(object):
         :param name: alternate name for self.output_module
         :param overwrite: if true, replace an existing symbol
         """
+        if name in {'global', 'try', 'except', 'if', 'in', 'else', 'for', 'return', 'def'}:
+            return
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
             return
         if name in self.output_module.__dict__ and not overwrite:
@@ -490,7 +492,7 @@ class PyTorchModuleExtractor(object):
         self.output_py.writelines(["\n", source, "\n"])
 
     def test_modules(self):
-        for name, value in list(self.output_module.__dict__.items()):
+        for name, value in list(sorted(self.output_module.__dict__.items())):
             if (isinstance(value, type) and
                     issubclass(value, torch.nn.Module) and
                     value.__module__ == self.output_module.__name__):
@@ -672,7 +674,9 @@ class DeduceParameters(object):
             [f"{name}={arg}" for name, arg in self.kwargs.items()]))
 
     def testcase_args(self):
-        return repr(self.args), repr(self.kwargs)
+        args = repr(self.args)
+        kwargs = repr(self.kwargs)
+        return args, kwargs
 
     @classmethod
     def run(cls, nn_module: Callable, needed_args: List[inspect.Parameter]):
@@ -849,7 +853,11 @@ class DeduceParameter(object):
         self._guesses = [initial_guess]
 
     def __str__(self):
-        return str(self._guesses[-1])
+        val = str(self._guesses[-1])
+        if val.startswith('<function _mock_layer'):
+            # TODO: workaround, fix this better
+            return '_mock_layer'
+        return val
 
     __repr__ = __str__
 
@@ -911,9 +919,10 @@ class Guess(object):
         self.created = time.time()
 
     def __str__(self):
-        if self.value is _mock_layer:
+        val = repr(self.value)
+        if '_mock_layer' in val:
             return '_mock_layer'
-        return repr(self.value)
+        return val
 
     __repr__ = __str__
 
@@ -1237,7 +1246,7 @@ class MockConfig(object):
 
     def __str__(self):
         return "_mock_config({})".format(
-            ", ".join(f"{key}={value}" for key, value in self._guesses.items())
+            ", ".join(f"{key}={repr(value)}" for key, value in self._guesses.items())
         )
 
     def __getitem__(self, item):
@@ -1326,6 +1335,7 @@ class ExtractConfigUsage(ast.NodeVisitor):
     """
     Find items like `config.hidden_size` and return {"hidden_size"}
     """
+
     @classmethod
     def run(cls, tree):
         visitor = cls()
@@ -1436,6 +1446,7 @@ def test_all(download_dir, limit=None):
 
 
 def test_zipfile(path):
+    log.info(f"Running {path}")
     with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
         try:
             return call_with_timeout(test_zipfile_subproc, (tempdir, path), {}, timeout=120)
@@ -1507,7 +1518,7 @@ def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--download", action="store_true")
-    group.add_argument("--run")
+    group.add_argument("--run", help="Process a .zip file from a github download")
     group.add_argument("--run-direct")
     parser.add_argument("--download-dir", "-d", default="../paritybench_download")
     parser.add_argument("--limit", "-l", type=int)
@@ -1517,13 +1528,16 @@ def main():
         CrawlGitHub(args.download_dir).download()
         return
 
-    with open("generated/_paritybench_helpers.py", "w") as fd:
+    with open("generated/_paritybench_helpers.py", "w") as fd, patch('sys.argv', sys.argv[:1]):
         fd.write(PARITYBENCH_HELPERS)
+        fd.flush()
         helpers = types.ModuleType("_paritybench_helpers")
-        exec(compile(PARITYBENCH_HELPERS, "./generated/_paritybench_helpers.py", "exec"), helpers.__dict__, helpers.__dict__)
+        exec(compile(PARITYBENCH_HELPERS, "./generated/_paritybench_helpers.py", "exec"),
+             helpers.__dict__, helpers.__dict__)
         sys.modules["_paritybench_helpers"] = helpers
 
     if args.run:
+        print("Y")
         assert os.path.isfile(args.run)
         errors, stats = test_zipfile(args.run)
         errors.print_report()

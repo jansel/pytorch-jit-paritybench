@@ -58,63 +58,53 @@ def _ntuple(n):
     return parse
 
 
-_triple = _ntuple(3)
-
-
-def GRUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
-    """ Copied from torch.nn._functions.rnn and modified """
-    if linear_func is None:
-        linear_func = F.linear
-    if input.is_cuda and linear_func is F.linear and fusedBackend is not None:
-        gi = linear_func(input, w_ih)
-        gh = linear_func(hidden, w_hh)
-        state = fusedBackend.GRUFused.apply
-        return state(gi, gh, hidden) if b_ih is None else state(gi, gh,
-            hidden, b_ih, b_hh)
-    gi = linear_func(input, w_ih, b_ih)
-    gh = linear_func(hidden, w_hh, b_hh)
-    i_r, i_i, i_n = gi.chunk(3, 1)
-    h_r, h_i, h_n = gh.chunk(3, 1)
-    resetgate = torch.sigmoid(i_r + h_r)
-    inputgate = torch.sigmoid(i_i + h_i)
-    newgate = torch.tanh(i_n + resetgate * h_n)
-    hy = newgate + inputgate * (hidden - newgate)
-    return hy
-
-
-def PeepholeLSTMCell(input, hidden, w_ih, w_hh, w_pi, w_pf, w_po, b_ih=None,
-    b_hh=None, linear_func=None):
-    if linear_func is None:
-        linear_func = F.linear
-    hx, cx = hidden
-    gates = linear_func(input, w_ih, b_ih) + linear_func(hx, w_hh, b_hh)
-    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-    ingate += linear_func(cx, w_pi)
-    forgetgate += linear_func(cx, w_pf)
-    ingate = torch.sigmoid(ingate)
-    forgetgate = torch.sigmoid(forgetgate)
-    cellgate = torch.tanh(cellgate)
-    cy = forgetgate * cx + ingate * cellgate
-    outgate += linear_func(cy, w_po)
-    outgate = torch.sigmoid(outgate)
-    hy = outgate * torch.tanh(cy)
-    return hy, cy
-
-
-def RNNTanhCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
-    linear_func=None):
-    """ Copied from torch.nn._functions.rnn and modified """
-    if linear_func is None:
-        linear_func = F.linear
-    hy = torch.tanh(linear_func(input, w_ih, b_ih) + linear_func(hidden,
-        w_hh, b_hh))
-    return hy
+_single = _ntuple(1)
 
 
 _pair = _ntuple(2)
 
 
-_single = _ntuple(1)
+_triple = _ntuple(3)
+
+
+def Recurrent(inner, reverse=False):
+    """ Copied from torch.nn._functions.rnn without any modification """
+
+    def forward(input, hidden, weight, batch_sizes):
+        output = []
+        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
+            .size(0))
+        for i in steps:
+            hidden = inner(input[i], hidden, *weight)
+            output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
+        if reverse:
+            output.reverse()
+        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        return hidden, output
+    return forward
+
+
+def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None
+    ):
+    """ Copied from torch.nn._functions.rnn and modified """
+    if linear_func is None:
+        linear_func = F.linear
+    if input.is_cuda and linear_func is F.linear and fusedBackend is not None:
+        igates = linear_func(input, w_ih)
+        hgates = linear_func(hidden[0], w_hh)
+        state = fusedBackend.LSTMFused.apply
+        return state(igates, hgates, hidden[1]) if b_ih is None else state(
+            igates, hgates, hidden[1], b_ih, b_hh)
+    hx, cx = hidden
+    gates = linear_func(input, w_ih, b_ih) + linear_func(hx, w_hh, b_hh)
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+    ingate = torch.sigmoid(ingate)
+    forgetgate = torch.sigmoid(forgetgate)
+    cellgate = torch.tanh(cellgate)
+    outgate = torch.sigmoid(outgate)
+    cy = forgetgate * cx + ingate * cellgate
+    hy = outgate * torch.tanh(cy)
+    return hy, cy
 
 
 def ConvNdWithSamePadding(convndim=2, stride=1, dilation=1, groups=1):
@@ -148,27 +138,25 @@ def ConvNdWithSamePadding(convndim=2, stride=1, dilation=1, groups=1):
     return forward
 
 
-def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None
-    ):
+def GRUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
     """ Copied from torch.nn._functions.rnn and modified """
     if linear_func is None:
         linear_func = F.linear
     if input.is_cuda and linear_func is F.linear and fusedBackend is not None:
-        igates = linear_func(input, w_ih)
-        hgates = linear_func(hidden[0], w_hh)
-        state = fusedBackend.LSTMFused.apply
-        return state(igates, hgates, hidden[1]) if b_ih is None else state(
-            igates, hgates, hidden[1], b_ih, b_hh)
-    hx, cx = hidden
-    gates = linear_func(input, w_ih, b_ih) + linear_func(hx, w_hh, b_hh)
-    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-    ingate = torch.sigmoid(ingate)
-    forgetgate = torch.sigmoid(forgetgate)
-    cellgate = torch.tanh(cellgate)
-    outgate = torch.sigmoid(outgate)
-    cy = forgetgate * cx + ingate * cellgate
-    hy = outgate * torch.tanh(cy)
-    return hy, cy
+        gi = linear_func(input, w_ih)
+        gh = linear_func(hidden, w_hh)
+        state = fusedBackend.GRUFused.apply
+        return state(gi, gh, hidden) if b_ih is None else state(gi, gh,
+            hidden, b_ih, b_hh)
+    gi = linear_func(input, w_ih, b_ih)
+    gh = linear_func(hidden, w_hh, b_hh)
+    i_r, i_i, i_n = gi.chunk(3, 1)
+    h_r, h_i, h_n = gh.chunk(3, 1)
+    resetgate = torch.sigmoid(i_r + h_r)
+    inputgate = torch.sigmoid(i_i + h_i)
+    newgate = torch.tanh(i_n + resetgate * h_n)
+    hy = newgate + inputgate * (hidden - newgate)
+    return hy
 
 
 def RNNReLUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
@@ -179,6 +167,35 @@ def RNNReLUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
     hy = F.relu(linear_func(input, w_ih, b_ih) + linear_func(hidden, w_hh,
         b_hh))
     return hy
+
+
+def RNNTanhCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
+    linear_func=None):
+    """ Copied from torch.nn._functions.rnn and modified """
+    if linear_func is None:
+        linear_func = F.linear
+    hy = torch.tanh(linear_func(input, w_ih, b_ih) + linear_func(hidden,
+        w_hh, b_hh))
+    return hy
+
+
+def PeepholeLSTMCell(input, hidden, w_ih, w_hh, w_pi, w_pf, w_po, b_ih=None,
+    b_hh=None, linear_func=None):
+    if linear_func is None:
+        linear_func = F.linear
+    hx, cx = hidden
+    gates = linear_func(input, w_ih, b_ih) + linear_func(hx, w_hh, b_hh)
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+    ingate += linear_func(cx, w_pi)
+    forgetgate += linear_func(cx, w_pf)
+    ingate = torch.sigmoid(ingate)
+    forgetgate = torch.sigmoid(forgetgate)
+    cellgate = torch.tanh(cellgate)
+    cy = forgetgate * cx + ingate * cellgate
+    outgate += linear_func(cy, w_po)
+    outgate = torch.sigmoid(outgate)
+    hy = outgate * torch.tanh(cy)
+    return hy, cy
 
 
 def _conv_cell_helper(mode, convndim=2, stride=1, dilation=1, groups=1):
@@ -197,57 +214,6 @@ def _conv_cell_helper(mode, convndim=2, stride=1, dilation=1, groups=1):
     else:
         raise Exception('Unknown mode: {}'.format(mode))
     return cell
-
-
-def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
-    """ Copied from torch.nn._functions.rnn and modified """
-    num_directions = len(inners)
-    total_layers = num_layers * num_directions
-
-    def forward(input, hidden, weight, batch_sizes):
-        assert len(weight) == total_layers
-        next_hidden = []
-        ch_dim = input.dim() - weight[0][0].dim() + 1
-        if lstm:
-            hidden = list(zip(*hidden))
-        for i in range(num_layers):
-            all_output = []
-            for j, inner in enumerate(inners):
-                l = i * num_directions + j
-                hy, output = inner(input, hidden[l], weight[l], batch_sizes)
-                next_hidden.append(hy)
-                all_output.append(output)
-            input = torch.cat(all_output, ch_dim)
-            if dropout != 0 and i < num_layers - 1:
-                input = F.dropout(input, p=dropout, training=train, inplace
-                    =False)
-        if lstm:
-            next_h, next_c = zip(*next_hidden)
-            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
-                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
-                0].size())
-        else:
-            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
-                next_hidden[0].size())
-        return next_hidden, input
-    return forward
-
-
-def Recurrent(inner, reverse=False):
-    """ Copied from torch.nn._functions.rnn without any modification """
-
-    def forward(input, hidden, weight, batch_sizes):
-        output = []
-        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
-            .size(0))
-        for i in steps:
-            hidden = inner(input[i], hidden, *weight)
-            output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
-        if reverse:
-            output.reverse()
-        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
-        return hidden, output
-    return forward
 
 
 def VariableRecurrent(inner):
@@ -326,6 +292,40 @@ def variable_recurrent_factory(inner, reverse=False):
         return VariableRecurrentReverse(inner)
     else:
         return VariableRecurrent(inner)
+
+
+def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
+    """ Copied from torch.nn._functions.rnn and modified """
+    num_directions = len(inners)
+    total_layers = num_layers * num_directions
+
+    def forward(input, hidden, weight, batch_sizes):
+        assert len(weight) == total_layers
+        next_hidden = []
+        ch_dim = input.dim() - weight[0][0].dim() + 1
+        if lstm:
+            hidden = list(zip(*hidden))
+        for i in range(num_layers):
+            all_output = []
+            for j, inner in enumerate(inners):
+                l = i * num_directions + j
+                hy, output = inner(input, hidden[l], weight[l], batch_sizes)
+                next_hidden.append(hy)
+                all_output.append(output)
+            input = torch.cat(all_output, ch_dim)
+            if dropout != 0 and i < num_layers - 1:
+                input = F.dropout(input, p=dropout, training=train, inplace
+                    =False)
+        if lstm:
+            next_h, next_c = zip(*next_hidden)
+            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
+                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
+                0].size())
+        else:
+            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
+                next_hidden[0].size())
+        return next_hidden, input
+    return forward
 
 
 def AutogradConvRNN(mode, num_layers=1, batch_first=False, dropout=0, train

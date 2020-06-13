@@ -223,8 +223,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ikostrikov_pytorch_meta_optimizer(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LayerNorm1D(*[], **{'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FastMetaOptimizer(*[], **{'model': 4, 'num_layers': 1, 'hidden_size': 4}), [torch.rand([6, 6])], {})
 
     def test_001(self):
-        self._check(FastMetaOptimizer(*[], **{'model': 4, 'num_layers': 1, 'hidden_size': 4}), [torch.rand([6, 6])], {})
+        self._check(LayerNorm1D(*[], **{'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 

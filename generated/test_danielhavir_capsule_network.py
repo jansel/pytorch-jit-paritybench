@@ -231,13 +231,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_danielhavir_capsule_network(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PrimaryCapsules(*[], **{'in_channels': 4, 'out_channels': 4, 'dim_caps': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(MarginLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PrimaryCapsules(*[], **{'in_channels': 4, 'out_channels': 4, 'dim_caps': 4}), [torch.rand([4, 4, 64, 64])], {})
 

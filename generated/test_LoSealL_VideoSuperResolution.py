@@ -2423,15 +2423,17 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
-def norm(norm_type, nc):
-    norm_type = norm_type.lower()
-    if norm_type == 'batch':
-        layer = nn.BatchNorm2d(nc, affine=True)
-    elif norm_type == 'instance':
-        layer = nn.InstanceNorm2d(nc, affine=False)
+def pad(pad_type, padding):
+    pad_type = pad_type.lower()
+    if padding == 0:
+        return None
+    if pad_type == 'reflect':
+        layer = nn.ReflectionPad2d(padding)
+    elif pad_type == 'replicate':
+        layer = nn.ReplicationPad2d(padding)
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
+        raise NotImplementedError('padding layer [%s] is not implemented' %
+            pad_type)
     return layer
 
 
@@ -2449,26 +2451,6 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     return layer
 
 
-def pad(pad_type, padding):
-    pad_type = pad_type.lower()
-    if padding == 0:
-        return None
-    if pad_type == 'reflect':
-        layer = nn.ReflectionPad2d(padding)
-    elif pad_type == 'replicate':
-        layer = nn.ReplicationPad2d(padding)
-    else:
-        raise NotImplementedError('padding layer [%s] is not implemented' %
-            pad_type)
-    return layer
-
-
-def get_valid_padding(kernel_size, dilation):
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
-
-
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
@@ -2483,6 +2465,24 @@ def sequential(*args):
         elif isinstance(module, nn.Module):
             modules.append(module)
     return nn.Sequential(*modules)
+
+
+def get_valid_padding(kernel_size, dilation):
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def norm(norm_type, nc):
+    norm_type = norm_type.lower()
+    if norm_type == 'batch':
+        layer = nn.BatchNorm2d(nc, affine=True)
+    elif norm_type == 'instance':
+        layer = nn.InstanceNorm2d(nc, affine=False)
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' %
+            norm_type)
+    return layer
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
@@ -4575,150 +4575,150 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_LoSealL_VideoSuperResolution(_paritybench_base):
     pass
     def test_000(self):
-        self._check(DnCnn(*[], **{'channel': 4, 'layers': 1, 'bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Srcnn(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BilinerUp(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Vdsr(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_003(self):
-        self._check(EasyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(RB(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(Rdb(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Rcab(*[], **{'channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(CascadeRdn(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(_UpsampleNearest(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(_UpsampleLinear(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(SpaceToBatch(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(DBPNMaker(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-
-    def test_013(self):
-        self._check(NoiseExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_014(self):
-        self._check(NoiseShifter(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_015(self):
-        self._check(NCL(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_016(self):
         self._check(CRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+    def test_005(self):
+        self._check(CascadeRdn(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_018(self):
-        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_019(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_020(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_021(self):
-        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_022(self):
-        self._check(UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}), [torch.rand([4, 4, 4, 4]), 0], {})
-
-    def test_023(self):
-        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_024(self):
-        self._check(DenseBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_025(self):
-        self._check(ConvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_026(self):
-        self._check(DeconvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_027(self):
-        self._check(ResnetBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_028(self):
-        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_029(self):
-        self._check(D_UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_030(self):
-        self._check(DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_031(self):
-        self._check(D_DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_032(self):
-        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_033(self):
+    def test_006(self):
         self._check(CascadedBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_034(self):
-        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_035(self):
-        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_036(self):
-        self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_037(self):
-        self._check(BilinerUp(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_038(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_039(self):
-        self._check(Dilated_block(*[], **{'inChannel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_040(self):
-        self._check(make_dense(*[], **{'channels_in': 4, 'channels_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_041(self):
-        self._check(RDB(*[], **{'nDenselayer': 1, 'channels': 4, 'growth': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_042(self):
-        self._check(SRnet(*[], **{'s': 4, 'c': 4, 'd': 4}), [torch.rand([4, 144, 64, 64])], {})
+    def test_007(self):
+        self._check(ConvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_043(self):
+    def test_008(self):
+        self._check(DBPNMaker(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_009(self):
+        self._check(D_DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(D_UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(DeconvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(DenseBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Dilated_block(*[], **{'inChannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(DnCnn(*[], **{'channel': 4, 'layers': 1, 'bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(EasyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(MotionCompensation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
         self._check(MotionEstimation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_020(self):
+        self._check(NCL(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(Net(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_022(self):
+        self._check(NoiseExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_023(self):
+        self._check(NoiseShifter(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_024(self):
+        self._check(RB(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_025(self):
+        self._check(RDB(*[], **{'nDenselayer': 1, 'channels': 4, 'growth': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
+        self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
+        self._check(Rcab(*[], **{'channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_028(self):
+        self._check(Rdb(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_029(self):
+        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_030(self):
+        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_032(self):
+        self._check(ResnetBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_033(self):
+        self._check(SRnet(*[], **{'s': 4, 'c': 4, 'd': 4}), [torch.rand([4, 144, 64, 64])], {})
+
+    @_fails_compile()
+    def test_034(self):
+        self._check(SpaceToBatch(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_035(self):
+        self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_036(self):
+        self._check(Srcnn(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_037(self):
+        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_038(self):
+        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_039(self):
+        self._check(UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}), [torch.rand([4, 4, 4, 4]), 0], {})
+
+    def test_040(self):
+        self._check(Vdsr(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_041(self):
+        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_042(self):
+        self._check(_UpsampleLinear(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_043(self):
+        self._check(_UpsampleNearest(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_044(self):
-        self._check(MotionCompensation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(make_dense(*[], **{'channels_in': 4, 'channels_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

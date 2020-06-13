@@ -704,10 +704,10 @@ class Test_eecn_Hyperspectral_Classification(_paritybench_base):
         self._check(Baseline(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(HuEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(BoulchEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(BoulchEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(HuEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
 
     def test_003(self):
         self._check(MouEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})

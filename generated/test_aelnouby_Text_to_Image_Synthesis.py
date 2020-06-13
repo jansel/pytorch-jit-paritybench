@@ -369,10 +369,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_aelnouby_Text_to_Image_Synthesis(_paritybench_base):
     pass
     def test_000(self):
-        self._check(discriminator(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1024])], {})
+        self._check(Concat_embed(*[], **{'embed_dim': 4, 'projected_embed_dim': 4}), [torch.rand([4, 4, 4, 16]), torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Concat_embed(*[], **{'embed_dim': 4, 'projected_embed_dim': 4}), [torch.rand([4, 4, 4, 16]), torch.rand([4, 4, 4])], {})
+        self._check(discriminator(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1024])], {})
 
     def test_002(self):
         self._check(minibatch_discriminator(*[], **{'num_channels': 4, 'B_dim': 4, 'C_dim': 4}), [torch.rand([4, 4, 4, 4])], {})

@@ -615,27 +615,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_guanfuchen_facedet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(CReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(StrideConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(StridePool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
-
-    def test_005(self):
-        self._check(FaceBoxExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_006(self):
+    def test_001(self):
         self._check(FaceBox(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_007(self):
+    def test_002(self):
+        self._check(FaceBoxExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+
+    def test_004(self):
+        self._check(LRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(PNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_006(self):
+        self._check(StrideConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(StridePool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -603,14 +603,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_HongyangGao_Graph_U_Nets(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GCN(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(GCN(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

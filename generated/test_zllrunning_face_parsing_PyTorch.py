@@ -367,10 +367,10 @@ class BiSeNet(nn.Module):
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
 
 
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
 ACT_RELU = 'relu'
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
 
 
 ACT_ELU = 'elu'
@@ -736,38 +736,38 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(AttentionRefinementModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_004(self):
-        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_006(self):
-        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
         self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
     def test_010(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
@@ -777,8 +777,8 @@ class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_013(self):
-        self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

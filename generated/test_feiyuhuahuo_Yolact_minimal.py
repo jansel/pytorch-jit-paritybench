@@ -185,9 +185,6 @@ class InterpolateModule(nn.Module):
         return F.interpolate(x, *self.args, **self.kwdargs)
 
 
-extra_head_net = [(256, 3, {'padding': 1})]
-
-
 def make_net(in_channels, cfg_net, include_last_relu=True):
 
     def make_layer(layer_cfg):
@@ -216,6 +213,9 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     if not include_last_relu:
         net = net[:-1]
     return nn.Sequential(*net), in_channels
+
+
+extra_head_net = [(256, 3, {'padding': 1})]
 
 
 _global_config['num_classes'] = 4
@@ -290,10 +290,6 @@ class FPN(nn.Module):
         return out
 
 
-mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
-    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
-
-
 def construct_backbone(cfg_backbone):
     backbone = cfg_backbone.type(*cfg_backbone.args)
     num_layers = max(cfg_backbone.selected_layers) + 1
@@ -302,10 +298,14 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['use_square_anchors'] = 4
+mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
+    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
 _global_config['img_size'] = 4
+
+
+_global_config['use_square_anchors'] = 4
 
 
 def make_anchors(conv_h, conv_w, scale):
@@ -323,16 +323,16 @@ def make_anchors(conv_h, conv_w, scale):
     return prior_data
 
 
-_global_config['train_semantic'] = False
+_global_config['backbone'] = 4
 
 
 _global_config['scales'] = 1.0
 
 
+_global_config['train_semantic'] = False
+
+
 _global_config['freeze_bn'] = 4
-
-
-_global_config['backbone'] = 4
 
 
 class Yolact(nn.Module):
@@ -451,54 +451,6 @@ class Yolact(nn.Module):
             return predictions
 
 
-def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0):
-    """
-    Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
-    Also converts from relative to absolute coordinates and casts the results to long tensors.
-
-    Warning: this does things in-place behind the scenes so copy if necessary.
-    """
-    _x1 = _x1 * img_size
-    _x2 = _x2 * img_size
-    x1 = torch.min(_x1, _x2)
-    x2 = torch.max(_x1, _x2)
-    x1 = torch.clamp(x1 - padding, min=0)
-    x2 = torch.clamp(x2 + padding, max=img_size)
-    return x1, x2
-
-
-def crop(masks, boxes, padding: int=1):
-    """
-    "Crop" predicted masks by zeroing out everything not in the predicted bbox.
-    Args:
-        - masks should be a size [h, w, n] tensor of masks
-        - boxes should be a size [n, 4] tensor of bbox coords in relative point form
-    """
-    h, w, n = masks.size()
-    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding)
-    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding)
-    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
-        ).expand(h, w, n)
-    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
-        ).expand(h, w, n)
-    masks_left = rows >= x1.view(1, 1, -1)
-    masks_right = rows < x2.view(1, 1, -1)
-    masks_up = cols >= y1.view(1, 1, -1)
-    masks_down = cols < y2.view(1, 1, -1)
-    crop_mask = masks_left * masks_right * masks_up * masks_down
-    return masks * crop_mask.float()
-
-
-def encode(matched, priors):
-    variances = [0.1, 0.2]
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    offsets = torch.cat([g_cxcy, g_wh], 1)
-    return offsets
-
-
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
@@ -529,6 +481,16 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / union
     return out if use_batch else out.squeeze(0)
+
+
+def encode(matched, priors):
+    variances = [0.1, 0.2]
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    offsets = torch.cat([g_cxcy, g_wh], 1)
+    return offsets
 
 
 _global_config['crowd_iou_threshold'] = 4
@@ -576,19 +538,57 @@ def center_size(boxes):
         boxes[:, :2]), 1)
 
 
-_global_config['mask_alpha'] = 4
+def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0):
+    """
+    Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
+    Also converts from relative to absolute coordinates and casts the results to long tensors.
+
+    Warning: this does things in-place behind the scenes so copy if necessary.
+    """
+    _x1 = _x1 * img_size
+    _x2 = _x2 * img_size
+    x1 = torch.min(_x1, _x2)
+    x2 = torch.max(_x1, _x2)
+    x1 = torch.clamp(x1 - padding, min=0)
+    x2 = torch.clamp(x2 + padding, max=img_size)
+    return x1, x2
+
+
+def crop(masks, boxes, padding: int=1):
+    """
+    "Crop" predicted masks by zeroing out everything not in the predicted bbox.
+    Args:
+        - masks should be a size [h, w, n] tensor of masks
+        - boxes should be a size [n, 4] tensor of bbox coords in relative point form
+    """
+    h, w, n = masks.size()
+    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding)
+    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding)
+    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
+        ).expand(h, w, n)
+    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
+        ).expand(h, w, n)
+    masks_left = rows >= x1.view(1, 1, -1)
+    masks_right = rows < x2.view(1, 1, -1)
+    masks_up = cols >= y1.view(1, 1, -1)
+    masks_down = cols < y2.view(1, 1, -1)
+    crop_mask = masks_left * masks_right * masks_up * masks_down
+    return masks * crop_mask.float()
 
 
 _global_config['bbox_alpha'] = 4
 
 
-_global_config['conf_alpha'] = 4
+_global_config['masks_to_train'] = False
 
 
 _global_config['semantic_alpha'] = 4
 
 
-_global_config['masks_to_train'] = False
+_global_config['mask_alpha'] = 4
+
+
+_global_config['conf_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):

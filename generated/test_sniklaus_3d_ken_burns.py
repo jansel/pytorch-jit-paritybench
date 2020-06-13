@@ -464,65 +464,6 @@ def depth_to_points(tenDepth, fltFocal):
         tenDepth], 1)
 
 
-def preprocess_kernel(strKernel, objVariables):
-    with open('./common.cuda', 'r') as objFile:
-        strKernel = objFile.read() + strKernel
-    for strVariable in objVariables:
-        objValue = objVariables[strVariable]
-        if type(objValue) == int:
-            strKernel = strKernel.replace('{{' + strVariable + '}}', str(
-                objValue))
-        elif type(objValue) == float:
-            strKernel = strKernel.replace('{{' + strVariable + '}}', str(
-                objValue))
-        elif type(objValue) == str:
-            strKernel = strKernel.replace('{{' + strVariable + '}}', objValue)
-    while True:
-        objMatch = re.search('(SIZE_)([0-4])(\\()([^\\)]*)(\\))', strKernel)
-        if objMatch is None:
-            break
-        intArg = int(objMatch.group(2))
-        strTensor = objMatch.group(4)
-        intSizes = objVariables[strTensor].size()
-        strKernel = strKernel.replace(objMatch.group(), str(intSizes[intArg]))
-    while True:
-        objMatch = re.search('(STRIDE_)([0-4])(\\()([^\\)]*)(\\))', strKernel)
-        if objMatch is None:
-            break
-        intArg = int(objMatch.group(2))
-        strTensor = objMatch.group(4)
-        intStrides = objVariables[strTensor].stride()
-        strKernel = strKernel.replace(objMatch.group(), str(intStrides[intArg])
-            )
-    while True:
-        objMatch = re.search('(OFFSET_)([0-4])(\\()([^\\)]+)(\\))', strKernel)
-        if objMatch is None:
-            break
-        intArgs = int(objMatch.group(2))
-        strArgs = objMatch.group(4).split(',')
-        strTensor = strArgs[0]
-        intStrides = objVariables[strTensor].stride()
-        strIndex = [('((' + strArgs[intArg + 1].replace('{', '(').replace(
-            '}', ')').strip() + ')*' + str(intStrides[intArg]) + ')') for
-            intArg in range(intArgs)]
-        strKernel = strKernel.replace(objMatch.group(0), '(' + str.join('+',
-            strIndex) + ')')
-    while True:
-        objMatch = re.search('(VALUE_)([0-4])(\\()([^\\)]+)(\\))', strKernel)
-        if objMatch is None:
-            break
-        intArgs = int(objMatch.group(2))
-        strArgs = objMatch.group(4).split(',')
-        strTensor = strArgs[0]
-        intStrides = objVariables[strTensor].stride()
-        strIndex = [('((' + strArgs[intArg + 1].replace('{', '(').replace(
-            '}', ')').strip() + ')*' + str(intStrides[intArg]) + ')') for
-            intArg in range(intArgs)]
-        strKernel = strKernel.replace(objMatch.group(0), strTensor + '[' +
-            str.join('+', strIndex) + ']')
-    return strKernel
-
-
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
@@ -532,8 +473,8 @@ class Test_sniklaus_3d_ken_burns(_paritybench_base):
         self._check(Downsample(*[], **{'intChannels': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Upsample(*[], **{'intChannels': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Refine(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
-        self._check(Refine(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {})
+        self._check(Upsample(*[], **{'intChannels': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

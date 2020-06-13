@@ -755,46 +755,46 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_songyingxin_TextClassification(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(MultiHeadAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
-
-    @_fails_compile()
-    def test_005(self):
         self._check(Embedding(*[], **{'highway_layers': 1, 'word_dim': 4, 'char_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
-        self._check(Highway(*[], **{'layer_num': 1}), [torch.rand([600, 600])], {})
-
-    def test_007(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(LogisticRegressionMulti(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(LinearRegression(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
+    def test_001(self):
         self._check(FNN(*[], **{'config': _mock_config(input_size=4, hidden_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_002(self):
+        self._check(Highway(*[], **{'layer_num': 1}), [torch.rand([600, 600])], {})
+
+    def test_003(self):
+        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(LinearRegression(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(LogisticRegressionMulti(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(MultiHeadAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(ScaledDotProduction(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 

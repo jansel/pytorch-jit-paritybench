@@ -342,48 +342,48 @@ class Test_codertimo_BERT_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Attention(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(BERT(*[], **{'vocab_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(BERTEmbedding(*[], **{'vocab_size': 4, 'embed_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
+    def test_003(self):
+        self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(PositionalEmbedding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(SegmentEmbedding(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(MaskedLanguageModel(*[], **{'hidden': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(TokenEmbedding(*[], **{'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(NextSentencePrediction(*[], **{'hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(MaskedLanguageModel(*[], **{'hidden': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PositionalEmbedding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_009(self):
-        self._check(TransformerBlock(*[], **{'hidden': 4, 'attn_heads': 4, 'feed_forward_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 1]), torch.rand([4, 1])], {})
-
-    def test_010(self):
         self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_010(self):
+        self._check(SegmentEmbedding(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
     def test_011(self):
-        self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 
     def test_012(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TokenEmbedding(*[], **{'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_013(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
+        self._check(TransformerBlock(*[], **{'hidden': 4, 'attn_heads': 4, 'feed_forward_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 1]), torch.rand([4, 1])], {})
 

@@ -50,9 +50,9 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+def make_divisible(x, divisible_by=8):
+    import numpy as np
+    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
 
 
 def conv_bn(inp, oup, stride):
@@ -60,9 +60,9 @@ def conv_bn(inp, oup, stride):
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def make_divisible(x, divisible_by=8):
-    import numpy as np
-    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -122,8 +122,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_tonylins_pytorch_mobilenet_v2(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

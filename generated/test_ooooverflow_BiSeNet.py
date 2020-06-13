@@ -325,16 +325,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ooooverflow_BiSeNet(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(Spatial_path(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Spatial_path(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

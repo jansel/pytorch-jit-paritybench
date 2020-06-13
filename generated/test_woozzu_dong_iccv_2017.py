@@ -184,8 +184,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_woozzu_dong_iccv_2017(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResidualBlock(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 300])], {})
 
     def test_001(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 300])], {})
+        self._check(ResidualBlock(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
 

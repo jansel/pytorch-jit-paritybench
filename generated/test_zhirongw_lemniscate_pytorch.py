@@ -122,6 +122,53 @@ class LinearAverage(nn.Module):
         return out
 
 
+class NCEFunction(Function):
+
+    @staticmethod
+    def forward(self, x, y, memory, idx, params):
+        K = int(params[0].item())
+        T = params[1].item()
+        Z = params[2].item()
+        momentum = params[3].item()
+        batchSize = x.size(0)
+        outputSize = memory.size(0)
+        inputSize = memory.size(1)
+        idx.select(1, 0).copy_(y.data)
+        weight = torch.index_select(memory, 0, idx.view(-1))
+        weight.resize_(batchSize, K + 1, inputSize)
+        out = torch.bmm(weight, x.data.resize_(batchSize, inputSize, 1))
+        out.div_(T).exp_()
+        x.data.resize_(batchSize, inputSize)
+        if Z < 0:
+            params[2] = out.mean() * outputSize
+            Z = params[2].item()
+            print('normalization constant Z is set to {:.1f}'.format(Z))
+        out.div_(Z).resize_(batchSize, K + 1)
+        self.save_for_backward(x, memory, y, weight, out, params)
+        return out
+
+    @staticmethod
+    def backward(self, gradOutput):
+        x, memory, y, weight, out, params = self.saved_tensors
+        K = int(params[0].item())
+        T = params[1].item()
+        Z = params[2].item()
+        momentum = params[3].item()
+        batchSize = gradOutput.size(0)
+        gradOutput.data.mul_(out.data)
+        gradOutput.data.div_(T)
+        gradOutput.data.resize_(batchSize, 1, K + 1)
+        gradInput = torch.bmm(gradOutput.data, weight)
+        gradInput.resize_as_(x)
+        weight_pos = weight.select(1, 0).resize_as_(x)
+        weight_pos.mul_(momentum)
+        weight_pos.add_(torch.mul(x.data, 1 - momentum))
+        w_norm = weight_pos.pow(2).sum(1, keepdim=True).pow(0.5)
+        updated_weight = weight_pos.div(w_norm)
+        memory.index_copy_(0, y, updated_weight)
+        return gradInput, None, None, None, None
+
+
 class AliasMethod(object):
     """
         From: https://hips.seas.harvard.edu/blog/2013/03/03/the-alias-method-efficient-sampling-with-many-discrete-outcomes/
@@ -170,53 +217,6 @@ class AliasMethod(object):
         oq = kk.mul(b.long())
         oj = alias.mul((1 - b).long())
         return oq + oj
-
-
-class NCEFunction(Function):
-
-    @staticmethod
-    def forward(self, x, y, memory, idx, params):
-        K = int(params[0].item())
-        T = params[1].item()
-        Z = params[2].item()
-        momentum = params[3].item()
-        batchSize = x.size(0)
-        outputSize = memory.size(0)
-        inputSize = memory.size(1)
-        idx.select(1, 0).copy_(y.data)
-        weight = torch.index_select(memory, 0, idx.view(-1))
-        weight.resize_(batchSize, K + 1, inputSize)
-        out = torch.bmm(weight, x.data.resize_(batchSize, inputSize, 1))
-        out.div_(T).exp_()
-        x.data.resize_(batchSize, inputSize)
-        if Z < 0:
-            params[2] = out.mean() * outputSize
-            Z = params[2].item()
-            print('normalization constant Z is set to {:.1f}'.format(Z))
-        out.div_(Z).resize_(batchSize, K + 1)
-        self.save_for_backward(x, memory, y, weight, out, params)
-        return out
-
-    @staticmethod
-    def backward(self, gradOutput):
-        x, memory, y, weight, out, params = self.saved_tensors
-        K = int(params[0].item())
-        T = params[1].item()
-        Z = params[2].item()
-        momentum = params[3].item()
-        batchSize = gradOutput.size(0)
-        gradOutput.data.mul_(out.data)
-        gradOutput.data.div_(T)
-        gradOutput.data.resize_(batchSize, 1, K + 1)
-        gradInput = torch.bmm(gradOutput.data, weight)
-        gradInput.resize_as_(x)
-        weight_pos = weight.select(1, 0).resize_as_(x)
-        weight_pos.mul_(momentum)
-        weight_pos.add_(torch.mul(x.data, 1 - momentum))
-        w_norm = weight_pos.pow(2).sum(1, keepdim=True).pow(0.5)
-        updated_weight = weight_pos.div(w_norm)
-        memory.index_copy_(0, y, updated_weight)
-        return gradInput, None, None, None, None
 
 
 class NCEAverage(nn.Module):
@@ -495,20 +495,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhirongw_lemniscate_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(LinearAverage(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_003(self):
         self._check(NCECriterion(*[], **{'nLem': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_004(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

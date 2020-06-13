@@ -416,17 +416,17 @@ class UnetBlock(nn.Module):
             return torch.cat([self.model(x), x], 1)
 
 
+def conv3x3(in_planes, out_planes):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
+        padding=1, bias=True)
+
+
 def upsampleConv(inplanes, outplanes, kw, padw):
     sequence = []
     sequence += [Upsample(scale_factor=2, mode='nearest')]
     sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=kw, stride=1,
         padding=padw, bias=True)]
     return nn.Sequential(*sequence)
-
-
-def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=True)
 
 
 class BasicBlockUp(nn.Module):
@@ -969,6 +969,19 @@ class LayerNorm(nn.Module):
         return x
 
 
+def deconvBlock(input_nc, output_nc, bias, norm_layer=None, nl='relu'):
+    layers = [nn.ConvTranspose3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
+    if norm_layer is not None:
+        layers += [norm_layer(output_nc)]
+    if nl == 'relu':
+        layers += [nn.ReLU(True)]
+    elif nl == 'lrelu':
+        layers += [nn.LeakyReLU(0.2, inplace=True)]
+    else:
+        raise NotImplementedError('NL layer {} is not implemented' % nl)
+    return nn.Sequential(*layers)
+
+
 def get_norm_layer(layer_type='inst'):
     if layer_type == 'batch':
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
@@ -992,19 +1005,6 @@ def toRGB(input_nc, output_nc, bias, zero_mean=False, sig=True):
     layers = [nn.ConvTranspose3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
     if sig:
         layers += [nn.Sigmoid()]
-    return nn.Sequential(*layers)
-
-
-def deconvBlock(input_nc, output_nc, bias, norm_layer=None, nl='relu'):
-    layers = [nn.ConvTranspose3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
-    if norm_layer is not None:
-        layers += [norm_layer(output_nc)]
-    if nl == 'relu':
-        layers += [nn.ReLU(True)]
-    elif nl == 'lrelu':
-        layers += [nn.LeakyReLU(0.2, inplace=True)]
-    else:
-        raise NotImplementedError('NL layer {} is not implemented' % nl)
     return nn.Sequential(*layers)
 
 
@@ -1047,17 +1047,17 @@ class _netG0(nn.Module):
             return self.sigmoid(output)
 
 
-def convBlock(input_nc, output_nc, bias, norm_layer=None):
-    layers = [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
-    if norm_layer is not None:
-        layers += [norm_layer(output_nc)]
+def fromRGB(input_nc, output_nc, bias):
+    layers = []
+    layers += [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
     layers += [nn.LeakyReLU(0.2, inplace=True)]
     return nn.Sequential(*layers)
 
 
-def fromRGB(input_nc, output_nc, bias):
-    layers = []
-    layers += [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
+def convBlock(input_nc, output_nc, bias, norm_layer=None):
+    layers = [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
+    if norm_layer is not None:
+        layers += [norm_layer(output_nc)]
     layers += [nn.LeakyReLU(0.2, inplace=True)]
     return nn.Sequential(*layers)
 
@@ -1296,12 +1296,6 @@ def function_by_type(name_, typename):
     return typename_to_func_infix[typename] + name_
 
 
-class GridSampler3D(nn.Module):
-
-    def forward(self, theta, size):
-        return grid_sample3d(theta, size)
-
-
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
@@ -1309,10 +1303,11 @@ class Test_junyanz_VON(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(D_NLayersMulti(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(D_NLayersMulti(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -1320,21 +1315,20 @@ class Test_junyanz_VON(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
         self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_005(self):
+        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

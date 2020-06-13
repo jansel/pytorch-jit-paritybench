@@ -152,10 +152,10 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
-NOT_DONE = torch.tensor([1], dtype=torch.uint8)
-
-
 DONE = torch.tensor([0], dtype=torch.uint8)
+
+
+NOT_DONE = torch.tensor([1], dtype=torch.uint8)
 
 
 class State:
@@ -462,20 +462,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_cpnota_autonomous_learning_library(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Aggregation(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
         self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})

@@ -192,33 +192,6 @@ from collections import OrderedDict
 import inspect
 
 
-def _build_module(cfg, registry, default_args):
-    assert isinstance(cfg, dict) and 'type' in cfg
-    assert isinstance(default_args, dict) or default_args is None
-    args = cfg.copy()
-    obj_type = args.pop('type')
-    if mmcv.is_str(obj_type):
-        if obj_type not in registry.module_dict:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
-        obj_type = registry.module_dict[obj_type]
-    elif not isinstance(obj_type, type):
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
-    if default_args is not None:
-        for name, value in default_args.items():
-            args.setdefault(name, value)
-    return obj_type(**args)
-
-
-def build(cfg, registry, default_args=None):
-    if isinstance(cfg, list):
-        modules = [_build_module(cfg_, registry, default_args) for cfg_ in cfg]
-        return nn.Sequential(*modules)
-    else:
-        return _build_module(cfg, registry, default_args)
-
-
 class Registry(object):
 
     def __init__(self, name):
@@ -260,14 +233,41 @@ class Registry(object):
         return cls
 
 
+ATTRPREDICTOR = Registry('attr_predictor')
+
+
+def _build_module(cfg, registry, default_args):
+    assert isinstance(cfg, dict) and 'type' in cfg
+    assert isinstance(default_args, dict) or default_args is None
+    args = cfg.copy()
+    obj_type = args.pop('type')
+    if mmcv.is_str(obj_type):
+        if obj_type not in registry.module_dict:
+            raise KeyError('{} is not in the {} registry'.format(obj_type,
+                registry.name))
+        obj_type = registry.module_dict[obj_type]
+    elif not isinstance(obj_type, type):
+        raise TypeError('type must be a str or valid type, but got {}'.
+            format(type(obj_type)))
+    if default_args is not None:
+        for name, value in default_args.items():
+            args.setdefault(name, value)
+    return obj_type(**args)
+
+
+def build(cfg, registry, default_args=None):
+    if isinstance(cfg, list):
+        modules = [_build_module(cfg_, registry, default_args) for cfg_ in cfg]
+        return nn.Sequential(*modules)
+    else:
+        return _build_module(cfg, registry, default_args)
+
+
 LOSSES = Registry('loss')
 
 
 def build_loss(cfg):
     return build(cfg, LOSSES)
-
-
-ATTRPREDICTOR = Registry('attr_predictor')
 
 
 @ATTRPREDICTOR.register_module
@@ -1501,64 +1501,64 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_open_mmlab_mmfashion(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
-        self._check(Vgg(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(Concat(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(BaseFashionRecommender(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(GlobalPooling(*[], **{'inplanes': [4, 4], 'pool_plane': 4, 'inter_channels': [4, 4], 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_006(self):
+    def test_001(self):
         self._check(BaseLandmarkDetector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
-        self._check(LandmarkFeatureExtractor(*[], **{'inchannels': 4, 'feature_dim': 4, 'landmarks': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(CosineEmbeddingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_009(self):
-        self._check(L2NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(L1NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(MarginRankingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(SelectiveMarginLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(MSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
+    def test_002(self):
         self._check(BasePredictor(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_003(self):
         self._check(BaseRetriever(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_004(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(Concat(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(CosineEmbeddingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(EmbedBranch(*[], **{'feat_dim': 4, 'embedding_dim': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(GlobalPooling(*[], **{'inplanes': [4, 4], 'pool_plane': 4, 'inter_channels': [4, 4], 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(L1NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(L2NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(LandmarkFeatureExtractor(*[], **{'inchannels': 4, 'feature_dim': 4, 'landmarks': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(MSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(MarginRankingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_015(self):
+        self._check(SelectiveMarginLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(Vgg(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

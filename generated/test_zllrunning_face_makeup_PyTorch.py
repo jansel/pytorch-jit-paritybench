@@ -389,29 +389,29 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zllrunning_face_makeup_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(AttentionRefinementModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_004(self):
-        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
-        self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-
-    def test_006(self):
-        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_007(self):
+    def test_001(self):
         self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_002(self):
+        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_007(self):
         self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
+        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -156,13 +156,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_dmmiller612_sparktorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Net(*[], **{}), [torch.rand([10, 10])], {})
-
-    def test_001(self):
         self._check(AutoEncoder(*[], **{}), [torch.rand([10, 10])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(ClassificationNet(*[], **{}), [torch.rand([10, 10])], {})
+
+    def test_002(self):
+        self._check(Net(*[], **{}), [torch.rand([10, 10])], {})
 
     def test_003(self):
         self._check(NetworkWithParameters(*[], **{'param': 4}), [torch.rand([10, 10])], {})

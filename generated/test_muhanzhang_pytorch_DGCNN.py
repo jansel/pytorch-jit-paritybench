@@ -284,9 +284,9 @@ class Test_muhanzhang_pytorch_DGCNN(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

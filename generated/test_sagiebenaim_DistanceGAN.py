@@ -77,20 +77,20 @@ import numpy as np
 from torch import optim
 
 
-def conv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
-    """Custom convolutional layer for simplicity."""
-    layers = []
-    layers.append(nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=False))
-    if bn:
-        layers.append(nn.BatchNorm2d(c_out))
-    return nn.Sequential(*layers)
-
-
 def deconv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
     """Custom deconvolutional layer for simplicity."""
     layers = []
     layers.append(nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias
         =False))
+    if bn:
+        layers.append(nn.BatchNorm2d(c_out))
+    return nn.Sequential(*layers)
+
+
+def conv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
+    """Custom convolutional layer for simplicity."""
+    layers = []
+    layers.append(nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=False))
     if bn:
         layers.append(nn.BatchNorm2d(c_out))
     return nn.Sequential(*layers)
@@ -479,35 +479,35 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_sagiebenaim_DistanceGAN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(G12(*[], **{'conf': 4}), [torch.rand([4, 1, 64, 64])], {})
-
-    def test_001(self):
-        self._check(G21(*[], **{'conf': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
         self._check(D1(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(D2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    def test_002(self):
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(G12(*[], **{'conf': 4}), [torch.rand([4, 1, 64, 64])], {})
+
     def test_004(self):
+        self._check(G21(*[], **{'conf': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
-    @_fails_compile()
-    def test_005(self):
-        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_006(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_007(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_008(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

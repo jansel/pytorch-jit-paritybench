@@ -69,6 +69,23 @@ import torch.nn.functional as F
 import math
 
 
+CHECKPOINT_FILE = 'checkpoint-{}.pt'
+
+
+def xavier_uniform_init(m):
+    """
+    Xavier initializer to be used with model.apply
+    """
+    if type(m) == nn.Linear:
+        nn.init.xavier_uniform_(m.weight.data)
+
+
+CHECKPOINT_GLOB = 'checkpoint-*.pt'
+
+
+HYPERPARAMS_FILE = 'hyperparams.pt'
+
+
 def gen_model_dir(task_name, model_cls):
     """
     Generate the model directory from the task name and model class.
@@ -82,20 +99,6 @@ def gen_model_dir(task_name, model_cls):
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
     return model_dir
-
-
-HYPERPARAMS_FILE = 'hyperparams.pt'
-
-
-def xavier_uniform_init(m):
-    """
-    Xavier initializer to be used with model.apply
-    """
-    if type(m) == nn.Linear:
-        nn.init.xavier_uniform_(m.weight.data)
-
-
-CHECKPOINT_FILE = 'checkpoint-{}.pt'
 
 
 logger = logging.getLogger(__name__)
@@ -127,9 +130,6 @@ def prepare_model_dir(model_dir, clear=False):
                     break
             except:
                 pass
-
-
-CHECKPOINT_GLOB = 'checkpoint-*.pt'
 
 
 class Model(nn.Module):
@@ -477,6 +477,15 @@ class DecoderLayer(nn.Module):
         return y, encoder_outputs
 
 
+def _gen_bias_mask(max_length):
+    """
+    Generates bias values (-Inf) to mask future timesteps during attention
+    """
+    np_mask = np.triu(np.full([max_length, max_length], -np.inf), 1)
+    torch_mask = torch.from_numpy(np_mask).type(torch.FloatTensor)
+    return torch_mask.unsqueeze(0).unsqueeze(1)
+
+
 def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
     10000.0):
     """
@@ -497,15 +506,6 @@ def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
         constant_values=[0.0, 0.0])
     signal = signal.reshape([1, length, channels])
     return torch.from_numpy(signal).type(torch.FloatTensor)
-
-
-def _gen_bias_mask(max_length):
-    """
-    Generates bias values (-Inf) to mask future timesteps during attention
-    """
-    np_mask = np.triu(np.full([max_length, max_length], -np.inf), 1)
-    torch_mask = torch.from_numpy(np_mask).type(torch.FloatTensor)
-    return torch_mask.unsqueeze(0).unsqueeze(1)
 
 
 class Encoder(nn.Module):

@@ -52,6 +52,44 @@ from torch.autograd import Variable
 from torch.nn import init
 
 
+def log_standard_categorical(p):
+    """
+    Calculates the cross entropy between a (one-hot) categorical vector
+    and a standard (uniform) categorical distribution.
+
+    :param p: one-hot categorical distribution
+    :return: H(p, u)
+    """
+    prior = F.softmax(torch.ones_like(p), dim=1)
+    prior.requires_grad = False
+    cross_entropy = -torch.sum(p * torch.log(prior + 1e-08), dim=1)
+    return cross_entropy
+
+
+def enumerate_discrete(x, y_dim):
+    """
+    Generates a `torch.Tensor` of size batch_size x n_labels of
+    the given label.
+
+    Example: generate_label(2, 1, 3) #=> torch.Tensor([[0, 1, 0],
+                                                       [0, 1, 0]])
+    :param x: tensor with batch size to mimic
+    :param y_dim: number of total labels
+    :return variable
+    """
+
+    def batch(batch_size, label):
+        labels = (torch.ones(batch_size, 1) * label).type(torch.LongTensor)
+        y = torch.zeros((batch_size, y_dim))
+        y.scatter_(1, labels, 1)
+        return y.type(torch.LongTensor)
+    batch_size = x.size(0)
+    generated = torch.cat([batch(batch_size, i) for i in range(y_dim)])
+    if x.is_cuda:
+        generated = generated.cuda()
+    return Variable(generated.float())
+
+
 def log_sum_exp(tensor, dim=-1, sum_op=torch.sum):
     """
     Uses the LogSumExp (LSE) as an approximation for the sum in a log-domain.
@@ -87,44 +125,6 @@ class ImportanceWeightedSampler(object):
         elbo = elbo.view(self.mc, self.iw, -1)
         elbo = torch.mean(log_sum_exp(elbo, dim=1, sum_op=torch.mean), dim=0)
         return elbo.view(-1)
-
-
-def enumerate_discrete(x, y_dim):
-    """
-    Generates a `torch.Tensor` of size batch_size x n_labels of
-    the given label.
-
-    Example: generate_label(2, 1, 3) #=> torch.Tensor([[0, 1, 0],
-                                                       [0, 1, 0]])
-    :param x: tensor with batch size to mimic
-    :param y_dim: number of total labels
-    :return variable
-    """
-
-    def batch(batch_size, label):
-        labels = (torch.ones(batch_size, 1) * label).type(torch.LongTensor)
-        y = torch.zeros((batch_size, y_dim))
-        y.scatter_(1, labels, 1)
-        return y.type(torch.LongTensor)
-    batch_size = x.size(0)
-    generated = torch.cat([batch(batch_size, i) for i in range(y_dim)])
-    if x.is_cuda:
-        generated = generated.cuda()
-    return Variable(generated.float())
-
-
-def log_standard_categorical(p):
-    """
-    Calculates the cross entropy between a (one-hot) categorical vector
-    and a standard (uniform) categorical distribution.
-
-    :param p: one-hot categorical distribution
-    :return: H(p, u)
-    """
-    prior = F.softmax(torch.ones_like(p), dim=1)
-    prior.requires_grad = False
-    cross_entropy = -torch.sum(p * torch.log(prior + 1e-08), dim=1)
-    return cross_entropy
 
 
 class SVI(nn.Module):
@@ -351,6 +351,16 @@ class Decoder(nn.Module):
         return self.output_activation(self.reconstruction(x))
 
 
+def log_standard_gaussian(x):
+    """
+    Evaluates the log pdf of a standard normal distribution at x.
+
+    :param x: point to evaluate
+    :return: log N(x|0,I)
+    """
+    return torch.sum(-0.5 * math.log(2 * math.pi) - x ** 2 / 2, dim=-1)
+
+
 def log_gaussian(x, mu, log_var):
     """
     Returns the log pdf of a normal distribution parametrised
@@ -364,16 +374,6 @@ def log_gaussian(x, mu, log_var):
     log_pdf = -0.5 * math.log(2 * math.pi) - log_var / 2 - (x - mu) ** 2 / (
         2 * torch.exp(log_var))
     return torch.sum(log_pdf, dim=-1)
-
-
-def log_standard_gaussian(x):
-    """
-    Evaluates the log pdf of a standard normal distribution at x.
-
-    :param x: point to evaluate
-    :return: log N(x|0,I)
-    """
-    return torch.sum(-0.5 * math.log(2 * math.pi) - x ** 2 / 2, dim=-1)
 
 
 class VariationalAutoencoder(nn.Module):
@@ -608,36 +608,36 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_wohlert_semi_supervised_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PlanarNormalizingFlow(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(NormalizingFlows(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
-
-    def test_002(self):
         self._check(Classifier(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(Perceptron(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(GaussianSample(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(GumbelSoftmax(*[], **{'in_features': 4, 'out_features': 4, 'n_distributions': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(LadderEncoder(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
+    def test_001(self):
         self._check(GaussianMerge(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_002(self):
+        self._check(GaussianSample(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(GumbelSoftmax(*[], **{'in_features': 4, 'out_features': 4, 'n_distributions': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(LadderDecoder(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(LadderEncoder(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(NormalizingFlows(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Perceptron(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(PlanarNormalizingFlow(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
 

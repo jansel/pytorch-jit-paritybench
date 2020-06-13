@@ -210,13 +210,13 @@ class Test_qqueing_DeepSpeaker_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(DeepSpeakerModel(*[], **{'embedding_size': 4, 'num_classes': 4}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -121,6 +121,76 @@ from torch.utils import model_zoo
 import inspect
 
 
+def obj_from_dict_registry(cfg, registry, default_args=None):
+    """Build a module from config dict.
+    Args:
+        cfg (dict): Config dict. It should at least contain the key "type".
+        registry (:obj:`Registry`): The registry to search the type from.
+        default_args (dict, optional): Default initialization arguments.
+    Returns:
+        obj: The constructed object.
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    assert isinstance(default_args, dict) or default_args is None
+    args = cfg.copy()
+    obj_type = args.pop('type')
+    if isinstance(obj_type, str):
+        obj_cls = registry.get(obj_type)
+        if obj_cls is None:
+            raise KeyError('{} is not in the {} registry'.format(obj_type,
+                registry.name))
+    elif inspect.isclass(obj_type):
+        obj_cls = obj_type
+    else:
+        raise TypeError('type must be a str or valid type, but got {}'.
+            format(type(obj_type)))
+    if default_args is not None:
+        for name, value in default_args.items():
+            args.setdefault(name, value)
+    return obj_cls(**args)
+
+
+def obj_from_dict_module(info, parent=None, default_args=None):
+    """Initialize an object from dict.
+    The dict must contain the key "type", which indicates the object type, it
+    can be either a string or type, such as "list" or ``list``. Remaining
+    fields are treated as the arguments for constructing the object.
+    Args:
+        info (dict): Object types and arguments.
+        parent (:class:`module`): Module which may containing expected object
+            classes.
+        default_args (dict, optional): Default arguments for initializing the
+            object.
+    Returns:
+        any type: Object built from the dict.
+    """
+    assert isinstance(info, dict) and 'type' in info
+    assert isinstance(default_args, dict) or default_args is None
+    args = info.copy()
+    obj_type = args.pop('type')
+    if isinstance(obj_type, str):
+        if parent is not None:
+            obj_type = getattr(parent, obj_type)
+        else:
+            obj_type = sys.modules[obj_type]
+    elif not isinstance(obj_type, type):
+        raise TypeError('type must be a str or valid type, but got {}'.
+            format(type(obj_type)))
+    if default_args is not None:
+        for name, value in default_args.items():
+            args.setdefault(name, value)
+    return obj_type(**args)
+
+
+def build_from_cfg(cfg, parent, default_args=None, src='registry'):
+    if src == 'registry':
+        return obj_from_dict_registry(cfg, parent, default_args)
+    elif src == 'module':
+        return obj_from_dict_module(cfg, parent, default_args)
+    else:
+        raise ValueError('Method %s is not supported' % src)
+
+
 class Registry(object):
 
     def __init__(self, name):
@@ -165,76 +235,6 @@ class Registry(object):
 CRITERIA = Registry('criterion')
 
 
-def obj_from_dict_module(info, parent=None, default_args=None):
-    """Initialize an object from dict.
-    The dict must contain the key "type", which indicates the object type, it
-    can be either a string or type, such as "list" or ``list``. Remaining
-    fields are treated as the arguments for constructing the object.
-    Args:
-        info (dict): Object types and arguments.
-        parent (:class:`module`): Module which may containing expected object
-            classes.
-        default_args (dict, optional): Default arguments for initializing the
-            object.
-    Returns:
-        any type: Object built from the dict.
-    """
-    assert isinstance(info, dict) and 'type' in info
-    assert isinstance(default_args, dict) or default_args is None
-    args = info.copy()
-    obj_type = args.pop('type')
-    if isinstance(obj_type, str):
-        if parent is not None:
-            obj_type = getattr(parent, obj_type)
-        else:
-            obj_type = sys.modules[obj_type]
-    elif not isinstance(obj_type, type):
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
-    if default_args is not None:
-        for name, value in default_args.items():
-            args.setdefault(name, value)
-    return obj_type(**args)
-
-
-def obj_from_dict_registry(cfg, registry, default_args=None):
-    """Build a module from config dict.
-    Args:
-        cfg (dict): Config dict. It should at least contain the key "type".
-        registry (:obj:`Registry`): The registry to search the type from.
-        default_args (dict, optional): Default initialization arguments.
-    Returns:
-        obj: The constructed object.
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    assert isinstance(default_args, dict) or default_args is None
-    args = cfg.copy()
-    obj_type = args.pop('type')
-    if isinstance(obj_type, str):
-        obj_cls = registry.get(obj_type)
-        if obj_cls is None:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
-    elif inspect.isclass(obj_type):
-        obj_cls = obj_type
-    else:
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
-    if default_args is not None:
-        for name, value in default_args.items():
-            args.setdefault(name, value)
-    return obj_cls(**args)
-
-
-def build_from_cfg(cfg, parent, default_args=None, src='registry'):
-    if src == 'registry':
-        return obj_from_dict_registry(cfg, parent, default_args)
-    elif src == 'module':
-        return obj_from_dict_module(cfg, parent, default_args)
-    else:
-        raise ValueError('Method %s is not supported' % src)
-
-
 class CriterionWrapper(nn.Module):
     """LossWrapper
 
@@ -250,15 +250,15 @@ class CriterionWrapper(nn.Module):
         return self.criterion(pred, target)
 
 
+BRICKS = Registry('brick')
+
+
 UTILS = Registry('utils')
 
 
 def build_module(cfg, default_args=None):
     util = build_from_cfg(cfg, UTILS, default_args)
     return util
-
-
-BRICKS = Registry('brick')
 
 
 @BRICKS.register_module
@@ -407,6 +407,12 @@ def build_bricks(cfgs):
 logger = logging.getLogger()
 
 
+def constant_init(module, val, bias=0):
+    nn.init.constant_(module.weight, val)
+    if hasattr(module, 'bias') and module.bias is not None:
+        nn.init.constant_(module.bias, bias)
+
+
 def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
     distribution='normal'):
     assert distribution in ['uniform', 'normal']
@@ -416,12 +422,6 @@ def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
     else:
         nn.init.kaiming_normal_(module.weight, a=a, mode=mode, nonlinearity
             =nonlinearity)
-    if hasattr(module, 'bias') and module.bias is not None:
-        nn.init.constant_(module.bias, bias)
-
-
-def constant_init(module, val, bias=0):
-    nn.init.constant_(module.weight, val)
     if hasattr(module, 'bias') and module.bias is not None:
         nn.init.constant_(module.bias, bias)
 
@@ -897,11 +897,11 @@ class Test_Media_Smart_vedaseg(_paritybench_base):
         self._check(CollectBlock(*[], **{'from_layer': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Head(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(TLU(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Head(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TLU(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

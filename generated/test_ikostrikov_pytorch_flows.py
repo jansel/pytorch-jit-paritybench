@@ -476,7 +476,7 @@ class Test_ikostrikov_pytorch_flows(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ActNorm(*[], **{'num_inputs': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -484,19 +484,19 @@ class Test_ikostrikov_pytorch_flows(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(ActNorm(*[], **{'num_inputs': 4}), [torch.rand([4, 4])], {})
+        self._check(CouplingLayer(*[], **{'num_inputs': 4, 'num_hidden': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(InvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(LUInvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(Shuffle(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LUInvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
@@ -504,9 +504,9 @@ class Test_ikostrikov_pytorch_flows(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(CouplingLayer(*[], **{'num_inputs': 4, 'num_hidden': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Shuffle(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -503,8 +503,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_sxhxliang_BigGAN_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(ScaledCrossReplicaBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ScaledCrossReplicaBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 

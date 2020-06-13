@@ -248,9 +248,9 @@ class Test_tristandeleu_pytorch_meta(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(PrototypicalNetwork(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(MetaLayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MetaLayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PrototypicalNetwork(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
 

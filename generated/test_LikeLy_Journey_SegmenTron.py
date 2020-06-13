@@ -3154,10 +3154,280 @@ class CRPBlock(nn.Module):
         return x
 
 
-_global_config['ROOT_PATH'] = 4
+def _flip_image(img):
+    assert img.ndim == 4
+    return img.flip(3)
+
+
+def _pad_image(img, crop_size):
+    b, c, h, w = img.shape
+    assert c == 3
+    padh = crop_size[0] - h if h < crop_size[0] else 0
+    padw = crop_size[1] - w if w < crop_size[1] else 0
+    if padh == 0 and padw == 0:
+        return img
+    img_pad = F.pad(img, (0, padh, 0, padw))
+    return img_pad
+
+
+model_urls = {'resnet18':
+    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
+    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
+    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101':
+    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152':
+    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnet50c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth'
+    , 'resnet101c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth'
+    , 'resnet152c':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth'
+    , 'xception65':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth'
+    , 'hrnet_w18_small_v1':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth'
+    , 'mobilenet_v2':
+    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'
+    }
+
+
+def check_sha1(filename, sha1_hash):
+    """Check whether the sha1 hash of the file content matches the expected hash.
+    Parameters
+    ----------
+    filename : str
+        Path to the file.
+    sha1_hash : str
+        Expected sha1 hash in hexadecimal digits.
+    Returns
+    -------
+    bool
+        Whether the file content matches the expected hash.
+    """
+    sha1 = hashlib.sha1()
+    with open(filename, 'rb') as f:
+        while True:
+            data = f.read(1048576)
+            if not data:
+                break
+            sha1.update(data)
+    sha1_file = sha1.hexdigest()
+    l = min(len(sha1_file), len(sha1_hash))
+    return sha1.hexdigest()[0:l] == sha1_hash[0:l]
+
+
+def download(url, path=None, overwrite=False, sha1_hash=None):
+    """Download an given URL
+    Parameters
+    ----------
+    url : str
+        URL to download
+    path : str, optional
+        Destination path to store downloaded file. By default stores to the
+        current directory with same name as in url.
+    overwrite : bool, optional
+        Whether to overwrite destination file if already exists.
+    sha1_hash : str, optional
+        Expected sha1 hash in hexadecimal digits. Will ignore existing file when hash is specified
+        but doesn't match.
+    Returns
+    -------
+    str
+        The file path of the downloaded file.
+    """
+    if path is None:
+        fname = url.split('/')[-1]
+    else:
+        path = os.path.expanduser(path)
+        if os.path.isdir(path):
+            fname = os.path.join(path, url.split('/')[-1])
+        else:
+            fname = path
+    if overwrite or not os.path.exists(fname) or sha1_hash and not check_sha1(
+        fname, sha1_hash):
+        dirname = os.path.dirname(os.path.abspath(os.path.expanduser(fname)))
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
+        print('Downloading %s from %s...' % (fname, url))
+        r = requests.get(url, stream=True)
+        if r.status_code != 200:
+            raise RuntimeError('Failed downloading url %s' % url)
+        total_length = r.headers.get('content-length')
+        with open(fname, 'wb') as f:
+            if total_length is None:
+                for chunk in r.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+            else:
+                total_length = int(total_length)
+                for chunk in tqdm(r.iter_content(chunk_size=1024), total=
+                    int(total_length / 1024.0 + 0.5), unit='KB', unit_scale
+                    =False, dynamic_ncols=True):
+                    f.write(chunk)
+        if sha1_hash and not check_sha1(fname, sha1_hash):
+            raise UserWarning(
+                'File {} is downloaded but the content hash does not match. The repo may be outdated or download may be incomplete. If the "repo_url" is overridden, consider switching to the default repo.'
+                .format(fname))
+    return fname
+
+
+_global_config['PHASE'] = 4
+
+
+_global_config['TRAIN'] = 4
+
+
+def load_backbone_pretrained(model, backbone):
+    if (cfg.PHASE == 'train' and cfg.TRAIN.BACKBONE_PRETRAINED and not cfg.
+        TRAIN.PRETRAINED_MODEL_PATH):
+        if os.path.isfile(cfg.TRAIN.BACKBONE_PRETRAINED_PATH):
+            logging.info('Load backbone pretrained model from {}'.format(
+                cfg.TRAIN.BACKBONE_PRETRAINED_PATH))
+            msg = model.load_state_dict(torch.load(cfg.TRAIN.
+                BACKBONE_PRETRAINED_PATH), strict=False)
+            logging.info(msg)
+        elif backbone not in model_urls:
+            logging.info('{} has no pretrained model'.format(backbone))
+            return
+        else:
+            logging.info('load backbone pretrained model from url..')
+            try:
+                msg = model.load_state_dict(model_zoo.load_url(model_urls[
+                    backbone]), strict=False)
+            except Exception as e:
+                logging.warning(e)
+                logging.info('Use torch download failed, try custom method!')
+                msg = model.load_state_dict(torch.load(download(model_urls[
+                    backbone], path=os.path.join(torch.hub._get_torch_home(
+                    ), 'checkpoints'))), strict=False)
+            logging.info(msg)
+
+
+class Registry(object):
+    """
+    The registry that provides name -> object mapping, to support third-party users' custom modules.
+
+    To create a registry (inside segmentron):
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY = Registry('BACKBONE')
+
+    To register an object:
+
+    .. code-block:: python
+
+        @BACKBONE_REGISTRY.register()
+        class MyBackbone():
+            ...
+
+    Or:
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY.register(MyBackbone)
+    """
+
+    def __init__(self, name):
+        """
+        Args:
+            name (str): the name of this registry
+        """
+        self._name = name
+        self._obj_map = {}
+
+    def _do_register(self, name, obj):
+        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(
+            name, self._name)
+        self._obj_map[name] = obj
+
+    def register(self, obj=None, name=None):
+        """
+        Register the given object under the the name `obj.__name__`.
+        Can be used as either a decorator or not. See docstring of this class for usage.
+        """
+        if obj is None:
+
+            def deco(func_or_class, name=name):
+                if name is None:
+                    name = func_or_class.__name__
+                self._do_register(name, func_or_class)
+                return func_or_class
+            return deco
+        if name is None:
+            name = obj.__name__
+        self._do_register(name, obj)
+
+    def get(self, name):
+        ret = self._obj_map.get(name)
+        if ret is None:
+            raise KeyError("No object named '{}' found in '{}' registry!".
+                format(name, self._name))
+        return ret
+
+    def get_list(self):
+        return list(self._obj_map.keys())
+
+
+BACKBONE_REGISTRY = Registry('BACKBONE')
+
+
+def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
+    """
+    Built the backbone model, defined by `cfg.MODEL.BACKBONE`.
+    """
+    model = BACKBONE_REGISTRY.get(backbone)(norm_layer)
+    load_backbone_pretrained(model, backbone)
+    return model
+
+
+def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
+    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps,
+        affine=affine)
+
+
+def get_norm(norm):
+    """
+    Args:
+        norm (str or callable):
+
+    Returns:
+        nn.Module or None: the normalization layer
+    """
+    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
+    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(
+        norm, support_norm_type)
+    if isinstance(norm, str):
+        if len(norm) == 0:
+            return None
+        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm,
+            'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.
+            SyncBatchNorm}[norm]
+    return norm
+
+
+def _resize_image(img, h, w):
+    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
+
+
+def _to_tuple(size):
+    if isinstance(size, (list, tuple)):
+        assert len(size
+            ), 'Expect eval crop size contains two element, but received {}'.format(
+            len(size))
+        return tuple(size)
+    elif isinstance(size, numbers.Number):
+        return tuple((size, size))
+    else:
+        raise ValueError('Unsupport datatype: {}'.format(type(size)))
 
 
 _global_config['AUG'] = 4
+
+
+_global_config['ROOT_PATH'] = 4
 
 
 class SegmentationDataset(object):
@@ -3614,102 +3884,6 @@ class CitySegmentation(SegmentationDataset):
             'bicycle')
 
 
-class VOCAugSegmentation(SegmentationDataset):
-    """Pascal VOC Augmented Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to VOCdevkit folder. Default is './datasets/voc'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'VOCaug/dataset/'
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/voc', split='train', mode=None,
-        transform=None, **kwargs):
-        super(VOCAugSegmentation, self).__init__(root, split, mode,
-            transform, **kwargs)
-        _voc_root = os.path.join(root, self.BASE_DIR)
-        _mask_dir = os.path.join(_voc_root, 'cls')
-        _image_dir = os.path.join(_voc_root, 'img')
-        if split == 'train':
-            _split_f = os.path.join(_voc_root, 'trainval.txt')
-        elif split == 'val':
-            _split_f = os.path.join(_voc_root, 'val.txt')
-        else:
-            raise RuntimeError('Unknown dataset split: {}'.format(split))
-        self.images = []
-        self.masks = []
-        with open(os.path.join(_split_f), 'r') as lines:
-            for line in lines:
-                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
-                assert os.path.isfile(_image)
-                self.images.append(_image)
-                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
-                assert os.path.isfile(_mask)
-                self.masks.append(_mask)
-        assert len(self.images) == len(self.masks)
-        print('Found {} images in the folder {}'.format(len(self.images),
-            _voc_root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        target = self._load_mat(self.masks[index])
-        if self.mode == 'train':
-            img, target = self._sync_transform(img, target)
-        elif self.mode == 'val':
-            img, target = self._val_sync_transform(img, target)
-        elif self.mode == 'testval':
-            logging.warn('Use mode of testval, you should set batch size=1')
-            img, target = self._img_transform(img), self._mask_transform(target
-                )
-        else:
-            raise RuntimeError('unknown mode for dataloader: {}'.format(
-                self.mode))
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, target, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32'))
-
-    def _load_mat(self, filename):
-        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True,
-            struct_as_record=False)
-        mask = mat['GTcls'].Segmentation
-        return Image.fromarray(mask)
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def classes(self):
-        """Category names."""
-        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
-            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
-            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
-            'sofa', 'train', 'tv')
-
-
 class VOCSegmentation(SegmentationDataset):
     """Pascal VOC Semantic Segmentation Dataset.
 
@@ -3798,6 +3972,102 @@ class VOCSegmentation(SegmentationDataset):
         target = np.array(mask).astype('int32')
         target[target == 255] = -1
         return torch.from_numpy(target).long()
+
+    @property
+    def classes(self):
+        """Category names."""
+        return ('background', 'airplane', 'bicycle', 'bird', 'boat',
+            'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable',
+            'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep',
+            'sofa', 'train', 'tv')
+
+
+class VOCAugSegmentation(SegmentationDataset):
+    """Pascal VOC Augmented Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to VOCdevkit folder. Default is './datasets/voc'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'VOCaug/dataset/'
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/voc', split='train', mode=None,
+        transform=None, **kwargs):
+        super(VOCAugSegmentation, self).__init__(root, split, mode,
+            transform, **kwargs)
+        _voc_root = os.path.join(root, self.BASE_DIR)
+        _mask_dir = os.path.join(_voc_root, 'cls')
+        _image_dir = os.path.join(_voc_root, 'img')
+        if split == 'train':
+            _split_f = os.path.join(_voc_root, 'trainval.txt')
+        elif split == 'val':
+            _split_f = os.path.join(_voc_root, 'val.txt')
+        else:
+            raise RuntimeError('Unknown dataset split: {}'.format(split))
+        self.images = []
+        self.masks = []
+        with open(os.path.join(_split_f), 'r') as lines:
+            for line in lines:
+                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
+                assert os.path.isfile(_image)
+                self.images.append(_image)
+                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
+                assert os.path.isfile(_mask)
+                self.masks.append(_mask)
+        assert len(self.images) == len(self.masks)
+        print('Found {} images in the folder {}'.format(len(self.images),
+            _voc_root))
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        target = self._load_mat(self.masks[index])
+        if self.mode == 'train':
+            img, target = self._sync_transform(img, target)
+        elif self.mode == 'val':
+            img, target = self._val_sync_transform(img, target)
+        elif self.mode == 'testval':
+            logging.warn('Use mode of testval, you should set batch size=1')
+            img, target = self._img_transform(img), self._mask_transform(target
+                )
+        else:
+            raise RuntimeError('unknown mode for dataloader: {}'.format(
+                self.mode))
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, target, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32'))
+
+    def _load_mat(self, filename):
+        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True,
+            struct_as_record=False)
+        mask = mat['GTcls'].Segmentation
+        return Image.fromarray(mask)
+
+    def __len__(self):
+        return len(self.images)
 
     @property
     def classes(self):
@@ -3978,283 +4248,13 @@ datasets = {'ade20k': ADE20KSegmentation, 'pascal_voc': VOCSegmentation,
     CitySegmentation, 'sbu': SBUSegmentation}
 
 
-def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
-    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps,
-        affine=affine)
-
-
-def get_norm(norm):
-    """
-    Args:
-        norm (str or callable):
-
-    Returns:
-        nn.Module or None: the normalization layer
-    """
-    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
-    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(
-        norm, support_norm_type)
-    if isinstance(norm, str):
-        if len(norm) == 0:
-            return None
-        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm,
-            'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.
-            SyncBatchNorm}[norm]
-    return norm
-
-
-def _to_tuple(size):
-    if isinstance(size, (list, tuple)):
-        assert len(size
-            ), 'Expect eval crop size contains two element, but received {}'.format(
-            len(size))
-        return tuple(size)
-    elif isinstance(size, numbers.Number):
-        return tuple((size, size))
-    else:
-        raise ValueError('Unsupport datatype: {}'.format(type(size)))
-
-
-def _flip_image(img):
-    assert img.ndim == 4
-    return img.flip(3)
-
-
-def _resize_image(img, h, w):
-    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
-
-
-class Registry(object):
-    """
-    The registry that provides name -> object mapping, to support third-party users' custom modules.
-
-    To create a registry (inside segmentron):
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY = Registry('BACKBONE')
-
-    To register an object:
-
-    .. code-block:: python
-
-        @BACKBONE_REGISTRY.register()
-        class MyBackbone():
-            ...
-
-    Or:
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY.register(MyBackbone)
-    """
-
-    def __init__(self, name):
-        """
-        Args:
-            name (str): the name of this registry
-        """
-        self._name = name
-        self._obj_map = {}
-
-    def _do_register(self, name, obj):
-        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(
-            name, self._name)
-        self._obj_map[name] = obj
-
-    def register(self, obj=None, name=None):
-        """
-        Register the given object under the the name `obj.__name__`.
-        Can be used as either a decorator or not. See docstring of this class for usage.
-        """
-        if obj is None:
-
-            def deco(func_or_class, name=name):
-                if name is None:
-                    name = func_or_class.__name__
-                self._do_register(name, func_or_class)
-                return func_or_class
-            return deco
-        if name is None:
-            name = obj.__name__
-        self._do_register(name, obj)
-
-    def get(self, name):
-        ret = self._obj_map.get(name)
-        if ret is None:
-            raise KeyError("No object named '{}' found in '{}' registry!".
-                format(name, self._name))
-        return ret
-
-    def get_list(self):
-        return list(self._obj_map.keys())
-
-
-BACKBONE_REGISTRY = Registry('BACKBONE')
-
-
-def check_sha1(filename, sha1_hash):
-    """Check whether the sha1 hash of the file content matches the expected hash.
-    Parameters
-    ----------
-    filename : str
-        Path to the file.
-    sha1_hash : str
-        Expected sha1 hash in hexadecimal digits.
-    Returns
-    -------
-    bool
-        Whether the file content matches the expected hash.
-    """
-    sha1 = hashlib.sha1()
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(1048576)
-            if not data:
-                break
-            sha1.update(data)
-    sha1_file = sha1.hexdigest()
-    l = min(len(sha1_file), len(sha1_hash))
-    return sha1.hexdigest()[0:l] == sha1_hash[0:l]
-
-
-def download(url, path=None, overwrite=False, sha1_hash=None):
-    """Download an given URL
-    Parameters
-    ----------
-    url : str
-        URL to download
-    path : str, optional
-        Destination path to store downloaded file. By default stores to the
-        current directory with same name as in url.
-    overwrite : bool, optional
-        Whether to overwrite destination file if already exists.
-    sha1_hash : str, optional
-        Expected sha1 hash in hexadecimal digits. Will ignore existing file when hash is specified
-        but doesn't match.
-    Returns
-    -------
-    str
-        The file path of the downloaded file.
-    """
-    if path is None:
-        fname = url.split('/')[-1]
-    else:
-        path = os.path.expanduser(path)
-        if os.path.isdir(path):
-            fname = os.path.join(path, url.split('/')[-1])
-        else:
-            fname = path
-    if overwrite or not os.path.exists(fname) or sha1_hash and not check_sha1(
-        fname, sha1_hash):
-        dirname = os.path.dirname(os.path.abspath(os.path.expanduser(fname)))
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        print('Downloading %s from %s...' % (fname, url))
-        r = requests.get(url, stream=True)
-        if r.status_code != 200:
-            raise RuntimeError('Failed downloading url %s' % url)
-        total_length = r.headers.get('content-length')
-        with open(fname, 'wb') as f:
-            if total_length is None:
-                for chunk in r.iter_content(chunk_size=1024):
-                    if chunk:
-                        f.write(chunk)
-            else:
-                total_length = int(total_length)
-                for chunk in tqdm(r.iter_content(chunk_size=1024), total=
-                    int(total_length / 1024.0 + 0.5), unit='KB', unit_scale
-                    =False, dynamic_ncols=True):
-                    f.write(chunk)
-        if sha1_hash and not check_sha1(fname, sha1_hash):
-            raise UserWarning(
-                'File {} is downloaded but the content hash does not match. The repo may be outdated or download may be incomplete. If the "repo_url" is overridden, consider switching to the default repo.'
-                .format(fname))
-    return fname
-
-
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152':
-    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'resnet50c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth'
-    , 'resnet101c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth'
-    , 'resnet152c':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth'
-    , 'xception65':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth'
-    , 'hrnet_w18_small_v1':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth'
-    , 'mobilenet_v2':
-    'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'
-    }
-
-
-_global_config['TRAIN'] = 4
-
-
-_global_config['PHASE'] = 4
-
-
-def load_backbone_pretrained(model, backbone):
-    if (cfg.PHASE == 'train' and cfg.TRAIN.BACKBONE_PRETRAINED and not cfg.
-        TRAIN.PRETRAINED_MODEL_PATH):
-        if os.path.isfile(cfg.TRAIN.BACKBONE_PRETRAINED_PATH):
-            logging.info('Load backbone pretrained model from {}'.format(
-                cfg.TRAIN.BACKBONE_PRETRAINED_PATH))
-            msg = model.load_state_dict(torch.load(cfg.TRAIN.
-                BACKBONE_PRETRAINED_PATH), strict=False)
-            logging.info(msg)
-        elif backbone not in model_urls:
-            logging.info('{} has no pretrained model'.format(backbone))
-            return
-        else:
-            logging.info('load backbone pretrained model from url..')
-            try:
-                msg = model.load_state_dict(model_zoo.load_url(model_urls[
-                    backbone]), strict=False)
-            except Exception as e:
-                logging.warning(e)
-                logging.info('Use torch download failed, try custom method!')
-                msg = model.load_state_dict(torch.load(download(model_urls[
-                    backbone], path=os.path.join(torch.hub._get_torch_home(
-                    ), 'checkpoints'))), strict=False)
-            logging.info(msg)
-
-
-def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
-    """
-    Built the backbone model, defined by `cfg.MODEL.BACKBONE`.
-    """
-    model = BACKBONE_REGISTRY.get(backbone)(norm_layer)
-    load_backbone_pretrained(model, backbone)
-    return model
-
-
-def _pad_image(img, crop_size):
-    b, c, h, w = img.shape
-    assert c == 3
-    padh = crop_size[0] - h if h < crop_size[0] else 0
-    padw = crop_size[1] - w if w < crop_size[1] else 0
-    if padh == 0 and padw == 0:
-        return img
-    img_pad = F.pad(img, (0, padh, 0, padw))
-    return img_pad
+_global_config['TEST'] = 4
 
 
 _global_config['SOLVER'] = 4
 
 
 _global_config['DATASET'] = 4
-
-
-_global_config['TEST'] = 4
 
 
 class SegBaseModel(nn.Module):
@@ -4678,25 +4678,6 @@ class NaiveSyncBatchNorm(nn.BatchNorm2d):
         return input * scale + bias
 
 
-class _CAWeight(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, t, f):
-        weight = _C.ca_forward(t, f)
-        ctx.save_for_backward(t, f)
-        return weight
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dw):
-        t, f = ctx.saved_tensors
-        dt, df = _C.ca_backward(dw, t, f)
-        return dt, df
-
-
-ca_weight = _CAWeight.apply
-
-
 class _CAMap(torch.autograd.Function):
 
     @staticmethod
@@ -4714,6 +4695,25 @@ class _CAMap(torch.autograd.Function):
 
 
 ca_map = _CAMap.apply
+
+
+class _CAWeight(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, t, f):
+        weight = _C.ca_forward(t, f)
+        ctx.save_for_backward(t, f)
+        return weight
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dw):
+        t, f = ctx.saved_tensors
+        dt, df = _C.ca_backward(dw, t, f)
+        return dt, df
+
+
+ca_weight = _CAWeight.apply
 
 
 class CrissCrossAttention(nn.Module):
@@ -5643,253 +5643,253 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(APNModule(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(ASPOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(Bottleneck(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicBlockV1b(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Enc(*[], **{'in_channels': 4, 'out_channels': 4, 'blocks': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(FCAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(XceptionA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_007(self):
-        self._check(_BiSeHead(*[], **{'in_channels': 4, 'inter_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(SpatialPath(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
         self._check(AttentionRefinmentModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
-        self._check(FeatureFusion(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-
-    def test_011(self):
-        self._check(_ChannelWiseConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(_InputInjection(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(Custom_Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(DepthSepConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(DepthConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(LinearBottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
-        self._check(Shallow_net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_018(self):
-        self._check(FeatureFusionModule(*[], **{'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_019(self):
-        self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_020(self):
-        self._check(Conv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_021(self):
+    def test_003(self):
         self._check(BNPReLU(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_004(self):
+        self._check(BaseAttentionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(BaseOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(BasicBlockV1b(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(BinaryDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(Bottleneck(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(CRPBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'n_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(CascadeFeatureFusion(*[], **{'low_channels': 4, 'high_channels': 4, 'out_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Conv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(Custom_Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_017(self):
         self._check(DABModule(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
+        self._check(DUpsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(DepthConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(DepthSepConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(DoubleConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
+        self._check(Down(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_023(self):
         self._check(DownSamplingBlock(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_024(self):
-        self._check(InputInjection(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_025(self):
-        self._check(_DenseASPPHead(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_026(self):
-        self._check(_DenseASPPConv(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4, 'atrous_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_027(self):
-        self._check(_DenseASPPBlock(*[], **{'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_028(self):
-        self._check(FeatureFused(*[], **{}), [torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_029(self):
-        self._check(DUpsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_030(self):
         self._check(DownsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_025(self):
+        self._check(Downsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
         self._check(EDABlock(*[], **{'ninput': 4, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_032(self):
+    def test_027(self):
+        self._check(EESP(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_028(self):
+        self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_029(self):
+        self._check(Enc(*[], **{'in_channels': 4, 'out_channels': 4, 'blocks': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_030(self):
         self._check(EncModule(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_033(self):
+    def test_031(self):
         self._check(Encoding(*[], **{'D': 4, 'K': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_032(self):
+        self._check(FCAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(FPEBlock(*[], **{'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_034(self):
-        self._check(Mean(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(FeatureFused(*[], **{}), [torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
     def test_035(self):
-        self._check(InitialBlock(*[], **{'out_channels': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(FeatureFusion(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
+    @_fails_compile()
     def test_036(self):
-        self._check(_PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FeatureFusionModule(*[], **{'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {})
 
     def test_037(self):
-        self._check(LearningToDownsample(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(FrozenBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_038(self):
         self._check(GlobalFeatureExtractor(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
+    @_fails_compile()
     def test_039(self):
-        self._check(SEModule(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    @_fails_compile()
-    def test_040(self):
-        self._check(FPEBlock(*[], **{'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_041(self):
-        self._check(MEUModule(*[], **{'channels_high': 4, 'channels_low': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_042(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_043(self):
         self._check(HarDBlock(*[], **{'in_channels': 4, 'growth_rate': 4, 'grmul': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_040(self):
+        self._check(InitialBlock(*[], **{'out_channels': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_041(self):
+        self._check(InputInjection(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_042(self):
+        self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_043(self):
+        self._check(LearningToDownsample(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
     def test_044(self):
-        self._check(TransitionUp(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_045(self):
-        self._check(CascadeFeatureFusion(*[], **{'low_channels': 4, 'high_channels': 4, 'out_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MEUModule(*[], **{'channels_high': 4, 'channels_low': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_046(self):
-        self._check(Downsampling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Mean(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_047(self):
-        self._check(SSnbt(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NaiveSyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_048(self):
-        self._check(APNModule(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(OutConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_049(self):
-        self._check(BaseAttentionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_050(self):
-        self._check(BaseOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_051(self):
         self._check(PyramidAttentionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_052(self):
+    def test_051(self):
         self._check(PyramidOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_052(self):
+        self._check(PyramidPooling(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_053(self):
-        self._check(ASPOCModule(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SEModule(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     @_fails_compile()
     def test_054(self):
-        self._check(CRPBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'n_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SSnbt(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_055(self):
-        self._check(DoubleConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_056(self):
-        self._check(Down(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_057(self):
-        self._check(Up(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-
-    def test_058(self):
-        self._check(OutConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_059(self):
         self._check(SeparableConv2d(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_056(self):
+        self._check(Shallow_net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_057(self):
+        self._check(SpatialPath(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_058(self):
+        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_059(self):
+        self._check(TransitionUp(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_060(self):
-        self._check(_ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Up(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
     def test_061(self):
-        self._check(_ConvBNPReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(XceptionA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_062(self):
-        self._check(_ConvBN(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_063(self):
         self._check(_BNPReLU(*[], **{'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_063(self):
+        self._check(_BiSeHead(*[], **{'in_channels': 4, 'inter_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_064(self):
-        self._check(_DepthwiseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_ChannelWiseConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_065(self):
-        self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_ConvBN(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_066(self):
-        self._check(FrozenBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_ConvBNPReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_067(self):
+        self._check(_ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_067(self):
-        self._check(NaiveSyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_068(self):
-        self._check(_FCNHead(*[], **{'in_channels': 4, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseASPPBlock(*[], **{'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_069(self):
-        self._check(PyramidPooling(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseASPPConv(*[], **{'in_channels': 4, 'inter_channels': 4, 'out_channels': 4, 'atrous_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_070(self):
-        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(_DenseASPPHead(*[], **{'in_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_071(self):
-        self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DepthwiseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_072(self):
-        self._check(EESP(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(_FCNHead(*[], **{'in_channels': 4, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_073(self):
-        self._check(BinaryDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(_InputInjection(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_074(self):
-        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(_PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

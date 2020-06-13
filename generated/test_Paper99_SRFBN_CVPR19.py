@@ -57,32 +57,6 @@ class MeanShift(nn.Conv2d):
             p.requires_grad = False
 
 
-def activation(act_type='relu', inplace=True, slope=0.2, n_prelu=1):
-    act_type = act_type.lower()
-    layer = None
-    if act_type == 'relu':
-        layer = nn.ReLU(inplace)
-    elif act_type == 'lrelu':
-        layer = nn.LeakyReLU(slope, inplace)
-    elif act_type == 'prelu':
-        layer = nn.PReLU(num_parameters=n_prelu, init=slope)
-    else:
-        raise NotImplementedError(
-            '[ERROR] Activation layer [%s] is not implemented!' % act_type)
-    return layer
-
-
-def norm(n_feature, norm_type='bn'):
-    norm_type = norm_type.lower()
-    layer = None
-    if norm_type == 'bn':
-        layer = nn.BatchNorm2d(n_feature)
-    else:
-        raise NotImplementedError(
-            '[ERROR] Normalization layer [%s] is not implemented!' % norm_type)
-    return layer
-
-
 def pad(pad_type, padding):
     pad_type = pad_type.lower()
     if padding == 0:
@@ -98,13 +72,19 @@ def pad(pad_type, padding):
     return layer
 
 
-def get_valid_padding(kernel_size, dilation):
-    """
-    Padding value to remain feature size.
-    """
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
+def activation(act_type='relu', inplace=True, slope=0.2, n_prelu=1):
+    act_type = act_type.lower()
+    layer = None
+    if act_type == 'relu':
+        layer = nn.ReLU(inplace)
+    elif act_type == 'lrelu':
+        layer = nn.LeakyReLU(slope, inplace)
+    elif act_type == 'prelu':
+        layer = nn.PReLU(num_parameters=n_prelu, init=slope)
+    else:
+        raise NotImplementedError(
+            '[ERROR] Activation layer [%s] is not implemented!' % act_type)
+    return layer
 
 
 def sequential(*args):
@@ -123,6 +103,26 @@ def sequential(*args):
         elif isinstance(module, nn.Module):
             modules.append(module)
     return nn.Sequential(*modules)
+
+
+def get_valid_padding(kernel_size, dilation):
+    """
+    Padding value to remain feature size.
+    """
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def norm(n_feature, norm_type='bn'):
+    norm_type = norm_type.lower()
+    layer = None
+    if norm_type == 'bn':
+        layer = nn.BatchNorm2d(n_feature)
+    else:
+        raise NotImplementedError(
+            '[ERROR] Normalization layer [%s] is not implemented!' % norm_type)
+    return layer
 
 
 def ConvBlock(in_channels, out_channels, kernel_size, stride=1, dilation=1,
@@ -845,27 +845,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Paper99_SRFBN_CVPR19(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
-        self._check(UpprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(D_UpprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(D_DownprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(D_UpprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_004(self):
+    def test_002(self):
         self._check(DensebackprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'bp_stages': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(ResidualDenseBlock_8C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_003(self):
+        self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_006(self):
+    def test_004(self):
+        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_006(self):
+        self._check(ResidualDenseBlock_8C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpprojBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

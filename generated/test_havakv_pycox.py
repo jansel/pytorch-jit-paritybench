@@ -150,16 +150,6 @@ class _Loss(torch.nn.Module):
         self.reduction = reduction
 
 
-def cox_cc_loss_single_ctrl(g_case: Tensor, g_control: Tensor, shrink:
-    float=0.0) ->Tensor:
-    """CoxCC and CoxTime loss, but with only a single control.
-    """
-    loss = F.softplus(g_control - g_case).mean()
-    if shrink != 0:
-        loss += shrink * (g_case.abs().mean() + g_control.abs().mean())
-    return loss
-
-
 def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink: float=0.0, clamp:
     Tuple[float, float]=(-3e+38, 80.0)) ->Tensor:
     """Torch loss function for the Cox case-control models.
@@ -192,6 +182,16 @@ def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink: float=0.0, clamp:
     shrink_zero = shrink * (g_case.abs().mean() + shrink_control) / len(
         g_control)
     return torch.mean(loss) + shrink_zero.abs()
+
+
+def cox_cc_loss_single_ctrl(g_case: Tensor, g_control: Tensor, shrink:
+    float=0.0) ->Tensor:
+    """CoxCC and CoxTime loss, but with only a single control.
+    """
+    loss = F.softplus(g_control - g_case).mean()
+    if shrink != 0:
+        loss += shrink * (g_case.abs().mean() + g_control.abs().mean())
+    return loss
 
 
 def cox_ph_loss_sorted(log_h: Tensor, events: Tensor, eps: float=1e-07
@@ -270,8 +270,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_havakv_pycox(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CoxPHLossSorted(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CoxPHLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(CoxPHLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CoxPHLossSorted(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

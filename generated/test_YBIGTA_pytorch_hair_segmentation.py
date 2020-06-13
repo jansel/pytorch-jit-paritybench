@@ -665,30 +665,30 @@ class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HairMattingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(_ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(OrangeBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(MobileMattingFCN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(HairMattingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(OrangeBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_003(self):
         self._check(PyramidPoolingModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    @_fails_compile()
+    def test_004(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(UpsampleLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(_ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 

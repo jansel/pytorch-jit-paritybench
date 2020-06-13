@@ -574,23 +574,23 @@ class Test_DropEdge_DropEdge(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(GraphConvolutionBS(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(Dense(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(GraphBaseBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(DenseGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MultiLayerGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(GCNModel(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'nhidlayer': 1, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(ResGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(GraphBaseBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(DenseGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(GraphConvolutionBS(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
@@ -598,9 +598,9 @@ class Test_DropEdge_DropEdge(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
-        self._check(Dense(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiLayerGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(GCNModel(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'nhidlayer': 1, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(ResGCNBlock(*[], **{'in_features': 4, 'out_features': 4, 'nbaselayer': 1}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

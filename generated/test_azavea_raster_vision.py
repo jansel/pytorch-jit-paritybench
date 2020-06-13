@@ -459,6 +459,36 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import Subset
 
 
+def get_out_channels(model):
+    out = {}
+
+    def make_save_output(layer_name):
+
+        def save_output(layer, input, output):
+            out[layer_name] = output.shape[1]
+        return save_output
+    model.layer1.register_forward_hook(make_save_output('layer1'))
+    model.layer2.register_forward_hook(make_save_output('layer2'))
+    model.layer3.register_forward_hook(make_save_output('layer3'))
+    model.layer4.register_forward_hook(make_save_output('layer4'))
+    model(torch.empty((1, 3, 128, 128)))
+    return [out['layer1'], out['layer2'], out['layer3'], out['layer4']]
+
+
+def resnet_fpn_backbone(backbone_name, pretrained):
+    backbone = resnet.__dict__[backbone_name](pretrained=pretrained,
+        norm_layer=misc_nn_ops.FrozenBatchNorm2d)
+    for name, parameter in backbone.named_parameters():
+        if ('layer2' not in name and 'layer3' not in name and 'layer4' not in
+            name):
+            parameter.requires_grad_(False)
+    return_layers = {'layer1': 0, 'layer2': 1, 'layer3': 2, 'layer4': 3}
+    out_channels = 256
+    in_channels_list = get_out_channels(backbone)
+    return BackboneWithFPN(backbone, return_layers, in_channels_list,
+        out_channels)
+
+
 class BoxList:
 
     def __init__(self, boxes, **extras):
@@ -572,36 +602,6 @@ class BoxList:
         for k, v in self.extras.items():
             self.extras[k] = v.pin_memory()
         return self
-
-
-def get_out_channels(model):
-    out = {}
-
-    def make_save_output(layer_name):
-
-        def save_output(layer, input, output):
-            out[layer_name] = output.shape[1]
-        return save_output
-    model.layer1.register_forward_hook(make_save_output('layer1'))
-    model.layer2.register_forward_hook(make_save_output('layer2'))
-    model.layer3.register_forward_hook(make_save_output('layer3'))
-    model.layer4.register_forward_hook(make_save_output('layer4'))
-    model(torch.empty((1, 3, 128, 128)))
-    return [out['layer1'], out['layer2'], out['layer3'], out['layer4']]
-
-
-def resnet_fpn_backbone(backbone_name, pretrained):
-    backbone = resnet.__dict__[backbone_name](pretrained=pretrained,
-        norm_layer=misc_nn_ops.FrozenBatchNorm2d)
-    for name, parameter in backbone.named_parameters():
-        if ('layer2' not in name and 'layer3' not in name and 'layer4' not in
-            name):
-            parameter.requires_grad_(False)
-    return_layers = {'layer1': 0, 'layer2': 1, 'layer3': 2, 'layer4': 3}
-    out_channels = 256
-    in_channels_list = get_out_channels(backbone)
-    return BackboneWithFPN(backbone, return_layers, in_channels_list,
-        out_channels)
 
 
 class MyFasterRCNN(nn.Module):

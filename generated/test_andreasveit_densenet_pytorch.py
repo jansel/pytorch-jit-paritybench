@@ -184,8 +184,8 @@ class Test_andreasveit_densenet_pytorch(_paritybench_base):
         self._check(BottleneckBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(TransitionBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseNet3(*[], **{'depth': 1, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_003(self):
-        self._check(DenseNet3(*[], **{'depth': 1, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(TransitionBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

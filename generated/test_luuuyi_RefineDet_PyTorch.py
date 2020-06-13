@@ -89,6 +89,17 @@ class L2Norm(nn.Module):
         return out
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -195,17 +206,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 _global_config['variance'] = 4

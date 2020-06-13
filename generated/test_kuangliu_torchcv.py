@@ -718,11 +718,11 @@ class Test_kuangliu_torchcv(_paritybench_base):
         self._check(FPNSSD512(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
-        self._check(RetinaNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(L2Norm(*[], **{'in_features': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(VGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(RetinaNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_004(self):
-        self._check(L2Norm(*[], **{'in_features': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(VGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

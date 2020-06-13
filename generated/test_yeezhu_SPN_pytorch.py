@@ -103,18 +103,6 @@ class LegacyModel(nn.Module):
         return '{}({})'.format(self.__class__.__name__, repr(self.model))
 
 
-def unhook_spn(model):
-    try:
-        model.sp_hook.remove()
-        model.fc_hook.remove()
-        del model.sp_hook
-        del model.fc_hook
-        model.train(model._training)
-        return model
-    except:
-        raise RuntimeError("The model haven't been hooked!")
-
-
 def hook_spn(model):
     if not (hasattr(model, 'sp_hook') and hasattr(model, 'fc_hook')):
         model._training = model.training
@@ -145,6 +133,18 @@ def hook_spn(model):
             model.sp_hook = sp_layer.register_forward_hook(_sp_hook)
             model.fc_hook = fc_layer.register_forward_hook(_fc_hook)
     return model
+
+
+def unhook_spn(model):
+    try:
+        model.sp_hook.remove()
+        model.fc_hook.remove()
+        del model.sp_hook
+        del model.fc_hook
+        model.train(model._training)
+        return model
+    except:
+        raise RuntimeError("The model haven't been hooked!")
 
 
 class SP_GoogLeNet(nn.Module):

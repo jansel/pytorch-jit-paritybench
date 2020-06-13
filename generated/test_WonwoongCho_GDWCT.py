@@ -454,17 +454,17 @@ class Test_WonwoongCho_GDWCT(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Decoder(*[], **{'input_dim': 4, 'mask': 4, 'n_group': 4, 'bias_dim': 4, 'mlp_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_002(self):
-        self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

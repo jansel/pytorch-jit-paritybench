@@ -99,160 +99,6 @@ class ExampleOperation(nn.Module):
         return self.seq(x)
 
 
-class AdditiveBlockFunction2(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, xin, Fm, Gm, *weights):
-        """Forward pass computes:
-        {x1, x2} = x
-        y1 = x1 + Fm(x2)
-        y2 = x2 + Gm(y1)
-        output = {y1, y2}
-
-        Parameters
-        ----------
-        ctx : torch.autograd.Function
-            The backward pass context object
-        x : TorchTensor
-            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
-        Fm : nn.Module
-            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
-        Gm : nn.Module
-            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
-        *weights : TorchTensor
-            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
-
-        Note
-        ----
-        All tensor/autograd variable input arguments and the output are
-        TorchTensors for the scope of this fuction
-
-        """
-        assert xin.shape[1] % 2 == 0
-        ctx.Fm = Fm
-        ctx.Gm = Gm
-        with torch.no_grad():
-            x = xin.detach()
-            x1, x2 = torch.chunk(x, 2, dim=1)
-            x1, x2 = x1.contiguous(), x2.contiguous()
-            fmr = Fm.forward(x2)
-            y1 = x1 + fmr
-            x1.set_()
-            del x1
-            gmr = Gm.forward(y1)
-            y2 = x2 + gmr
-            x2.set_()
-            del x2
-            output = torch.cat([y1, y2], dim=1).detach_()
-        ctx.save_for_backward(x, output)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        Fm, Gm = ctx.Fm, ctx.Gm
-        x, output = ctx.saved_tensors
-        with torch.no_grad():
-            y1, y2 = torch.chunk(output, 2, dim=1)
-            y1, y2 = y1.contiguous(), y2.contiguous()
-            assert grad_output.shape[1] % 2 == 0
-            y1_grad, y2_grad = torch.chunk(grad_output, 2, dim=1)
-            y1_grad, y2_grad = y1_grad.contiguous(), y2_grad.contiguous()
-        with set_grad_enabled(True):
-            z1_stop = y1.detach()
-            z1_stop.requires_grad = True
-            G_z1 = Gm.forward(z1_stop)
-            x2 = y2 - G_z1
-            x2_stop = x2.detach()
-            x2_stop.requires_grad = True
-            F_x2 = Fm.forward(x2_stop)
-            x1 = y1 - F_x2
-            x1_stop = x1.detach()
-            x1_stop.requires_grad = True
-            y1 = x1_stop + F_x2
-            y2 = x2_stop + G_z1
-            dd = torch.autograd.grad(y2, (z1_stop,) + tuple(Gm.parameters()
-                ), y2_grad, retain_graph=False)
-            z1_grad = dd[0] + y1_grad
-            GWgrads = dd[1:]
-            dd = torch.autograd.grad(y1, (x1_stop, x2_stop) + tuple(Fm.
-                parameters()), z1_grad, retain_graph=False)
-            FWgrads = dd[2:]
-            x2_grad = dd[1] + y2_grad
-            x1_grad = dd[0]
-            grad_input = torch.cat([x1_grad, x2_grad], dim=1)
-        return (grad_input, None, None) + FWgrads + GWgrads
-
-
-class AdditiveBlockFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, xin, Fm, Gm, *weights):
-        """Forward pass computes:
-        {x1, x2} = x
-        y1 = x1 + Fm(x2)
-        y2 = x2 + Gm(y1)
-        output = {y1, y2}
-
-        Parameters
-        ----------
-        ctx : torch.autograd.Function
-            The backward pass context object
-        x : TorchTensor
-            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
-        Fm : nn.Module
-            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
-        Gm : nn.Module
-            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
-        *weights : TorchTensor
-            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
-
-        Note
-        ----
-        All tensor/autograd variable input arguments and the output are
-        TorchTensors for the scope of this function
-
-        """
-        assert xin.shape[1] % 2 == 0
-        ctx.Fm = Fm
-        ctx.Gm = Gm
-        with torch.no_grad():
-            x = xin.detach()
-            x1, x2 = torch.chunk(x, 2, dim=1)
-            x1, x2 = x1.contiguous(), x2.contiguous()
-            fmr = Fm.forward(x2)
-            y1 = x1 + fmr
-            x1.set_()
-            del x1
-            gmr = Gm.forward(y1)
-            y2 = x2 + gmr
-            x2.set_()
-            del x2
-            output = torch.cat([y1, y2], dim=1)
-        ctx.save_for_backward(xin, output)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        Fm, Gm = ctx.Fm, ctx.Gm
-        xin, output = ctx.saved_tensors
-        x = xin.detach()
-        x1, x2 = torch.chunk(x, 2, dim=1)
-        GWeights = [p for p in Gm.parameters()]
-        assert grad_output.shape[1] % 2 == 0
-        with set_grad_enabled(True):
-            x1.requires_grad_()
-            x2.requires_grad_()
-            y1 = x1 + Fm.forward(x2)
-            y2 = x2 + Gm.forward(y1)
-            y = torch.cat([y1, y2], dim=1)
-            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
-                tuple(Fm.parameters()), grad_output)
-            GWgrads = dd[2:2 + len(GWeights)]
-            FWgrads = dd[2 + len(GWeights):]
-            grad_input = torch.cat([dd[0], dd[1]], dim=1)
-        return (grad_input, None, None) + FWgrads + GWgrads
-
-
 class AdditiveBlockInverseFunction2(torch.autograd.Function):
 
     @staticmethod
@@ -334,6 +180,160 @@ class AdditiveBlockInverseFunction2(torch.autograd.Function):
             y1_grad = dd[1] + x1_grad
             y2_grad = dd[0]
             grad_input = torch.cat([y1_grad, y2_grad], dim=1)
+        return (grad_input, None, None) + FWgrads + GWgrads
+
+
+class AdditiveBlockFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, xin, Fm, Gm, *weights):
+        """Forward pass computes:
+        {x1, x2} = x
+        y1 = x1 + Fm(x2)
+        y2 = x2 + Gm(y1)
+        output = {y1, y2}
+
+        Parameters
+        ----------
+        ctx : torch.autograd.Function
+            The backward pass context object
+        x : TorchTensor
+            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
+        Fm : nn.Module
+            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
+        Gm : nn.Module
+            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
+        *weights : TorchTensor
+            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
+
+        Note
+        ----
+        All tensor/autograd variable input arguments and the output are
+        TorchTensors for the scope of this function
+
+        """
+        assert xin.shape[1] % 2 == 0
+        ctx.Fm = Fm
+        ctx.Gm = Gm
+        with torch.no_grad():
+            x = xin.detach()
+            x1, x2 = torch.chunk(x, 2, dim=1)
+            x1, x2 = x1.contiguous(), x2.contiguous()
+            fmr = Fm.forward(x2)
+            y1 = x1 + fmr
+            x1.set_()
+            del x1
+            gmr = Gm.forward(y1)
+            y2 = x2 + gmr
+            x2.set_()
+            del x2
+            output = torch.cat([y1, y2], dim=1)
+        ctx.save_for_backward(xin, output)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        Fm, Gm = ctx.Fm, ctx.Gm
+        xin, output = ctx.saved_tensors
+        x = xin.detach()
+        x1, x2 = torch.chunk(x, 2, dim=1)
+        GWeights = [p for p in Gm.parameters()]
+        assert grad_output.shape[1] % 2 == 0
+        with set_grad_enabled(True):
+            x1.requires_grad_()
+            x2.requires_grad_()
+            y1 = x1 + Fm.forward(x2)
+            y2 = x2 + Gm.forward(y1)
+            y = torch.cat([y1, y2], dim=1)
+            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
+                tuple(Fm.parameters()), grad_output)
+            GWgrads = dd[2:2 + len(GWeights)]
+            FWgrads = dd[2 + len(GWeights):]
+            grad_input = torch.cat([dd[0], dd[1]], dim=1)
+        return (grad_input, None, None) + FWgrads + GWgrads
+
+
+class AdditiveBlockFunction2(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, xin, Fm, Gm, *weights):
+        """Forward pass computes:
+        {x1, x2} = x
+        y1 = x1 + Fm(x2)
+        y2 = x2 + Gm(y1)
+        output = {y1, y2}
+
+        Parameters
+        ----------
+        ctx : torch.autograd.Function
+            The backward pass context object
+        x : TorchTensor
+            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
+        Fm : nn.Module
+            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
+        Gm : nn.Module
+            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
+        *weights : TorchTensor
+            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
+
+        Note
+        ----
+        All tensor/autograd variable input arguments and the output are
+        TorchTensors for the scope of this fuction
+
+        """
+        assert xin.shape[1] % 2 == 0
+        ctx.Fm = Fm
+        ctx.Gm = Gm
+        with torch.no_grad():
+            x = xin.detach()
+            x1, x2 = torch.chunk(x, 2, dim=1)
+            x1, x2 = x1.contiguous(), x2.contiguous()
+            fmr = Fm.forward(x2)
+            y1 = x1 + fmr
+            x1.set_()
+            del x1
+            gmr = Gm.forward(y1)
+            y2 = x2 + gmr
+            x2.set_()
+            del x2
+            output = torch.cat([y1, y2], dim=1).detach_()
+        ctx.save_for_backward(x, output)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        Fm, Gm = ctx.Fm, ctx.Gm
+        x, output = ctx.saved_tensors
+        with torch.no_grad():
+            y1, y2 = torch.chunk(output, 2, dim=1)
+            y1, y2 = y1.contiguous(), y2.contiguous()
+            assert grad_output.shape[1] % 2 == 0
+            y1_grad, y2_grad = torch.chunk(grad_output, 2, dim=1)
+            y1_grad, y2_grad = y1_grad.contiguous(), y2_grad.contiguous()
+        with set_grad_enabled(True):
+            z1_stop = y1.detach()
+            z1_stop.requires_grad = True
+            G_z1 = Gm.forward(z1_stop)
+            x2 = y2 - G_z1
+            x2_stop = x2.detach()
+            x2_stop.requires_grad = True
+            F_x2 = Fm.forward(x2_stop)
+            x1 = y1 - F_x2
+            x1_stop = x1.detach()
+            x1_stop.requires_grad = True
+            y1 = x1_stop + F_x2
+            y2 = x2_stop + G_z1
+            dd = torch.autograd.grad(y2, (z1_stop,) + tuple(Gm.parameters()
+                ), y2_grad, retain_graph=False)
+            z1_grad = dd[0] + y1_grad
+            GWgrads = dd[1:]
+            dd = torch.autograd.grad(y1, (x1_stop, x2_stop) + tuple(Fm.
+                parameters()), z1_grad, retain_graph=False)
+            FWgrads = dd[2:]
+            x2_grad = dd[1] + y2_grad
+            x1_grad = dd[0]
+            grad_input = torch.cat([x1_grad, x2_grad], dim=1)
         return (grad_input, None, None) + FWgrads + GWgrads
 
 
@@ -530,6 +530,167 @@ class AffineAdapterSigmoid(nn.Module):
         return scale, shift
 
 
+class AffineBlockFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, xin, Fm, Gm, *weights):
+        """Forward pass for the affine block computes:
+        {x1, x2} = x
+        {log_s1, t1} = Fm(x2)
+        s1 = exp(log_s1)
+        y1 = s1 * x1 + t1
+        {log_s2, t2} = Gm(y1)
+        s2 = exp(log_s2)
+        y2 = s2 * x2 + t2
+        output = {y1, y2}
+
+        Parameters
+        ----------
+        ctx : torch.autograd.function.RevNetFunctionBackward
+            The backward pass context object
+        x : TorchTensor
+            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
+        Fm : nn.Module
+            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
+        Gm : nn.Module
+            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
+        *weights : TorchTensor
+            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
+
+        Note
+        ----
+        All tensor/autograd variable input arguments and the output are
+        TorchTensors for the scope of this function
+
+        """
+        assert xin.shape[1] % 2 == 0
+        ctx.Fm = Fm
+        ctx.Gm = Gm
+        with torch.no_grad():
+            x = xin.detach()
+            x1, x2 = torch.chunk(x, 2, dim=1)
+            x1, x2 = x1.contiguous(), x2.contiguous()
+            x2var = x2
+            fmr1, fmr2 = Fm.forward(x2var)
+            y1 = x1 * fmr1 + fmr2
+            x1.set_()
+            del x1
+            y1var = y1
+            gmr1, gmr2 = Gm.forward(y1var)
+            y2 = x2 * gmr1 + gmr2
+            x2.set_()
+            del x2
+            output = torch.cat([y1, y2], dim=1).detach_()
+        ctx.save_for_backward(xin, output)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        Fm, Gm = ctx.Fm, ctx.Gm
+        xin, output = ctx.saved_tensors
+        x = xin.detach()
+        x1, x2 = torch.chunk(x.detach(), 2, dim=1)
+        GWeights = [p for p in Gm.parameters()]
+        assert grad_output.shape[1] % 2 == 0
+        with set_grad_enabled(True):
+            x1.requires_grad = True
+            x2.requires_grad = True
+            fmr1, fmr2 = Fm.forward(x2)
+            y1 = x1 * fmr1 + fmr2
+            gmr1, gmr2 = Gm.forward(y1)
+            y2 = x2 * gmr1 + gmr2
+            y = torch.cat([y1, y2], dim=1)
+            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
+                tuple(Fm.parameters()), grad_output)
+            GWgrads = dd[2:2 + len(GWeights)]
+            FWgrads = dd[2 + len(GWeights):]
+            grad_input = torch.cat([dd[0], dd[1]], dim=1)
+        return (grad_input, None, None) + FWgrads + GWgrads
+
+
+class AffineBlockInverseFunction2(torch.autograd.Function):
+
+    @staticmethod
+    def forward(cty, yin, Fm, Gm, *weights):
+        """Forward pass for the affine block computes:
+
+        Parameters
+        ----------
+        cty : torch.autograd.function.RevNetInverseFunctionBackward
+            The backward pass context object
+        y : TorchTensor
+            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
+        Fm : nn.Module
+            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
+        Gm : nn.Module
+            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
+        *weights : TorchTensor
+            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
+
+        Note
+        ----
+        All tensor/autograd variable input arguments and the output are
+        TorchTensors for the scope of this fuction
+
+        """
+        assert yin.shape[1] % 2 == 0
+        cty.Fm = Fm
+        cty.Gm = Gm
+        with torch.no_grad():
+            y = yin.detach()
+            y1, y2 = torch.chunk(y, 2, dim=1)
+            y1, y2 = y1.contiguous(), y2.contiguous()
+            y1var = y1
+            gmr1, gmr2 = Gm.forward(y1var)
+            x2 = (y2 - gmr2) / gmr1
+            y2.set_()
+            del y2
+            x2var = x2
+            fmr1, fmr2 = Fm.forward(x2var)
+            x1 = (y1 - fmr2) / fmr1
+            y1.set_()
+            del y1
+            output = torch.cat([x1, x2], dim=1).detach_()
+        cty.save_for_backward(yin, output)
+        return output
+
+    @staticmethod
+    def backward(cty, grad_output):
+        Fm, Gm = cty.Fm, cty.Gm
+        y, output = cty.saved_tensors
+        with set_grad_enabled(False):
+            x1, x2 = torch.chunk(output, 2, dim=1)
+            x1, x2 = x1.contiguous(), x2.contiguous()
+            assert grad_output.shape[1] % 2 == 0
+            x1_grad, x2_grad = torch.chunk(grad_output, 2, dim=1)
+            x1_grad, x2_grad = x1_grad.contiguous(), x2_grad.contiguous()
+        with set_grad_enabled(True):
+            z1_stop = x2
+            z1_stop.requires_grad = True
+            F_z11, F_z12 = Fm.forward(z1_stop)
+            y1 = x1 * F_z11 + F_z12
+            y1_stop = y1.detach()
+            y1_stop.requires_grad = True
+            G_y11, G_y12 = Gm.forward(y1_stop)
+            y2 = x2 * G_y11 + G_y12
+            y2_stop = y2.detach()
+            y2_stop.requires_grad = True
+            z1 = (y2_stop - G_y12) / G_y11
+            x1_ = (y1_stop - F_z12) / F_z11
+            x2_ = z1
+            dd = torch.autograd.grad(x1_, (z1_stop,) + tuple(Fm.parameters(
+                )), x1_grad)
+            z1_grad = dd[0] + x2_grad
+            FWgrads = dd[1:]
+            dd = torch.autograd.grad(x2_, (y2_stop, y1_stop) + tuple(Gm.
+                parameters()), z1_grad, retain_graph=False)
+            GWgrads = dd[2:]
+            y1_grad = dd[1] + x1_grad
+            y2_grad = dd[0]
+            grad_input = torch.cat([y1_grad, y2_grad], dim=1)
+        return (grad_input, None, None) + FWgrads + GWgrads
+
+
 class AffineBlockFunction2(torch.autograd.Function):
 
     @staticmethod
@@ -621,167 +782,6 @@ class AffineBlockFunction2(torch.autograd.Function):
             y1_.detach_()
             y2_.detach_()
             del y1_, y2_
-        return (grad_input, None, None) + FWgrads + GWgrads
-
-
-class AffineBlockInverseFunction2(torch.autograd.Function):
-
-    @staticmethod
-    def forward(cty, yin, Fm, Gm, *weights):
-        """Forward pass for the affine block computes:
-
-        Parameters
-        ----------
-        cty : torch.autograd.function.RevNetInverseFunctionBackward
-            The backward pass context object
-        y : TorchTensor
-            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
-        Fm : nn.Module
-            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
-        Gm : nn.Module
-            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
-        *weights : TorchTensor
-            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
-
-        Note
-        ----
-        All tensor/autograd variable input arguments and the output are
-        TorchTensors for the scope of this fuction
-
-        """
-        assert yin.shape[1] % 2 == 0
-        cty.Fm = Fm
-        cty.Gm = Gm
-        with torch.no_grad():
-            y = yin.detach()
-            y1, y2 = torch.chunk(y, 2, dim=1)
-            y1, y2 = y1.contiguous(), y2.contiguous()
-            y1var = y1
-            gmr1, gmr2 = Gm.forward(y1var)
-            x2 = (y2 - gmr2) / gmr1
-            y2.set_()
-            del y2
-            x2var = x2
-            fmr1, fmr2 = Fm.forward(x2var)
-            x1 = (y1 - fmr2) / fmr1
-            y1.set_()
-            del y1
-            output = torch.cat([x1, x2], dim=1).detach_()
-        cty.save_for_backward(yin, output)
-        return output
-
-    @staticmethod
-    def backward(cty, grad_output):
-        Fm, Gm = cty.Fm, cty.Gm
-        y, output = cty.saved_tensors
-        with set_grad_enabled(False):
-            x1, x2 = torch.chunk(output, 2, dim=1)
-            x1, x2 = x1.contiguous(), x2.contiguous()
-            assert grad_output.shape[1] % 2 == 0
-            x1_grad, x2_grad = torch.chunk(grad_output, 2, dim=1)
-            x1_grad, x2_grad = x1_grad.contiguous(), x2_grad.contiguous()
-        with set_grad_enabled(True):
-            z1_stop = x2
-            z1_stop.requires_grad = True
-            F_z11, F_z12 = Fm.forward(z1_stop)
-            y1 = x1 * F_z11 + F_z12
-            y1_stop = y1.detach()
-            y1_stop.requires_grad = True
-            G_y11, G_y12 = Gm.forward(y1_stop)
-            y2 = x2 * G_y11 + G_y12
-            y2_stop = y2.detach()
-            y2_stop.requires_grad = True
-            z1 = (y2_stop - G_y12) / G_y11
-            x1_ = (y1_stop - F_z12) / F_z11
-            x2_ = z1
-            dd = torch.autograd.grad(x1_, (z1_stop,) + tuple(Fm.parameters(
-                )), x1_grad)
-            z1_grad = dd[0] + x2_grad
-            FWgrads = dd[1:]
-            dd = torch.autograd.grad(x2_, (y2_stop, y1_stop) + tuple(Gm.
-                parameters()), z1_grad, retain_graph=False)
-            GWgrads = dd[2:]
-            y1_grad = dd[1] + x1_grad
-            y2_grad = dd[0]
-            grad_input = torch.cat([y1_grad, y2_grad], dim=1)
-        return (grad_input, None, None) + FWgrads + GWgrads
-
-
-class AffineBlockFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, xin, Fm, Gm, *weights):
-        """Forward pass for the affine block computes:
-        {x1, x2} = x
-        {log_s1, t1} = Fm(x2)
-        s1 = exp(log_s1)
-        y1 = s1 * x1 + t1
-        {log_s2, t2} = Gm(y1)
-        s2 = exp(log_s2)
-        y2 = s2 * x2 + t2
-        output = {y1, y2}
-
-        Parameters
-        ----------
-        ctx : torch.autograd.function.RevNetFunctionBackward
-            The backward pass context object
-        x : TorchTensor
-            Input tensor. Must have channels (2nd dimension) that can be partitioned in two equal partitions
-        Fm : nn.Module
-            Module to use for computation, must retain dimensions such that Fm(X)=Y, X.shape == Y.shape
-        Gm : nn.Module
-            Module to use for computation, must retain dimensions such that Gm(X)=Y, X.shape == Y.shape
-        *weights : TorchTensor
-            weights for Fm and Gm in that order {Fm_w1, ... Fm_wn, Gm_w1, ... Gm_wn}
-
-        Note
-        ----
-        All tensor/autograd variable input arguments and the output are
-        TorchTensors for the scope of this function
-
-        """
-        assert xin.shape[1] % 2 == 0
-        ctx.Fm = Fm
-        ctx.Gm = Gm
-        with torch.no_grad():
-            x = xin.detach()
-            x1, x2 = torch.chunk(x, 2, dim=1)
-            x1, x2 = x1.contiguous(), x2.contiguous()
-            x2var = x2
-            fmr1, fmr2 = Fm.forward(x2var)
-            y1 = x1 * fmr1 + fmr2
-            x1.set_()
-            del x1
-            y1var = y1
-            gmr1, gmr2 = Gm.forward(y1var)
-            y2 = x2 * gmr1 + gmr2
-            x2.set_()
-            del x2
-            output = torch.cat([y1, y2], dim=1).detach_()
-        ctx.save_for_backward(xin, output)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        Fm, Gm = ctx.Fm, ctx.Gm
-        xin, output = ctx.saved_tensors
-        x = xin.detach()
-        x1, x2 = torch.chunk(x.detach(), 2, dim=1)
-        GWeights = [p for p in Gm.parameters()]
-        assert grad_output.shape[1] % 2 == 0
-        with set_grad_enabled(True):
-            x1.requires_grad = True
-            x2.requires_grad = True
-            fmr1, fmr2 = Fm.forward(x2)
-            y1 = x1 * fmr1 + fmr2
-            gmr1, gmr2 = Gm.forward(y1)
-            y2 = x2 * gmr1 + gmr2
-            y = torch.cat([y1, y2], dim=1)
-            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
-                tuple(Fm.parameters()), grad_output)
-            GWgrads = dd[2:2 + len(GWeights)]
-            FWgrads = dd[2 + len(GWeights):]
-            grad_input = torch.cat([dd[0], dd[1]], dim=1)
         return (grad_input, None, None) + FWgrads + GWgrads
 
 
@@ -1574,39 +1574,39 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_silvandeleemput_memcnn(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ExampleOperation(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlockSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(BottleneckSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BasicBlockSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(MultiplicationInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(IdentityInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(MultiSharedOutputs(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(SubModule(*[], **{}), [torch.rand([4, 5, 64, 64])], {})
-
-    def test_008(self):
-        self._check(SplitChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
         self._check(ConcatenateChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    @_fails_compile()
+    def test_004(self):
+        self._check(CrossEntropyLossTF(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_005(self):
         self._check(DummyModel(*[], **{'block': 1}), [torch.rand([4, 1, 64, 64])], {})
 
-    @_fails_compile()
+    def test_006(self):
+        self._check(ExampleOperation(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(IdentityInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(MultiSharedOutputs(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(MultiplicationInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(SplitChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_011(self):
-        self._check(CrossEntropyLossTF(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(SubModule(*[], **{}), [torch.rand([4, 5, 64, 64])], {})
 

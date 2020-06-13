@@ -334,23 +334,6 @@ class DetNet(nn.Module):
         return x
 
 
-def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
-    bbox_outside_weights, sigma=1.0, dim=[1]):
-    sigma_2 = sigma ** 2
-    box_diff = bbox_pred - bbox_targets
-    in_box_diff = bbox_inside_weights * box_diff
-    abs_in_box_diff = torch.abs(in_box_diff)
-    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
-    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
-        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
-        smoothL1_sign)
-    out_loss_box = bbox_outside_weights * in_loss_box
-    loss_box = out_loss_box
-    s = loss_box.size(0)
-    loss_box = loss_box.view(s, -1).sum(1).mean()
-    return loss_box
-
-
 def _affine_grid_gen(rois, input_size, grid_size):
     rois = rois.detach()
     x1 = rois[:, 1::4] / 16.0
@@ -366,6 +349,23 @@ def _affine_grid_gen(rois, input_size, grid_size):
     grid = F.affine_grid(theta, torch.Size((rois.size(0), 1, grid_size,
         grid_size)))
     return grid
+
+
+def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
+    bbox_outside_weights, sigma=1.0, dim=[1]):
+    sigma_2 = sigma ** 2
+    box_diff = bbox_pred - bbox_targets
+    in_box_diff = bbox_inside_weights * box_diff
+    abs_in_box_diff = torch.abs(in_box_diff)
+    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
+    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
+        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
+        smoothL1_sign)
+    out_loss_box = bbox_outside_weights * in_loss_box
+    loss_box = out_loss_box
+    s = loss_box.size(0)
+    loss_box = loss_box.view(s, -1).sum(1).mean()
+    return loss_box
 
 
 def clip_boxes(boxes, im_shape, batch_size):
@@ -398,10 +398,10 @@ def bbox_transform_inv(boxes, deltas, batch_size):
     return pred_boxes
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['TEST'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 def bbox_decode(rois, bbox_pred, batch_size, class_agnostic, classes,
@@ -432,13 +432,13 @@ def bbox_decode(rois, bbox_pred, batch_size, class_agnostic, classes,
     return ret_boxes
 
 
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
 _global_config['POOLING_MODE'] = 4
 
 
 _global_config['POOLING_SIZE'] = 4
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class _FPN(nn.Module):
@@ -1881,19 +1881,19 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-sources = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-with_cuda = False
+defines = []
 
 
 headers = []
 
 
-defines = []
+with_cuda = False
+
+
+sources = []
+
+
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 class RoIPoolFunction(Function):
@@ -1989,61 +1989,6 @@ class RoIPool(nn.Module):
         return outputs
 
 
-def _unmap(data, count, inds, batch_size, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 2:
-        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
-        ret[:, (inds)] = data
-    else:
-        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
-            ).type_as(data)
-        ret[:, (inds), :] = data
-    return ret
-
-
-def bbox_transform_batch(ex_rois, gt_rois):
-    if ex_rois.dim() == 2:
-        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
-        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
-            ) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
-            gt_widths))
-        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
-            expand_as(gt_heights))
-    elif ex_rois.dim() == 3:
-        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
-        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths)
-        targets_dh = torch.log(gt_heights / ex_heights)
-    else:
-        raise ValueError('ex_roi input dimension is not correct.')
-    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
-    return targets
-
-
-def _compute_targets_batch(ex_rois, gt_rois):
-    """Compute bounding-box regression targets for an image."""
-    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
-
-
 def bbox_overlaps_batch(anchors, gt_boxes):
     """
     anchors: (N, 4) ndarray of float
@@ -2118,6 +2063,48 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     return overlaps
 
 
+def bbox_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
+        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
+            ) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
+            ) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
+            gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
+            expand_as(gt_heights))
+    elif ex_rois.dim() == 3:
+        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
+        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths)
+        targets_dh = torch.log(gt_heights / ex_heights)
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
+    return targets
+
+
+def _compute_targets_batch(ex_rois, gt_rois):
+    """Compute bounding-box regression targets for an image."""
+    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
+
+
 def generate_anchors_single_pyramid(scales, ratios, shape, feature_stride,
     anchor_stride):
     """
@@ -2164,13 +2151,26 @@ def generate_anchors_all_pyramids(scales, ratios, feature_shapes,
     return np.concatenate(anchors, axis=0)
 
 
+def _unmap(data, count, inds, batch_size, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 2:
+        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
+        ret[:, (inds)] = data
+    else:
+        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
+            ).type_as(data)
+        ret[:, (inds), :] = data
+    return ret
+
+
+_global_config['FPN_ANCHOR_STRIDE'] = 4
+
+
 _global_config['FPN_ANCHOR_SCALES'] = 4
 
 
 _global_config['FPN_FEAT_STRIDES'] = 4
-
-
-_global_config['FPN_ANCHOR_STRIDE'] = 4
 
 
 class _AnchorTargetLayer_FPN(nn.Module):
@@ -2540,10 +2540,10 @@ class _ProposalTargetLayer(nn.Module):
 _global_config['FEAT_STRIDE'] = 4
 
 
-_global_config['ANCHOR_SCALES'] = 4
-
-
 _global_config['ANCHOR_RATIOS'] = 4
+
+
+_global_config['ANCHOR_SCALES'] = 4
 
 
 class _RPN_FPN(nn.Module):

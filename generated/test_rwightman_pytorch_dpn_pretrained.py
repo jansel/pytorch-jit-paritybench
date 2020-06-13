@@ -310,17 +310,17 @@ class Test_rwightman_pytorch_dpn_pretrained(_paritybench_base):
     def test_000(self):
         self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BnActConv2d(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
+    @_fails_compile()
+    def test_002(self):
+        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(DPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
+        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
 

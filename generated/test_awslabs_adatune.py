@@ -389,14 +389,14 @@ class Test_awslabs_adatune(_paritybench_base):
         self._check(BottleNeck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(WideBasicBlock(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(DenseNetBottleNeck(*[], **{'n_channels': 4, 'growth_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(SingleLayer(*[], **{'n_channels': 4, 'growth_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(Transition(*[], **{'n_channels': 4, 'n_out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(WideBasicBlock(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

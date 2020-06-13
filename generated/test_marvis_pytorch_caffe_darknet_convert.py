@@ -292,16 +292,6 @@ class EmptyModule(nn.Module):
         return x
 
 
-def save_cfg(blocks, cfgfile):
-    with open(cfgfile, 'w') as fp:
-        for block in blocks:
-            fp.write('[%s]\n' % block['type'])
-            for key, value in block.items():
-                if key != 'type':
-                    fp.write('%s=%s\n' % (key, value))
-            fp.write('\n')
-
-
 def print_cfg(blocks):
     for block in blocks:
         print('[%s]' % block['type'])
@@ -322,21 +312,6 @@ def save_conv(fp, conv_model):
     else:
         conv_model.bias.data.numpy().tofile(fp)
         conv_model.weight.data.numpy().tofile(fp)
-
-
-def save_fc(fp, fc_model):
-    fc_model.bias.data.numpy().tofile(fp)
-    fc_model.weight.data.numpy().tofile(fp)
-
-
-def load_fc(buf, start, fc_model):
-    num_w = fc_model.weight.numel()
-    num_b = fc_model.bias.numel()
-    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
 
 
 def parse_cfg(cfgfile):
@@ -375,6 +350,16 @@ def parse_cfg(cfgfile):
     return blocks
 
 
+def load_conv(buf, start, conv_model):
+    num_w = conv_model.weight.numel()
+    num_b = conv_model.bias.numel()
+    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    start = start + num_w
+    return start
+
+
 def save_conv_bn(fp, conv_model, bn_model):
     if bn_model.bias.is_cuda:
         convert2cpu(bn_model.bias.data).numpy().tofile(fp)
@@ -390,14 +375,14 @@ def save_conv_bn(fp, conv_model, bn_model):
         conv_model.weight.data.numpy().tofile(fp)
 
 
-def load_conv(buf, start, conv_model):
-    num_w = conv_model.weight.numel()
-    num_b = conv_model.bias.numel()
-    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
+def save_cfg(blocks, cfgfile):
+    with open(cfgfile, 'w') as fp:
+        for block in blocks:
+            fp.write('[%s]\n' % block['type'])
+            for key, value in block.items():
+                if key != 'type':
+                    fp.write('%s=%s\n' % (key, value))
+            fp.write('\n')
 
 
 def save_conv_shrink_bn(fp, conv_model, bn_model, eps=1e-05):
@@ -419,6 +404,21 @@ def save_conv_shrink_bn(fp, conv_model, bn_model, eps=1e-05):
             sqrt(bn_model.running_var + eps)).view(-1, 1, 1, 1).repeat(1, s
             [1], s[2], s[3])
         weight.numpy().tofile(fp)
+
+
+def load_fc(buf, start, fc_model):
+    num_w = fc_model.weight.numel()
+    num_b = fc_model.bias.numel()
+    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
+    start = start + num_w
+    return start
+
+
+def save_fc(fp, fc_model):
+    fc_model.bias.data.numpy().tofile(fp)
+    fc_model.weight.data.numpy().tofile(fp)
 
 
 def load_conv_bn(buf, start, conv_model, bn_model):
@@ -471,19 +471,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_marvis_pytorch_caffe_darknet_convert(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(Eltwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

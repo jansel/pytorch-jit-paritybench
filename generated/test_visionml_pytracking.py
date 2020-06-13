@@ -1931,46 +1931,46 @@ class Test_visionml_pytracking(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SpatialCrossMapLRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(MLU(*[], **{'min_val': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(LeakyReluPar(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(LeakyReluParDeriv(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(BentIdentPar(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_002(self):
         self._check(BentIdentParDeriv(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
-        self._check(LinearBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'input_sz': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_003(self):
+        self._check(FilterInitializerZero(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_004(self):
         self._check(InstanceL2Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_005(self):
         self._check(InterpCat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_006(self):
         self._check(KLRegression(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_007(self):
         self._check(KLRegressionGrid(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_008(self):
         self._check(LBHinge(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_009(self):
+        self._check(LeakyReluPar(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(LeakyReluParDeriv(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(LinearBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'input_sz': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(MLU(*[], **{'min_val': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_013(self):
-        self._check(FilterInitializerZero(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialCrossMapLRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

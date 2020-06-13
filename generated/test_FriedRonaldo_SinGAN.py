@@ -516,24 +516,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_FriedRonaldo_SinGAN(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
         self._check(CInstanceNorm(*[], **{'nfilter': 4, 'nlabels': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
+    @_fails_compile()
+    def test_002(self):
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
     def test_003(self):
+        self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_004(self):
         self._check(MultiConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(SelfModulratedBatchNorm2d(*[], **{'num_features': 4, 'num_latent': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_005(self):
-        self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(SelfModulratedBatchNorm2d(*[], **{'num_features': 4, 'num_latent': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

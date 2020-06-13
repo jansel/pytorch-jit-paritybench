@@ -148,6 +148,11 @@ class SeparableConv2d(nn.Module):
         return self.conv(x)
 
 
+def relu_fn(x):
+    """ Swish activation function """
+    return x * torch.sigmoid(x)
+
+
 def drop_connect(inputs, p, training):
     """ Drop connect. """
     if not training:
@@ -160,11 +165,6 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
-
-
-def relu_fn(x):
-    """ Swish activation function """
-    return x * torch.sigmoid(x)
 
 
 class MBConvBlock(nn.Module):
@@ -239,6 +239,23 @@ class MBConvBlock(nn.Module):
         return x
 
 
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+INDICES = {'efficientnet-b3': [7, 17, 25]}
+
+
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate'])
+
+
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio'])
@@ -307,12 +324,6 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate'])
-
-
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2):
     """ Creates a efficientnet model. """
@@ -354,51 +365,18 @@ def get_model_params(model_name, override_params):
     return blocks_args, global_params
 
 
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
-INDICES = {'efficientnet-b3': [7, 17, 25]}
-
-
-def add_extras(cfg, i, size=300):
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    if size == 512:
-        layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
-        layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
-    return layers
-
-
-EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [
-    (256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 
-    256, 3, 1, 0)]]}
-
-
-def get_rank():
-    if not dist.is_available():
-        return 0
-    if not dist.is_initialized():
-        return 0
-    return dist.get_rank()
-
-
-def is_main_process():
-    return get_rank() == 0
+url_map = {'efficientnet-b0':
+    'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth',
+    'efficientnet-b1':
+    'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth',
+    'efficientnet-b2':
+    'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth',
+    'efficientnet-b3':
+    'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth',
+    'efficientnet-b4':
+    'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth',
+    'efficientnet-b5':
+    'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
 
 
 def synchronize():
@@ -414,6 +392,18 @@ def synchronize():
     if world_size == 1:
         return
     dist.barrier()
+
+
+def get_rank():
+    if not dist.is_available():
+        return 0
+    if not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_main_process():
+    return get_rank() == 0
 
 
 def cache_url(url, model_dir=None, progress=True):
@@ -461,25 +451,30 @@ def load_state_dict_from_url(url, map_location='cpu'):
     return torch.load(cached_file, map_location=map_location)
 
 
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth',
-    'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth',
-    'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth',
-    'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth',
-    'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth',
-    'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
-
-
 def load_pretrained_weights(model, model_name):
     """ Loads pretrained weights, and downloads if loading for the first time. """
     state_dict = load_state_dict_from_url(url_map[model_name])
     model.load_state_dict(state_dict, strict=False)
     print('Loaded pretrained weights for {}'.format(model_name))
+
+
+def add_extras(cfg, i, size=300):
+    layers = []
+    in_channels = i
+    flag = False
+    for k, v in enumerate(cfg):
+        if in_channels != 'S':
+            if v == 'S':
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
+                    1, 3)[flag], stride=2, padding=1)]
+            else:
+                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
+            flag = not flag
+        in_channels = v
+    if size == 512:
+        layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
+        layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
+    return layers
 
 
 def round_filters(filters, global_params):
@@ -496,6 +491,11 @@ def round_filters(filters, global_params):
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
+
+
+EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [
+    (256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 
+    256, 3, 1, 0)]]}
 
 
 class EfficientNet(nn.Module):
@@ -721,11 +721,6 @@ class MobileNetV2(nn.Module):
         return tuple(features)
 
 
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
-
-
 extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
     '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
 
@@ -751,6 +746,11 @@ def add_vgg(cfg, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
+
+
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
+    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
+    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class VGG(nn.Module):
@@ -789,49 +789,6 @@ class VGG(nn.Module):
             if k % 2 == 1:
                 features.append(x)
         return tuple(features)
-
-
-class PriorBox:
-
-    def __init__(self, cfg):
-        self.image_size = cfg.INPUT.IMAGE_SIZE
-        prior_config = cfg.MODEL.PRIORS
-        self.feature_maps = prior_config.FEATURE_MAPS
-        self.min_sizes = prior_config.MIN_SIZES
-        self.max_sizes = prior_config.MAX_SIZES
-        self.strides = prior_config.STRIDES
-        self.aspect_ratios = prior_config.ASPECT_RATIOS
-        self.clip = prior_config.CLIP
-
-    def __call__(self):
-        """Generate SSD Prior Boxes.
-            It returns the center, height and width of the priors. The values are relative to the image size
-            Returns:
-                priors (num_priors, 4): The prior boxes represented as [[center_x, center_y, w, h]]. All the values
-                    are relative to the image size.
-        """
-        priors = []
-        for k, f in enumerate(self.feature_maps):
-            scale = self.image_size / self.strides[k]
-            for i, j in product(range(f), repeat=2):
-                cx = (j + 0.5) / scale
-                cy = (i + 0.5) / scale
-                size = self.min_sizes[k]
-                h = w = size / self.image_size
-                priors.append([cx, cy, w, h])
-                size = sqrt(self.min_sizes[k] * self.max_sizes[k])
-                h = w = size / self.image_size
-                priors.append([cx, cy, w, h])
-                size = self.min_sizes[k]
-                h = w = size / self.image_size
-                for ratio in self.aspect_ratios[k]:
-                    ratio = sqrt(ratio)
-                    priors.append([cx, cy, w * ratio, h / ratio])
-                    priors.append([cx, cy, w / ratio, h * ratio])
-        priors = torch.tensor(priors)
-        if self.clip:
-            priors.clamp_(max=1, min=0)
-        return priors
 
 
 def nms(boxes, scores, nms_thresh):
@@ -984,6 +941,49 @@ class PostProcessor:
         return results
 
 
+class PriorBox:
+
+    def __init__(self, cfg):
+        self.image_size = cfg.INPUT.IMAGE_SIZE
+        prior_config = cfg.MODEL.PRIORS
+        self.feature_maps = prior_config.FEATURE_MAPS
+        self.min_sizes = prior_config.MIN_SIZES
+        self.max_sizes = prior_config.MAX_SIZES
+        self.strides = prior_config.STRIDES
+        self.aspect_ratios = prior_config.ASPECT_RATIOS
+        self.clip = prior_config.CLIP
+
+    def __call__(self):
+        """Generate SSD Prior Boxes.
+            It returns the center, height and width of the priors. The values are relative to the image size
+            Returns:
+                priors (num_priors, 4): The prior boxes represented as [[center_x, center_y, w, h]]. All the values
+                    are relative to the image size.
+        """
+        priors = []
+        for k, f in enumerate(self.feature_maps):
+            scale = self.image_size / self.strides[k]
+            for i, j in product(range(f), repeat=2):
+                cx = (j + 0.5) / scale
+                cy = (i + 0.5) / scale
+                size = self.min_sizes[k]
+                h = w = size / self.image_size
+                priors.append([cx, cy, w, h])
+                size = sqrt(self.min_sizes[k] * self.max_sizes[k])
+                h = w = size / self.image_size
+                priors.append([cx, cy, w, h])
+                size = self.min_sizes[k]
+                h = w = size / self.image_size
+                for ratio in self.aspect_ratios[k]:
+                    ratio = sqrt(ratio)
+                    priors.append([cx, cy, w * ratio, h / ratio])
+                    priors.append([cx, cy, w / ratio, h * ratio])
+        priors = torch.tensor(priors)
+        if self.clip:
+            priors.clamp_(max=1, min=0)
+        return priors
+
+
 def make_box_predictor(cfg):
     return registry.BOX_PREDICTORS[cfg.MODEL.BOX_HEAD.PREDICTOR](cfg)
 
@@ -1100,21 +1100,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lufficc_SSD(_paritybench_base):
     pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Conv2dSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

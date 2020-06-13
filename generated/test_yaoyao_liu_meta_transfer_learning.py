@@ -479,8 +479,8 @@ class Test_yaoyao_liu_meta_transfer_learning(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Conv2dMtl(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlockMtl(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BasicBlockMtl(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dMtl(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

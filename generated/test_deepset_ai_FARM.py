@@ -155,75 +155,120 @@ from torch.nn import MSELoss
 from torch.nn import BCEWithLogitsLoss
 
 
-EMBEDDING_VOCAB_FILES_MAP = {}
-
-
 logger = logging.getLogger(__name__)
 
 
-def load_from_cache(pretrained_model_name_or_path, s3_dict, **kwargs):
-    cache_dir = kwargs.pop('cache_dir', None)
-    force_download = kwargs.pop('force_download', False)
-    resume_download = kwargs.pop('resume_download', False)
-    proxies = kwargs.pop('proxies', None)
-    s3_file = s3_dict[pretrained_model_name_or_path]
-    try:
-        resolved_file = cached_path(s3_file, cache_dir=cache_dir,
-            force_download=force_download, proxies=proxies, resume_download
-            =resume_download)
-        if resolved_file is None:
-            raise EnvironmentError
-    except EnvironmentError:
-        if pretrained_model_name_or_path in s3_dict:
-            msg = "Couldn't reach server at '{}' to download data.".format(
-                s3_file)
-        else:
-            msg = (
-                "Model name '{}' was not found in model name list. We assumed '{}' was a path, a model identifier, or url to a configuration file or a directory containing such a file but couldn't find any such file at this path or url."
-                .format(pretrained_model_name_or_path, s3_file))
-        raise EnvironmentError(msg)
-    if resolved_file == s3_file:
-        logger.info('loading file {}'.format(s3_file))
-    else:
-        logger.info('loading file {} from cache at {}'.format(s3_file,
-            resolved_file))
-    return resolved_file
+def convert_iob_to_simple_tags(preds, spans):
+    contains_named_entity = len([x for x in preds if 'B-' in x]) != 0
+    simple_tags = []
+    merged_spans = []
+    open_tag = False
+    for pred, span in zip(preds, spans):
+        if not ('B-' in pred or 'I-' in pred):
+            if open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+                open_tag = False
+            continue
+        elif 'B-' in pred:
+            if open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+            cur_tag = pred.replace('B-', '')
+            cur_span = span
+            open_tag = True
+        elif 'I-' in pred:
+            this_tag = pred.replace('I-', '')
+            if open_tag and this_tag == cur_tag:
+                cur_span['end'] = span['end']
+            elif open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+                open_tag = False
+    if open_tag:
+        merged_spans.append(cur_span)
+        simple_tags.append(cur_tag)
+        open_tag = False
+    if contains_named_entity and len(simple_tags) == 0:
+        raise Exception(
+            'Predicted Named Entities lost when converting from IOB to simple tags. Please check the formatof the training data adheres to either adheres to IOB2 format or is converted when read_ner_file() is called.'
+            )
+    return simple_tags, merged_spans
 
 
-def _is_punctuation(char):
-    """Checks whether `chars` is a punctuation character."""
-    cp = ord(char)
-    if (cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <=
-        96 or cp >= 123 and cp <= 126):
-        return True
-    cat = unicodedata.category(char)
-    if cat.startswith('P'):
-        return True
-    return False
-
-
-def run_split_on_punc(text, never_split=None):
-    """Splits punctuation on a piece of text.
-    Function taken from HuggingFace: transformers.tokenization_bert.BasicTokenizer
+def s3e_pooling(token_embs, token_ids, token_weights, centroids,
+    token_to_cluster, mask, svd_components=None):
     """
-    if never_split is not None and text in never_split:
-        return [text]
-    chars = list(text)
-    i = 0
-    start_new_word = True
-    output = []
-    while i < len(chars):
-        char = chars[i]
-        if _is_punctuation(char):
-            output.append([char])
-            start_new_word = True
-        else:
-            if start_new_word:
-                output.append([])
-            start_new_word = False
-            output[-1].append(char)
-        i += 1
-    return [''.join(x) for x in output]
+    Pooling of word/token embeddings as described by Wang et al in their paper
+    "Efficient Sentence Embedding via Semantic Subspace Analysis"
+    (https://arxiv.org/abs/2002.09620)
+    Adjusted their implementation from here: https://github.com/BinWang28/Sentence-Embedding-S3E
+
+    This method takes a fitted "s3e model" and token embeddings from a language model and returns sentence embeddings
+    using the S3E Method. The model can be fitted via `fit_s3e_on_corpus()`.
+
+    Usage: See `examples/embeddings_extraction_s3e_pooling.py`
+
+    :param token_embs: numpy array of shape (batch_size, max_seq_len, emb_dim) containing the embeddings for each token
+    :param token_ids: numpy array of shape (batch_size, max_seq_len) containing the ids for each token in the vocab
+    :param token_weights: dict with key=token_id, value= weight in corpus
+    :param centroids: numpy array of shape (n_cluster, emb_dim) that describes the centroids of our clusters in the embedding space
+    :param token_to_cluster: numpy array of shape (vocab_size, 1) where token_to_cluster[i] = cluster_id that token with id i belongs to
+    :param svd_components: Components from a truncated singular value decomposition (SVD, aka LSA) to be
+                           removed from the final sentence embeddings in a postprocessing step.
+                           SVD must be fit on representative sample of sentence embeddings first and can
+                           then be removed from all subsequent embeddings in this function.
+                           We expect the sklearn.decomposition.TruncatedSVD.fit(<your_embeddings>)._components to be passed here.
+    :return: embeddings matrix of shape (batch_size, emb_dim + (n_clusters*n_clusters+1)/2)
+    """
+    embeddings = []
+    n_clusters = centroids.shape[0]
+    emb_dim = token_embs.shape[2]
+    n_samples = token_embs.shape[0]
+    token_ids[mask] = -1
+    for sample_idx in range(n_samples):
+        stage_vec = [{}]
+        for tok_idx, tok_id in enumerate(token_ids[(sample_idx), :]):
+            if tok_id != -1:
+                stage_vec[-1][tok_id] = token_embs[sample_idx, tok_idx]
+        stage_vec.append({})
+        for k, v in stage_vec[-2].items():
+            cluster = token_to_cluster[k]
+            if cluster in stage_vec[-1]:
+                stage_vec[-1][cluster].append(stage_vec[-2][k] *
+                    token_weights[k])
+            else:
+                stage_vec[-1][cluster] = []
+                stage_vec[-1][cluster].append(stage_vec[-2][k] *
+                    token_weights[k])
+        for k, v in stage_vec[-1].items():
+            centroid_vec = centroids[k]
+            v = [(wv - centroid_vec) for wv in v]
+            stage_vec[-1][k] = np.sum(v, 0)
+        sentvec = []
+        vec = np.zeros(emb_dim)
+        for key, value in stage_vec[0].items():
+            vec = vec + value * token_weights[key]
+        sentvec.append(vec / len(stage_vec[0].keys()))
+        matrix = np.zeros((n_clusters, emb_dim))
+        for j in range(n_clusters):
+            if j in stage_vec[-1]:
+                matrix[(j), :] = stage_vec[-1][j]
+        matrix_no_mean = matrix - matrix.mean(1)[:, (np.newaxis)]
+        cov = matrix_no_mean.dot(matrix_no_mean.T)
+        iu1 = np.triu_indices(cov.shape[0])
+        iu2 = np.triu_indices(cov.shape[0], 1)
+        cov[iu2] = cov[iu2] * np.sqrt(2)
+        vec = cov[iu1]
+        vec = vec / np.linalg.norm(vec)
+        sentvec.append(vec)
+        sentvec = np.concatenate(sentvec)
+        embeddings.append(sentvec)
+    embeddings = np.vstack(embeddings)
+    if svd_components is not None:
+        embeddings = embeddings - embeddings.dot(svd_components.transpose()
+            ) * svd_components
+    return embeddings
 
 
 OUTPUT_DIM_NAMES = ['dim', 'hidden_size', 'd_model']

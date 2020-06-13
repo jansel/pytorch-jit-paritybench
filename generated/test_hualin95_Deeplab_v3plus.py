@@ -735,11 +735,18 @@ class Encoder(nn.Module):
                 m.bias.data.zero_()
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -765,18 +772,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -860,17 +856,21 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
 
 
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -998,11 +998,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hualin95_Deeplab_v3plus(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Xception(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Xception(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -220,10 +220,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['POOLING_MODE'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 _global_config['POOLING_SIZE'] = 4
@@ -947,19 +947,19 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-sources = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-with_cuda = False
+defines = []
 
 
 headers = []
 
 
-defines = []
+with_cuda = False
+
+
+sources = []
+
+
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 class ROIAlign(nn.Module):
@@ -1079,61 +1079,6 @@ class _RoIPooling(Module):
             spatial_scale)(features, rois)
 
 
-def _unmap(data, count, inds, batch_size, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 2:
-        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
-        ret[:, (inds)] = data
-    else:
-        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
-            ).type_as(data)
-        ret[:, (inds), :] = data
-    return ret
-
-
-def bbox_transform_batch(ex_rois, gt_rois):
-    if ex_rois.dim() == 2:
-        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
-        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
-            ) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
-            gt_widths))
-        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
-            expand_as(gt_heights))
-    elif ex_rois.dim() == 3:
-        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
-        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths)
-        targets_dh = torch.log(gt_heights / ex_heights)
-    else:
-        raise ValueError('ex_roi input dimension is not correct.')
-    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
-    return targets
-
-
-def _compute_targets_batch(ex_rois, gt_rois):
-    """Compute bounding-box regression targets for an image."""
-    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
-
-
 def bbox_overlaps_batch(anchors, gt_boxes):
     """
     anchors: (N, 4) ndarray of float
@@ -1208,6 +1153,61 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     return overlaps
 
 
+def bbox_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
+        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
+            ) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
+            ) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
+            gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
+            expand_as(gt_heights))
+    elif ex_rois.dim() == 3:
+        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
+        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths)
+        targets_dh = torch.log(gt_heights / ex_heights)
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
+    return targets
+
+
+def _compute_targets_batch(ex_rois, gt_rois):
+    """Compute bounding-box regression targets for an image."""
+    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
+
+
+def _unmap(data, count, inds, batch_size, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 2:
+        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
+        ret[:, (inds)] = data
+    else:
+        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
+            ).type_as(data)
+        ret[:, (inds), :] = data
+    return ret
+
+
 def _whctrs(anchor):
     """
     Return width, height, x center, and y center for an anchor (window).
@@ -1231,17 +1231,6 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     return anchors
 
 
-def _scale_enum(anchor, scales):
-    """
-    Enumerate a set of anchors for each scale wrt an anchor.
-    """
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
 def _ratio_enum(anchor, ratios):
     """
     Enumerate a set of anchors for each aspect ratio wrt an anchor.
@@ -1251,6 +1240,17 @@ def _ratio_enum(anchor, ratios):
     size_ratios = size / ratios
     ws = np.round(np.sqrt(size_ratios))
     hs = np.round(ws * ratios)
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _scale_enum(anchor, scales):
+    """
+    Enumerate a set of anchors for each scale wrt an anchor.
+    """
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
     return anchors
 
@@ -1399,48 +1399,6 @@ class _AnchorTargetLayer(nn.Module):
         pass
 
 
-def nms_gpu(dets, thresh):
-    keep = dets.new(dets.size(0), 1).zero_().int()
-    num_out = dets.new(1).zero_().int()
-    nms.nms_cuda(keep, dets, num_out, thresh)
-    keep = keep[:num_out[0]]
-    return keep
-
-
-def nms_cpu(dets, thresh):
-    dets = dets.numpy()
-    x1 = dets[:, (0)]
-    y1 = dets[:, (1)]
-    x2 = dets[:, (2)]
-    y2 = dets[:, (3)]
-    scores = dets[:, (4)]
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    order = scores.argsort()[::-1]
-    keep = []
-    while order.size > 0:
-        i = order.item(0)
-        keep.append(i)
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.maximum(x2[i], x2[order[1:]])
-        yy2 = np.maximum(y2[i], y2[order[1:]])
-        w = np.maximum(0.0, xx2 - xx1 + 1)
-        h = np.maximum(0.0, yy2 - yy1 + 1)
-        inter = w * h
-        ovr = inter / (areas[i] + areas[order[1:]] - inter)
-        inds = np.where(ovr <= thresh)[0]
-        order = order[inds + 1]
-    return torch.IntTensor(keep)
-
-
-def nms(dets, thresh, force_cpu=False):
-    """Dispatch to either CPU or GPU NMS implementations."""
-    if dets.shape[0] == 0:
-        return []
-    return nms_gpu(dets, thresh) if force_cpu == False else nms_cpu(dets,
-        thresh)
-
-
 def clip_boxes(boxes, im_shape, batch_size):
     for i in range(batch_size):
         boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
@@ -1469,6 +1427,48 @@ def bbox_transform_inv(boxes, deltas, batch_size):
     pred_boxes[:, :, 2::4] = pred_ctr_x + 0.5 * pred_w
     pred_boxes[:, :, 3::4] = pred_ctr_y + 0.5 * pred_h
     return pred_boxes
+
+
+def nms_cpu(dets, thresh):
+    dets = dets.numpy()
+    x1 = dets[:, (0)]
+    y1 = dets[:, (1)]
+    x2 = dets[:, (2)]
+    y2 = dets[:, (3)]
+    scores = dets[:, (4)]
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size > 0:
+        i = order.item(0)
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.maximum(x2[i], x2[order[1:]])
+        yy2 = np.maximum(y2[i], y2[order[1:]])
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+        inds = np.where(ovr <= thresh)[0]
+        order = order[inds + 1]
+    return torch.IntTensor(keep)
+
+
+def nms_gpu(dets, thresh):
+    keep = dets.new(dets.size(0), 1).zero_().int()
+    num_out = dets.new(1).zero_().int()
+    nms.nms_cuda(keep, dets, num_out, thresh)
+    keep = keep[:num_out[0]]
+    return keep
+
+
+def nms(dets, thresh, force_cpu=False):
+    """Dispatch to either CPU or GPU NMS implementations."""
+    if dets.shape[0] == 0:
+        return []
+    return nms_gpu(dets, thresh) if force_cpu == False else nms_cpu(dets,
+        thresh)
 
 
 class _ProposalLayer(nn.Module):
@@ -1709,10 +1709,10 @@ class _ProposalTargetLayer(nn.Module):
 _global_config['FEAT_STRIDE'] = 4
 
 
-_global_config['ANCHOR_SCALES'] = 4
-
-
 _global_config['ANCHOR_RATIOS'] = 4
+
+
+_global_config['ANCHOR_SCALES'] = 4
 
 
 class _RPN(nn.Module):
@@ -1882,8 +1882,8 @@ class Test_timy90022_One_Shot_Object_Detection(_paritybench_base):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(SpatialAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

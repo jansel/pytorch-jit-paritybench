@@ -323,6 +323,12 @@ class VGGLoss(nn.Module):
         return sum(loss)
 
 
+def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False
+    ):
+    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=
+        kernel_size // 2, stride=stride, bias=bias)
+
+
 def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
     act_type = act_type.lower()
     if act_type == 'relu':
@@ -335,12 +341,6 @@ def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
         raise NotImplementedError('activation layer [%s] is not found' %
             act_type)
     return layer
-
-
-def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False
-    ):
-    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=
-        kernel_size // 2, stride=stride, bias=bias)
 
 
 def norm_layer(norm_type, nc):
@@ -1016,19 +1016,19 @@ class Test_guochengqian_TENet(_paritybench_base):
         self._check(Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(L1_TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'in_channelss': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(L1_TVLoss_Charbonnier(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DUDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(TV_L1LOSS(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(L1_TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(MSEloss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(L1_TVLoss_Charbonnier(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(ConvBlock(*[], **{'in_channelss': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MSEloss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(ResBlock(*[], **{'n_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -1037,5 +1037,5 @@ class Test_guochengqian_TENet(_paritybench_base):
         self._check(SkipUpDownBlock(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(DUDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TV_L1LOSS(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

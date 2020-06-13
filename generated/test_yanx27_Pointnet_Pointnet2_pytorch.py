@@ -670,6 +670,30 @@ class get_loss(torch.nn.Module):
         return total_loss
 
 
+def farthest_point_sample(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, 3]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 10000000000.0
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    for i in range(npoint):
+        centroids[:, (i)] = farthest
+        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
+        dist = torch.sum((xyz - centroid) ** 2, -1)
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
+    return centroids
+
+
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -716,30 +740,6 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     mask = group_idx == N
     group_idx[mask] = group_first[mask]
     return group_idx
-
-
-def farthest_point_sample(xyz, npoint):
-    """
-    Input:
-        xyz: pointcloud data, [B, N, 3]
-        npoint: number of samples
-    Return:
-        centroids: sampled pointcloud index, [B, npoint]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(device) * 10000000000.0
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
-    for i in range(npoint):
-        centroids[:, (i)] = farthest
-        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
-    return centroids
 
 
 def index_points(points, idx):
@@ -977,15 +977,15 @@ class Test_yanx27_Pointnet_Pointnet2_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(STN3d(*[], **{'channel': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(PointNetEncoder(*[], **{}), [torch.rand([4, 3, 64])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
+        self._check(STN3d(*[], **{'channel': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(PointNetEncoder(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):

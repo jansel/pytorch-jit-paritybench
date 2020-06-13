@@ -530,8 +530,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_atiyo_deep_image_prior(_paritybench_base):
     pass
     def test_000(self):
-        self._check(pixel_shuffle_hourglass(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(deconv_hourglass(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
-        self._check(deconv_hourglass(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(pixel_shuffle_hourglass(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

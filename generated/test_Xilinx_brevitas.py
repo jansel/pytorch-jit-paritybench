@@ -973,58 +973,6 @@ def identity(x: torch.Tensor) ->torch.Tensor:
     return x
 
 
-class LogTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(LogTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.log2(x)
-
-
-class RoundSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(RoundSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return round_ste(x)
-
-
-class CeilSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(CeilSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return ceil_ste(x)
-
-
-class PowerOfTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(PowerOfTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return 2.0 ** x
-
-
-class ClampMin(torch.jit.ScriptModule):
-    __constants__ = ['min_val']
-
-    def __init__(self, min_val: float) ->None:
-        super(ClampMin, self).__init__()
-        self.min_val = min_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return x.clamp_min(self.min_val)
-
-
 class Identity(torch.jit.ScriptModule):
 
     def __init__(self) ->None:
@@ -1043,6 +991,58 @@ class FloorSte(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(self, x: torch.Tensor):
         return floor_ste(x)
+
+
+class CeilSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(CeilSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return ceil_ste(x)
+
+
+class ClampMin(torch.jit.ScriptModule):
+    __constants__ = ['min_val']
+
+    def __init__(self, min_val: float) ->None:
+        super(ClampMin, self).__init__()
+        self.min_val = min_val
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return x.clamp_min(self.min_val)
+
+
+class RoundSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(RoundSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return round_ste(x)
+
+
+class PowerOfTwo(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(PowerOfTwo, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return 2.0 ** x
+
+
+class LogTwo(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(LogTwo, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.log2(x)
 
 
 class AffineRescaling(torch.jit.ScriptModule):
@@ -1356,100 +1356,21 @@ class TensorClamp(torch.jit.ScriptModule):
         return tensor_clamp(x, min_val=min_val, max_val=max_val)
 
 
-@torch.jit.script
-def over_batch_over_output_channels(x):
-    return x.shape[0], x.shape[1], -1
-
-
-class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverBatchOverOutputChannelView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_tensor(x):
-    return -1
-
-
-class OverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_output_channels(x):
-    return x.shape[0], -1
-
-
-class OverOutputChannelView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverOutputChannelView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_batch_over_tensor(x):
-    return x.shape[0], -1
-
-
-class OverBatchOverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverBatchOverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-class StatsInputViewShapeImpl(object):
-    OVER_TENSOR = OverTensorView
-    OVER_OUTPUT_CHANNELS = OverOutputChannelView
-    OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
-    OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
+OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
 
 
 SCALING_SCALAR_SHAPE = ()
 
 
-OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
+class TensorClampSte(torch.jit.ScriptModule):
 
+    def __init__(self) ->None:
+        super(TensorClampSte, self).__init__()
 
-ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
+        torch.Tensor):
+        return tensor_clamp_ste(x, min_val, max_val)
 
 
 class ScaleBias(nn.Module):
@@ -1474,6 +1395,9 @@ class WeightReg(nn.Module):
 
 
 ZERO_HW_SENTINEL_VALUE = 0.0
+
+
+ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
 
 
 class QuantProxy(nn.Module):
@@ -1532,15 +1456,6 @@ class TupleSequential(Sequential):
         return out
 
 
-BIAS_ENABLED = False
-
-
-WEIGHT_SCALING_CONST = 1.0
-
-
-NARROW_RANGE_ENABLED = True
-
-
 def get_quant_type(bit_width):
     if bit_width is None:
         return QuantType.FP
@@ -1550,10 +1465,13 @@ def get_quant_type(bit_width):
         return QuantType.INT
 
 
-IN_DROPOUT = 0.2
-
-
 FC_OUT_FEATURES = [64, 64, 64]
+
+
+LAST_FC_PER_OUT_CH_SCALING = False
+
+
+IN_DROPOUT = 0.2
 
 
 INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
@@ -1562,10 +1480,7 @@ INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
 HIDDEN_DROPOUT = 0.2
 
 
-LAST_FC_PER_OUT_CH_SCALING = False
-
-
-HARD_TANH_MIN = -1.0
+BIAS_ENABLED = False
 
 
 class SFC(Module):
@@ -1738,16 +1653,7 @@ class DwsConvBlock(nn.Module):
         return x
 
 
-ACT_RETURN_QUANT_TENSOR = False
-
-
-ACT_PER_CHANNEL_BROADCASTABLE_SHAPE = None
-
-
 ENABLE_BIAS_QUANT = False
-
-
-WEIGHT_SCALING_PER_OUTPUT_CHANNEL = True
 
 
 class ProxylessBlock(nn.Module):
@@ -1817,10 +1723,10 @@ class ProxylessUnit(nn.Module):
 HARD_TANH_THRESHOLD = 10.0
 
 
+ACT_RETURN_QUANT_TENSOR = False
+
+
 ACT_SCALING_PER_CHANNEL = False
-
-
-SCALING_MIN_VAL = 2e-09
 
 
 def make_layers(cfg, batch_norm, bit_width):
@@ -1983,44 +1889,120 @@ class MultiplyBatch(nn.Module):
         return out_x, out_x_len, out_y, out_y_len
 
 
-def seq_collate_fn(batch, token_pad_value=0):
-    """collate batch of audio sig, audio len, tokens, tokens len
+class ManifestBase:
 
-    Args:
-        batch (Optional[FloatTensor], Optional[LongTensor], LongTensor,
-               LongTensor):  A tuple of tuples of signal, signal lengths,
-               encoded tokens, and encoded tokens length.  This collate func
-               assumes the signals are 1d torch tensors (i.e. mono audio).
+    def __init__(self, manifest_paths, labels, max_duration=None,
+        min_duration=None, sort_by_duration=False, max_utts=0, blank_index=
+        -1, unk_index=-1, normalize=True, logger=None):
+        self.min_duration = min_duration
+        self.max_duration = max_duration
+        self.sort_by_duration = sort_by_duration
+        self.max_utts = max_utts
+        self.blank_index = blank_index
+        self.unk_index = unk_index
+        self.normalize = normalize
+        self.labels_map = {label: i for i, label in enumerate(labels)}
+        self.logger = None
+        data = []
+        duration = 0.0
+        filtered_duration = 0.0
+        for item in self.json_item_gen(manifest_paths):
+            if min_duration and item['duration'] < min_duration:
+                filtered_duration += item['duration']
+                continue
+            if max_duration and item['duration'] > max_duration:
+                filtered_duration += item['duration']
+                continue
+            text = ''
+            if 'text' in item:
+                text = item['text']
+            elif 'text_filepath' in item:
+                text = self.load_transcript(item['text_filepath'])
+            else:
+                filtered_duration += item['duration']
+                continue
+            if normalize:
+                text = self.normalize_text(text, labels, logger=self.logger)
+            if not isinstance(text, str):
+                self.logger.warning(
+                    'WARNING: Got transcript: {}. It is not a string. Dropping data point'
+                    .format(text))
+                filtered_duration += item['duration']
+                continue
+            item['tokens'] = self.tokenize_transcript(text, self.labels_map,
+                self.unk_index, self.blank_index)
+            if 'audio_filename' in item and 'audio_filepath' not in item:
+                self.logger.warning(
+                    'Malformed manifest: The key audio_filepath was not found in the manifest. Using audio_filename instead.'
+                    )
+                item['audio_filepath'] = item['audio_filename']
+            data.append(item)
+            duration += item['duration']
+            if max_utts > 0 and len(data) >= max_utts:
+                self.logger.info('Stop parsing due to max_utts ({})'.format
+                    (max_utts))
+                break
+        if sort_by_duration:
+            data = sorted(data, key=lambda x: x['duration'])
+        self._data = data
+        self._size = len(data)
+        self._duration = duration
+        self._filtered_duration = filtered_duration
 
-    """
-    _, audio_lengths, _, tokens_lengths = zip(*batch)
-    max_audio_len = 0
-    has_audio = audio_lengths[0] is not None
-    if has_audio:
-        max_audio_len = max(audio_lengths).item()
-    max_tokens_len = max(tokens_lengths).item()
-    audio_signal, tokens = [], []
-    for sig, sig_len, tokens_i, tokens_i_len in batch:
-        if has_audio:
-            sig_len = sig_len.item()
-            if sig_len < max_audio_len:
-                pad = 0, max_audio_len - sig_len
-                sig = torch.nn.functional.pad(sig, pad)
-            audio_signal.append(sig)
-        tokens_i_len = tokens_i_len.item()
-        if tokens_i_len < max_tokens_len:
-            pad = 0, max_tokens_len - tokens_i_len
-            tokens_i = torch.nn.functional.pad(tokens_i, pad, value=
-                token_pad_value)
-        tokens.append(tokens_i)
-    if has_audio:
-        audio_signal = torch.stack(audio_signal)
-        audio_lengths = torch.stack(audio_lengths)
-    else:
-        audio_signal, audio_lengths = None, None
-    tokens = torch.stack(tokens)
-    tokens_lengths = torch.stack(tokens_lengths)
-    return audio_signal, audio_lengths, tokens, tokens_lengths
+    @staticmethod
+    def normalize_text(text, labels):
+        """for the base class remove surrounding whitespace only"""
+        return text.strip()
+
+    @staticmethod
+    def tokenize_transcript(transcript, labels_map, unk_index, blank_index):
+        """tokenize transcript to convert words/characters to indices"""
+        special_labels = set([l for l in labels_map.keys() if len(l) > 1])
+        tokens = []
+        for i, word in enumerate(transcript.split(' ')):
+            if i > 0:
+                tokens.append(labels_map.get(' ', unk_index))
+            if word in special_labels:
+                tokens.append(labels_map.get(word))
+                continue
+            for char in word:
+                tokens.append(labels_map.get(char, unk_index))
+        tokens = [x for x in tokens if x != blank_index]
+        return tokens
+
+    def __getitem__(self, item):
+        return self._data[item]
+
+    def __len__(self):
+        return self._size
+
+    def __iter__(self):
+        return iter(self._data)
+
+    @staticmethod
+    def json_item_gen(manifest_paths):
+        for manifest_path in manifest_paths:
+            with open(manifest_path, 'r', encoding='utf-8') as fh:
+                for line in fh:
+                    yield json.loads(line)
+
+    @staticmethod
+    def load_transcript(transcript_path):
+        with open(transcript_path, 'r', encoding='utf-8') as transcript_file:
+            transcript = transcript_file.read().replace('\n', '')
+        return transcript
+
+    @property
+    def duration(self):
+        return self._duration
+
+    @property
+    def filtered_duration(self):
+        return self._filtered_duration
+
+    @property
+    def data(self):
+        return list(self._data)
 
 
 def warn_common_chars(string):
@@ -2030,8 +2012,55 @@ def warn_common_chars(string):
             )
 
 
+ABBREVIATIONS_COMMON = [(re.compile('\\b%s\\.' % x[0]), x[1]) for x in [(
+    'ms', 'miss'), ('mrs', 'misess'), ('mr', 'mister'), ('messrs',
+    'messeurs'), ('dr', 'doctor'), ('drs', 'doctors'), ('st', 'saint'), (
+    'co', 'company'), ('jr', 'junior'), ('sr', 'senior'), ('rev',
+    'reverend'), ('hon', 'honorable'), ('sgt', 'sergeant'), ('capt',
+    'captain'), ('maj', 'major'), ('col', 'colonel'), ('lt', 'lieutenant'),
+    ('gen', 'general'), ('prof', 'professor'), ('lb', 'pounds'), ('rep',
+    'representative'), ('st', 'street'), ('ave', 'avenue'), ('etc',
+    'et cetera'), ('jan', 'january'), ('feb', 'february'), ('mar', 'march'),
+    ('apr', 'april'), ('jun', 'june'), ('jul', 'july'), ('aug', 'august'),
+    ('sep', 'september'), ('oct', 'october'), ('nov', 'november'), ('dec',
+    'december')]]
+
+
+ABBREVIATIONS_EXPANDED = [(re.compile('\\b%s\\.' % x[0]), x[1]) for x in [(
+    'ltd', 'limited'), ('fig', 'figure'), ('figs', 'figures'), ('gent',
+    'gentlemen'), ('ft', 'fort'), ('esq', 'esquire'), ('prep',
+    'preperation'), ('bros', 'brothers'), ('ind', 'independent'), ('mme',
+    'madame'), ('pro', 'professional'), ('vs', 'versus'), ('inc', 'include')]]
+
+
+def clean_abbreviations(string, expanded=False):
+    for regex, replacement in ABBREVIATIONS_COMMON:
+        string = re.sub(regex, replacement, string)
+    if expanded:
+        for regex, replacement in ABBREVIATIONS_EXPANDED:
+            string = re.sub(regex, replacement, string)
+    return string
+
+
+def clean_punctuations(string, table, punctuation_to_replace):
+    for punc, replacement in punctuation_to_replace.items():
+        string = re.sub('\\{}'.format(punc), ' {} '.format(replacement), string
+            )
+    string = string.translate(table)
+    return string
+
+
 NUM_CHECK = re.compile(
     '([$]?)(^|\\s)(\\S*[0-9]\\S*)(?=(\\s|$)((\\S*)(\\s|$))?)')
+
+
+ORD_CHECK = re.compile('([0-9]+)(st|nd|rd|th)')
+
+
+TIME_CHECK = re.compile('([0-9]{1,2}):([0-9]{2})(am|pm)?')
+
+
+DECIMAL_CHECK = re.compile('([.,][0-9]{1,2})$')
 
 
 class GreedyCTCDecoder(nn.Module):
@@ -2075,6 +2104,19 @@ class CTCLossNM(nn.Module):
         return self._loss(*kwargs.values())
 
 
+def splice_frames(x, frame_splicing):
+    """ Stacks frames together across feature dim
+
+    input is batch_size, feature_dim, num_frames
+    output is batch_size, feature_dim*frame_splicing, num_frames
+
+    """
+    seq = [x]
+    for n in range(1, frame_splicing):
+        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
+    return torch.cat(seq, dim=1)
+
+
 CONSTANT = 1e-05
 
 
@@ -2099,19 +2141,6 @@ def normalize_batch(x, seq_len, normalize_type):
         return (x - x_mean.view(-1, 1, 1)) / x_std.view(-1, 1, 1)
     else:
         return x
-
-
-def splice_frames(x, frame_splicing):
-    """ Stacks frames together across feature dim
-
-    input is batch_size, feature_dim, num_frames
-    output is batch_size, feature_dim*frame_splicing, num_frames
-
-    """
-    seq = [x]
-    for n in range(1, frame_splicing):
-        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
-    return torch.cat(seq, dim=1)
 
 
 class FilterbankFeatures(nn.Module):
@@ -2257,6 +2286,12 @@ class FilterbankFeatures(nn.Module):
 BIAS_CONFIGS = False
 
 
+WEIGHT_NARROW_RANGE = True
+
+
+SCALING_MIN_VAL = 2e-09
+
+
 class GroupShuffle(nn.Module):
 
     def __init__(self, groups, channels):
@@ -2270,22 +2305,6 @@ class GroupShuffle(nn.Module):
         x = torch.transpose(x, 1, 2).contiguous()
         x = x.view(-1, self.groups * self.channels_per_group, sh[-1])
         return x
-
-
-def get_same_padding(kernel_size, stride, dilation):
-    if stride > 1 and dilation > 1:
-        raise ValueError('Only stride OR dilation may be greater than 1')
-    if dilation > 1:
-        return dilation * kernel_size // 2 - 1
-    return kernel_size // 2
-
-
-def make_norm_scale(bit_width, absolute_act_val, scaling_per_channel):
-    return quant_nn.QuantHardTanh(bit_width=bit_width, scaling_per_channel=
-        scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=
-        ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, max_val=
-        absolute_act_val, min_val=-absolute_act_val,
-        scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=True)
 
 
 class SpecAugment(nn.Module):
@@ -2557,14 +2576,6 @@ class Identity(nn.Module):
         return x
 
 
-MAX_WAV_VALUE = 32768.0
-
-
-def make_tanh_activation(bit_width):
-    return quant_nn.QuantTanh(bit_width=bit_width, quant_type=QUANT_TYPE,
-        scaling_min_val=SCALING_MIN_VAL, return_quant_tensor=False)
-
-
 ACT_MAX_VAL = 1
 
 
@@ -2820,49 +2831,49 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Xilinx_brevitas(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ZeroLsbTruncBitWidth(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(AffineRescaling(*[], **{'affine_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(ScaleBias(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(WeightReg(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(SqrHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(TensorNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_001(self):
         self._check(AudioPreprocessor(*[], **{'win_length': 4, 'hop_length': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(SpectrogramAugmentation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(MultiplyBatch(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4]), torch.rand([4, 4]), torch.rand([4])], {})
-
-    @_fails_compile()
-    def test_010(self):
+    def test_002(self):
         self._check(GreedyCTCDecoder(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_003(self):
         self._check(GroupShuffle(*[], **{'groups': 1, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(MultiplyBatch(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4]), torch.rand([4, 4]), torch.rand([4])], {})
+
+    def test_006(self):
+        self._check(ScaleBias(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_012(self):
+    def test_007(self):
         self._check(SpecAugment(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_008(self):
         self._check(SpecCutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(SpectrogramAugmentation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(SqrHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(TensorNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(WeightReg(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(ZeroLsbTruncBitWidth(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

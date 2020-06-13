@@ -881,6 +881,12 @@ class OuNoise(nn.Module):
             high_tensor)
 
 
+def gaussian_noise(in_features, out_features, device):
+    """ Normal gaussian N(0, 1) noise """
+    return torch.randn((in_features, out_features), device=device
+        ), torch.randn(out_features, device=device)
+
+
 def scaled_noise(size, device):
     x = torch.randn(size, device=device)
     return x.sign().mul_(x.abs().sqrt_())
@@ -894,12 +900,6 @@ def factorized_gaussian_noise(in_features, out_features, device):
     in_noise = scaled_noise(in_features, device=device)
     out_noise = scaled_noise(out_features, device=device)
     return out_noise.ger(in_noise), out_noise
-
-
-def gaussian_noise(in_features, out_features, device):
-    """ Normal gaussian N(0, 1) noise """
-    return torch.randn((in_features, out_features), device=device
-        ), torch.randn(out_features, device=device)
 
 
 class NoisyLinear(nn.Module):
@@ -1130,36 +1130,36 @@ class Test_MillionIntegrals_vel(_paritybench_base):
     def test_000(self):
         self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(OneHotEncode(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_002(self):
         self._check(Bottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'cardinality': 4, 'divisor': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(DiagGaussianActionHead(*[], **{'input_dim': 4, 'num_dimensions': 4}), [torch.rand([4, 4])], {})
-
-    def test_007(self):
+    def test_003(self):
         self._check(CategoricalActionHead(*[], **{'input_dim': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_004(self):
         self._check(DeterministicCriticHead(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_005(self):
+        self._check(DiagGaussianActionHead(*[], **{'input_dim': 4, 'num_dimensions': 4}), [torch.rand([4, 4])], {})
+
+    def test_006(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_009(self):
+    def test_007(self):
         self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(OneHotEncode(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'cardinality': 4, 'divisor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
         self._check(ValueHead(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})

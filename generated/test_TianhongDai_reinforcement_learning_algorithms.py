@@ -401,8 +401,8 @@ class Test_TianhongDai_reinforcement_learning_algorithms(_paritybench_base):
         self._check(flatten_mlp(*[], **{'input_dims': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(tanh_gaussian_actor(*[], **{'input_dims': 4, 'action_dims': 4, 'hidden_size': 4, 'log_std_min': 4, 'log_std_max': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(network(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(network(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(tanh_gaussian_actor(*[], **{'input_dims': 4, 'action_dims': 4, 'hidden_size': 4, 'log_std_min': 4, 'log_std_max': 4}), [torch.rand([4, 4, 4, 4])], {})
 

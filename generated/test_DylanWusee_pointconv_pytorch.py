@@ -136,6 +136,30 @@ class WeightNet(nn.Module):
         return weights
 
 
+def farthest_point_sample(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, C]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 10000000000.0
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    for i in range(npoint):
+        centroids[:, (i)] = farthest
+        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
+        dist = torch.sum((xyz - centroid) ** 2, -1)
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
+    return centroids
+
+
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -173,30 +197,6 @@ def knn_point(nsample, xyz, new_xyz):
     _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False,
         sorted=False)
     return group_idx
-
-
-def farthest_point_sample(xyz, npoint):
-    """
-    Input:
-        xyz: pointcloud data, [B, N, C]
-        npoint: number of samples
-    Return:
-        centroids: sampled pointcloud index, [B, npoint]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(device) * 10000000000.0
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
-    for i in range(npoint):
-        centroids[:, (i)] = farthest
-        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
-    return centroids
 
 
 def index_points(points, idx):

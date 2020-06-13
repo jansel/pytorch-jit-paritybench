@@ -159,8 +159,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_G_Wang_WaveRNN_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResBlock(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_001(self):
-        self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(ResBlock(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
 

@@ -1181,13 +1181,13 @@ class Test_Lotayou_everybody_dance_now_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 

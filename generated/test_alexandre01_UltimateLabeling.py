@@ -442,15 +442,15 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_alexandre01_UltimateLabeling(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResDownS(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DepthCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(ResAdjust(*[], **{}), [torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 2048, 64, 64])], {})
 
     def test_003(self):
-        self._check(DepthCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ResDownS(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -74,14 +74,14 @@ import torch.nn.functional as F
 import math
 
 
-def conv_init(conv):
-    nn.init.kaiming_normal_(conv.weight, mode='fan_out')
-    nn.init.constant_(conv.bias, 0)
-
-
 def bn_init(bn, scale):
     nn.init.constant_(bn.weight, scale)
     nn.init.constant_(bn.bias, 0)
+
+
+def conv_init(conv):
+    nn.init.kaiming_normal_(conv.weight, mode='fan_out')
+    nn.init.constant_(conv.bias, 0)
 
 
 class TemporalConv(nn.Module):
@@ -257,8 +257,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kenziyuliu_Unofficial_DGNN_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(TemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BiTemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BiTemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1245,44 +1245,44 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(Bottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'expansion': 4, 'M': 4, 'r': 4, 'L': 4}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_005(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Downblock(*[], **{'channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_001(self):
+        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(Bottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'expansion': 4, 'M': 4, 'r': 4, 'L': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_003(self):
+        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Downblock(*[], **{'channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(SEModule(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_009(self):
-        self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_007(self):
+        self._check(SKConv(*[], **{'features': 4, 'M': 4, 'G': 4, 'r': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_008(self):
         self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_009(self):
         self._check(ShakeResNet(*[], **{'depth': 1, 'base_width': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
+    def test_010(self):
+        self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_012(self):
-        self._check(SKConv(*[], **{'features': 4, 'M': 4, 'G': 4, 'r': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

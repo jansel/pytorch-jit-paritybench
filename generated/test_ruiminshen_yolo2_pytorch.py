@@ -593,6 +593,12 @@ class Inception4(nn.Module):
         return '.'.join(name.split('.')[:-2])
 
 
+def conv_bn(in_channels, out_channels, stride):
+    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
+        in_channels, out_channels, 3, stride, 1, bias=False)), ('bn', nn.
+        BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
+
+
 def conv_dw(in_channels, stride):
     return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
         in_channels, in_channels, 3, stride, 1, groups=in_channels, bias=
@@ -609,12 +615,6 @@ def conv_pw(in_channels, out_channels):
 def conv_unit(in_channels, out_channels, stride):
     return nn.Sequential(collections.OrderedDict([('dw', conv_dw(
         in_channels, stride)), ('pw', conv_pw(in_channels, out_channels))]))
-
-
-def conv_bn(in_channels, out_channels, stride):
-    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
-        in_channels, out_channels, 3, stride, 1, bias=False)), ('bn', nn.
-        BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
 
 
 class MobileNet(nn.Module):

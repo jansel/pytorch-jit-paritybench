@@ -358,17 +358,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lanpa_tensorboardX(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_002(self):
-        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_003(self):
-        self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_004(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1317,42 +1317,42 @@ class Test_jankrepl_deepdow(_paritybench_base):
     def test_000(self):
         self._check(AnalyticalMarkowitz(*[], **{}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(NCO(*[], **{'n_clusters': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(SoftmaxAllocator(*[], **{}), [torch.rand([4, 4])], {})
-
-    def test_003(self):
-        self._check(WeightNorm(*[], **{'n_assets': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(AttentionCollapse(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_002(self):
         self._check(AverageCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_003(self):
+        self._check(Conv(*[], **{'n_input_channels': 4, 'n_output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Cov2Corr(*[], **{}), [torch.rand([4, 4, 4])], {})
+
+    def test_005(self):
         self._check(ElementCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_006(self):
         self._check(ExponentialCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(MaxCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
-        self._check(SumCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_008(self):
+        self._check(NCO(*[], **{'n_clusters': 4}), [torch.rand([4, 4, 4])], {})
 
+    def test_009(self):
+        self._check(RNN(*[], **{'n_channels': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_010(self):
-        self._check(Cov2Corr(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(SoftmaxAllocator(*[], **{}), [torch.rand([4, 4])], {})
 
     def test_011(self):
-        self._check(Conv(*[], **{'n_input_channels': 4, 'n_output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SumCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(RNN(*[], **{'n_channels': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(WeightNorm(*[], **{'n_assets': 4}), [torch.rand([4, 4, 4, 4])], {})
 

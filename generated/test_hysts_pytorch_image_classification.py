@@ -2035,14 +2035,14 @@ class Test_hysts_pytorch_image_classification(_paritybench_base):
         self._check(BottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'stage_index': 4, 'base_channels': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(SELayer(*[], **{'in_channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

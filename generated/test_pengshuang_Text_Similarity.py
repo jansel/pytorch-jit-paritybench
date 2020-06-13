@@ -52,20 +52,6 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
-def manhattan_distance(x1, x2):
-    """compute manhattan distance between x1 and x2 (not in paper)
-    Parameters
-    ----------
-    x1, x2 : 2-D torch Tensor
-        size (batch_size, 1)
-    Returns
-    -------
-    distance : 2-D torch Tensor
-        similarity result of size (batch_size, 1)
-    """
-    return torch.div(torch.norm(x1 - x2, 1, 1, keepdim=True), x1.size()[1])
-
-
 def cosine_similarity(x1, x2):
     """compute cosine similarity between x1 and x2
     Parameters
@@ -78,6 +64,20 @@ def cosine_similarity(x1, x2):
         similarity result of size (batch_size, 1)
     """
     return F.cosine_similarity(x1, x2).unsqueeze(1)
+
+
+def manhattan_distance(x1, x2):
+    """compute manhattan distance between x1 and x2 (not in paper)
+    Parameters
+    ----------
+    x1, x2 : 2-D torch Tensor
+        size (batch_size, 1)
+    Returns
+    -------
+    distance : 2-D torch Tensor
+        similarity result of size (batch_size, 1)
+    """
+    return torch.div(torch.norm(x1 - x2, 1, 1, keepdim=True), x1.size()[1])
 
 
 class Abcnn3(nn.Module):
@@ -1261,18 +1261,18 @@ class Test_pengshuang_Text_Similarity(_paritybench_base):
         self._check(Abcnn2Portion(*[], **{'sentence_length': 4, 'filter_width': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(InceptionModule(*[], **{'in_channel': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(ConvLayer(*[], **{'isAbcnn2': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4, 'inception': 4}), [torch.rand([4, 1, 64, 64])], {})
-
-    def test_003(self):
         self._check(ApLayer(*[], **{'width': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Wide_Conv(*[], **{'seq_len': 4, 'embeds_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
     @_fails_compile()
-    def test_005(self):
+    def test_002(self):
         self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(ConvLayer(*[], **{'isAbcnn2': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4, 'inception': 4}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_004(self):
+        self._check(InceptionModule(*[], **{'in_channel': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Wide_Conv(*[], **{'seq_len': 4, 'embeds_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 

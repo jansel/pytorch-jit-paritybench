@@ -471,18 +471,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_itayhubara_BinaryNet_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(HingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(BinarizeLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BinarizeConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(BinarizeConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BinarizeLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

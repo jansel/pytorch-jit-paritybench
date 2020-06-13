@@ -284,14 +284,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dandelin_Dynamic_memory_networks_plus_Pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AttentionGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(AnswerModule(*[], **{'vocab_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(EpisodicMemory(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(AttentionGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(AnswerModule(*[], **{'vocab_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(EpisodicMemory(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 

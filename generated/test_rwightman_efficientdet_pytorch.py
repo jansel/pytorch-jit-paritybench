@@ -474,17 +474,17 @@ def bifpn_sum_config(base_reduction=8):
     return p
 
 
-def bifpn_fa_config():
-    """BiFPN config with fast weighted sum."""
-    p = bifpn_sum_config()
-    p.weight_method = 'fastattn'
-    return p
-
-
 def bifpn_attn_config():
     """BiFPN config with fast weighted sum."""
     p = bifpn_sum_config()
     p.weight_method = 'attn'
+    return p
+
+
+def bifpn_fa_config():
+    """BiFPN config with fast weighted sum."""
+    p = bifpn_sum_config()
+    p.weight_method = 'fastattn'
     return p
 
 
@@ -574,6 +574,19 @@ def _init_weight(m, n=''):
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1.0)
         m.bias.data.zero_()
+
+
+def load_pretrained(model, url, filter_fn=None, strict=True):
+    if not url:
+        logging.warning(
+            'Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?'
+            )
+        return
+    state_dict = load_state_dict_from_url(url, progress=False, map_location
+        ='cpu')
+    if filter_fn is not None:
+        state_dict = filter_fn(state_dict)
+    model.load_state_dict(state_dict, strict=strict)
 
 
 efficientdet_model_param_dict = dict(efficientdet_d0=dict(name=
@@ -678,19 +691,6 @@ def get_efficientdet_config(model_name='tf_efficientdet_d1'):
     h = default_detection_model_configs()
     h.update(efficientdet_model_param_dict[model_name])
     return h
-
-
-def load_pretrained(model, url, filter_fn=None, strict=True):
-    if not url:
-        logging.warning(
-            'Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?'
-            )
-        return
-    state_dict = load_state_dict_from_url(url, progress=False, map_location
-        ='cpu')
-    if filter_fn is not None:
-        state_dict = filter_fn(state_dict)
-    model.load_state_dict(state_dict, strict=strict)
 
 
 def create_model(model_name, bench_task='', pretrained=False,
@@ -884,11 +884,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rwightman_efficientdet_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SequentialAppend(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResampleFeatureMap(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SequentialAppendLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SequentialAppend(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ResampleFeatureMap(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SequentialAppendLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

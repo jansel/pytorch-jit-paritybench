@@ -1272,61 +1272,61 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_DeepWisdom_AutoDL(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResLayer(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicStem(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(BinaryCrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ToDevice(*[], **{}), [], {})
+        self._check(Conv2Plus1D(*[], **{'in_planes': 4, 'out_planes': 4, 'midplanes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_003(self):
-        self._check(CopyChannels(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv3DNoTemporal(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(Normalize(*[], **{'mean': 4, 'std': 4, 'mode': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv3DSimple(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_005(self):
+        self._check(CopyChannels(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(Cutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(DelayedPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_010(self):
+        self._check(KeepByPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(Mul(*[], **{'weight': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(Normalize(*[], **{'mean': 4, 'std': 4, 'mode': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ResLayer(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
         self._check(SplitTime(*[], **{'times': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(Cutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(Mul(*[], **{'weight': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(DelayedPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(KeepByPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(Conv3DSimple(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
-    def test_015(self):
-        self._check(Conv2Plus1D(*[], **{'in_planes': 4, 'out_planes': 4, 'midplanes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
-    def test_016(self):
-        self._check(Conv3DNoTemporal(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
     def test_017(self):
-        self._check(BasicStem(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
+        self._check(ToDevice(*[], **{}), [], {})
 

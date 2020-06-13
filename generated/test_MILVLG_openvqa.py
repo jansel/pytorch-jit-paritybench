@@ -792,12 +792,12 @@ class Test_MILVLG_openvqa(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MLP(*[], **{'in_size': 4, 'mid_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(LayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(MLP(*[], **{'in_size': 4, 'mid_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

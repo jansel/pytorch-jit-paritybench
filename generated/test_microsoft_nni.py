@@ -4282,13 +4282,6 @@ class PrunerModuleWrapper(torch.nn.Module):
         return self.module(*inputs)
 
 
-def _check_weight(module):
-    try:
-        return isinstance(module.weight.data, torch.Tensor)
-    except AttributeError:
-        return False
-
-
 class QuantType:
     """
     Enum class for quantization type.
@@ -4296,6 +4289,13 @@ class QuantType:
     QUANT_INPUT = 0
     QUANT_WEIGHT = 1
     QUANT_OUTPUT = 2
+
+
+def _check_weight(module):
+    try:
+        return isinstance(module.weight.data, torch.Tensor)
+    except AttributeError:
+        return False
 
 
 class QuantizerModuleWrapper(torch.nn.Module):
@@ -4351,25 +4351,6 @@ class QuantizerModuleWrapper(torch.nn.Module):
         return result
 
 
-class safesqrt(torch.autograd.Function):
-    """
-    Square root without dividing by 0.
-    """
-
-    @staticmethod
-    def forward(ctx, input_data):
-        o = input_data.sqrt()
-        ctx.save_for_backward(input_data, o)
-        return o
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        _, o = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input *= 0.5 / (o + constants.EPSILON)
-        return grad_input
-
-
 class ramp(torch.autograd.Function):
     """
     Ensures input is between 0 and 1
@@ -4389,6 +4370,32 @@ class ramp(torch.autograd.Function):
         return grad_input
 
 
+class safesqrt(torch.autograd.Function):
+    """
+    Square root without dividing by 0.
+    """
+
+    @staticmethod
+    def forward(ctx, input_data):
+        o = input_data.sqrt()
+        ctx.save_for_backward(input_data, o)
+        return o
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        _, o = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad_input *= 0.5 / (o + constants.EPSILON)
+        return grad_input
+
+
+def triudl(X, l):
+    Zl = torch.zeros_like(X, requires_grad=False)
+    U = X * l
+    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
+    return Zl
+
+
 def revcumsum(U):
     """
     Reverse cumulative sum for faster performance.
@@ -4403,11 +4410,37 @@ def triudr(X, r):
     return Zr
 
 
-def triudl(X, l):
-    Zl = torch.zeros_like(X, requires_grad=False)
-    U = X * l
-    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
-    return Zl
+class MutableScope(Mutable):
+    """
+    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
+
+    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
+    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
+    look like "sub-search-space" in the scope. Scopes can be nested.
+
+    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
+    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
+    the forward method of the class inheriting mutable scope.
+
+    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
+    to appear in the dict of choices.
+
+    Parameters
+    ----------
+    key : str
+        Key of mutable scope.
+    """
+
+    def __init__(self, key):
+        super().__init__(key=key)
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self._check_built()
+            self.mutator.enter_mutable_scope(self)
+            return super().__call__(*args, **kwargs)
+        finally:
+            self.mutator.exit_mutable_scope(self)
 
 
 class StructuredMutableTreeNode:
@@ -4478,39 +4511,6 @@ class StructuredMutableTreeNode:
                 if not deduplicate or self.mutable.key not in memo:
                     memo.add(self.mutable.key)
                     yield self.mutable
-
-
-class MutableScope(Mutable):
-    """
-    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
-
-    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
-    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
-    look like "sub-search-space" in the scope. Scopes can be nested.
-
-    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
-    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
-    the forward method of the class inheriting mutable scope.
-
-    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
-    to appear in the dict of choices.
-
-    Parameters
-    ----------
-    key : str
-        Key of mutable scope.
-    """
-
-    def __init__(self, key):
-        super().__init__(key=key)
-
-    def __call__(self, *args, **kwargs):
-        try:
-            self._check_built()
-            self.mutator.enter_mutable_scope(self)
-            return super().__call__(*args, **kwargs)
-        finally:
-            self.mutator.exit_mutable_scope(self)
 
 
 class BaseMutator(nn.Module):
@@ -5162,6 +5162,19 @@ class StubAggregateLayer(StubLayer):
         super().__init__(input_nodes, output_node)
 
 
+class StubAdd(StubAggregateLayer):
+    """
+    StubAdd Module.
+    """
+
+    @property
+    def output_shape(self):
+        return self.input[0].shape
+
+    def to_real_layer(self):
+        return TorchAdd()
+
+
 class StubConcatenate(StubAggregateLayer):
     """StubConcatenate Module.
     """
@@ -5176,19 +5189,6 @@ class StubConcatenate(StubAggregateLayer):
 
     def to_real_layer(self):
         return TorchConcatenate()
-
-
-class StubAdd(StubAggregateLayer):
-    """
-    StubAdd Module.
-    """
-
-    @property
-    def output_shape(self):
-        return self.input[0].shape
-
-    def to_real_layer(self):
-        return TorchAdd()
 
 
 class TorchModel(torch.nn.Module):
@@ -5553,139 +5553,139 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_microsoft_nni(_paritybench_base):
     pass
     def test_000(self):
-        self._check(VGG_Cifar10(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
-        self._check(fc1(*[], **{}), [torch.rand([784, 784])], {})
-
-    def test_002(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    def test_003(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(StdConv(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(FacConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(SepConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_010(self):
         self._check(AuxiliaryHead(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_011(self):
-        self._check(Calibration(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(ReductionLayer(*[], **{'in_channels_pp': 4, 'in_channels_p': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(SeparableConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(ConvBranch(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'separable': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(SepConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(ShuffleLayer(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_017(self):
-        self._check(LinearLayer(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_018(self):
-        self._check(MBInvertedConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_019(self):
-        self._check(ZeroLayer(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_020(self):
-        self._check(ShuffleXceptionBlock(*[], **{'inp': 4, 'oup': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_021(self):
-        self._check(Mask(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_022(self):
-        self._check(BatchNorm(*[], **{'num_features': 4, 'pre_mask': 4, 'post_mask': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_023(self):
+    def test_001(self):
         self._check(AvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_024(self):
-        self._check(LinearCombine(*[], **{'layers_num': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(BackboneModel1(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
-    @_fails_compile()
-    def test_025(self):
-        self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+    def test_003(self):
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_004(self):
+        self._check(BatchNorm(*[], **{'num_features': 4, 'pre_mask': 4, 'post_mask': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_027(self):
-        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_028(self):
+    def test_005(self):
         self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_029(self):
+    def test_006(self):
+        self._check(Calibration(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(CellA(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_030(self):
+    def test_008(self):
         self._check(CellB(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+    def test_009(self):
+        self._check(ConvBn2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
-        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_010(self):
+        self._check(ConvBranch(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'separable': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_033(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+    def test_011(self):
+        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_013(self):
+        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(FacConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_034(self):
+    def test_017(self):
         self._check(FocalLoss2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+
+    def test_019(self):
+        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(InteractiveKLLoss(*[], **{'temperature': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(LinearCombine(*[], **{'layers_num': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(LinearLayer(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_023(self):
+        self._check(MBInvertedConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
+        self._check(Mask(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_025(self):
+        self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_026(self):
+        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
+        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
+        self._check(ReductionLayer(*[], **{'in_channels_pp': 4, 'in_channels_p': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_029(self):
+        self._check(SepConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_030(self):
+        self._check(SepConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(SeparableConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_032(self):
+        self._check(ShuffleLayer(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(ShuffleXceptionBlock(*[], **{'inp': 4, 'oup': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_034(self):
+        self._check(SpatialAttentionGate(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_035(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_036(self):
-        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StdConv(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_037(self):
-        self._check(ConvBn2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_038(self):
-        self._check(SpatialAttentionGate(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_039(self):
-        self._check(InteractiveKLLoss(*[], **{'temperature': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_040(self):
         self._check(TorchAdd(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_041(self):
+    def test_038(self):
         self._check(TorchFlatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_039(self):
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_040(self):
+        self._check(VGG_Cifar10(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_041(self):
+        self._check(ZeroLayer(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_042(self):
-        self._check(BackboneModel1(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(fc1(*[], **{}), [torch.rand([784, 784])], {})
 

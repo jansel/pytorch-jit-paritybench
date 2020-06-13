@@ -410,15 +410,15 @@ class InputTransition(nn.Module):
         return out
 
 
+def passthrough(x, **kwargs):
+    return x
+
+
 def _make_nConv(nchan, depth, elu):
     layers = []
     for _ in range(depth):
         layers.append(LUConv(nchan, elu))
     return nn.Sequential(*layers)
-
-
-def passthrough(x, **kwargs):
-    return x
 
 
 class DownTransition(nn.Module):
@@ -1090,21 +1090,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_prigoyal_pytorch_memonger(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(LUConv(*[], **{'nchan': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

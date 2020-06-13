@@ -36,9 +36,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-def kaiming_init(m):
+def normal_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
-        init.kaiming_normal_(m.weight)
+        init.normal_(m.weight, 0, 0.02)
         if m.bias is not None:
             m.bias.data.fill_(0)
     elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
@@ -47,9 +47,9 @@ def kaiming_init(m):
             m.bias.data.fill_(0)
 
 
-def normal_init(m):
+def kaiming_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
-        init.normal_(m.weight, 0, 0.02)
+        init.kaiming_normal_(m.weight)
         if m.bias is not None:
             m.bias.data.fill_(0)
     elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):

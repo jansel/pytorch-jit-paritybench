@@ -29,15 +29,15 @@ from torch import nn
 import numpy as np
 
 
+NUM_ROUTING_ITERATIONS = 3
+
+
 def softmax(input, dim=1):
     transposed_input = input.transpose(dim, len(input.size()) - 1)
     softmaxed_output = F.softmax(transposed_input.contiguous().view(-1,
         transposed_input.size(-1)), dim=-1)
     return softmaxed_output.view(*transposed_input.size()).transpose(dim, 
         len(input.size()) - 1)
-
-
-NUM_ROUTING_ITERATIONS = 3
 
 
 class CapsuleLayer(nn.Module):

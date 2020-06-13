@@ -234,6 +234,17 @@ class FocalLossSoftmax(nn.Module):
         return loss
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -340,17 +351,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1040,11 +1040,6 @@ class L2Norm(nn.Module):
         return out
 
 
-base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
-    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
-    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
-
-
 extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
     '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
     'S', 256]}
@@ -1071,6 +1066,11 @@ def vgg(cfg, i, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
+
+
+base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
+    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
+    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class VGG16Extractor(nn.Module):
@@ -1344,25 +1344,6 @@ class MobileNet2(nn.Module):
         return sources
 
 
-def get_func(func_name):
-    """Helper to return a function object by name. func_name must identify a
-    function in this module or the path to a function relative to the base
-    'modeling' module.
-    """
-    if func_name == '':
-        return None
-    try:
-        parts = func_name.split('.')
-        if len(parts) == 1:
-            return globals()[parts[0]]
-        module_name = 'models.' + '.'.join(parts[:-1])
-        module = importlib.import_module(module_name)
-        return getattr(module, parts[-1])
-    except Exception:
-        print('Failed to find function: %s', func_name)
-        raise
-
-
 class PriorBox(object):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
@@ -1420,6 +1401,25 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
+
+
+def get_func(func_name):
+    """Helper to return a function object by name. func_name must identify a
+    function in this module or the path to a function relative to the base
+    'modeling' module.
+    """
+    if func_name == '':
+        return None
+    try:
+        parts = func_name.split('.')
+        if len(parts) == 1:
+            return globals()[parts[0]]
+        module_name = 'models.' + '.'.join(parts[:-1])
+        module = importlib.import_module(module_name)
+        return getattr(module, parts[-1])
+    except Exception:
+        print('Failed to find function: %s', func_name)
+        raise
 
 
 class SSD(nn.Module):
@@ -1536,19 +1536,19 @@ class SSD(nn.Module):
         return output
 
 
-def latent_layers(fpn_num):
-    layers = []
-    for i in range(fpn_num):
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-    return layers
-
-
 def trans_layers(block, fpn_num):
     layers = list()
     for i in range(fpn_num):
         layers += [nn.Sequential(nn.Conv2d(block[i], 256, kernel_size=3,
             stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
             kernel_size=3, stride=1, padding=1))]
+    return layers
+
+
+def latent_layers(fpn_num):
+    layers = []
+    for i in range(fpn_num):
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
     return layers
 
 
@@ -1675,8 +1675,19 @@ class WeaveBlock(nn.Module):
         return out
 
 
-def adaptive_upsample(x, size):
-    return F.upsample(x, size, mode='bilinear')
+def adaptive_pool(x, size):
+    return F.adaptive_max_pool2d(x, size)
+
+
+def trans_layers_2(raw_channels, inner_channels):
+    layers = list()
+    fpn_num = len(raw_channels)
+    for i in range(fpn_num):
+        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
+            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
+            stride=1, padding=1))]
+    return layers
 
 
 def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
@@ -1695,17 +1706,6 @@ def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
     return layers
 
 
-def trans_layers_2(raw_channels, inner_channels):
-    layers = list()
-    fpn_num = len(raw_channels)
-    for i in range(fpn_num):
-        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
-            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
-            stride=1, padding=1))]
-    return layers
-
-
 def weave_layers_2(raw_channels, weave_add_channels):
     layers = list()
     num = 2
@@ -1719,8 +1719,8 @@ def weave_layers_2(raw_channels, weave_add_channels):
     return layers
 
 
-def adaptive_pool(x, size):
-    return F.adaptive_max_pool2d(x, size)
+def adaptive_upsample(x, size):
+    return F.upsample(x, size, mode='bilinear')
 
 
 class WeaveAdapter2(nn.Module):
@@ -1765,6 +1765,18 @@ class WeaveAdapter2(nn.Module):
         return weave_out
 
 
+def weave_concat_layers(block, weave_num, channel):
+    layers = list()
+    for i in range(weave_num):
+        if i == 0 or i == weave_num - 1:
+            add_channel = channel
+        else:
+            add_channel = channel * 2
+        layers += [nn.Conv2d(block[i] + add_channel, 256, kernel_size=1,
+            stride=1)]
+    return layers
+
+
 def weave_layers(block, weave_num):
     layers = list()
     add_channel = 32
@@ -1775,18 +1787,6 @@ def weave_layers(block, weave_num):
             layers += [ConvUpsample(block[i], add_channel)]
         else:
             layers += [ConvPoolUpsample(block[i], add_channel)]
-    return layers
-
-
-def weave_concat_layers(block, weave_num, channel):
-    layers = list()
-    for i in range(weave_num):
-        if i == 0 or i == weave_num - 1:
-            add_channel = channel
-        else:
-            add_channel = channel * 2
-        layers += [nn.Conv2d(block[i] + add_channel, 256, kernel_size=1,
-            stride=1)]
     return layers
 
 
@@ -2734,29 +2734,29 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yqyao_SSD_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(FocalLossSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ConvBN(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(DarknetBlock(*[], **{'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(ConvPool(*[], **{'inplane': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
-        self._check(ConvUpsample(*[], **{'inplace': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_003(self):
         self._check(ConvPoolUpsample(*[], **{'inplace': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(ConvUpsample(*[], **{'inplace': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(DarknetBlock(*[], **{'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(FocalLossSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

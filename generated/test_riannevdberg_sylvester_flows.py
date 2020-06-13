@@ -597,20 +597,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_riannevdberg_sylvester_flows(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Planar(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(GatedConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(GatedConvTranspose2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_002(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(MaskedConv2d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(MaskedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
     def test_005(self):
-        self._check(MaskedConv2d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Planar(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

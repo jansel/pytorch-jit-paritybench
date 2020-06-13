@@ -396,17 +396,6 @@ def flatten_list(tens_list):
         size())
 
 
-def ctaTile(name):
-    name = name.split('_')
-    name = list(filter(lambda x: 'x' in x, name))
-    name = list(filter(lambda x: 'slice' not in x, name))
-    assert len(name) == 1
-    name = name[0].split('x')
-    assert len(name) == 2
-    name = list(map(int, name))
-    return name[0], name[1]
-
-
 class OperatorLayerBase(ABC):
     """
 	Base class for all layers and operators.
@@ -518,6 +507,17 @@ def hasTileSize(name):
         return True
     else:
         return False
+
+
+def ctaTile(name):
+    name = name.split('_')
+    name = list(filter(lambda x: 'x' in x, name))
+    name = list(filter(lambda x: 'slice' not in x, name))
+    assert len(name) == 1
+    name = name[0].split('x')
+    assert len(name) == 2
+    name = list(map(int, name))
+    return name[0], name[1]
 
 
 class RNNCell(OperatorLayerBase):
@@ -1151,6 +1151,13 @@ class BatchNorm2d_NHWC(_BatchNorm):
                     bnp.close_remote_data(self.pair_handle3)
 
 
+@torch.jit.script
+def jit_dropout_add(x, residual, prob, is_training):
+    out = F.dropout(x, p=prob, training=True)
+    out = residual + out
+    return out
+
+
 class FastEncdecAttnNormAddFunc(torch.autograd.Function):
 
     @staticmethod
@@ -1371,13 +1378,6 @@ class EncdecAttnFunc(torch.autograd.Function):
 encdec_attn_func = EncdecAttnFunc.apply
 
 
-@torch.jit.script
-def jit_dropout_add(x, residual, prob, is_training):
-    out = F.dropout(x, p=prob, training=True)
-    out = residual + out
-    return out
-
-
 class FastEncdecAttnFunc(torch.autograd.Function):
 
     @staticmethod
@@ -1544,51 +1544,71 @@ class EncdecMultiheadAttn(nn.Module):
         return outputs, None
 
 
-class FastSelfAttnNormAddFunc(torch.autograd.Function):
+class FastSelfAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, use_time_mask, is_training, heads, inputs,
-        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-        output_weights, pad_mask, dropout_prob):
+        input_weights, output_weights, input_biases, output_biases,
+        pad_mask, mask_additive, dropout_prob):
+        use_biases_t = torch.tensor([input_biases is not None])
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
         use_mask = pad_mask is not None
-        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results,
-            softmax_results, dropout_results, dropout_mask, matmul2_results,
-            dropout_add_mask, outputs) = (fast_self_multihead_attn_norm_add
-            .forward(use_mask, use_time_mask, is_training, heads, inputs,
-            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-            output_weights, pad_mask if use_mask else null_tensor,
-            dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, lyr_nrm_results,
-            lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t)
+        if use_biases_t[0]:
+            if not mask_additive:
+                (input_lin_results, softmax_results, dropout_results,
+                    dropout_mask, matmul2_results, outputs) = (
+                    fast_self_multihead_attn_bias.forward(use_mask,
+                    use_time_mask, is_training, heads, inputs,
+                    input_weights, output_weights, input_biases,
+                    output_biases, pad_mask if use_mask else null_tensor,
+                    dropout_prob))
+            else:
+                (input_lin_results, softmax_results, dropout_results,
+                    dropout_mask, matmul2_results, outputs) = (
+                    fast_self_multihead_attn_bias_additive_mask.forward(
+                    use_mask, use_time_mask, is_training, heads, inputs,
+                    input_weights, output_weights, input_biases,
+                    output_biases, pad_mask if use_mask else null_tensor,
+                    dropout_prob))
+        else:
+            (input_lin_results, softmax_results, dropout_results,
+                dropout_mask, matmul2_results, outputs) = (
+                fast_self_multihead_attn.forward(use_mask, use_time_mask,
+                is_training, heads, inputs, input_weights, output_weights, 
+                pad_mask if use_mask else null_tensor, dropout_prob))
+        ctx.save_for_backward(use_biases_t, heads_t, matmul2_results,
+            dropout_results, softmax_results, input_lin_results, inputs,
+            input_weights, output_weights, dropout_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
-        (input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads,
-            input_weight_grads, output_weight_grads) = (
-            fast_self_multihead_attn_norm_add.backward(heads_t[0],
-            output_grads, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t[0]))
-        return (None, None, None, input_grads, lyr_nrm_gamma_grads,
-            lyr_nrm_beta_grads, input_weight_grads, output_weight_grads,
+        (use_biases_t, heads_t, matmul2_results, dropout_results,
+            softmax_results, input_lin_results, inputs, input_weights,
+            output_weights, dropout_mask, dropout_prob_t) = ctx.saved_tensors
+        if use_biases_t[0]:
+            (input_grads, input_weight_grads, output_weight_grads,
+                input_bias_grads, output_bias_grads) = (
+                fast_self_multihead_attn_bias.backward(heads_t[0],
+                output_grads, matmul2_results, dropout_results,
+                softmax_results, input_lin_results, inputs, input_weights,
+                output_weights, dropout_mask, dropout_prob_t[0]))
+        else:
+            input_bias_grads = None
+            output_bias_grads = None
+            input_grads, input_weight_grads, output_weight_grads = (
+                fast_self_multihead_attn.backward(heads_t[0], output_grads,
+                matmul2_results, dropout_results, softmax_results,
+                input_lin_results, inputs, input_weights, output_weights,
+                dropout_mask, dropout_prob_t[0]))
+        return (None, None, None, input_grads, input_weight_grads,
+            output_weight_grads, input_bias_grads, output_bias_grads, None,
             None, None)
 
 
-fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
+fast_self_attn_func = FastSelfAttnFunc.apply
 
 
 class SelfAttnFunc(torch.autograd.Function):
@@ -1732,71 +1752,51 @@ class SelfAttnFunc(torch.autograd.Function):
 self_attn_func = SelfAttnFunc.apply
 
 
-class FastSelfAttnFunc(torch.autograd.Function):
+class FastSelfAttnNormAddFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, use_time_mask, is_training, heads, inputs,
-        input_weights, output_weights, input_biases, output_biases,
-        pad_mask, mask_additive, dropout_prob):
-        use_biases_t = torch.tensor([input_biases is not None])
+        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
+        output_weights, pad_mask, dropout_prob):
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
         use_mask = pad_mask is not None
-        if use_biases_t[0]:
-            if not mask_additive:
-                (input_lin_results, softmax_results, dropout_results,
-                    dropout_mask, matmul2_results, outputs) = (
-                    fast_self_multihead_attn_bias.forward(use_mask,
-                    use_time_mask, is_training, heads, inputs,
-                    input_weights, output_weights, input_biases,
-                    output_biases, pad_mask if use_mask else null_tensor,
-                    dropout_prob))
-            else:
-                (input_lin_results, softmax_results, dropout_results,
-                    dropout_mask, matmul2_results, outputs) = (
-                    fast_self_multihead_attn_bias_additive_mask.forward(
-                    use_mask, use_time_mask, is_training, heads, inputs,
-                    input_weights, output_weights, input_biases,
-                    output_biases, pad_mask if use_mask else null_tensor,
-                    dropout_prob))
-        else:
-            (input_lin_results, softmax_results, dropout_results,
-                dropout_mask, matmul2_results, outputs) = (
-                fast_self_multihead_attn.forward(use_mask, use_time_mask,
-                is_training, heads, inputs, input_weights, output_weights, 
-                pad_mask if use_mask else null_tensor, dropout_prob))
-        ctx.save_for_backward(use_biases_t, heads_t, matmul2_results,
-            dropout_results, softmax_results, input_lin_results, inputs,
-            input_weights, output_weights, dropout_mask, dropout_prob_t)
+        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results,
+            softmax_results, dropout_results, dropout_mask, matmul2_results,
+            dropout_add_mask, outputs) = (fast_self_multihead_attn_norm_add
+            .forward(use_mask, use_time_mask, is_training, heads, inputs,
+            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
+            output_weights, pad_mask if use_mask else null_tensor,
+            dropout_prob))
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
+            softmax_results, input_lin_results, lyr_nrm_results,
+            lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (use_biases_t, heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, inputs, input_weights,
-            output_weights, dropout_mask, dropout_prob_t) = ctx.saved_tensors
-        if use_biases_t[0]:
-            (input_grads, input_weight_grads, output_weight_grads,
-                input_bias_grads, output_bias_grads) = (
-                fast_self_multihead_attn_bias.backward(heads_t[0],
-                output_grads, matmul2_results, dropout_results,
-                softmax_results, input_lin_results, inputs, input_weights,
-                output_weights, dropout_mask, dropout_prob_t[0]))
-        else:
-            input_bias_grads = None
-            output_bias_grads = None
-            input_grads, input_weight_grads, output_weight_grads = (
-                fast_self_multihead_attn.backward(heads_t[0], output_grads,
-                matmul2_results, dropout_results, softmax_results,
-                input_lin_results, inputs, input_weights, output_weights,
-                dropout_mask, dropout_prob_t[0]))
-        return (None, None, None, input_grads, input_weight_grads,
-            output_weight_grads, input_bias_grads, output_bias_grads, None,
+        (heads_t, matmul2_results, dropout_results, softmax_results,
+            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
+            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
+        (input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads,
+            input_weight_grads, output_weight_grads) = (
+            fast_self_multihead_attn_norm_add.backward(heads_t[0],
+            output_grads, matmul2_results, dropout_results, softmax_results,
+            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
+            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t[0]))
+        return (None, None, None, input_grads, lyr_nrm_gamma_grads,
+            lyr_nrm_beta_grads, input_weight_grads, output_weight_grads,
             None, None)
 
 
-fast_self_attn_func = FastSelfAttnFunc.apply
+fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
 
 
 class SelfMultiheadAttn(nn.Module):
@@ -2047,31 +2047,6 @@ class MlpFunction(torch.autograd.Function):
         return None, None, *grads
 
 
-class FusedLayerNormFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input, normalized_shape, eps):
-        global fused_layer_norm_cuda
-        if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module(
-                'fused_layer_norm_cuda')
-        ctx.normalized_shape = normalized_shape
-        ctx.eps = eps
-        input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.
-            normalized_shape, ctx.eps)
-        ctx.save_for_backward(input_, mean, invvar)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_, mean, invvar = ctx.saved_tensors
-        grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
-            ), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
-        return grad_input, None, None
-
-
 class FusedLayerNormAffineFunction(torch.autograd.Function):
 
     @staticmethod
@@ -2098,6 +2073,31 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
             backward_affine(grad_output.contiguous(), mean, invvar, input_,
             ctx.normalized_shape, weight_, bias_, ctx.eps))
         return grad_input, grad_weight, grad_bias, None, None
+
+
+class FusedLayerNormFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, normalized_shape, eps):
+        global fused_layer_norm_cuda
+        if fused_layer_norm_cuda is None:
+            fused_layer_norm_cuda = importlib.import_module(
+                'fused_layer_norm_cuda')
+        ctx.normalized_shape = normalized_shape
+        ctx.eps = eps
+        input_ = input.contiguous()
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.
+            normalized_shape, ctx.eps)
+        ctx.save_for_backward(input_, mean, invvar)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_, mean, invvar = ctx.saved_tensors
+        grad_input = None
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
+            ), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
+        return grad_input, None, None
 
 
 class FusedLayerNorm(torch.nn.Module):
@@ -2200,33 +2200,6 @@ class FusedLayerNorm(torch.nn.Module):
             .format(**self.__dict__))
 
 
-class MultiTensorApply(object):
-    available = False
-    warned = False
-
-    def __init__(self, chunk_size):
-        try:
-            import amp_C
-            MultiTensorApply.available = True
-            self.chunk_size = chunk_size
-        except ImportError as err:
-            MultiTensorApply.available = False
-            MultiTensorApply.import_err = err
-
-    def check_avail(self):
-        if MultiTensorApply.available == False:
-            raise RuntimeError(
-                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
-                , MultiTensorApply.import_err)
-
-    def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
-        self.check_avail()
-        return op(self.chunk_size, noop_flag_buffer, tensor_lists, *args)
-
-
-multi_tensor_applier = MultiTensorApply(2048 * 32)
-
-
 imported_flatten_impl = False
 
 
@@ -2257,16 +2230,42 @@ def unflatten(coalesced, bucket):
     return unflatten_impl(coalesced, bucket)
 
 
-def apply_flat_dist_call(bucket, call, extra_args=None):
-    coalesced = flatten(bucket)
-    if extra_args is not None:
-        call(coalesced, *extra_args)
-    else:
-        call(coalesced)
-    if call is dist.all_reduce:
-        coalesced /= dist.get_world_size()
-    for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
-        buf.copy_(synced)
+def split_half_float_double(tensors):
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
+        'torch.cuda.DoubleTensor']
+    buckets = []
+    for i, dtype in enumerate(dtypes):
+        bucket = [t for t in tensors if t.type() == dtype]
+        if bucket:
+            buckets.append(bucket)
+    return buckets
+
+
+class MultiTensorApply(object):
+    available = False
+    warned = False
+
+    def __init__(self, chunk_size):
+        try:
+            import amp_C
+            MultiTensorApply.available = True
+            self.chunk_size = chunk_size
+        except ImportError as err:
+            MultiTensorApply.available = False
+            MultiTensorApply.import_err = err
+
+    def check_avail(self):
+        if MultiTensorApply.available == False:
+            raise RuntimeError(
+                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
+                , MultiTensorApply.import_err)
+
+    def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
+        self.check_avail()
+        return op(self.chunk_size, noop_flag_buffer, tensor_lists, *args)
+
+
+multi_tensor_applier = MultiTensorApply(2048 * 32)
 
 
 def split_by_type(tensors):
@@ -2279,22 +2278,23 @@ def split_by_type(tensors):
     return buckets
 
 
+def apply_flat_dist_call(bucket, call, extra_args=None):
+    coalesced = flatten(bucket)
+    if extra_args is not None:
+        call(coalesced, *extra_args)
+    else:
+        call(coalesced)
+    if call is dist.all_reduce:
+        coalesced /= dist.get_world_size()
+    for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
+        buf.copy_(synced)
+
+
 def flat_dist_call(tensors, call, extra_args=None):
     buckets = split_by_type(tensors)
     for tp in buckets:
         bucket = buckets[tp]
         apply_flat_dist_call(bucket, call, extra_args)
-
-
-def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
-    buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
-            buckets.append(bucket)
-    return buckets
 
 
 class SyncBatchnormFunction(Function):
@@ -3010,15 +3010,15 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NVIDIA_apex(_paritybench_base):
     pass
     def test_000(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Foo(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_002(self):
+        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -110,20 +110,8 @@ class InvertedResidual(nn.Module):
             return x
 
 
-def separable_conv(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=
-        False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp,
-        oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
-
-
-def conv_before_pooling(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), Hswish())
-
-
-def conv_head(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace
-        =True), nn.Dropout2d(0.2))
+def classifier(inp, nclass):
+    return nn.Linear(inp, nclass)
 
 
 def stem(inp, oup, stride):
@@ -131,8 +119,20 @@ def stem(inp, oup, stride):
         BatchNorm2d(oup), Hswish())
 
 
-def classifier(inp, nclass):
-    return nn.Linear(inp, nclass)
+def conv_before_pooling(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), Hswish())
+
+
+def separable_conv(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=
+        False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp,
+        oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+
+
+def conv_head(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace
+        =True), nn.Dropout2d(0.2))
 
 
 class MoGaA(nn.Module):
@@ -476,10 +476,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_xiaomi_automl_MoGA(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

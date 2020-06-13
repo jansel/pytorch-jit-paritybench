@@ -1,4 +1,8 @@
 .idea
 bugreports
 errors.csv
+*.orig
+*.reg
+*~
+*.swp
 __pycache__

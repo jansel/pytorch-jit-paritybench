@@ -57,10 +57,6 @@ class Flatten(nn.Module):
         return x.reshape(x.shape[0], -1)
 
 
-def laplace_smoothing(x, n_categories, eps=1e-05):
-    return (x + eps) / (x.sum() + n_categories * eps)
-
-
 def is_empty(t):
     return t.nelement() == 0
 
@@ -70,6 +66,10 @@ def ema_inplace(moving_avg, new, decay):
         moving_avg.data.copy_(new)
         return
     moving_avg.data.mul_(decay).add_(1 - decay, new)
+
+
+def laplace_smoothing(x, n_categories, eps=1e-05):
+    return (x + eps) / (x.sum() + n_categories * eps)
 
 
 class VectorQuantize(nn.Module):
@@ -314,16 +314,16 @@ class Discriminator(nn.Module):
         return x.squeeze(), quantize_loss
 
 
-def set_requires_grad(model, bool):
-    for p in model.parameters():
-        p.requires_grad = bool
-
-
 def ema_inplace_module(moving_avg_module, new, decay):
     for current_params, ma_params in zip(moving_avg_module.parameters(),
         new.parameters()):
         old_weight, up_weight = ma_params.data, current_params.data
         ema_inplace(old_weight, up_weight, decay)
+
+
+def set_requires_grad(model, bool):
+    for p in model.parameters():
+        p.requires_grad = bool
 
 
 class StyleGAN2(nn.Module):
@@ -389,19 +389,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lucidrains_stylegan2_pytorch(_paritybench_base):
     pass
     def test_000(self):
+        self._check(DiscriminatorBlock(*[], **{'input_channels': 4, 'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
-        self._check(VectorQuantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_002(self):
+        self._check(RGBBlock(*[], **{'latent_dim': 4, 'input_channel': 4, 'upsample': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_003(self):
         self._check(StyleVectorizer(*[], **{'emb': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(RGBBlock(*[], **{'latent_dim': 4, 'input_channel': 4, 'upsample': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
     def test_004(self):
-        self._check(DiscriminatorBlock(*[], **{'input_channels': 4, 'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(VectorQuantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
 

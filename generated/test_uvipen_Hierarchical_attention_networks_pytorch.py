@@ -87,16 +87,6 @@ class HierAttNet(nn.Module):
         return output
 
 
-def element_wise_mul(input1, input2):
-    feature_list = []
-    for feature_1, feature_2 in zip(input1, input2):
-        feature_2 = feature_2.unsqueeze(1).expand_as(feature_1)
-        feature = feature_1 * feature_2
-        feature_list.append(feature.unsqueeze(0))
-    output = torch.cat(feature_list, 0)
-    return torch.sum(output, 0).unsqueeze(0)
-
-
 def matrix_mul(input, weight, bias=False):
     feature_list = []
     for feature in input:
@@ -106,6 +96,16 @@ def matrix_mul(input, weight, bias=False):
         feature = torch.tanh(feature).unsqueeze(0)
         feature_list.append(feature)
     return torch.cat(feature_list, 0).squeeze()
+
+
+def element_wise_mul(input1, input2):
+    feature_list = []
+    for feature_1, feature_2 in zip(input1, input2):
+        feature_2 = feature_2.unsqueeze(1).expand_as(feature_1)
+        feature = feature_1 * feature_2
+        feature_list.append(feature.unsqueeze(0))
+    output = torch.cat(feature_list, 0)
+    return torch.sum(output, 0).unsqueeze(0)
 
 
 class SentAttNet(nn.Module):

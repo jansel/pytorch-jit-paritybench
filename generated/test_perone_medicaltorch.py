@@ -436,10 +436,10 @@ class Test_perone_medicaltorch(_paritybench_base):
         self._check(ConfidentMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(NoPoolASPP(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(DownConv(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(DownConv(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoPoolASPP(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):

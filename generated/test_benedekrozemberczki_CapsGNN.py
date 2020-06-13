@@ -365,14 +365,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_benedekrozemberczki_CapsGNN(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PrimaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'capsule_dimensions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Attention(*[], **{'attention_size_1': 4, 'attention_size_2': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(SecondaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'unit_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(PrimaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'capsule_dimensions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(Attention(*[], **{'attention_size_1': 4, 'attention_size_2': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SecondaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'unit_size': 4}), [torch.rand([4, 4, 4])], {})
 

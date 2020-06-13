@@ -934,14 +934,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_MushroomRL_mushroom_rl(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CriticNetwork(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ActorNetwork(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ActorNetwork(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CriticNetwork(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Network(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4], 'n_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ExampleNet(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
@@ -949,5 +949,5 @@ class Test_MushroomRL_mushroom_rl(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(ExampleNet(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Network(*[], **{'input_shape': [4, 4], 'output_shape': [4, 4], 'n_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

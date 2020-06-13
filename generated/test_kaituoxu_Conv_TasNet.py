@@ -396,25 +396,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kaituoxu_Conv_TasNet(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(Encoder(*[], **{'L': 4, 'N': 4}), [torch.rand([4, 4])], {})
-
     @_fails_compile()
+    def test_000(self):
+        self._check(ChannelwiseLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_001(self):
-        self._check(TemporalConvNet(*[], **{'N': 4, 'B': 4, 'H': 4, 'P': 4, 'X': 4, 'R': 4, 'C': 4}), [torch.rand([4, 4, 2])], {})
+        self._check(Chomp1d(*[], **{'chomp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 64])], {})
 
     def test_003(self):
-        self._check(Chomp1d(*[], **{'chomp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{'L': 4, 'N': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(ChannelwiseLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(GlobalLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalConvNet(*[], **{'N': 4, 'B': 4, 'H': 4, 'P': 4, 'X': 4, 'R': 4, 'C': 4}), [torch.rand([4, 4, 2])], {})
 

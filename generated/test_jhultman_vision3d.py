@@ -84,14 +84,6 @@ import itertools
 from torch.utils.data import DataLoader
 
 
-def torchify_anchor_attributes(cfg):
-    attr = {}
-    for key in ['wlh', 'center_z', 'yaw']:
-        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
-        attr[key] = torch.stack(vals).float()
-    return dict(attr)
-
-
 def _linspace_midpoint(x0, x1, nx):
     """
     Mimics np.linspace with endpoint=False except
@@ -107,6 +99,14 @@ def meshgrid_midpoint(*arrays):
     spaces = [_linspace_midpoint(*x) for x in arrays]
     grid = torch.stack(torch.meshgrid(spaces), -1)
     return grid
+
+
+def torchify_anchor_attributes(cfg):
+    attr = {}
+    for key in ['wlh', 'center_z', 'yaw']:
+        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
+        attr[key] = torch.stack(vals).float()
+    return dict(attr)
 
 
 class AnchorGenerator(nn.Module):
@@ -584,13 +584,6 @@ class MLP(nn.Sequential):
         return module
 
 
-def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SparseConv3d(C_in, C_out, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
-    return layer
-
-
 def make_subm_layer(C_in, C_out, *args, **kwargs):
     layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
         **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
@@ -598,14 +591,11 @@ def make_subm_layer(C_in, C_out, *args, **kwargs):
     return layer
 
 
-def decode(deltas, anchors):
-    """Both inputs of shape (*, 7)."""
-    P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
-    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
-    A_norm = _anchor_diagonal(A_wlh)
-    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
-        A_yaw), dim=-1)
-    return boxes
+def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
+    layer = spconv.SparseSequential(spconv.SparseConv3d(C_in, C_out, *args,
+        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
+        0.01), nn.ReLU())
+    return layer
 
 
 def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
@@ -959,11 +949,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_jhultman_vision3d(_paritybench_base):
     pass
     def test_000(self):
-        self._check(VoxelFeatureExtractor(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_001(self):
         self._check(MLP(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(RPN(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
+
+    def test_002(self):
+        self._check(VoxelFeatureExtractor(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

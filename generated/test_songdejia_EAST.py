@@ -241,21 +241,6 @@ class ResNet(nn.Module):
         return x, f
 
 
-def mean_image_subtraction(images, means=[123.68, 116.78, 103.94]):
-    """
-    image normalization
-    :param images: bs * w * h * channel 
-    :param means:
-    :return:
-    """
-    num_channels = images.data.shape[1]
-    if len(means) != num_channels:
-        raise ValueError('len(means) must match the number of channels')
-    for i in range(num_channels):
-        images.data[:, (i), :, :] -= means[i]
-    return images
-
-
 model_urls = {'resnet18':
     'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
     'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
@@ -275,6 +260,21 @@ def resnet50(pretrained=True, **kwargs):
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     return model
+
+
+def mean_image_subtraction(images, means=[123.68, 116.78, 103.94]):
+    """
+    image normalization
+    :param images: bs * w * h * channel 
+    :param means:
+    :return:
+    """
+    num_channels = images.data.shape[1]
+    if len(means) != num_channels:
+        raise ValueError('len(means) must match the number of channels')
+    for i in range(num_channels):
+        images.data[:, (i), :, :] -= means[i]
+    return images
 
 
 class East(nn.Module):

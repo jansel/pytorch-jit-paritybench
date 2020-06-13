@@ -199,3 +199,10 @@ class R2Plus1DClassifier(nn.Module):
         x = self.res2plus1d(x)
         x = self.linear(x)
         return x
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_irhum_R2Plus1D_PyTorch(_paritybench_base):
+    pass

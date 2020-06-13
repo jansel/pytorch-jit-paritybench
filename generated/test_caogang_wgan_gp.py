@@ -127,13 +127,10 @@ class ResBlock(nn.Module):
 SEQ_LEN = 32
 
 
-BATCH_SIZE = 256
+MAX_N_EXAMPLES = 10000000
 
 
 DATA_DIR = './data_language'
-
-
-MAX_N_EXAMPLES = 10000000
 
 
 class Discriminator(nn.Module):
@@ -243,12 +240,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_caogang_wgan_gp(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Generator(*[], **{}), [torch.rand([2, 2]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(Generator(*[], **{}), [torch.rand([2, 2]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(ResBlock(*[], **{}), [torch.rand([4, 512, 64])], {})

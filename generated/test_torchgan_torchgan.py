@@ -1012,13 +1012,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_torchgan_torchgan(_paritybench_base):
     pass
     def test_000(self):
-        self._check(TransitionBlock2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MinibatchDiscrimination1d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(TransitionBlockTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TransitionBlock2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(MinibatchDiscrimination1d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(TransitionBlockTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

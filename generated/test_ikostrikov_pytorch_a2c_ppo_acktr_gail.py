@@ -150,12 +150,6 @@ class SplitBias(nn.Module):
         return x
 
 
-def init(module, weight_init, bias_init, gain=1):
-    weight_init(module.weight.data, gain=gain)
-    bias_init(module.bias.data)
-    return module
-
-
 class FixedCategorical(torch.distributions.Categorical):
 
     def sample(self):
@@ -167,6 +161,12 @@ class FixedCategorical(torch.distributions.Categorical):
 
     def mode(self):
         return self.probs.argmax(dim=-1, keepdim=True)
+
+
+def init(module, weight_init, bias_init, gain=1):
+    weight_init(module.weight.data, gain=gain)
+    bias_init(module.bias.data)
+    return module
 
 
 class Categorical(nn.Module):
@@ -324,15 +324,15 @@ class Test_ikostrikov_pytorch_a2c_ppo_acktr_gail(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Categorical(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Bernoulli(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(DiagGaussian(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Categorical(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Bernoulli(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiagGaussian(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})

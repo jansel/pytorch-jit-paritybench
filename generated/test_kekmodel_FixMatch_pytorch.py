@@ -332,15 +332,15 @@ class Test_kekmodel_FixMatch_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(PSBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(PSBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):

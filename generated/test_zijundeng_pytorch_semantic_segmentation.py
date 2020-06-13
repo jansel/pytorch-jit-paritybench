@@ -513,17 +513,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zijundeng_pytorch_semantic_segmentation(_paritybench_base):
     pass
     def test_000(self):
-        self._check(_DenseUpsamplingConvModule(*[], **{'down_factor': 4, 'in_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(_BoundaryRefineModule(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(_PyramidPoolingModule(*[], **{'in_dim': 4, 'reduction_dim': 4, 'setting': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
+    def test_001(self):
         self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_004(self):
+    def test_002(self):
+        self._check(_DenseUpsamplingConvModule(*[], **{'down_factor': 4, 'in_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_004(self):
+        self._check(_PyramidPoolingModule(*[], **{'in_dim': 4, 'reduction_dim': 4, 'setting': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

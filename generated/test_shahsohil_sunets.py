@@ -118,28 +118,10 @@ class cross_entropy2d(nn.Module):
 mom_bn = 0.01
 
 
-dilation = {'16': 1, '8': 2}
-
-
-def prediction_stat(outputs, labels, n_classes):
-    lbl = labels.data
-    valid = lbl < n_classes
-    classwise_pixel_acc = []
-    classwise_gtpixels = []
-    classwise_predpixels = []
-    for output in outputs:
-        _, pred = output.data.max(dim=1)
-        for m in range(n_classes):
-            mask1 = lbl == m
-            mask2 = pred[valid] == m
-            diff = pred[mask1] - lbl[mask1]
-            classwise_pixel_acc += [torch.sum(diff == 0)]
-            classwise_gtpixels += [torch.sum(mask1)]
-            classwise_predpixels += [torch.sum(mask2)]
-    return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
-
-
 checkpoint = 'pretrained/SUNets'
+
+
+dilation = {'16': 1, '8': 2}
 
 
 class UNetConv(nn.Sequential):
@@ -372,6 +354,24 @@ def stackedunet128(output_stride='32'):
 def stackedunet7128(output_stride='32'):
     return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
         128, num_classes=1000, depth=7, ost=output_stride)
+
+
+def prediction_stat(outputs, labels, n_classes):
+    lbl = labels.data
+    valid = lbl < n_classes
+    classwise_pixel_acc = []
+    classwise_gtpixels = []
+    classwise_predpixels = []
+    for output in outputs:
+        _, pred = output.data.max(dim=1)
+        for m in range(n_classes):
+            mask1 = lbl == m
+            mask2 = pred[valid] == m
+            diff = pred[mask1] - lbl[mask1]
+            classwise_pixel_acc += [torch.sum(diff == 0)]
+            classwise_gtpixels += [torch.sum(mask1)]
+            classwise_predpixels += [torch.sum(mask2)]
+    return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
 
 
 class degrid_sunet7128(nn.Module):

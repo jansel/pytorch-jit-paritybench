@@ -705,6 +705,86 @@ class ModelHooks(Module):
         return move_data_to_device(batch, device)
 
 
+def get_init_args(frame) ->dict:
+    _, _, _, local_vars = inspect.getargvalues(frame)
+    if '__class__' not in local_vars:
+        return
+    cls = local_vars['__class__']
+    spec = inspect.getfullargspec(cls.__init__)
+    init_parameters = inspect.signature(cls.__init__).parameters
+    self_identifier = spec.args[0]
+    varargs_identifier = spec.varargs
+    kwargs_identifier = spec.varkw
+    exclude_argnames = (varargs_identifier, kwargs_identifier,
+        self_identifier, '__class__', 'frame', 'frame_args')
+    local_args = {k: local_vars[k] for k in init_parameters.keys()}
+    local_args.update(local_args.get(kwargs_identifier, {}))
+    local_args = {k: v for k, v in local_args.items() if k not in
+        exclude_argnames}
+    return local_args
+
+
+def collect_init_args(frame, path_args: list, inside: bool=False) ->list:
+    """
+    Recursively collects the arguments passed to the child constructors in the inheritance tree.
+
+    Args:
+        frame: the current stack frame
+        path_args: a list of dictionaries containing the constructor args in all parent classes
+        inside: track if we are inside inheritance path, avoid terminating too soon
+
+    Return:
+          A list of dictionaries where each dictionary contains the arguments passed to the
+          constructor at that level. The last entry corresponds to the constructor call of the
+          most specific class in the hierarchy.
+    """
+    _, _, _, local_vars = inspect.getargvalues(frame)
+    if '__class__' in local_vars:
+        local_args = get_init_args(frame)
+        path_args.append(local_args)
+        return collect_init_args(frame.f_back, path_args, inside=True)
+    elif not inside:
+        return collect_init_args(frame.f_back, path_args, inside)
+    else:
+        return path_args
+
+
+class AttributeDict(dict):
+    """Extended dictionary accesisable with dot notation.
+
+    >>> ad = AttributeDict({'key1': 1, 'key2': 'abc'})
+    >>> ad.key1
+    1
+    >>> ad.update({'my-key': 3.14})
+    >>> ad.update(mew_key=42)
+    >>> ad.key1 = 2
+    >>> ad
+    "key1":    2
+    "key2":    abc
+    "mew_key": 42
+    "my-key":  3.14
+    """
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f'Missing attribute "{key}"')
+
+    def __setattr__(self, key, val):
+        self[key] = val
+
+    def __repr__(self):
+        if not len(self):
+            return ''
+        max_key_length = max([len(str(k)) for k in self])
+        tmp_name = '{:' + str(max_key_length + 3) + 's} {}'
+        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.
+            keys())]
+        out = '\n'.join(rows)
+        return out
+
+
 def rank_zero_only(fn):
 
     @wraps(fn)
@@ -992,18 +1072,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_PyTorchLightning_pytorch_lightning(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Discriminator(*[], **{'img_shape': 4}), [torch.rand([4, 4])], {})
-
-    def test_001(self):
         self._check(DQN(*[], **{'obs_size': 4, 'n_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_002(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+    def test_001(self):
+        self._check(Discriminator(*[], **{'img_shape': 4}), [torch.rand([4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

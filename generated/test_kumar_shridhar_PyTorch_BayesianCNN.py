@@ -470,14 +470,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kumar_shridhar_PyTorch_BayesianCNN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ThreeConvThreeFC(*[], **{'outputs': 4, 'inputs': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(FlattenLayer(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Pass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(ModuleWrapper(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(Pass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(FlattenLayer(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ThreeConvThreeFC(*[], **{'outputs': 4, 'inputs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

@@ -64,8 +64,20 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 
-def max_pool(bottom, ks=2, stride=2):
-    return L.Pooling(bottom, pool=P.Pooling.MAX, kernel_size=ks, stride=stride)
+def get_upsampling_weight(in_channels, out_channels, kernel_size):
+    """Make a 2D bilinear kernel suitable for upsampling"""
+    factor = (kernel_size + 1) // 2
+    if kernel_size % 2 == 1:
+        center = factor - 1
+    else:
+        center = factor - 0.5
+    og = np.ogrid[:kernel_size, :kernel_size]
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
+        factor)
+    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
+        dtype=np.float64)
+    weight[(range(in_channels)), (range(out_channels)), :, :] = filt
+    return torch.from_numpy(weight).float()
 
 
 def conv_relu(bottom, nout, ks=3, stride=1, pad=1):
@@ -73,6 +85,10 @@ def conv_relu(bottom, nout, ks=3, stride=1, pad=1):
         nout, pad=pad, param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=2,
         decay_mult=0)])
     return conv, L.ReLU(conv, in_place=True)
+
+
+def max_pool(bottom, ks=2, stride=2):
+    return L.Pooling(bottom, pool=P.Pooling.MAX, kernel_size=ks, stride=stride)
 
 
 def fcn(split, tops):
@@ -112,22 +128,6 @@ def fcn(split, tops):
     n.loss = L.SoftmaxWithLoss(n.score, n.label, loss_param=dict(normalize=
         False, ignore_label=255))
     return n.to_proto()
-
-
-def get_upsampling_weight(in_channels, out_channels, kernel_size):
-    """Make a 2D bilinear kernel suitable for upsampling"""
-    factor = (kernel_size + 1) // 2
-    if kernel_size % 2 == 1:
-        center = factor - 1
-    else:
-        center = factor - 0.5
-    og = np.ogrid[:kernel_size, :kernel_size]
-    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
-    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
-        dtype=np.float64)
-    weight[(range(in_channels)), (range(out_channels)), :, :] = filt
-    return torch.from_numpy(weight).float()
 
 
 import torch

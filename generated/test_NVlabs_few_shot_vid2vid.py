@@ -680,6 +680,11 @@ def execute_replication_callbacks(modules):
                 m.__data_parallel_replicate__(ctxs[j], i)
 
 
+def actvn(x):
+    out = F.leaky_relu(x, 0.2)
+    return out
+
+
 def concat(a, b, dim=0):
     if isinstance(a, list):
         return [concat(ai, bi, dim) for ai, bi in zip(a, b)]
@@ -741,11 +746,6 @@ def generalConv(adaptive=False, transpose=False):
     if adaptive:
         return AdaptiveConv2d
     return NormalConv2d if not transpose else NormalConvTranspose2d
-
-
-def actvn(x):
-    out = F.leaky_relu(x, 0.2)
-    return out
 
 
 class SPADEResnetBlock(nn.Module):
@@ -1209,6 +1209,17 @@ class FlowNet2CSS(nn.Module):
         return flownets2_flow
 
 
+def deconv(in_planes, out_planes):
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
+        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
+        inplace=True))
+
+
+def predict_flow(in_planes):
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
+        =True)
+
+
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
@@ -1219,17 +1230,6 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
             kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
             bias=True), nn.LeakyReLU(0.1, inplace=True))
-
-
-def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
-
-
-def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
 
 
 class FlowNetC(nn.Module):
@@ -1867,11 +1867,18 @@ class SPADE(nn.Module):
         return out
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -1897,18 +1904,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -1986,17 +1982,21 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
 
 
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -2138,44 +2138,44 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
     pass
     def test_000(self):
+        self._check(BaseModel(*[], **{}), [], {})
+
+    def test_001(self):
         self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
 
-    def test_003(self):
-        self._check(BaseModel(*[], **{}), [], {})
-
     def test_004(self):
-        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(L1Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
         self._check(L2Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_008(self):
-        self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_009(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
         self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_010(self):
+        self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_012(self):
-        self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

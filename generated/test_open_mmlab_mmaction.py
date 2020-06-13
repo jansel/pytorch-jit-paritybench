@@ -235,21 +235,6 @@ from torch.autograd import gradcheck
 from torch.nn.modules.utils import _triple
 
 
-def tensor2video_snaps(tensor, mean=(0, 0, 0), std=(1, 1, 1), to_rgb=True):
-    num_videos = tensor.size(0)
-    num_frames = tensor.size(2)
-    mean = np.array(mean, dtype=np.float32)
-    std = np.array(std, dtype=np.float32)
-    video_snaps = []
-    for vid_id in range(num_videos):
-        img = tensor[(vid_id), :, (num_frames // 2), (...)].cpu().numpy(
-            ).transpose(1, 2, 0)
-        img = mmcv.imdenormalize(img, mean, std, to_bgr=to_rgb).astype(np.uint8
-            )
-        video_snaps.append(np.ascontiguousarray(img))
-    return video_snaps
-
-
 dataset_aliases = {'ava': ['ava', 'ava2.1', 'ava2.2']}
 
 
@@ -267,6 +252,21 @@ def get_classes(dataset):
     else:
         raise TypeError('dataset must a str, but got {}'.format(type(dataset)))
     return labels
+
+
+def tensor2video_snaps(tensor, mean=(0, 0, 0), std=(1, 1, 1), to_rgb=True):
+    num_videos = tensor.size(0)
+    num_frames = tensor.size(2)
+    mean = np.array(mean, dtype=np.float32)
+    std = np.array(std, dtype=np.float32)
+    video_snaps = []
+    for vid_id in range(num_videos):
+        img = tensor[(vid_id), :, (num_frames // 2), (...)].cpu().numpy(
+            ).transpose(1, 2, 0)
+        img = mmcv.imdenormalize(img, mean, std, to_bgr=to_rgb).astype(np.uint8
+            )
+        video_snaps.append(np.ascontiguousarray(img))
+    return video_snaps
 
 
 class BaseDetector(nn.Module):
@@ -426,12 +426,6 @@ class BaseRecognizer(nn.Module):
             return self.forward_test(num_modalities, img_meta, **kwargs)
 
 
-def multi_apply(func, *args, **kwargs):
-    pfunc = functools.partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
-
-
 def _expand_binary_labels(labels, label_weights, label_channels):
     bin_labels = labels.new_full((labels.size(0), label_channels), 0)
     inds = torch.nonzero(labels >= 1).squeeze()
@@ -449,61 +443,6 @@ def weighted_binary_cross_entropy(pred, label, weight, avg_factor=None):
         avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
     return F.binary_cross_entropy_with_logits(pred, label.float(), weight.
         float(), reduction='sum')[None] / avg_factor
-
-
-def smooth_l1_loss(pred, target, beta=1.0, reduction='mean'):
-    assert beta > 0
-    assert pred.size() == target.size() and target.numel() > 0
-    diff = torch.abs(pred - target)
-    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta
-        )
-    reduction_enum = F._Reduction.get_enum(reduction)
-    if reduction_enum == 0:
-        return loss
-    elif reduction_enum == 1:
-        return loss.sum() / pred.numel()
-    elif reduction_enum == 2:
-        return loss.sum()
-
-
-def weighted_smoothl1(pred, target, weight, beta=1.0, avg_factor=None):
-    if avg_factor is None:
-        avg_factor = torch.sum(weight > 0).float().item() / 4 + 1e-06
-    loss = smooth_l1_loss(pred, target, beta, reduction='none')
-    return torch.sum(loss * weight)[None] / avg_factor
-
-
-def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
-    max_shape=None, wh_ratio_clip=16 / 1000):
-    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
-    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
-    denorm_deltas = deltas * stds + means
-    dx = denorm_deltas[:, 0::4]
-    dy = denorm_deltas[:, 1::4]
-    dw = denorm_deltas[:, 2::4]
-    dh = denorm_deltas[:, 3::4]
-    max_ratio = np.abs(np.log(wh_ratio_clip))
-    dw = dw.clamp(min=-max_ratio, max=max_ratio)
-    dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
-    gw = pw * dw.exp()
-    gh = ph * dh.exp()
-    gx = torch.addcmul(px, 1, pw, dx)
-    gy = torch.addcmul(py, 1, ph, dy)
-    x1 = gx - gw * 0.5 + 0.5
-    y1 = gy - gh * 0.5 + 0.5
-    x2 = gx + gw * 0.5 - 0.5
-    y2 = gy + gh * 0.5 - 0.5
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
-        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
-        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
-        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
-    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
-    return bboxes
 
 
 class AnchorGenerator(object):
@@ -576,101 +515,10 @@ class AnchorGenerator(object):
         return valid
 
 
-class Registry(object):
-
-    def __init__(self, name):
-        self._name = name
-        self._module_dict = dict()
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
-
-    def _register_module(self, module_class):
-        """Register a module
-
-        Args:
-            module (:obj:`nn.Module`): Module to be registered.
-        """
-        if not issubclass(module_class, nn.Module):
-            raise TypeError('module must be a child of nn.Module, but got {}'
-                .format(module_class))
-        module_name = module_class.__name__
-        if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
-        self._module_dict[module_name] = module_class
-
-    def register_module(self, cls):
-        self._register_module(cls)
-        return cls
-
-
-HEADS = Registry('head')
-
-
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
-    """NMS for multi-class bboxes.
-
-    Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class)
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). labels
-            are 0-based.
-    """
-    num_classes = multi_scores.shape[1]
-    bboxes, labels = [], []
-    nms_cfg_ = nms_cfg.copy()
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = getattr(nms_wrapper, nms_type)
-    for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
-        if not cls_inds.any():
-            continue
-        if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
-        else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
-        _scores = multi_scores[cls_inds, i]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
-        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
-        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
-            dtype=torch.long)
-        bboxes.append(cls_dets)
-        labels.append(cls_labels)
-    if bboxes:
-        bboxes = torch.cat(bboxes)
-        labels = torch.cat(labels)
-        if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
-            inds = inds[:max_num]
-            bboxes = bboxes[inds]
-            labels = labels[inds]
-    else:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-    return bboxes, labels
-
-
-def build_sampler(cfg, **kwargs):
-    if isinstance(cfg, samplers.BaseSampler):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
+def multi_apply(func, *args, **kwargs):
+    pfunc = functools.partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
 
 
 def build_assigner(cfg, **kwargs):
@@ -683,14 +531,27 @@ def build_assigner(cfg, **kwargs):
             type(cfg)))
 
 
-def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
-    bbox_assigner = build_assigner(cfg.assigner)
-    bbox_sampler = build_sampler(cfg.sampler)
-    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
-        gt_bboxes_ignore, gt_labels)
-    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
-        gt_labels)
-    return assign_result, sampling_result
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
 
 
 class SamplingResult(object):
@@ -794,40 +655,24 @@ class PseudoSampler(BaseSampler):
         return sampling_result
 
 
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
-
-
-def unmap(data, count, inds, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 1:
-        ret = data.new_full((count,), fill)
-        ret[inds] = data
+def build_sampler(cfg, **kwargs):
+    if isinstance(cfg, samplers.BaseSampler):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
     else:
-        new_size = (count,) + data.size()[1:]
-        ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
-    return ret
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
+def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
+    bbox_assigner = build_assigner(cfg.assigner)
+    bbox_sampler = build_sampler(cfg.sampler)
+    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
+        gt_bboxes_ignore, gt_labels)
+    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
+        gt_labels)
+    return assign_result, sampling_result
 
 
 def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
@@ -841,6 +686,19 @@ def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
     else:
         inside_flags = valid_flags
     return inside_flags
+
+
+def unmap(data, count, inds, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 1:
+        ret = data.new_full((count,), fill)
+        ret[inds] = data
+    else:
+        new_size = (count,) + data.size()[1:]
+        ret = data.new_full(new_size, fill)
+        ret[(inds), :] = data
+    return ret
 
 
 def anchor_target_single(flat_anchors, valid_flags, gt_bboxes,
@@ -954,6 +812,43 @@ def anchor_target(anchor_list, valid_flag_list, gt_bboxes_list, img_metas,
         bbox_weights_list, num_total_pos, num_total_neg)
 
 
+class Registry(object):
+
+    def __init__(self, name):
+        self._name = name
+        self._module_dict = dict()
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def module_dict(self):
+        return self._module_dict
+
+    def _register_module(self, module_class):
+        """Register a module
+
+        Args:
+            module (:obj:`nn.Module`): Module to be registered.
+        """
+        if not issubclass(module_class, nn.Module):
+            raise TypeError('module must be a child of nn.Module, but got {}'
+                .format(module_class))
+        module_name = module_class.__name__
+        if module_name in self._module_dict:
+            raise KeyError('{} is already registered in {}'.format(
+                module_name, self.name))
+        self._module_dict[module_name] = module_class
+
+    def register_module(self, cls):
+        self._register_module(cls)
+        return cls
+
+
+HEADS = Registry('head')
+
+
 def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
     if avg_factor is None:
         avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
@@ -962,6 +857,111 @@ def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
         return torch.sum(raw * weight)[None] / avg_factor
     else:
         return raw * weight / avg_factor
+
+
+def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
+    max_shape=None, wh_ratio_clip=16 / 1000):
+    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
+    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
+    denorm_deltas = deltas * stds + means
+    dx = denorm_deltas[:, 0::4]
+    dy = denorm_deltas[:, 1::4]
+    dw = denorm_deltas[:, 2::4]
+    dh = denorm_deltas[:, 3::4]
+    max_ratio = np.abs(np.log(wh_ratio_clip))
+    dw = dw.clamp(min=-max_ratio, max=max_ratio)
+    dh = dh.clamp(min=-max_ratio, max=max_ratio)
+    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    gw = pw * dw.exp()
+    gh = ph * dh.exp()
+    gx = torch.addcmul(px, 1, pw, dx)
+    gy = torch.addcmul(py, 1, ph, dy)
+    x1 = gx - gw * 0.5 + 0.5
+    y1 = gy - gh * 0.5 + 0.5
+    x2 = gx + gw * 0.5 - 0.5
+    y2 = gy + gh * 0.5 - 0.5
+    if max_shape is not None:
+        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
+        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
+        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
+        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
+    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
+    return bboxes
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class)
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). labels
+            are 0-based.
+    """
+    num_classes = multi_scores.shape[1]
+    bboxes, labels = [], []
+    nms_cfg_ = nms_cfg.copy()
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = getattr(nms_wrapper, nms_type)
+    for i in range(1, num_classes):
+        cls_inds = multi_scores[:, (i)] > score_thr
+        if not cls_inds.any():
+            continue
+        if multi_bboxes.shape[1] == 4:
+            _bboxes = multi_bboxes[(cls_inds), :]
+        else:
+            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+        _scores = multi_scores[cls_inds, i]
+        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
+        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
+            dtype=torch.long)
+        bboxes.append(cls_dets)
+        labels.append(cls_labels)
+    if bboxes:
+        bboxes = torch.cat(bboxes)
+        labels = torch.cat(labels)
+        if bboxes.shape[0] > max_num:
+            _, inds = bboxes[:, (-1)].sort(descending=True)
+            inds = inds[:max_num]
+            bboxes = bboxes[inds]
+            labels = labels[inds]
+    else:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+    return bboxes, labels
+
+
+def smooth_l1_loss(pred, target, beta=1.0, reduction='mean'):
+    assert beta > 0
+    assert pred.size() == target.size() and target.numel() > 0
+    diff = torch.abs(pred - target)
+    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta
+        )
+    reduction_enum = F._Reduction.get_enum(reduction)
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.sum() / pred.numel()
+    elif reduction_enum == 2:
+        return loss.sum()
+
+
+def weighted_smoothl1(pred, target, weight, beta=1.0, avg_factor=None):
+    if avg_factor is None:
+        avg_factor = torch.sum(weight > 0).float().item() / 4 + 1e-06
+    loss = smooth_l1_loss(pred, target, beta, reduction='none')
+    return torch.sum(loss * weight)[None] / avg_factor
 
 
 @HEADS.register_module
@@ -3194,6 +3194,13 @@ class Bottleneck(nn.Module):
         return out
 
 
+def rgetattr(obj, attr, *args):
+
+    def _getattr(obj, attr):
+        return getattr(obj, attr, *args)
+    return functools.reduce(_getattr, [obj] + attr.split('.'))
+
+
 def rhasattr(obj, attr, *args):
 
     def _hasattr(obj, attr):
@@ -3202,13 +3209,6 @@ def rhasattr(obj, attr, *args):
         else:
             return None
     return functools.reduce(_hasattr, [obj] + attr.split('.')) is not None
-
-
-def rgetattr(obj, attr, *args):
-
-    def _getattr(obj, attr):
-        return getattr(obj, attr, *args)
-    return functools.reduce(_getattr, [obj] + attr.split('.'))
 
 
 @BACKBONES.register_module
@@ -3762,20 +3762,20 @@ class ResNet_I3D_SlowFast(nn.Module):
                     param.requires_grad = False
 
 
-def conv3d_wbias(in_planes, out_planes, kernel, stride, pad, groups=1):
-    assert len(kernel) == 3
-    assert len(stride) == 3
-    assert len(pad) == 3
-    return nn.Conv3d(in_planes, out_planes, kernel_size=kernel, stride=
-        stride, padding=pad, groups=groups, bias=True)
-
-
 def conv3d_wobias(in_planes, out_planes, kernel, stride, pad, groups=1):
     assert len(kernel) == 3
     assert len(stride) == 3
     assert len(pad) == 3
     return nn.Conv3d(in_planes, out_planes, kernel_size=kernel, stride=
         stride, padding=pad, groups=groups, bias=False)
+
+
+def conv3d_wbias(in_planes, out_planes, kernel, stride, pad, groups=1):
+    assert len(kernel) == 3
+    assert len(stride) == 3
+    assert len(pad) == 3
+    return nn.Conv3d(in_planes, out_planes, kernel_size=kernel, stride=
+        stride, padding=pad, groups=groups, bias=True)
 
 
 def add_conv3d(in_filters, out_filters, kernel, stride, pad, block_type=
@@ -3963,9 +3963,6 @@ BLOCK_CONFIG = {(10): (1, 1, 1, 1), (16): (2, 2, 2, 1), (18): (2, 2, 2, 2),
     4, 23, 3), (152): (3, 8, 36, 3)}
 
 
-SHALLOW_FILTER_CONFIG = [[64, 64], [128, 128], [256, 256], [512, 512]]
-
-
 def make_plain_res_layer(block, num_blocks, in_filters, num_filters,
     base_filters, block_type='3d', down_sampling=False,
     down_sampling_temporal=None, is_real_3d=True, with_bn=True):
@@ -3978,6 +3975,9 @@ def make_plain_res_layer(block, num_blocks, in_filters, num_filters,
         layers.append(block(num_filters, num_filters, base_filters,
             block_type=block_type, is_real_3d=is_real_3d, with_bn=with_bn))
     return module_list(layers)
+
+
+SHALLOW_FILTER_CONFIG = [[64, 64], [128, 128], [256, 256], [512, 512]]
 
 
 DEEP_FILTER_CONFIG = [[256, 64], [512, 128], [1024, 256], [2048, 512]]
@@ -4106,18 +4106,18 @@ class ResNet_R3D(nn.Module):
                             params.requires_grad = False
 
 
-def trajconv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=
-    1, dilation=1, bias=False):
-    """3x1x1 convolution with padding"""
-    return TrajConv(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(
-        temporal_stride, spatial_stride, spatial_stride), padding=(dilation,
-        0, 0), dilation=dilation, bias=bias)
-
-
 def conv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=1,
     dilation=1, bias=False):
     """3x1x1 convolution with padding"""
     return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(
+        temporal_stride, spatial_stride, spatial_stride), padding=(dilation,
+        0, 0), dilation=dilation, bias=bias)
+
+
+def trajconv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=
+    1, dilation=1, bias=False):
+    """3x1x1 convolution with padding"""
+    return TrajConv(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(
         temporal_stride, spatial_stride, spatial_stride), padding=(dilation,
         0, 0), dilation=dilation, bias=bias)
 
@@ -4486,43 +4486,6 @@ class ResNet_S3D(nn.Module):
                     param.requires_grad = False
 
 
-def accuracy(pred, target, topk=1):
-    if isinstance(topk, int):
-        topk = topk,
-        return_single = True
-    else:
-        return_single = False
-    maxk = max(topk)
-    _, pred_label = pred.topk(maxk, 1, True, True)
-    pred_label = pred_label.t()
-    correct = pred_label.eq(target.view(1, -1).expand_as(pred_label))
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / pred.size(0)))
-    return res[0] if return_single else res
-
-
-def _expand_multilabel_binary_labels(labels, label_weights, label_channels):
-    bin_labels = labels.new_full((labels.size(0), label_channels), 0)
-    inds = torch.nonzero(labels >= 1)
-    if inds.numel() > 0:
-        for ind in inds:
-            bin_labels[ind[0], labels[ind[0], ind[1]] - 1] = 1
-    bin_label_weights = label_weights
-    return bin_labels, bin_label_weights
-
-
-def weighted_multilabel_binary_cross_entropy(pred, label, weight,
-    avg_factor=None):
-    label, weight = _expand_multilabel_binary_labels(label, weight, pred.
-        size(-1))
-    if avg_factor is None:
-        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
-    return F.binary_cross_entropy_with_logits(pred, label.float(), weight.
-        float(), reduction='sum')[None] / avg_factor
-
-
 def singleclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1
     ):
     """NMS for single-class bboxes.
@@ -4568,6 +4531,95 @@ def singleclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1
         bboxes = multi_bboxes.new_zeros((0, 5))
         scores = multi_bboxes.new_zeros((0, multi_scores.size(1)))
     return bboxes, scores
+
+
+def accuracy(pred, target, topk=1):
+    if isinstance(topk, int):
+        topk = topk,
+        return_single = True
+    else:
+        return_single = False
+    maxk = max(topk)
+    _, pred_label = pred.topk(maxk, 1, True, True)
+    pred_label = pred_label.t()
+    correct = pred_label.eq(target.view(1, -1).expand_as(pred_label))
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(100.0 / pred.size(0)))
+    return res[0] if return_single else res
+
+
+def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
+    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
+    1.0, 1.0, 1.0]):
+    num_pos = pos_bboxes.size(0)
+    num_neg = neg_bboxes.size(0)
+    num_samples = num_pos + num_neg
+    if len(pos_gt_labels[0]) == 1:
+        labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
+    else:
+        labels = pos_bboxes.new_zeros((num_samples, len(pos_gt_labels[0])),
+            dtype=torch.long)
+    label_weights = pos_bboxes.new_zeros(num_samples)
+    if len(pos_gt_labels[0]) == 1:
+        class_weights = pos_bboxes.new_zeros(num_samples)
+    else:
+        class_weights = pos_bboxes.new_zeros(num_samples, len(pos_gt_labels[0])
+            )
+    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
+    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
+    if num_pos > 0:
+        labels[:num_pos] = pos_gt_labels
+        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
+        label_weights[:num_pos] = pos_weight
+        class_weight = 1.0 if not hasattr(cfg, 'cls_weight'
+            ) or cfg.cls_weight <= 0 else cfg.cls_weight
+        class_weights[:num_pos] = class_weight
+        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
+            target_means, target_stds)
+        bbox_targets[:num_pos, :] = pos_bbox_targets
+        bbox_weights[:num_pos, :] = 1
+    if num_neg > 0:
+        label_weights[-num_neg:] = 1.0
+        class_weights[-num_neg:] = 0.0
+    return labels, label_weights, bbox_targets, bbox_weights, class_weights
+
+
+def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
+    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
+    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
+    labels, label_weights, bbox_targets, bbox_weights, class_weights = (
+        multi_apply(bbox_target_single, pos_bboxes_list, neg_bboxes_list,
+        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
+        reg_classes, target_means=target_means, target_stds=target_stds))
+    if concat:
+        labels = torch.cat(labels, 0)
+        label_weights = torch.cat(label_weights, 0)
+        bbox_targets = torch.cat(bbox_targets, 0)
+        bbox_weights = torch.cat(bbox_weights, 0)
+        class_weights = torch.cat(class_weights, 0)
+    return labels, label_weights, bbox_targets, bbox_weights, class_weights
+
+
+def _expand_multilabel_binary_labels(labels, label_weights, label_channels):
+    bin_labels = labels.new_full((labels.size(0), label_channels), 0)
+    inds = torch.nonzero(labels >= 1)
+    if inds.numel() > 0:
+        for ind in inds:
+            bin_labels[ind[0], labels[ind[0], ind[1]] - 1] = 1
+    bin_label_weights = label_weights
+    return bin_labels, bin_label_weights
+
+
+def weighted_multilabel_binary_cross_entropy(pred, label, weight,
+    avg_factor=None):
+    label, weight = _expand_multilabel_binary_labels(label, weight, pred.
+        size(-1))
+    if avg_factor is None:
+        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
+    return F.binary_cross_entropy_with_logits(pred, label.float(), weight.
+        float(), reduction='sum')[None] / avg_factor
 
 
 def recall_prec(pred_vec, target_vec):
@@ -4632,58 +4684,6 @@ def multilabel_accuracy(pred, target, topk=1, thr=0.5):
         recalls.append(recall_k)
         precs.append(prec_k)
     return acc, recall_thr, prec_thr, recalls, precs
-
-
-def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
-    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
-    1.0, 1.0, 1.0]):
-    num_pos = pos_bboxes.size(0)
-    num_neg = neg_bboxes.size(0)
-    num_samples = num_pos + num_neg
-    if len(pos_gt_labels[0]) == 1:
-        labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
-    else:
-        labels = pos_bboxes.new_zeros((num_samples, len(pos_gt_labels[0])),
-            dtype=torch.long)
-    label_weights = pos_bboxes.new_zeros(num_samples)
-    if len(pos_gt_labels[0]) == 1:
-        class_weights = pos_bboxes.new_zeros(num_samples)
-    else:
-        class_weights = pos_bboxes.new_zeros(num_samples, len(pos_gt_labels[0])
-            )
-    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
-    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
-    if num_pos > 0:
-        labels[:num_pos] = pos_gt_labels
-        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
-        label_weights[:num_pos] = pos_weight
-        class_weight = 1.0 if not hasattr(cfg, 'cls_weight'
-            ) or cfg.cls_weight <= 0 else cfg.cls_weight
-        class_weights[:num_pos] = class_weight
-        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
-            target_means, target_stds)
-        bbox_targets[:num_pos, :] = pos_bbox_targets
-        bbox_weights[:num_pos, :] = 1
-    if num_neg > 0:
-        label_weights[-num_neg:] = 1.0
-        class_weights[-num_neg:] = 0.0
-    return labels, label_weights, bbox_targets, bbox_weights, class_weights
-
-
-def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
-    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
-    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
-    labels, label_weights, bbox_targets, bbox_weights, class_weights = (
-        multi_apply(bbox_target_single, pos_bboxes_list, neg_bboxes_list,
-        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
-        reg_classes, target_means=target_means, target_stds=target_stds))
-    if concat:
-        labels = torch.cat(labels, 0)
-        label_weights = torch.cat(label_weights, 0)
-        bbox_targets = torch.cat(bbox_targets, 0)
-        bbox_weights = torch.cat(bbox_weights, 0)
-        class_weights = torch.cat(class_weights, 0)
-    return labels, label_weights, bbox_targets, bbox_weights, class_weights
 
 
 @HEADS.register_module
@@ -5155,27 +5155,6 @@ class SSNHead(nn.Module):
         return losses
 
 
-def make_border_mask(batch, channels, height, width, tensor_type,
-    border_ratio=0.1):
-    border_width = round(border_ratio * min(height, width))
-    mask = torch.ones(batch, channels, height, width).type(tensor_type)
-    mask[:, :, :border_width, :] = 0
-    mask[:, :, -border_width:, :] = 0
-    mask[:, :, :border_width, :] = 0
-    mask[:, :, -border_width:, :] = 0
-    return mask
-
-
-def make_smoothness_mask(batch, height, width, tensor_type):
-    mask = torch.ones(batch, 2, height, width).type(tensor_type)
-    mask[:1, (-1), :] = 0
-    mask[:0, :, (-1)] = 0
-    return mask
-
-
-FLOWNETS = Registry('flownet')
-
-
 def SSIM_loss(img1, img2, kernel_size=8, stride=8, c1=1e-05, c2=1e-05):
     num = img1.size(0)
     channels = img1.size(1)
@@ -5209,6 +5188,13 @@ def SSIM_loss(img1, img2, kernel_size=8, stride=8, c1=1e-05, c2=1e-05):
     return (lp.numel() - torch.sum(ssim)) / num
 
 
+def make_smoothness_mask(batch, height, width, tensor_type):
+    mask = torch.ones(batch, 2, height, width).type(tensor_type)
+    mask[:1, (-1), :] = 0
+    mask[:0, :, (-1)] = 0
+    return mask
+
+
 def charbonnier_loss(difference, mask, alpha=1, beta=1.0, epsilon=0.001):
     """
     : sum( (x*beta)^2 + epsilon^2)^alpha
@@ -5224,6 +5210,20 @@ def charbonnier_loss(difference, mask, alpha=1, beta=1.0, epsilon=0.001):
     else:
         batch_pixels = torch.numel(res)
         return torch.sum(res) / batch_pixels
+
+
+def make_border_mask(batch, channels, height, width, tensor_type,
+    border_ratio=0.1):
+    border_width = round(border_ratio * min(height, width))
+    mask = torch.ones(batch, channels, height, width).type(tensor_type)
+    mask[:, :, :border_width, :] = 0
+    mask[:, :, -border_width:, :] = 0
+    mask[:, :, :border_width, :] = 0
+    mask[:, :, -border_width:, :] = 0
+    return mask
+
+
+FLOWNETS = Registry('flownet')
 
 
 @FLOWNETS.register_module

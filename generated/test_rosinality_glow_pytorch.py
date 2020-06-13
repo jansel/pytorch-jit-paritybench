@@ -345,29 +345,29 @@ class Test_rosinality_glow_pytorch(_paritybench_base):
     def test_000(self):
         self._check(ActNorm(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(InvConv2d(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(InvConv2dLU(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(ZeroConv2d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(AffineCoupling(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(Flow(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
+    def test_002(self):
         self._check(Block(*[], **{'in_channel': 4, 'n_flow': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_003(self):
+        self._check(Flow(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Glow(*[], **{'in_channel': 4, 'n_flow': 4, 'n_block': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(InvConv2d(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(InvConv2dLU(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(ZeroConv2d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -209,13 +209,13 @@ class MaskLoss(nn.Module):
             return loss
 
 
+bn_mom = 0.0003
+
+
 def conv3x3(in_planes, out_planes, stride=1, atrous=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1 * atrous, dilation=atrous, bias=False)
-
-
-bn_mom = 0.0003
 
 
 class BasicBlock(nn.Module):
@@ -356,11 +356,18 @@ class ResNet_Atrous(nn.Module):
         return x
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -386,18 +393,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -481,17 +477,21 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
 
 
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

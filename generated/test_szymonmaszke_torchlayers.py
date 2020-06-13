@@ -1280,35 +1280,35 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_szymonmaszke_torchlayers(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(ConcatenateProxy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatenateProxy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_003(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
         self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_006(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1048,21 +1048,21 @@ class Test_jaywalnut310_glow_tts(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{'hidden_channels': 4, 'filter_channels': 4, 'n_heads': 4, 'n_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(MultiHeadAttention(*[], **{'channels': 4, 'out_channels': 4, 'n_heads': 4}), [torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(LayerNorm(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(ActNorm(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_001(self):
+        self._check(Encoder(*[], **{'hidden_channels': 4, 'filter_channels': 4, 'n_heads': 4, 'n_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(InvConvNear(*[], **{'channels': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(LayerNorm(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(MultiHeadAttention(*[], **{'channels': 4, 'out_channels': 4, 'n_heads': 4}), [torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {})
 

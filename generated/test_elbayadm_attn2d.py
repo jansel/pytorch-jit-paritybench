@@ -264,25 +264,6 @@ class MLCriterionNLL(nn.Module):
         return logp, target_d
 
 
-def average_code(tensor, *args):
-    return tensor.mean(dim=3)
-
-
-def truncated_mean(tensor, src_lengths, *args):
-    """
-    Average-pooling up to effective legth
-    """
-    Pool = []
-    Attention = []
-    for n in range(tensor.size(0)):
-        X = tensor[n]
-        xpool = X[:, :, :src_lengths[n]].mean(dim=2)
-        xpool *= math.sqrt(src_lengths[n])
-        Pool.append(xpool.unsqueeze(0))
-    result = torch.cat(Pool, dim=0)
-    return result
-
-
 def truncated_max(tensor, src_lengths, track=False, *args):
     """
     Max-pooling up to effective legth
@@ -326,6 +307,25 @@ def max_code(tensor, src_lengths=None, track=False):
         return xpool, (None, align, activ_distrib, activ)
     else:
         return tensor.max(dim=3)[0]
+
+
+def truncated_mean(tensor, src_lengths, *args):
+    """
+    Average-pooling up to effective legth
+    """
+    Pool = []
+    Attention = []
+    for n in range(tensor.size(0)):
+        X = tensor[n]
+        xpool = X[:, :, :src_lengths[n]].mean(dim=2)
+        xpool *= math.sqrt(src_lengths[n])
+        Pool.append(xpool.unsqueeze(0))
+    result = torch.cat(Pool, dim=0)
+    return result
+
+
+def average_code(tensor, *args):
+    return tensor.mean(dim=3)
 
 
 class Aggregator(nn.Module):
@@ -388,141 +388,6 @@ class Aggregator(nn.Module):
             if self.add_lin:
                 proj = self.lin(proj)
             return proj, attn
-
-
-class Beam(object):
-    """
-    Class for managing the internals of the beam search process.
-    Takes care of beams, back pointers, and scores.
-
-    Args:
-       size (int): beam size
-       pad, bos, eos (int): indices of padding, beginning, and ending.
-       n_best (int): nbest size to use
-       cuda (bool): use gpu
-       global_scorer (:obj:`GlobalScorer`)
-    """
-
-    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False,
-        global_scorer=None, min_length=0, stepwise_penalty=False,
-        block_ngram_repeat=0, exclusion_tokens=set()):
-        self.size = size
-        self.tt = torch.cuda if cuda else torch
-        self.scores = self.tt.FloatTensor(size).zero_()
-        self.all_scores = []
-        self.prev_ks = []
-        self.next_ys = [self.tt.LongTensor(size).fill_(pad)]
-        self.next_ys[0][0] = bos
-        self._eos = eos
-        self.eos_top = False
-        self.attn = []
-        self.finished = []
-        self.n_best = n_best
-        self.global_scorer = global_scorer
-        self.global_state = {}
-        self.min_length = min_length
-        self.stepwise_penalty = stepwise_penalty
-        self.block_ngram_repeat = block_ngram_repeat
-        self.exclusion_tokens = exclusion_tokens
-
-    def get_current_state(self):
-        """Get the outputs for the current timestep."""
-        return self.next_ys[-1]
-
-    def get_current_origin(self):
-        """Get the backpointers for the current timestep."""
-        return self.prev_ks[-1]
-
-    def advance(self, word_probs, attn_out):
-        """
-        Given prob over words for every last beam `wordLk` and attention
-        `attn_out`: Compute and update the beam search.
-
-        Parameters:
-
-        * `word_probs`- probs of advancing from the last step (K x words)
-        * `attn_out`- attention at the last step
-
-        Returns: True if beam search is complete.
-        """
-        num_words = word_probs.size(1)
-        if self.stepwise_penalty:
-            self.global_scorer.update_score(self, attn_out)
-        cur_len = len(self.next_ys)
-        if cur_len < self.min_length:
-            for k in range(len(word_probs)):
-                word_probs[k][self._eos] = -1e+20
-        if len(self.prev_ks) > 0:
-            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(
-                word_probs)
-            for i in range(self.next_ys[-1].size(0)):
-                if self.next_ys[-1][i] == self._eos:
-                    beam_scores[i] = -1e+20
-            if self.block_ngram_repeat > 0:
-                ngrams = []
-                le = len(self.next_ys)
-                for j in range(self.next_ys[-1].size(0)):
-                    hyp, _ = self.get_hyp(le - 1, j)
-                    ngrams = set()
-                    fail = False
-                    gram = []
-                    for i in range(le - 1):
-                        gram = (gram + [hyp[i]])[-self.block_ngram_repeat:]
-                        if set(gram) & self.exclusion_tokens:
-                            continue
-                        if tuple(gram) in ngrams:
-                            fail = True
-                        ngrams.add(tuple(gram))
-                    if fail:
-                        beam_scores[j] = -1e+21
-        else:
-            beam_scores = word_probs[0]
-        flat_beam_scores = beam_scores.view(-1)
-        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, 
-            True, True)
-        self.all_scores.append(self.scores)
-        self.scores = best_scores
-        prev_k = best_scores_id / num_words
-        self.prev_ks.append(prev_k)
-        self.next_ys.append(best_scores_id - prev_k * num_words)
-        self.attn.append(attn_out.index_select(0, prev_k))
-        self.global_scorer.update_global_state(self)
-        for i in range(self.next_ys[-1].size(0)):
-            if self.next_ys[-1][i] == self._eos:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-        if self.next_ys[-1][0] == self._eos:
-            self.all_scores.append(self.scores)
-            self.eos_top = True
-        return self.done()
-
-    def done(self):
-        return self.eos_top and len(self.finished) >= self.n_best
-
-    def sort_finished(self, minimum=None):
-        if minimum is not None:
-            i = 0
-            while len(self.finished) < minimum:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-                i += 1
-        self.finished.sort(key=lambda a: -a[0])
-        scores = [sc for sc, _, _ in self.finished]
-        ks = [(t, k) for _, t, k in self.finished]
-        return scores, ks
-
-    def get_hyp(self, timestep, k):
-        """
-        Walk back to construct the full hypothesis.
-        """
-        hyp, attn = [], []
-        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
-            hyp.append(self.next_ys[j + 1][k])
-            attn.append(self.attn[j][k])
-            k = self.prev_ks[j][k]
-        return hyp[::-1], torch.stack(attn[::-1])
 
 
 class MaskedConv1d(nn.Conv1d):
@@ -749,6 +614,90 @@ class GatedConv2d(MaskedConv2d):
         return out * mask
 
 
+def _setup_conv(num_input_features, kernel_size, params, first=False):
+    """
+    Common setup of convolutional layers in a dense layer
+    """
+    bn_size = params.get('bn_size', 4)
+    growth_rate = params.get('growth_rate', 32)
+    bias = params.get('bias', 0)
+    drop_rate = params.get('conv_dropout', 0.0)
+    init_weights = params.get('init_weights', 0)
+    weight_norm = params.get('weight_norm', 0)
+    gated = params.get('gated', 0)
+    depthwise = params.get('depthwise', 0)
+    CV = GatedConv2d if gated else MaskedConv2d
+    interm_features = bn_size * growth_rate
+    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1,
+        bias=bias)
+    gp = growth_rate if depthwise else 1
+    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=
+        bias, groups=gp)
+    if init_weights == 'manual':
+        if not first:
+            cst = 2 * (1 - drop_rate)
+        else:
+            cst = 1
+        std1 = sqrt(cst / num_input_features)
+        conv1.weight.data.normal_(0, std1)
+        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size -
+            1) // 2))
+        conv2.weight.data.normal_(0, std2)
+        if bias:
+            conv1.bias.data.zero_()
+            conv2.bias.data.zero_()
+    elif init_weights == 'kaiming':
+        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity=
+            'relu')
+        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity=
+            'relu')
+    if weight_norm:
+        conv1 = nn.utils.weight_norm(conv1, dim=0)
+        conv2 = nn.utils.weight_norm(conv2, dim=0)
+    return conv1, conv2
+
+
+class DenseLayer_midDP(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
+            ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace
+            =True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.
+            ReLU(inplace=True), conv2)
+
+
+class DenseLayer(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1) > BN > ReLU > Conv(k)
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
+            ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
+            growth_rate), nn.ReLU(inplace=True), conv2)
+
+
+class DenseLayer_noBN(_MainDenseLayer):
+    """
+    ReLU > Conv(1) > ReLU > Conv(k)
+    #TODO: check activ' var
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params,
+            first=first)
+        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(
+            inplace=True), conv2)
+
+
 def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
     """
     Common setup of convolutional layers in a dense layer
@@ -815,90 +764,6 @@ class DenseLayer_Dil(_MainDenseLayer):
             ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
             growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self
             .bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
-
-
-def _setup_conv(num_input_features, kernel_size, params, first=False):
-    """
-    Common setup of convolutional layers in a dense layer
-    """
-    bn_size = params.get('bn_size', 4)
-    growth_rate = params.get('growth_rate', 32)
-    bias = params.get('bias', 0)
-    drop_rate = params.get('conv_dropout', 0.0)
-    init_weights = params.get('init_weights', 0)
-    weight_norm = params.get('weight_norm', 0)
-    gated = params.get('gated', 0)
-    depthwise = params.get('depthwise', 0)
-    CV = GatedConv2d if gated else MaskedConv2d
-    interm_features = bn_size * growth_rate
-    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1,
-        bias=bias)
-    gp = growth_rate if depthwise else 1
-    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=
-        bias, groups=gp)
-    if init_weights == 'manual':
-        if not first:
-            cst = 2 * (1 - drop_rate)
-        else:
-            cst = 1
-        std1 = sqrt(cst / num_input_features)
-        conv1.weight.data.normal_(0, std1)
-        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size -
-            1) // 2))
-        conv2.weight.data.normal_(0, std2)
-        if bias:
-            conv1.bias.data.zero_()
-            conv2.bias.data.zero_()
-    elif init_weights == 'kaiming':
-        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity=
-            'relu')
-        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity=
-            'relu')
-    if weight_norm:
-        conv1 = nn.utils.weight_norm(conv1, dim=0)
-        conv2 = nn.utils.weight_norm(conv2, dim=0)
-    return conv1, conv2
-
-
-class DenseLayer(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1) > BN > ReLU > Conv(k)
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
-            growth_rate), nn.ReLU(inplace=True), conv2)
-
-
-class DenseLayer_midDP(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace
-            =True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.
-            ReLU(inplace=True), conv2)
-
-
-class DenseLayer_noBN(_MainDenseLayer):
-    """
-    ReLU > Conv(1) > ReLU > Conv(k)
-    #TODO: check activ' var
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params,
-            first=first)
-        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(
-            inplace=True), conv2)
 
 
 class DenseBlock(nn.Sequential):
@@ -2034,6 +1899,141 @@ def _expand(tensor, dim, reps):
         raise NotImplementedError
 
 
+class Beam(object):
+    """
+    Class for managing the internals of the beam search process.
+    Takes care of beams, back pointers, and scores.
+
+    Args:
+       size (int): beam size
+       pad, bos, eos (int): indices of padding, beginning, and ending.
+       n_best (int): nbest size to use
+       cuda (bool): use gpu
+       global_scorer (:obj:`GlobalScorer`)
+    """
+
+    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False,
+        global_scorer=None, min_length=0, stepwise_penalty=False,
+        block_ngram_repeat=0, exclusion_tokens=set()):
+        self.size = size
+        self.tt = torch.cuda if cuda else torch
+        self.scores = self.tt.FloatTensor(size).zero_()
+        self.all_scores = []
+        self.prev_ks = []
+        self.next_ys = [self.tt.LongTensor(size).fill_(pad)]
+        self.next_ys[0][0] = bos
+        self._eos = eos
+        self.eos_top = False
+        self.attn = []
+        self.finished = []
+        self.n_best = n_best
+        self.global_scorer = global_scorer
+        self.global_state = {}
+        self.min_length = min_length
+        self.stepwise_penalty = stepwise_penalty
+        self.block_ngram_repeat = block_ngram_repeat
+        self.exclusion_tokens = exclusion_tokens
+
+    def get_current_state(self):
+        """Get the outputs for the current timestep."""
+        return self.next_ys[-1]
+
+    def get_current_origin(self):
+        """Get the backpointers for the current timestep."""
+        return self.prev_ks[-1]
+
+    def advance(self, word_probs, attn_out):
+        """
+        Given prob over words for every last beam `wordLk` and attention
+        `attn_out`: Compute and update the beam search.
+
+        Parameters:
+
+        * `word_probs`- probs of advancing from the last step (K x words)
+        * `attn_out`- attention at the last step
+
+        Returns: True if beam search is complete.
+        """
+        num_words = word_probs.size(1)
+        if self.stepwise_penalty:
+            self.global_scorer.update_score(self, attn_out)
+        cur_len = len(self.next_ys)
+        if cur_len < self.min_length:
+            for k in range(len(word_probs)):
+                word_probs[k][self._eos] = -1e+20
+        if len(self.prev_ks) > 0:
+            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(
+                word_probs)
+            for i in range(self.next_ys[-1].size(0)):
+                if self.next_ys[-1][i] == self._eos:
+                    beam_scores[i] = -1e+20
+            if self.block_ngram_repeat > 0:
+                ngrams = []
+                le = len(self.next_ys)
+                for j in range(self.next_ys[-1].size(0)):
+                    hyp, _ = self.get_hyp(le - 1, j)
+                    ngrams = set()
+                    fail = False
+                    gram = []
+                    for i in range(le - 1):
+                        gram = (gram + [hyp[i]])[-self.block_ngram_repeat:]
+                        if set(gram) & self.exclusion_tokens:
+                            continue
+                        if tuple(gram) in ngrams:
+                            fail = True
+                        ngrams.add(tuple(gram))
+                    if fail:
+                        beam_scores[j] = -1e+21
+        else:
+            beam_scores = word_probs[0]
+        flat_beam_scores = beam_scores.view(-1)
+        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, 
+            True, True)
+        self.all_scores.append(self.scores)
+        self.scores = best_scores
+        prev_k = best_scores_id / num_words
+        self.prev_ks.append(prev_k)
+        self.next_ys.append(best_scores_id - prev_k * num_words)
+        self.attn.append(attn_out.index_select(0, prev_k))
+        self.global_scorer.update_global_state(self)
+        for i in range(self.next_ys[-1].size(0)):
+            if self.next_ys[-1][i] == self._eos:
+                global_scores = self.global_scorer.score(self, self.scores)
+                s = global_scores[i]
+                self.finished.append((s, len(self.next_ys) - 1, i))
+        if self.next_ys[-1][0] == self._eos:
+            self.all_scores.append(self.scores)
+            self.eos_top = True
+        return self.done()
+
+    def done(self):
+        return self.eos_top and len(self.finished) >= self.n_best
+
+    def sort_finished(self, minimum=None):
+        if minimum is not None:
+            i = 0
+            while len(self.finished) < minimum:
+                global_scores = self.global_scorer.score(self, self.scores)
+                s = global_scores[i]
+                self.finished.append((s, len(self.next_ys) - 1, i))
+                i += 1
+        self.finished.sort(key=lambda a: -a[0])
+        scores = [sc for sc, _, _ in self.finished]
+        ks = [(t, k) for _, t, k in self.finished]
+        return scores, ks
+
+    def get_hyp(self, timestep, k):
+        """
+        Walk back to construct the full hypothesis.
+        """
+        hyp, attn = [], []
+        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
+            hyp.append(self.next_ys[j + 1][k])
+            attn.append(self.attn[j][k])
+            k = self.prev_ks[j][k]
+        return hyp[::-1], torch.stack(attn[::-1])
+
+
 class Pervasive(nn.Module):
 
     def __init__(self, jobname, params, src_vocab_size, trg_vocab_size,
@@ -2658,38 +2658,38 @@ class Test_elbayadm_attn2d(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(AsymmetricMaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ChannelsNormalization(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(GatedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+
+    def test_005(self):
+        self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(GatedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(positional_encoding(*[], **{'num_units': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(ChannelsNormalization(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_008(self):
-        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_009(self):
         self._check(Transition2(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(positional_encoding(*[], **{'num_units': 4}), [torch.rand([4, 4, 4, 4])], {})
 

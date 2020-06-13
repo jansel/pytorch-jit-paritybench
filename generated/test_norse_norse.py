@@ -429,19 +429,59 @@ class ConvNet4(torch.nn.Module):
         return voltages
 
 
-class CobaLIFState(NamedTuple):
-    """State of a conductance based LIF neuron.
+class CobaLIFParameters(NamedTuple):
+    """Parameters of conductance based LIF neuron.
 
     Parameters:
-        z (torch.Tensor): recurrent spikes
-        v (torch.Tensor): membrane potential
-        g_e (torch.Tensor): excitatory input conductance
-        g_i (torch.Tensor): inhibitory input conductance
+        tau_syn_exc_inv (torch.Tensor): inverse excitatory synaptic input
+                                        time constant
+        tau_syn_inh_inv (torch.Tensor): inverse inhibitory synaptic input
+                                        time constant
+        c_m_inv (torch.Tensor): inverse membrane capacitance
+        g_l (torch.Tensor): leak conductance
+        e_rev_I (torch.Tensor): inhibitory reversal potential
+        e_rev_E (torch.Tensor): excitatory reversal potential
+        v_rest (torch.Tensor): rest membrane potential
+        v_reset (torch.Tensor): reset membrane potential
+        v_thresh (torch.Tensor): threshold membrane potential
+        method (str): method to determine the spike threshold
+                      (relevant for surrogate gradients)
+        alpha (float): hyper parameter to use in surrogate gradient computation
     """
-    z: torch.Tensor
-    v: torch.Tensor
-    g_e: torch.Tensor
-    g_i: torch.Tensor
+    tau_syn_exc_inv: torch.Tensor = torch.as_tensor(1.0 / 5)
+    tau_syn_inh_inv: torch.Tensor = torch.as_tensor(1.0 / 5)
+    c_m_inv: torch.Tensor = torch.as_tensor(1 / 0.2)
+    g_l: torch.Tensor = torch.as_tensor(1 / 20 * 1 / 0.2)
+    e_rev_I: torch.Tensor = torch.as_tensor(-100)
+    e_rev_E: torch.Tensor = torch.as_tensor(60)
+    v_rest: torch.Tensor = torch.as_tensor(-20)
+    v_reset: torch.Tensor = torch.as_tensor(-70)
+    v_thresh: torch.Tensor = torch.as_tensor(-10)
+    method: str = 'super'
+    alpha: float = 100.0
+
+
+class Logistic(torch.autograd.Function):
+    """Probalistic approximation of the heaviside step function as
+
+    .. math::
+        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
+    """
+
+    @staticmethod
+    def forward(ctx, x, k):
+        ctx.save_for_backward(x, k)
+        p = 0.5 + 0.5 * torch.tanh(k * x)
+        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, k = ctx.saved_tensors
+        dtanh = 1 - (x * k).tanh().pow(2)
+        return dy * dtanh, None
+
+
+logistic_fn = Logistic.apply
 
 
 def heaviside(data):
@@ -484,45 +524,6 @@ def super_fn(x: torch.Tensor, alpha: float=100.0) ->torch.Tensor:
     return SuperSpike.apply(x, alpha)
 
 
-class Logistic(torch.autograd.Function):
-    """Probalistic approximation of the heaviside step function as
-
-    .. math::
-        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
-    """
-
-    @staticmethod
-    def forward(ctx, x, k):
-        ctx.save_for_backward(x, k)
-        p = 0.5 + 0.5 * torch.tanh(k * x)
-        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, k = ctx.saved_tensors
-        dtanh = 1 - (x * k).tanh().pow(2)
-        return dy * dtanh, None
-
-
-logistic_fn = Logistic.apply
-
-
-class HeaviTent(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(x, alpha)
-        return heaviside(x)
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, alpha = ctx.saved_tensors
-        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
-
-
-heavi_tent_fn = HeaviTent.apply
-
-
 class HeaviTanh(torch.autograd.Function):
     """Approximation of the heaviside step function as
 
@@ -543,6 +544,22 @@ class HeaviTanh(torch.autograd.Function):
 
 
 heavi_tanh_fn = HeaviTanh.apply
+
+
+class HeaviTent(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.save_for_backward(x, alpha)
+        return heaviside(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, alpha = ctx.saved_tensors
+        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
+
+
+heavi_tent_fn = HeaviTent.apply
 
 
 class HeaviCirc(torch.autograd.Function):
@@ -589,36 +606,19 @@ def threshold(x: torch.Tensor, method: str, alpha: float) ->torch.Tensor:
             'tanh, tent, circ, and logistic.')
 
 
-class CobaLIFParameters(NamedTuple):
-    """Parameters of conductance based LIF neuron.
+class CobaLIFState(NamedTuple):
+    """State of a conductance based LIF neuron.
 
     Parameters:
-        tau_syn_exc_inv (torch.Tensor): inverse excitatory synaptic input
-                                        time constant
-        tau_syn_inh_inv (torch.Tensor): inverse inhibitory synaptic input
-                                        time constant
-        c_m_inv (torch.Tensor): inverse membrane capacitance
-        g_l (torch.Tensor): leak conductance
-        e_rev_I (torch.Tensor): inhibitory reversal potential
-        e_rev_E (torch.Tensor): excitatory reversal potential
-        v_rest (torch.Tensor): rest membrane potential
-        v_reset (torch.Tensor): reset membrane potential
-        v_thresh (torch.Tensor): threshold membrane potential
-        method (str): method to determine the spike threshold
-                      (relevant for surrogate gradients)
-        alpha (float): hyper parameter to use in surrogate gradient computation
+        z (torch.Tensor): recurrent spikes
+        v (torch.Tensor): membrane potential
+        g_e (torch.Tensor): excitatory input conductance
+        g_i (torch.Tensor): inhibitory input conductance
     """
-    tau_syn_exc_inv: torch.Tensor = torch.as_tensor(1.0 / 5)
-    tau_syn_inh_inv: torch.Tensor = torch.as_tensor(1.0 / 5)
-    c_m_inv: torch.Tensor = torch.as_tensor(1 / 0.2)
-    g_l: torch.Tensor = torch.as_tensor(1 / 20 * 1 / 0.2)
-    e_rev_I: torch.Tensor = torch.as_tensor(-100)
-    e_rev_E: torch.Tensor = torch.as_tensor(60)
-    v_rest: torch.Tensor = torch.as_tensor(-20)
-    v_reset: torch.Tensor = torch.as_tensor(-70)
-    v_thresh: torch.Tensor = torch.as_tensor(-10)
-    method: str = 'super'
-    alpha: float = 100.0
+    z: torch.Tensor
+    v: torch.Tensor
+    g_e: torch.Tensor
+    g_i: torch.Tensor
 
 
 def coba_lif_step(input_tensor: torch.Tensor, state: CobaLIFState,
@@ -937,17 +937,6 @@ class IFConstantCurrentEncoder(torch.nn.Module):
             self.dt)
 
 
-class LIState(NamedTuple):
-    """State of a leaky-integrator
-
-    Parameters:
-        v (torch.Tensor): membrane voltage
-        i (torch.Tensor): input current
-    """
-    v: torch.Tensor
-    i: torch.Tensor
-
-
 class LIParameters(NamedTuple):
     """Parameters of a leaky integrator
 
@@ -961,6 +950,17 @@ class LIParameters(NamedTuple):
     tau_mem_inv: torch.Tensor = torch.as_tensor(1.0 / 0.01)
     v_leak: torch.Tensor = torch.as_tensor(0.0)
     v_reset: torch.Tensor = torch.as_tensor(0.0)
+
+
+class LIState(NamedTuple):
+    """State of a leaky-integrator
+
+    Parameters:
+        v (torch.Tensor): membrane voltage
+        i (torch.Tensor): input current
+    """
+    v: torch.Tensor
+    i: torch.Tensor
 
 
 def li_step(input_tensor: torch.Tensor, state: LIState, input_weights:
@@ -1370,6 +1370,14 @@ class LIFCorrelationState(NamedTuple):
     recurrent_correlation_state: CorrelationSensorState
 
 
+@torch.jit.script
+def post_mask(weights, z):
+    """Computes the mask produced by post-synaptic spikes on
+    the synapse array.
+    """
+    return torch.zeros_like(weights) + z
+
+
 class CorrelationSensorParameters(NamedTuple):
     eta_p: torch.Tensor = torch.as_tensor(1.0)
     eta_m: torch.Tensor = torch.as_tensor(1.0)
@@ -1377,27 +1385,11 @@ class CorrelationSensorParameters(NamedTuple):
     tau_c_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
 
 
-class LIFCorrelationParameters(NamedTuple):
-    lif_parameters: LIFParameters = LIFParameters()
-    input_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
-    recurrent_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
-
-
 @torch.jit.script
 def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
     """Computes which synapses in the synapse array should be updated.
     """
     return heaviside(post_pre + post_spike_mask - pre_spike_mask)
-
-
-@torch.jit.script
-def post_mask(weights, z):
-    """Computes the mask produced by post-synaptic spikes on
-    the synapse array.
-    """
-    return torch.zeros_like(weights) + z
 
 
 @torch.jit.script
@@ -1431,6 +1423,14 @@ def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor,
     return CorrelationSensorState(post_pre=post_pre_new, correlation_trace=
         correlation_trace_new, anti_correlation_trace=
         anti_correlation_trace_new)
+
+
+class LIFCorrelationParameters(NamedTuple):
+    lif_parameters: LIFParameters = LIFParameters()
+    input_correlation_parameters: CorrelationSensorParameters = (
+        CorrelationSensorParameters())
+    recurrent_correlation_parameters: CorrelationSensorParameters = (
+        CorrelationSensorParameters())
 
 
 def lif_correlation_step(input_tensor: torch.Tensor, state:
@@ -2143,9 +2143,9 @@ class Test_norse_norse(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4])], {})
+        self._check(ConstantCurrentLIFEncoder(*[], **{'seq_length': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(ConstantCurrentLIFEncoder(*[], **{'seq_length': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Policy(*[], **{}), [torch.rand([4, 4])], {})
 

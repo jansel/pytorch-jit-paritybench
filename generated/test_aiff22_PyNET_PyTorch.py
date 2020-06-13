@@ -493,11 +493,11 @@ class Test_aiff22_PyNET_PyTorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ConvMultiBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'max_conv_size': 4, 'instance_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvMultiBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'max_conv_size': 4, 'instance_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

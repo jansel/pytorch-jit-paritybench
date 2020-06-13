@@ -121,6 +121,35 @@ def sub_conjpriorknownmean(dico, mean, alpha_0, beta_0):
     return logprior
 
 
+def sub_mixtgaussprior(dico, sigma_1, sigma_2, pi):
+    """ Compute an estimation of the KL divergence between the prior
+    defined by the mixture of two gaussian distributions
+    for all Variational Parameters in the tree dictionary dico.
+    More details on this prior and the notations can be found in :
+    "Weight Uncertainty in Neural Networks" Blundell et al, 2015
+    https://arxiv.org/pdf/1505.05424.pdf
+
+    :args dico: tree dictionary
+    :args sigma_1: std of the first gaussian in the mixture
+    :args sigma_2: std of the second gaussian in the mixture
+    :args pi: probability of the first gaussian in the mixture
+    :return: estimation of the KL divergence between prior and current
+    """
+    logprior = 0.0
+    for _, p in dico.items():
+        if isinstance(p, VariationalParameter):
+            theta = evaluate(p)
+            n = np.prod(theta.size())
+            theta2 = theta ** 2
+            pgauss1 = (-theta2 / (2.0 * sigma_1 ** 2)).exp() / sigma_1
+            pgauss2 = (-theta2 / (2.0 * sigma_2 ** 2)).exp() / sigma_2
+            logprior += (pi * pgauss1 + (1 - pi) * pgauss2 + 1e-08).log().sum()
+            logprior -= n / 2 * np.log(2 * np.pi)
+        else:
+            logprior += sub_mixtgaussprior(p, sigma_1, sigma_2, pi)
+    return logprior
+
+
 def prior_std(p):
     """ Compute a reasonable prior standard deviation for parameter p.
 
@@ -159,82 +188,6 @@ def sub_prior_loss(dico):
     return loss
 
 
-def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
-    """ Compute an estimation of the KL divergence between the conjugate
-    prior and parameters for all Variational Parameters in the tree
-    dictionary dico.
-
-    :args dico: tree dictionary
-    :args alpha_0: hyperparameter of the conjugate prior
-    :args beta_0: hyperparameter of the conjugate prior
-    :args mu_0: hyperparameter of the conjugate prior
-    :args kappa_0: hyperparameter of the conjugate prior
-    :return: estimation of the KL divergence between prior and current
-    """
-    logprior = 0.0
-    for _, p in dico.items():
-        if isinstance(p, VariationalParameter):
-            theta = evaluate(p)
-            S = (theta.mean() - mu_0).norm() ** 2
-            V = (theta - theta.mean()).norm() ** 2
-            n = np.prod(theta.size())
-            alpha_n = alpha_0 + n / 2
-            kappa_n = kappa_0 + n
-            beta_n = beta_0 + V / 2 + S * (kappa_0 * n) / (2 * kappa_n)
-            logprior += -beta_n.log() * alpha_n + alpha_0 * np.log(beta_0
-                ) + gammaln(alpha_n) - gammaln(alpha_0) + 0.5 * np.log(
-                kappa_0 / kappa_n) - 0.5 * n * np.log(2 * np.pi)
-        else:
-            logprior += sub_conjprior(p, alpha_0, beta_0, mu_0, kappa_0)
-    return logprior
-
-
-def sub_entropy(dico):
-    """ Compute the entropy of the parameters for all Variational
-    Parameters in the tree dictionary dico.
-    :args dico: tree dictionary
-    :returns: Entropy of the current distribution
-    """
-    entropy = 0.0
-    for _, p in dico.items():
-        if isinstance(p, VariationalParameter):
-            std = (1 + p.rho.exp()).log()
-            n = np.prod(std.size())
-            entropy += std.log().sum() + 0.5 * n * (1 + np.log(2 * np.pi))
-        else:
-            entropy += sub_entropy(p)
-    return entropy
-
-
-def sub_mixtgaussprior(dico, sigma_1, sigma_2, pi):
-    """ Compute an estimation of the KL divergence between the prior
-    defined by the mixture of two gaussian distributions
-    for all Variational Parameters in the tree dictionary dico.
-    More details on this prior and the notations can be found in :
-    "Weight Uncertainty in Neural Networks" Blundell et al, 2015
-    https://arxiv.org/pdf/1505.05424.pdf
-
-    :args dico: tree dictionary
-    :args sigma_1: std of the first gaussian in the mixture
-    :args sigma_2: std of the second gaussian in the mixture
-    :args pi: probability of the first gaussian in the mixture
-    :return: estimation of the KL divergence between prior and current
-    """
-    logprior = 0.0
-    for _, p in dico.items():
-        if isinstance(p, VariationalParameter):
-            theta = evaluate(p)
-            n = np.prod(theta.size())
-            theta2 = theta ** 2
-            pgauss1 = (-theta2 / (2.0 * sigma_1 ** 2)).exp() / sigma_1
-            pgauss2 = (-theta2 / (2.0 * sigma_2 ** 2)).exp() / sigma_2
-            logprior += (pi * pgauss1 + (1 - pi) * pgauss2 + 1e-08).log().sum()
-            logprior -= n / 2 * np.log(2 * np.pi)
-        else:
-            logprior += sub_mixtgaussprior(p, sigma_1, sigma_2, pi)
-    return logprior
-
-
 def rebuild_parameters(dico, module, epsilon_setting):
     """ Rebuild parameters.
 
@@ -266,6 +219,53 @@ def rebuild_parameters(dico, module, epsilon_setting):
             setattr(module, name, None)
         else:
             rebuild_parameters(p, getattr(module, name), epsilon_setting)
+
+
+def sub_entropy(dico):
+    """ Compute the entropy of the parameters for all Variational
+    Parameters in the tree dictionary dico.
+    :args dico: tree dictionary
+    :returns: Entropy of the current distribution
+    """
+    entropy = 0.0
+    for _, p in dico.items():
+        if isinstance(p, VariationalParameter):
+            std = (1 + p.rho.exp()).log()
+            n = np.prod(std.size())
+            entropy += std.log().sum() + 0.5 * n * (1 + np.log(2 * np.pi))
+        else:
+            entropy += sub_entropy(p)
+    return entropy
+
+
+def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
+    """ Compute an estimation of the KL divergence between the conjugate
+    prior and parameters for all Variational Parameters in the tree
+    dictionary dico.
+
+    :args dico: tree dictionary
+    :args alpha_0: hyperparameter of the conjugate prior
+    :args beta_0: hyperparameter of the conjugate prior
+    :args mu_0: hyperparameter of the conjugate prior
+    :args kappa_0: hyperparameter of the conjugate prior
+    :return: estimation of the KL divergence between prior and current
+    """
+    logprior = 0.0
+    for _, p in dico.items():
+        if isinstance(p, VariationalParameter):
+            theta = evaluate(p)
+            S = (theta.mean() - mu_0).norm() ** 2
+            V = (theta - theta.mean()).norm() ** 2
+            n = np.prod(theta.size())
+            alpha_n = alpha_0 + n / 2
+            kappa_n = kappa_0 + n
+            beta_n = beta_0 + V / 2 + S * (kappa_0 * n) / (2 * kappa_n)
+            logprior += -beta_n.log() * alpha_n + alpha_0 * np.log(beta_0
+                ) + gammaln(alpha_n) - gammaln(alpha_0) + 0.5 * np.log(
+                kappa_0 / kappa_n) - 0.5 * n * np.log(2 * np.pi)
+        else:
+            logprior += sub_conjprior(p, alpha_0, beta_0, mu_0, kappa_0)
+    return logprior
 
 
 class Variationalize(nn.Module):

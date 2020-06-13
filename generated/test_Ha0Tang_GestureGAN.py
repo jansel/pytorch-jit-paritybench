@@ -356,11 +356,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Ha0Tang_GestureGAN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_001(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

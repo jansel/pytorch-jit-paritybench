@@ -420,13 +420,6 @@ class activation_bin(nn.Module):
         return output
 
 
-def meancenter_clampConvParams(w):
-    mean = w.data.mean(1, keepdim=True)
-    w.data.sub(mean)
-    w.data.clamp(-1.0, 1.0)
-    return w
-
-
 class Ternary(Function):
 
     @staticmethod
@@ -441,6 +434,13 @@ class Ternary(Function):
     def backward(self, grad_output, grad_threshold):
         grad_input = grad_output.clone()
         return grad_input
+
+
+def meancenter_clampConvParams(w):
+    mean = w.data.mean(1, keepdim=True)
+    w.data.sub(mean)
+    w.data.clamp(-1.0, 1.0)
+    return w
 
 
 class weight_tnn_bin(nn.Module):
@@ -1013,6 +1013,25 @@ class Quantizer(nn.Module):
         return output
 
 
+class SignedQuantizer(Quantizer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_buffer('min_val', torch.tensor(-(1 << self.bits - 1)))
+        self.register_buffer('max_val', torch.tensor((1 << self.bits - 1) - 1))
+
+
+class SymmetricQuantizer(SignedQuantizer):
+
+    def update_params(self):
+        quantized_range = torch.min(torch.abs(self.min_val), torch.abs(self
+            .max_val))
+        float_range = torch.max(torch.abs(self.range_tracker.min_val),
+            torch.abs(self.range_tracker.max_val))
+        self.scale = quantized_range / float_range
+        self.zero_point = torch.zeros_like(self.scale)
+
+
 class GlobalRangeTracker(RangeTracker):
 
     def __init__(self, q_level, out_channels):
@@ -1033,25 +1052,6 @@ class GlobalRangeTracker(RangeTracker):
                 min_val))
             self.max_val.add_(-temp_maxval).add_(torch.max(temp_maxval,
                 max_val))
-
-
-class SignedQuantizer(Quantizer):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer('min_val', torch.tensor(-(1 << self.bits - 1)))
-        self.register_buffer('max_val', torch.tensor((1 << self.bits - 1) - 1))
-
-
-class SymmetricQuantizer(SignedQuantizer):
-
-    def update_params(self):
-        quantized_range = torch.min(torch.abs(self.min_val), torch.abs(self
-            .max_val))
-        float_range = torch.max(torch.abs(self.range_tracker.min_val),
-            torch.abs(self.range_tracker.max_val))
-        self.scale = quantized_range / float_range
-        self.zero_point = torch.zeros_like(self.scale)
 
 
 class AveragedRangeTracker(RangeTracker):
@@ -1321,22 +1321,22 @@ class Test_666DZY666_model_compression(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Conv2d_Q(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(activation_bin(*[], **{'A': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Linear_Q(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(weight_tnn_bin(*[], **{'W': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(Conv2d_Q(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(activation_bin(*[], **{'A': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
@@ -1348,5 +1348,5 @@ class Test_666DZY666_model_compression(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(Linear_Q(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(weight_tnn_bin(*[], **{'W': 4}), [torch.rand([4, 4, 4, 4])], {})
 

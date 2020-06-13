@@ -42,7 +42,6 @@ gpu_flag = _module
 hyp_tune_nvdm = _module
 hyp_tune_nvrnn = _module
 run_on_mav = _module
-try = _module
 visual = _module
 draw_gauss_ball = _module
 draw_vmf_ball = _module

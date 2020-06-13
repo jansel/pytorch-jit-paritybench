@@ -786,30 +786,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lizhengwei1992_Fast_Portrait_Segmentation(_paritybench_base):
     pass
     def test_000(self):
-        self._check(make_dense(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(DenseBlock(*[], **{'nChannels': 4, 'nDenselayer': 1, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(MobileNet_v2_os_32_MFo(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_004(self):
-        self._check(UCD(*[], **{'inplanes': 4, 'planes': 4, 'dilation': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(DRB(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
         self._check(ARM(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_001(self):
+        self._check(DRB(*[], **{'nIn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(DenseBlock(*[], **{'nChannels': 4, 'nDenselayer': 1, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(FFM(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(MobileNet_v2_os_32_MFo(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
     @_fails_compile()
-    def test_008(self):
+    def test_006(self):
         self._check(ShuffleNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_007(self):
+        self._check(UCD(*[], **{'inplanes': 4, 'planes': 4, 'dilation': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(make_dense(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 

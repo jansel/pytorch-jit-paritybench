@@ -37,18 +37,18 @@ import math
 import torch.nn.functional as F
 
 
-def total_variation_loss(image):
-    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])
-        ) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
-    return loss
-
-
 def gram_matrix(feat):
     b, ch, h, w = feat.size()
     feat = feat.view(b, ch, h * w)
     feat_t = feat.transpose(1, 2)
     gram = torch.bmm(feat, feat_t) / (ch * h * w)
     return gram
+
+
+def total_variation_loss(image):
+    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])
+        ) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
+    return loss
 
 
 class InpaintingLoss(nn.Module):
@@ -256,9 +256,9 @@ class Test_naoto0804_pytorch_inpainting_with_partial_conv(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(PartialConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PCBActiv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(PCBActiv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PartialConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

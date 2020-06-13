@@ -734,11 +734,11 @@ class Test_aleju_self_driving_truck(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(DirectRewardPredictor(*[], **{'nb_bins': 4}), [torch.rand([512, 512]), 0], {})
+        self._check(AEDecoder(*[], **{}), [torch.rand([512, 512])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(AEDecoder(*[], **{}), [torch.rand([512, 512])], {})
+        self._check(DirectRewardPredictor(*[], **{'nb_bins': 4}), [torch.rand([512, 512]), 0], {})
 
     @_fails_compile()
     def test_002(self):

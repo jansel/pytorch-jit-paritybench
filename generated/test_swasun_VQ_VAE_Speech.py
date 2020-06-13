@@ -850,6 +850,19 @@ class Wavenet(nn.Module):
         return out
 
 
+class Conv1DBuilder(object):
+
+    @staticmethod
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
+        use_kaiming_normal=False):
+        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels,
+            kernel_size=kernel_size, stride=stride, padding=padding)
+        if use_kaiming_normal:
+            conv = nn.utils.weight_norm(conv)
+            nn.init.kaiming_normal_(conv.weight)
+        return conv
+
+
 class ColorPrint(object):
     """ Colored printing functions for strings that use universal ANSI escape sequences.
 
@@ -934,19 +947,6 @@ class ConsoleLogger(object):
             print(error_message)
         else:
             ColorPrint.print_major_fail(error_message)
-
-
-class Conv1DBuilder(object):
-
-    @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
-        use_kaiming_normal=False):
-        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding)
-        if use_kaiming_normal:
-            conv = nn.utils.weight_norm(conv)
-            nn.init.kaiming_normal_(conv.weight)
-        return conv
 
 
 class ConvolutionalEncoder(nn.Module):
@@ -1110,6 +1110,20 @@ class ConvolutionalVQVAE(nn.Module):
             encoding_indices, concatenated_quantized)
 
 
+class ConvTranspose1DBuilder(object):
+
+    @staticmethod
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
+        use_kaiming_normal=False):
+        conv = nn.ConvTranspose1d(in_channels=in_channels, out_channels=
+            out_channels, kernel_size=kernel_size, stride=stride, padding=
+            padding)
+        if use_kaiming_normal:
+            conv = nn.utils.weight_norm(conv)
+            nn.init.kaiming_normal_(conv.weight)
+        return conv
+
+
 class GlobalConditioning(object):
 
     @staticmethod
@@ -1162,20 +1176,6 @@ class GlobalConditioning(object):
         else:
             g_btc = g.expand(B, -1, T).transpose(1, 2)
             return g_btc.contiguous()
-
-
-class ConvTranspose1DBuilder(object):
-
-    @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
-        use_kaiming_normal=False):
-        conv = nn.ConvTranspose1d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding)
-        if use_kaiming_normal:
-            conv = nn.utils.weight_norm(conv)
-            nn.init.kaiming_normal_(conv.weight)
-        return conv
 
 
 class DeconvolutionalDecoder(nn.Module):
@@ -1930,6 +1930,24 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0):
     return x
 
 
+def ConvTranspose2d(in_channels, out_channels, kernel_size,
+    weight_normalization=True, **kwargs):
+    freq_axis_kernel_size = kernel_size[0]
+    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
+    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
+    m.bias.data.zero_()
+    if weight_normalization:
+        return nn.utils.weight_norm(m)
+    else:
+        return m
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    m.weight.data.normal_(0, std)
+    return m
+
+
 def _expand_global_features(B, T, g, bct=True):
     """Expand global conditioning features to all time steps
 
@@ -1972,24 +1990,6 @@ def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
     layers_per_cycle = total_layers // num_cycles
     dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
     return (kernel_size - 1) * sum(dilations) + 1
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    m.weight.data.normal_(0, std)
-    return m
-
-
-def ConvTranspose2d(in_channels, out_channels, kernel_size,
-    weight_normalization=True, **kwargs):
-    freq_axis_kernel_size = kernel_size[0]
-    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
-    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
-    m.bias.data.zero_()
-    if weight_normalization:
-        return nn.utils.weight_norm(m)
-    else:
-        return m
 
 
 class WaveNet(nn.Module):
@@ -2267,43 +2267,43 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_swasun_VQ_VAE_Speech(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(KL_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(STFT(*[], **{}), [torch.rand([4, 1, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(ActNorm(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_001(self):
         self._check(Block(*[], **{'in_channel': 4, 'cin_channel': 4, 'n_flow': 4, 'n_layer': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 4, 4])], {})
 
-    def test_005(self):
-        self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
+    def test_002(self):
+        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_003(self):
+        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_004(self):
         self._check(ConvolutionalEncoder(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4, 'input_features_type': 4, 'features_filters': 4, 'sampling_rate': 4, 'device': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_005(self):
         self._check(Jitter(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    @_fails_compile()
+    def test_006(self):
+        self._check(KL_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(Residual(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(ResidualStack(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}), [torch.rand([4, 4, 64])], {})
 
+    @_fails_compile()
+    def test_009(self):
+        self._check(STFT(*[], **{}), [torch.rand([4, 1, 64])], {})
+
     def test_010(self):
-        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
 

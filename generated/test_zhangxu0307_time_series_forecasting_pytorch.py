@@ -246,14 +246,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhangxu0307_time_series_forecasting_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ResRNN_Cell(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLPModel(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(RNN_Attention(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4, 'seq_len': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(MLPModel(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResRNN_Cell(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -160,6 +160,12 @@ class DummyBody(nn.Module):
         return x
 
 
+class BaseNet:
+
+    def __init__(self):
+        pass
+
+
 class BaseNormalizer:
 
     def __init__(self, read_only=False):
@@ -269,12 +275,6 @@ def tensor(x):
     x = np.asarray(x, dtype=np.float)
     x = torch.tensor(x, device=Config.DEVICE, dtype=torch.float32)
     return x
-
-
-class BaseNet:
-
-    def __init__(self):
-        pass
 
 
 class VanillaNet(nn.Module, BaseNet):
@@ -538,26 +538,26 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ShangtongZhang_DeepRL(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(DDPGConvBody(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(CategoricalActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(FCBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DDPGConvBody(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_002(self):
-        self._check(TwoLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_003(self):
-        self._check(OneLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4, 'hidden_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(DummyBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_005(self):
-        self._check(GaussianActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_003(self):
+        self._check(FCBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_004(self):
+        self._check(GaussianActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(OneLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4, 'hidden_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_006(self):
-        self._check(CategoricalActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TwoLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

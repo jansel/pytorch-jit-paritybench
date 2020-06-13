@@ -189,28 +189,6 @@ def change_of_basis(motion_3d, basis_vectors=None, project_2d=False):
     return motion_proj
 
 
-def get_body_basis(motion_3d):
-    """
-    Get the unit vectors for vector rectangular coordinates for given 3D motion
-    :param motion_3d: 3D motion from 3D joints positions, shape (B, n_joints, 3, seq_len).
-    :param angles: (K, 3), Rotation angles around each axis.
-    :return: unit vectors for vector rectangular coordinates's , shape (B, 3, 3).
-    """
-    B = motion_3d.size(0)
-    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] -
-        motion_3d[:, (12)]) / 2
-    horizontal = horizontal.mean(dim=-1)
-    horizontal = horizontal / horizontal.norm(dim=-1).unsqueeze(-1)
-    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype
-        =motion_3d.dtype).unsqueeze(0).repeat(B, 1)
-    vector_y = torch.cross(horizontal, vector_z)
-    vector_y = vector_y / vector_y.norm(dim=-1).unsqueeze(-1)
-    vector_x = torch.cross(vector_y, vector_z)
-    vectors = torch.stack([vector_x, vector_y, vector_z], dim=2)
-    vectors = vectors.detach()
-    return vectors
-
-
 def rotate_basis_euler(basis_vectors, angles):
     """
     Rotate vector rectangular coordinates from given angles.
@@ -246,6 +224,28 @@ def rotate_basis_euler(basis_vectors, angles):
     basis_vectors = basis_vectors.unsqueeze(1).unsqueeze(2)
     basis_vectors = basis_vectors @ mat33_x.transpose(-1, -2) @ mat33_z
     return basis_vectors
+
+
+def get_body_basis(motion_3d):
+    """
+    Get the unit vectors for vector rectangular coordinates for given 3D motion
+    :param motion_3d: 3D motion from 3D joints positions, shape (B, n_joints, 3, seq_len).
+    :param angles: (K, 3), Rotation angles around each axis.
+    :return: unit vectors for vector rectangular coordinates's , shape (B, 3, 3).
+    """
+    B = motion_3d.size(0)
+    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] -
+        motion_3d[:, (12)]) / 2
+    horizontal = horizontal.mean(dim=-1)
+    horizontal = horizontal / horizontal.norm(dim=-1).unsqueeze(-1)
+    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype
+        =motion_3d.dtype).unsqueeze(0).repeat(B, 1)
+    vector_y = torch.cross(horizontal, vector_z)
+    vector_y = vector_y / vector_y.norm(dim=-1).unsqueeze(-1)
+    vector_x = torch.cross(vector_y, vector_z)
+    vectors = torch.stack([vector_x, vector_y, vector_z], dim=2)
+    vectors = vectors.detach()
+    return vectors
 
 
 def rotate_and_maybe_project(X, angles=None, body_reference=True,

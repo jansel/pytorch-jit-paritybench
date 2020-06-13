@@ -458,6 +458,30 @@ class NoEmbedding(nn.Module):
         return CS.ConfigurationSpace()
 
 
+def shake_get_alpha_beta(is_training, is_cuda):
+    if is_training:
+        result = torch.FloatTensor([0.5]), torch.FloatTensor([0.5])
+        return result if not is_cuda else (result[0].cuda(), result[1].cuda())
+    alpha = torch.rand(1)
+    beta = torch.rand(1)
+    if is_cuda:
+        alpha = alpha.cuda()
+        beta = beta.cuda()
+    return alpha, beta
+
+
+def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
+    is_training, is_cuda):
+    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
+    if not is_training:
+        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
+    if is_training:
+        bl = torch.tensor(pl)
+    if is_cuda:
+        bl = bl.cuda()
+    return bl
+
+
 class ShakeDrop(Function):
 
     @staticmethod
@@ -487,30 +511,6 @@ class ShakeDrop(Function):
 
 
 shake_drop = ShakeDrop.apply
-
-
-def shake_get_alpha_beta(is_training, is_cuda):
-    if is_training:
-        result = torch.FloatTensor([0.5]), torch.FloatTensor([0.5])
-        return result if not is_cuda else (result[0].cuda(), result[1].cuda())
-    alpha = torch.rand(1)
-    beta = torch.rand(1)
-    if is_cuda:
-        alpha = alpha.cuda()
-        beta = beta.cuda()
-    return alpha, beta
-
-
-def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
-    is_training, is_cuda):
-    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
-    if not is_training:
-        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
-    if is_training:
-        bl = torch.tensor(pl)
-    if is_cuda:
-        bl = bl.cuda()
-    return bl
 
 
 class ShakeShakeBlock(Function):
@@ -1171,13 +1171,19 @@ class Conv2dSame(nn.Conv2d):
             padding, self.dilation, self.groups)
 
 
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+def _split_channels(num_chan, num_groups):
+    split = [(num_chan // num_groups) for _ in range(num_groups)]
+    split[0] += num_chan - sum(split)
+    return split
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
+
+
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
@@ -1201,12 +1207,6 @@ def conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
     else:
         return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
             kwargs)
-
-
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
 
 
 class MixedConv2d(nn.Module):
@@ -1498,7 +1498,28 @@ class InvertedResidual(nn.Module):
         return x
 
 
-_DEBUG = False
+def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
+    """Round number of filters based on depth multiplier."""
+    if not multiplier:
+        return channels
+    channels *= multiplier
+    channel_min = channel_min or divisor
+    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
+        channel_min)
+    if new_channels < 0.9 * channels:
+        new_channels += divisor
+    return new_channels
+
+
+def _initialize_weight_default(m):
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
 
 
 def _initialize_weight_goog(m):
@@ -1515,19 +1536,6 @@ def _initialize_weight_goog(m):
         init_range = 1.0 / math.sqrt(n)
         m.weight.data.uniform_(-init_range, init_range)
         m.bias.data.zero_()
-
-
-def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
-    """Round number of filters based on depth multiplier."""
-    if not multiplier:
-        return channels
-    channels *= multiplier
-    channel_min = channel_min or divisor
-    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
-        channel_min)
-    if new_channels < 0.9 * channels:
-        new_channels += divisor
-    return new_channels
 
 
 class _BlockBuilder:
@@ -1632,15 +1640,7 @@ class _BlockBuilder:
         return blocks
 
 
-def _initialize_weight_default(m):
-    if isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
+_DEBUG = False
 
 
 class GenEfficientNet(nn.Module):
@@ -1754,77 +1754,77 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_automl_Auto_PyTorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(NoEmbedding(*[], **{'config': _mock_config(), 'in_features': 4, 'one_hot_encoder': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(PrintNode(*[], **{'msg': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(ResidualBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'filter_size': 4, 'stride': 1, 'branch_index': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
         self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_001(self):
         self._check(AdaptiveCatAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
-        self._check(SelectAdaptivePool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_003(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
-        self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_004(self):
+        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_005(self):
         self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_006(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(NoEmbedding(*[], **{'config': _mock_config(), 'in_features': 4, 'one_hot_encoder': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(PrintNode(*[], **{'msg': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(Reshape(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(ResidualBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'filter_size': 4, 'stride': 1, 'branch_index': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(SelectAdaptivePool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_020(self):
-        self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
-        self._check(Reshape(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

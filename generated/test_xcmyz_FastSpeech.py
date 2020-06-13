@@ -1477,12 +1477,13 @@ class PostNet(nn.Module):
         return x
 
 
-def get_attn_key_pad_mask(seq_k, seq_q):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(Constants.PAD)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
+_pad = '_'
+
+
+_punctuation = "!'(),.:;? "
+
+
+_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
 
 def get_non_pad_mask(seq):
@@ -1490,7 +1491,12 @@ def get_non_pad_mask(seq):
     return seq.ne(Constants.PAD).type(torch.float).unsqueeze(-1)
 
 
-_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+def get_attn_key_pad_mask(seq_k, seq_q):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(Constants.PAD)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -1808,39 +1814,39 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_xcmyz_FastSpeech(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Invertible1x1Conv(*[], **{'c': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(FastSpeechLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_003(self):
-        self._check(Linear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(ConvNorm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
+    def test_002(self):
+        self._check(FastSpeechLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Invertible1x1Conv(*[], **{'c': 4}), [torch.rand([4, 4, 4])], {})
+
     def test_004(self):
-        self._check(MultiheadAttention(*[], **{'num_hidden_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(Linear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(LinearNorm(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ConvNorm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
-
-    def test_007(self):
         self._check(LocationLayer(*[], **{'attention_n_filters': 4, 'attention_kernel_size': 4, 'attention_dim': 4}), [torch.rand([4, 2, 64])], {})
 
-    def test_008(self):
-        self._check(PreNet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_007(self):
+        self._check(MultiheadAttention(*[], **{'num_hidden_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(PostNet(*[], **{}), [torch.rand([4, 80, 80])], {})
+
+    def test_009(self):
+        self._check(PreNet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):

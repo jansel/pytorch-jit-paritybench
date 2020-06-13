@@ -261,12 +261,6 @@ class NGramLanguageModeler(nn.Module):
         return log_probs
 
 
-STOP_TAG = '<STOP>'
-
-
-START_TAG = '<START>'
-
-
 def to_scalar(var):
     return var.view(-1).data.tolist()[0]
 
@@ -281,6 +275,12 @@ def log_sum_exp(vec):
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
     return max_score + torch.log(torch.sum(torch.exp(vec -
         max_score_broadcast)))
+
+
+STOP_TAG = '<STOP>'
+
+
+START_TAG = '<START>'
 
 
 class BiLSTM_CRF(nn.Module):
@@ -871,18 +871,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_apachecn_nlp_pytorch_zh(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BoWClassifier(*[], **{'num_labels': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_002(self):
-        self._check(Net(*[], **{'n_feature': 4, 'n_hidden': 4, 'n_output': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(AutoEncoder(*[], **{}), [torch.rand([784, 784])], {})
 
+    def test_001(self):
+        self._check(BoWClassifier(*[], **{'num_labels': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_004(self):
+    def test_002(self):
         self._check(LSTMTagger(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_003(self):
+        self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_004(self):
+        self._check(Net(*[], **{'n_feature': 4, 'n_hidden': 4, 'n_output': 4}), [torch.rand([4, 4, 4, 4])], {})
 

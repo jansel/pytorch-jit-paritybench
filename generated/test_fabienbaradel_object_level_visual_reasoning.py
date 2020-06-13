@@ -156,20 +156,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-def transform_input(x, dim, T=8):
-    diff = len(x.size()) - dim
-    if diff > 0:
-        B, C, T, W, H = x.size()
-        x = x.transpose(1, 2)
-        x = x.contiguous()
-        x = x.view(-1, C, W, H)
-    elif diff < 0:
-        _, C, W, H = x.size()
-        x = x.view(-1, T, C, W, H)
-        x = x.transpose(1, 2)
-    return x
-
-
 class Bottleneck2D(Bottleneck):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None,
@@ -190,6 +176,23 @@ class Bottleneck2D(Bottleneck):
             stride_1, stride_2), padding=(1, 1), bias=False)
 
 
+K_1st_CONV = 3
+
+
+def transform_input(x, dim, T=8):
+    diff = len(x.size()) - dim
+    if diff > 0:
+        B, C, T, W, H = x.size()
+        x = x.transpose(1, 2)
+        x = x.contiguous()
+        x = x.view(-1, C, W, H)
+    elif diff < 0:
+        _, C, W, H = x.size()
+        x = x.view(-1, T, C, W, H)
+        x = x.transpose(1, 2)
+    return x
+
+
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -206,9 +209,6 @@ class BasicBlock2D(BasicBlock):
         self.conv1 = conv3x3(inplanes, planes, stride, dilation)
         self.conv2 = conv3x3(planes, planes, dilation)
         self.input_dim = 4
-
-
-K_1st_CONV = 3
 
 
 class ResNet(nn.Module):
@@ -603,10 +603,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_fabienbaradel_object_level_visual_reasoning(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicBlock2D(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AggregationRelations(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(AggregationRelations(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock2D(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Classifier(*[], **{'size_input': 4, 'size_output': 4}), [torch.rand([4, 4, 4, 4])], {})

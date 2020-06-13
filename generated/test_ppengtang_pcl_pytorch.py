@@ -673,19 +673,19 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-sources = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-with_cuda = False
+defines = []
 
 
 headers = []
 
 
-defines = []
+with_cuda = False
+
+
+sources = []
+
+
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 class RoIPoolFunction(Function):
@@ -925,16 +925,16 @@ def PCL(boxes, cls_prob, im_labels, cls_prob_new):
         .float32).copy()}
 
 
-_global_config['REFINE_TIMES'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
+_global_config['FAST_RCNN'] = 4
 
 
 _global_config['MODEL'] = 4
 
 
-_global_config['FAST_RCNN'] = 4
+_global_config['REFINE_TIMES'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -1603,20 +1603,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ppengtang_pcl_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
+        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(mil_outputs(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(refine_outputs(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_004(self):
-        self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(refine_outputs(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

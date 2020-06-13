@@ -337,6 +337,11 @@ class SNResNetConcatDiscriminator(nn.Module):
         return self.l6(h)
 
 
+def _upsample(x):
+    h, w = x.size()[2:]
+    return F.interpolate(x, size=(h * 2, w * 2), mode='bilinear')
+
+
 class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
 
     def __init__(self, num_classes, num_features, eps=1e-05, momentum=0.1,
@@ -356,11 +361,6 @@ class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
         bias = self.biases(c)
         return super(CategoricalConditionalBatchNorm2d, self).forward(input,
             weight, bias)
-
-
-def _upsample(x):
-    h, w = x.size()[2:]
-    return F.interpolate(x, size=(h * 2, w * 2), mode='bilinear')
 
 
 class Block(nn.Module):

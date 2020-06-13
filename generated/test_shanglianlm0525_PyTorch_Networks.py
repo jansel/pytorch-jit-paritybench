@@ -3126,15 +3126,15 @@ class Xception(nn.Module):
         return out
 
 
-def downSampling1(in_channels, out_channels):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=3, stride=2, padding=1, bias=False), nn.
-        BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
-
-
 def Conv1x1BnRelu(in_channels, out_channels):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
         out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.
+        BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
+
+
+def downSampling1(in_channels, out_channels):
+    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
+        out_channels, kernel_size=3, stride=2, padding=1, bias=False), nn.
         BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
 
 

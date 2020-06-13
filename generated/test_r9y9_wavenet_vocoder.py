@@ -565,27 +565,10 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
     return x
 
 
-def _expand_global_features(B, T, g, bct=True):
-    """Expand global conditioning features to all time steps
-
-    Args:
-        B (int): Batch size.
-        T (int): Time length.
-        g (Tensor): Global features, (B x C) or (B x C x 1).
-        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
-
-    Returns:
-        Tensor: B x C x T or B x T x C or None
-    """
-    if g is None:
-        return None
-    g = g.unsqueeze(-1) if g.dim() == 2 else g
-    if bct:
-        g_bct = g.expand(B, -1, T)
-        return g_bct.contiguous()
-    else:
-        g_btc = g.expand(B, -1, T).transpose(1, 2)
-        return g_btc.contiguous()
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    m.weight.data.normal_(0, std)
+    return m
 
 
 def sample_from_mix_gaussian(y, log_scale_min=-7.0):
@@ -630,6 +613,29 @@ def sample_from_mix_gaussian(y, log_scale_min=-7.0):
     return x
 
 
+def _expand_global_features(B, T, g, bct=True):
+    """Expand global conditioning features to all time steps
+
+    Args:
+        B (int): Batch size.
+        T (int): Time length.
+        g (Tensor): Global features, (B x C) or (B x C x 1).
+        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
+
+    Returns:
+        Tensor: B x C x T or B x T x C or None
+    """
+    if g is None:
+        return None
+    g = g.unsqueeze(-1) if g.dim() == 2 else g
+    if bct:
+        g_bct = g.expand(B, -1, T)
+        return g_bct.contiguous()
+    else:
+        g_btc = g.expand(B, -1, T).transpose(1, 2)
+        return g_btc.contiguous()
+
+
 def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
     x: 2 ** x):
     """Compute receptive field size
@@ -649,12 +655,6 @@ def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
     layers_per_cycle = total_layers // num_cycles
     dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
     return (kernel_size - 1) * sum(dilations) + 1
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    m.weight.data.normal_(0, std)
-    return m
 
 
 class WaveNet(nn.Module):

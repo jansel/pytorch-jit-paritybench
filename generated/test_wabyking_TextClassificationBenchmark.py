@@ -276,15 +276,15 @@ class Inception(nn.Module):
         return result
 
 
+NUM_ROUTING_ITERATIONS = 3
+
+
 def softmax(input, dim=1):
     transposed_input = input.transpose(dim, len(input.size()) - 1)
     softmaxed_output = F.softmax(transposed_input.contiguous().view(-1,
         transposed_input.size(-1)))
     return softmaxed_output.view(*transposed_input.size()).transpose(dim, 
         len(input.size()) - 1)
-
-
-NUM_ROUTING_ITERATIONS = 3
 
 
 class CapsuleLayer(nn.Module):
@@ -387,6 +387,19 @@ class LSTMAttention(torch.nn.Module):
         return logits
 
 
+def position_encoding(sentence_size, embedding_dim):
+    encoding = np.ones((embedding_dim, sentence_size), dtype=np.float32)
+    ls = sentence_size + 1
+    le = embedding_dim + 1
+    for i in range(1, le):
+        for j in range(1, ls):
+            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (
+                sentence_size + 1) / 2)
+    encoding = 1 + 4 * encoding / embedding_dim / sentence_size
+    encoding[:, (-1)] = 1.0
+    return np.transpose(encoding)
+
+
 class AttrProxy(object):
     """
     Translates index lookups into attribute lookups.
@@ -400,19 +413,6 @@ class AttrProxy(object):
 
     def __getitem__(self, i):
         return getattr(self.module, self.prefix + str(i))
-
-
-def position_encoding(sentence_size, embedding_dim):
-    encoding = np.ones((embedding_dim, sentence_size), dtype=np.float32)
-    ls = sentence_size + 1
-    le = embedding_dim + 1
-    for i in range(1, le):
-        for j in range(1, ls):
-            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (
-                sentence_size + 1) / 2)
-    encoding = 1 + 4 * encoding / embedding_dim / sentence_size
-    encoding[:, (-1)] = 1.0
-    return np.transpose(encoding)
 
 
 class MemN2N(nn.Module):
@@ -735,16 +735,6 @@ class DecoderLayer(nn.Module):
         return dec_output, dec_slf_attn, dec_enc_attn
 
 
-def position_encoding_init(n_position, d_pos_vec):
-    """ Init the sinusoid position encoding table """
-    position_enc = np.array([([(pos / np.power(10000, 2 * (j // 2) /
-        d_pos_vec)) for j in range(d_pos_vec)] if pos != 0 else np.zeros(
-        d_pos_vec)) for pos in range(n_position)])
-    position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2])
-    position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2])
-    return torch.from_numpy(position_enc).type(torch.FloatTensor)
-
-
 class ConstantsClass:
 
     def __init__(self):
@@ -769,6 +759,16 @@ def get_attn_padding_mask(seq_q, seq_k):
     pad_attn_mask = seq_k.data.eq(Constants.PAD).unsqueeze(1)
     pad_attn_mask = pad_attn_mask.expand(mb_size, len_q, len_k)
     return pad_attn_mask
+
+
+def position_encoding_init(n_position, d_pos_vec):
+    """ Init the sinusoid position encoding table """
+    position_enc = np.array([([(pos / np.power(10000, 2 * (j // 2) /
+        d_pos_vec)) for j in range(d_pos_vec)] if pos != 0 else np.zeros(
+        d_pos_vec)) for pos in range(n_position)])
+    position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2])
+    position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2])
+    return torch.from_numpy(position_enc).type(torch.FloatTensor)
 
 
 class Encoder(nn.Module):
@@ -931,22 +931,22 @@ class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(CapsuleLayer(*[], **{'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Linear(*[], **{'d_in': 4, 'd_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(BottleSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    @_fails_compile()
+    def test_001(self):
+        self._check(CapsuleLayer(*[], **{'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_004(self):
-        self._check(ScaledDotProductAttention(*[], **{'d_model': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+    def test_003(self):
+        self._check(Linear(*[], **{'d_in': 4, 'd_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(PositionwiseFeedForward(*[], **{'d_hid': 4, 'd_inner_hid': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(ScaledDotProductAttention(*[], **{'d_model': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

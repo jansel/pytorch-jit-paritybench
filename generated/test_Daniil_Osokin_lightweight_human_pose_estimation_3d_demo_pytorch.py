@@ -254,24 +254,24 @@ class Test_Daniil_Osokin_lightweight_human_pose_estimation_3d_demo_pytorch(_pari
     def test_001(self):
         self._check(InitialStage(*[], **{'num_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
         self._check(Pose3D(*[], **{'in_channels': 4, 'num_2d_heatmaps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_003(self):
         self._check(PoseEstimationWithMobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
+        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 

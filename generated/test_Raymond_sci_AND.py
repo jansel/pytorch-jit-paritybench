@@ -69,13 +69,13 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 
-_global_config['ANs_select_rate'] = 4
-
-
 _global_config['device'] = 4
 
 
 _global_config['ANs_size'] = 4
+
+
+_global_config['ANs_select_rate'] = 4
 
 
 class ANsDiscovery(nn.Module):
@@ -426,16 +426,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Raymond_sci_AND(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(NonParametricClassifier(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(NonParametricClassifier(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -361,21 +361,6 @@ def parameterize(func):
     return decorator
 
 
-def unsort_batch(batch: torch.Tensor, perm_idx: torch.Tensor) ->torch.Tensor:
-    """Undo the sort on a batch of tensors done for packing the data in the RNN.
-
-    :param batch: The batch of data batch first `[B, ...]`
-    :param perm_idx: The permutation index returned from the torch.sort.
-
-    :returns: The batch in the original order.
-    """
-    perm_idx = perm_idx.to(batch.device)
-    diff = len(batch.shape) - len(perm_idx.shape)
-    extra_dims = [1] * diff
-    perm_idx = perm_idx.view([-1] + extra_dims)
-    return batch.scatter_(0, perm_idx.expand_as(batch), batch)
-
-
 TensorDef = torch.Tensor
 
 
@@ -407,6 +392,9 @@ class ArcPolicy(torch.nn.Module):
 
     def forward(self, encoder_outputs, hsz, beam_width=1):
         pass
+
+
+BASELINE_SEQ2SEQ_DECODERS = {}
 
 
 def _cat_dir(h: torch.Tensor) ->torch.Tensor:
@@ -450,61 +438,7 @@ def sequence_mask(lengths: torch.Tensor, max_len: int=-1) ->torch.Tensor:
     return mask
 
 
-TransformerEncoderOutput = namedtuple('TransformerEncoderOutput', ('output',
-    'src_mask'))
-
-
-def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
-    =None, bias: bool=True):
-    """Utility function that wraps a linear (AKA dense) layer creation, with options for weight init and bias"""
-    l = nn.Linear(in_sz, out_sz, bias=bias)
-    if unif > 0:
-        l.weight.data.uniform_(-unif, unif)
-    elif initializer == 'ortho':
-        nn.init.orthogonal(l.weight)
-    elif initializer == 'he' or initializer == 'kaiming':
-        nn.init.kaiming_uniform(l.weight)
-    else:
-        nn.init.xavier_uniform_(l.weight)
-    if bias:
-        l.bias.data.zero_()
-    return l
-
-
 BASELINE_SEQ2SEQ_ENCODERS = {}
-
-
-logger = logging.getLogger('mead')
-
-
-class SequenceCriterion(nn.Module):
-
-    def __init__(self, LossFn=nn.NLLLoss, avg='token'):
-        super(SequenceCriterion, self).__init__()
-        if avg == 'token':
-            self.crit = LossFn(ignore_index=Offsets.PAD, size_average=True)
-            self._norm = self._no_norm
-        else:
-            self.crit = LossFn(ignore_index=Offsets.PAD, size_average=False)
-            self._norm = self._batch_norm
-
-    def _batch_norm(self, loss, inputs):
-        return loss / inputs.size()[0]
-
-    def _no_norm(self, loss, inputs):
-        return loss
-
-    def forward(self, inputs, targets):
-        """Evaluate some loss over a sequence.
-
-        :param inputs: torch.FloatTensor, [B, .., C] The scores from the model. Batch First
-        :param targets: torch.LongTensor, The labels.
-
-        :returns: torch.FloatTensor, The loss.
-        """
-        total_sz = targets.nelement()
-        loss = self.crit(inputs.view(total_sz, -1), targets.view(total_sz))
-        return self._norm(loss, inputs)
 
 
 class PyTorchEmbeddings(nn.Module):
@@ -662,12 +596,12 @@ class MeanPool1D(nn.Module):
         return f'batch_first={self.batch_first}'
 
 
-MASK_FALSE = False
-
-
 def bth2tbh(t: torch.Tensor) ->torch.Tensor:
     """Transpose the first 2 dims"""
     return t.transpose(0, 1).contiguous()
+
+
+MASK_FALSE = False
 
 
 class MaxPool1D(nn.Module):
@@ -1036,6 +970,23 @@ class StackedGRUCell(nn.Module):
             hs.append(h_i)
         hs = torch.stack(hs)
         return input, hs
+
+
+def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
+    =None, bias: bool=True):
+    """Utility function that wraps a linear (AKA dense) layer creation, with options for weight init and bias"""
+    l = nn.Linear(in_sz, out_sz, bias=bias)
+    if unif > 0:
+        l.weight.data.uniform_(-unif, unif)
+    elif initializer == 'ortho':
+        nn.init.orthogonal(l.weight)
+    elif initializer == 'he' or initializer == 'kaiming':
+        nn.init.kaiming_uniform(l.weight)
+    else:
+        nn.init.xavier_uniform_(l.weight)
+    if bias:
+        l.bias.data.zero_()
+    return l
 
 
 class Dense(nn.Module):
@@ -1454,16 +1405,6 @@ class SumLayerNormReduction(Reduction):
         return self.ln(output)
 
 
-class SumReduction(Reduction):
-
-    def __init__(self, output_dims: List[int]):
-        super().__init__()
-        self.output_dim = output_dims[0]
-
-    def forward(self, inputs: List[torch.Tensor]) ->torch.Tensor:
-        return sum(inputs)
-
-
 class EmbeddingsStack(nn.Module):
 
     def __init__(self, embeddings_dict: Dict[str, nn.Embedding],
@@ -1823,6 +1764,10 @@ class Viterbi(nn.Module):
         return best_path, path_score
 
 
+def ident(x):
+    return x
+
+
 class ViterbiLogSoftmaxNorm(Viterbi):
 
     def forward(self, unary: torch.Tensor, trans: torch.Tensor, lengths:
@@ -1875,10 +1820,6 @@ class ViterbiLogSoftmaxNorm(Viterbi):
         seq_mask = sequence_mask(lengths).to(best_path.device).transpose(0, 1)
         best_path = best_path.masked_fill(seq_mask == MASK_FALSE, 0)
         return best_path, path_score
-
-
-def ident(x):
-    return x
 
 
 class TaggerGreedyDecoder(nn.Module):
@@ -2085,6 +2026,19 @@ class SequenceSequenceRelativeAttention(nn.Module):
         return updated_values + update_edge_values
 
 
+class SeqDotProductAttention(SequenceSequenceAttention):
+
+    def __init__(self, pdrop: float=0.1, **kwargs):
+        super().__init__(pdrop=pdrop, **kwargs)
+
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask:
+        Optional[torch.Tensor]=None) ->torch.Tensor:
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        if mask is not None:
+            scores = scores.masked_fill(mask == MASK_FALSE, -1000000000.0)
+        return F.softmax(scores, dim=-1)
+
+
 class SeqScaledDotProductAttention(SequenceSequenceAttention):
 
     def __init__(self, pdrop: float=0.1, **kwargs):
@@ -2105,19 +2059,6 @@ class SeqScaledDotProductAttention(SequenceSequenceAttention):
         """
         d_k = query.size(-1)
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
-        if mask is not None:
-            scores = scores.masked_fill(mask == MASK_FALSE, -1000000000.0)
-        return F.softmax(scores, dim=-1)
-
-
-class SeqDotProductAttention(SequenceSequenceAttention):
-
-    def __init__(self, pdrop: float=0.1, **kwargs):
-        super().__init__(pdrop=pdrop, **kwargs)
-
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask:
-        Optional[torch.Tensor]=None) ->torch.Tensor:
-        scores = torch.matmul(query, key.transpose(-2, -1))
         if mask is not None:
             scores = scores.masked_fill(mask == MASK_FALSE, -1000000000.0)
         return F.softmax(scores, dim=-1)
@@ -2540,48 +2481,49 @@ class Test_dpressel_mead_baseline(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(TwoHeadConcat(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(ArcPolicy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(MaxPool1D(*[], **{'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(Conv1DSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
-
-    def test_006(self):
-        self._check(ConvEncoder(*[], **{'insz': 4, 'outsz': 4, 'filtsz': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(BTH2BHT(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(BTH2TBH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
+    def test_001(self):
         self._check(BHT2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
-        self._check(ParallelConv(*[], **{'insz': 4, 'outsz': [4, 4], 'filtsz': [4, 4]}), [torch.rand([4, 4, 4])], {})
+    def test_002(self):
+        self._check(BTH2BHT(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_003(self):
+        self._check(BTH2TBH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Conv1DSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_005(self):
+        self._check(ConvEncoder(*[], **{'insz': 4, 'outsz': 4, 'filtsz': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(Dense(*[], **{'insz': 4, 'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
         self._check(Highway(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_009(self):
+        self._check(MaxPool1D(*[], **{'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(MultiHeadedAttention(*[], **{'num_heads': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(MultiHeadedRelativeAttention(*[], **{'num_heads': 4, 'd_model': 4, 'rpr_k': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(ParallelConv(*[], **{'insz': 4, 'outsz': [4, 4], 'filtsz': [4, 4]}), [torch.rand([4, 4, 4])], {})
+
     def test_013(self):
-        self._check(Dense(*[], **{'insz': 4, 'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PassThru(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_014(self):
@@ -2589,35 +2531,30 @@ class Test_dpressel_mead_baseline(_paritybench_base):
 
     @_fails_compile()
     def test_015(self):
-        self._check(SumLayerNormReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_016(self):
-        self._check(SumReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
-        self._check(PassThru(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_018(self):
-        self._check(SeqScaledDotProductAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_019(self):
         self._check(SeqDotProductAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_016(self):
+        self._check(SeqScaledDotProductAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_017(self):
+        self._check(SingleHeadReduction(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(SumLayerNormReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_020(self):
-        self._check(MultiHeadedAttention(*[], **{'num_heads': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TiedWeights(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_021(self):
-        self._check(MultiHeadedRelativeAttention(*[], **{'num_heads': 4, 'd_model': 4, 'rpr_k': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TwoHeadConcat(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_022(self):
-        self._check(SingleHeadReduction(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_023(self):
-        self._check(TiedWeights(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

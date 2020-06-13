@@ -568,11 +568,11 @@ class Test_megvii_research_ICCV2019_LearningToPaint(_paritybench_base):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(TReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(FCN(*[], **{}), [torch.rand([10, 10])], {})
+
+    def test_004(self):
+        self._check(TReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

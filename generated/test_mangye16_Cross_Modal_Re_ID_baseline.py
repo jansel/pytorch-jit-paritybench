@@ -101,20 +101,6 @@ class OriTripletLoss(nn.Module):
         return loss, correct
 
 
-def pdist_torch(emb1, emb2):
-    """
-    compute the eucilidean distance matrix between embeddings1 and embeddings2
-    using gpu
-    """
-    m, n = emb1.shape[0], emb2.shape[0]
-    emb1_pow = torch.pow(emb1, 2).sum(dim=1, keepdim=True).expand(m, n)
-    emb2_pow = torch.pow(emb2, 2).sum(dim=1, keepdim=True).expand(n, m).t()
-    dist_mtx = emb1_pow + emb2_pow
-    dist_mtx = dist_mtx.addmm_(1, -2, emb1, emb2.t())
-    dist_mtx = dist_mtx.clamp(min=1e-12).sqrt()
-    return dist_mtx
-
-
 def softmax_weights(dist, mask):
     max_v = torch.max(dist * mask, dim=1, keepdim=True)[0]
     diff = dist - max_v
@@ -176,14 +162,6 @@ class Non_local(nn.Module):
         return z
 
 
-def remove_fc(state_dict):
-    """Remove the fc layer parameters from state_dict."""
-    for key, value in list(state_dict.items()):
-        if key.startswith('fc.'):
-            del state_dict[key]
-    return state_dict
-
-
 model_urls = {'resnet18':
     'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
     'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
@@ -191,6 +169,14 @@ model_urls = {'resnet18':
     'resnet101':
     'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+
+
+def remove_fc(state_dict):
+    """Remove the fc layer parameters from state_dict."""
+    for key, value in list(state_dict.items()):
+        if key.startswith('fc.'):
+            del state_dict[key]
+    return state_dict
 
 
 def resnet50(pretrained=False, **kwargs):
@@ -254,14 +240,6 @@ class base_resnet(nn.Module):
         return x
 
 
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        init.normal_(m.weight.data, 0, 0.001)
-        if m.bias:
-            init.zeros_(m.bias.data)
-
-
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -272,6 +250,14 @@ def weights_init_kaiming(m):
     elif classname.find('BatchNorm1d') != -1:
         init.normal_(m.weight.data, 1.0, 0.01)
         init.zeros_(m.bias.data)
+
+
+def weights_init_classifier(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        init.normal_(m.weight.data, 0, 0.001)
+        if m.bias:
+            init.zeros_(m.bias.data)
 
 
 class embed_net(nn.Module):
@@ -498,30 +484,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(OriTripletLoss(*[], **{'batch_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(Non_local(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(Non_local(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_003(self):
-        self._check(visible_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(OriTripletLoss(*[], **{'batch_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
         self._check(base_resnet(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_005(self):
         self._check(embed_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
 
+    def test_006(self):
+        self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
     def test_007(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(visible_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

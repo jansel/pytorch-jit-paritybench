@@ -688,16 +688,16 @@ class Test_shepnerd_inpainting_gmcnn(_paritybench_base):
     def test_000(self):
         self._check(BaseModel(*[], **{}), [], {})
 
-    def test_001(self):
-        self._check(PureUpsampling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_003(self):
+    def test_001(self):
         self._check(PartialConv(*[], **{}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
+        self._check(PureUpsampling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

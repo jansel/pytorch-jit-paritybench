@@ -134,21 +134,21 @@ from typing import Sequence
 from typing import Tuple
 
 
-def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
-    if isinstance(value, list):
-        assert len(value
-            ) == multiplier, f'{value} is not the correct size {multiplier}'
-    else:
-        value = [value] * multiplier
-    return value
-
-
 def get_kwarg(kwargs, name, default_value=None, remove=True):
     """Returns the value for the parameter if it exists in the kwargs otherwise the default value provided"""
     if remove:
         value = kwargs.pop(name) if name in kwargs else default_value
     else:
         value = kwargs.get(name, default_value)
+    return value
+
+
+def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
+    if isinstance(value, list):
+        assert len(value
+            ) == multiplier, f'{value} is not the correct size {multiplier}'
+    else:
+        value = [value] * multiplier
     return value
 
 
@@ -184,6 +184,12 @@ def assert_dims(value: Sequence[Array], dims: List[Optional[int]]) ->Sequence[
     return value
 
 
+def reshape_parent_indices(indices, bs, num_beams):
+    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
+        repeat(1, num_beams).view(-1).long())
+    return indices + parent_indices
+
+
 def repeat_cell_state(hidden, num_beams):
     results = []
     for row in hidden:
@@ -194,12 +200,6 @@ def repeat_cell_state(hidden, num_beams):
             state = row.repeat(1, num_beams, 1)
         results.append(state)
     return results
-
-
-def reshape_parent_indices(indices, bs, num_beams):
-    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
-        repeat(1, num_beams).view(-1).long())
-    return indices + parent_indices
 
 
 class MLPAttention(nn.Module):
@@ -995,13 +995,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_outcastofmusic_quick_nlp(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SDPAttention(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(NormEmbeddings(*[], **{'emb_size': 4, 'tokens': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(PositionFeedForward(*[], **{'input_size': 4, 'out_dim': 4, 'nhid': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(SDPAttention(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

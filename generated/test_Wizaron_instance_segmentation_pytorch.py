@@ -1102,6 +1102,32 @@ class DiceCoefficient(torch.nn.Module):
         return dice_coefficient(input, target, smooth=self.smooth)
 
 
+def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
+    """pred: bs, height * width, n_filters
+       gt: bs, height * width, n_instances"""
+    bs, n_loc, n_filters = pred.size()
+    n_instances = gt.size(2)
+    pred_repeated = pred.unsqueeze(2).expand(bs, n_loc, n_instances, n_filters)
+    gt_expanded = gt.unsqueeze(3)
+    pred_masked = pred_repeated * gt_expanded
+    means = []
+    for i in range(bs):
+        _n_objects_sample = n_objects[i]
+        _pred_masked_sample = pred_masked[(i), :, :_n_objects_sample]
+        _gt_expanded_sample = gt_expanded[(i), :, :_n_objects_sample]
+        _mean_sample = _pred_masked_sample.sum(0) / _gt_expanded_sample.sum(0)
+        if max_n_objects - _n_objects_sample != 0:
+            n_fill_objects = int(max_n_objects - _n_objects_sample)
+            _fill_sample = torch.zeros(n_fill_objects, n_filters)
+            if usegpu:
+                _fill_sample = _fill_sample.cuda()
+            _fill_sample = Variable(_fill_sample)
+            _mean_sample = torch.cat((_mean_sample, _fill_sample), dim=0)
+        means.append(_mean_sample)
+    means = torch.stack(means)
+    return means
+
+
 def calculate_regularization_term(means, n_objects, norm):
     """means: bs, n_instances, n_filters"""
     bs, n_instances, n_filters = means.size()
@@ -1161,32 +1187,6 @@ def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
     return var_term
 
 
-def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
-    """pred: bs, height * width, n_filters
-       gt: bs, height * width, n_instances"""
-    bs, n_loc, n_filters = pred.size()
-    n_instances = gt.size(2)
-    pred_repeated = pred.unsqueeze(2).expand(bs, n_loc, n_instances, n_filters)
-    gt_expanded = gt.unsqueeze(3)
-    pred_masked = pred_repeated * gt_expanded
-    means = []
-    for i in range(bs):
-        _n_objects_sample = n_objects[i]
-        _pred_masked_sample = pred_masked[(i), :, :_n_objects_sample]
-        _gt_expanded_sample = gt_expanded[(i), :, :_n_objects_sample]
-        _mean_sample = _pred_masked_sample.sum(0) / _gt_expanded_sample.sum(0)
-        if max_n_objects - _n_objects_sample != 0:
-            n_fill_objects = int(max_n_objects - _n_objects_sample)
-            _fill_sample = torch.zeros(n_fill_objects, n_filters)
-            if usegpu:
-                _fill_sample = _fill_sample.cuda()
-            _fill_sample = Variable(_fill_sample)
-            _mean_sample = torch.cat((_mean_sample, _fill_sample), dim=0)
-        means.append(_mean_sample)
-    means = torch.stack(means)
-    return means
-
-
 def discriminative_loss(input, target, n_objects, max_n_objects, delta_v,
     delta_d, norm, usegpu):
     """input: bs, n_filters, fmap, fmap
@@ -1236,16 +1236,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(InstanceCounter(*[], **{'input_n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(CoordConvTranspose(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(InstanceCounter(*[], **{'input_n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

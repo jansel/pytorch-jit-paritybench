@@ -33,7 +33,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-VOCAB_SIZE = 20000
+USE_CUDA = True
 
 
 DEVICES = [2]
@@ -42,7 +42,7 @@ DEVICES = [2]
 CUDA_DEVICE = DEVICES[0]
 
 
-USE_CUDA = True
+VOCAB_SIZE = 20000
 
 
 class Encoder(nn.Module):

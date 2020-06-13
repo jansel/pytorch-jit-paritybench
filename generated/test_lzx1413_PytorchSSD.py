@@ -113,6 +113,20 @@ class L2Norm(nn.Module):
         return out
 
 
+GPU = False
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max, _ = x.data.max(1, keepdim=True)
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -219,20 +233,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-GPU = False
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max, _ = x.data.max(1, keepdim=True)
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -2241,11 +2241,6 @@ class RFBNet(nn.Module):
             None
 
 
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
-
-
 def vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
@@ -2267,6 +2262,11 @@ def vgg(cfg, i, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
+
+
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
+    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
+    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class RefineSSD(nn.Module):
@@ -3179,45 +3179,45 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lzx1413_PytorchSSD(_paritybench_base):
     pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+
     def test_002(self):
-        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_003(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicRFB_c(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CombConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(CombConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(DWConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DepthWiseBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(HarDBlock(*[], **{'in_channels': 4, 'growth_rate': 4, 'grmul': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
-        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
-
     def test_010(self):
-        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(BasicRFB_c(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(DepthWiseBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

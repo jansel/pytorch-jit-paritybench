@@ -237,11 +237,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_werner_duvaud_muzero_general(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResidualBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(DownSample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(RepresentationNetwork(*[], **{'observation_shape': [4, 4], 'stacked_observations': 4, 'num_blocks': 1, 'num_channels': 4, 'downsample': 4}), [torch.rand([4, 24, 64, 64])], {})
+
+    def test_002(self):
+        self._check(ResidualBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

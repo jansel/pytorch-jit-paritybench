@@ -244,19 +244,19 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
-sequence_length = 6
+input_size = 5
 
 
 num_layers = 1
 
 
-input_size = 5
-
-
-batch_size = 1
+sequence_length = 6
 
 
 num_classes = 5
+
+
+batch_size = 1
 
 
 hidden_size = 100
@@ -494,8 +494,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hunkim_PyTorchZeroToAll(_paritybench_base):
     pass
     def test_000(self):
-        self._check(InceptionA(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {})
 
     def test_001(self):
-        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {})
+        self._check(InceptionA(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

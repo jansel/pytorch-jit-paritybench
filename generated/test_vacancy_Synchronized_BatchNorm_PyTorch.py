@@ -54,11 +54,21 @@ from torch.autograd import Variable
 import torch.optim as optim
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -84,18 +94,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -189,7 +188,8 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
 
 
 class BatchNorm2dReimpl(nn.Module):

@@ -280,11 +280,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_elliottwu_unsup3d(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Encoder(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(ConfNet(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_001(self):
         self._check(EDDeconv(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_002(self):
-        self._check(ConfNet(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Encoder(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 64, 64])], {})
 

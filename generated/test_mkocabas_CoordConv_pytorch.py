@@ -128,14 +128,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mkocabas_CoordConv_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(AddCoordsTh(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_002(self):
-        self._check(CoordConvTh(*[], **{'x_dim': 4, 'y_dim': 4, 'with_r': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CoordConvTh(*[], **{'x_dim': 4, 'y_dim': 4, 'with_r': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 1, 4, 4])], {})
 

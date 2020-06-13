@@ -313,9 +313,9 @@ class Test_bkj_pytorch_graphsage(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(NodeEmbeddingPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(LinearPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(LinearPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(NodeEmbeddingPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
 

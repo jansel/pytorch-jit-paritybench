@@ -495,8 +495,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hszhao_semseg(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PPM(*[], **{'in_dim': 4, 'reduction_dim': 4, 'bins': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PPM(*[], **{'in_dim': 4, 'reduction_dim': 4, 'bins': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

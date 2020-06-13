@@ -128,10 +128,10 @@ class AttnDecoderRNN(nn.Module):
         return output, context, hidden, attn_weights
 
 
-SOS_token = 2
-
-
 EOS_token = 1
+
+
+SOS_token = 2
 
 
 class seq2seq(nn.Module):

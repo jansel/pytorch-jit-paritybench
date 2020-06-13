@@ -434,7 +434,11 @@ class GradMethods(Enum):
     ANALYTIC_CHECK = 4
 
 
-LinDx = namedtuple('LinDx', 'F f')
+LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
+
+
+LqrForOut = namedtuple('lqrForOut',
+    'objs full_du_norm alpha_du_norm mean_alphas costs')
 
 
 def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
@@ -496,13 +500,6 @@ def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
         x = maybe_x
     print('[WARNING] pnqp warning: Did not converge')
     return x, H_ if n == 1 else H_lu_, If, i
-
-
-LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
-
-
-LqrForOut = namedtuple('lqrForOut',
-    'objs full_du_norm alpha_du_norm mean_alphas costs')
 
 
 class LQRStep(Function):
@@ -829,6 +826,9 @@ class LQRStep(Function):
 
 
 QuadCost = namedtuple('QuadCost', 'C c')
+
+
+LinDx = namedtuple('LinDx', 'F f')
 
 
 class MPC(Module):

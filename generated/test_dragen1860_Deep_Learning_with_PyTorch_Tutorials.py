@@ -679,31 +679,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_dragen1860_Deep_Learning_with_PyTorch_Tutorials(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MLP(*[], **{}), [torch.rand([784, 784])], {})
-
-    def test_001(self):
-        self._check(ResBlk(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(MyLinear(*[], **{'inp': 4, 'outp': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(BasicNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(Generator(*[], **{}), [torch.rand([2, 2])], {})
-
-    def test_006(self):
+    def test_001(self):
         self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
 
-    @_fails_compile()
-    def test_007(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+    def test_002(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_003(self):
         self._check(GCN(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_004(self):
+        self._check(Generator(*[], **{}), [torch.rand([2, 2])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_006(self):
+        self._check(MLP(*[], **{}), [torch.rand([784, 784])], {})
+
+    def test_007(self):
+        self._check(MyLinear(*[], **{'inp': 4, 'outp': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(ResBlk(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

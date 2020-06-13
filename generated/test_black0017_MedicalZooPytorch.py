@@ -1571,15 +1571,15 @@ class InputTransition(nn.Module):
         return self.relu1(torch.add(out, x16))
 
 
+def passthrough(x, **kwargs):
+    return x
+
+
 def _make_nConv(nchan, depth, elu):
     layers = []
     for _ in range(depth):
         layers.append(LUConv(nchan, elu))
     return nn.Sequential(*layers)
-
-
-def passthrough(x, **kwargs):
-    return x
 
 
 class DownTransition(nn.Module):
@@ -1651,36 +1651,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_black0017_MedicalZooPytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(_MaskingLossWrapper(*[], **{'loss': MSELoss(), 'ignore_index': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BlueBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_002(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(PEXP(*[], **{'n_input': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(ResidualConv(*[], **{'nin': 4, 'nout': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(DownBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
-    def test_006(self):
-        self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(InConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
-
-    def test_010(self):
-        self._check(OutConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_MaskingLossWrapper(*[], **{'loss': MSELoss(), 'ignore_index': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

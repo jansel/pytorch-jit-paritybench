@@ -37,10 +37,10 @@ import numpy as np
 import torch.nn.init
 
 
-_global_config['nConv'] = 4
-
-
 _global_config['nChannel'] = 4
+
+
+_global_config['nConv'] = 4
 
 
 class MyNet(nn.Module):

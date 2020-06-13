@@ -65,10 +65,10 @@ import logging
 import torch.nn.functional as F
 
 
-_global_config['HKO'] = 4
-
-
 _global_config['GLOBAL'] = 4
+
+
+_global_config['HKO'] = 4
 
 
 def make_layers(block):

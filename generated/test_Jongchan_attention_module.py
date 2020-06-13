@@ -404,17 +404,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Jongchan_attention_module(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

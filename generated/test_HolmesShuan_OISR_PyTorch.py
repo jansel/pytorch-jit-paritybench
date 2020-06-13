@@ -4726,25 +4726,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_HolmesShuan_OISR_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MeanShift(*[], **{'rgb_range': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_002(self):
-        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(MeanShift(*[], **{'rgb_range': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_006(self):
-        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})

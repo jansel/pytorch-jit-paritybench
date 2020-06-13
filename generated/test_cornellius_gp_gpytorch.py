@@ -682,8 +682,89 @@ class Distance(torch.nn.Module):
         return self._postprocess(res) if postprocess else res
 
 
-def clear_cache_hook(module, *args, **kwargs):
-    module._memoize_cache = {}
+class Matmul(Function):
+
+    @staticmethod
+    def forward(ctx, representation_tree, rhs, *matrix_args):
+        ctx.representation_tree = representation_tree
+        orig_rhs = rhs
+        if rhs.ndimension() == 1:
+            is_vector = True
+            rhs = rhs.unsqueeze(-1)
+        else:
+            is_vector = False
+        lazy_tsr = ctx.representation_tree(*matrix_args)
+        res = lazy_tsr._matmul(rhs)
+        to_save = [orig_rhs] + list(matrix_args)
+        ctx.save_for_backward(*to_save)
+        if settings.memory_efficient.off():
+            ctx._lazy_tsr = lazy_tsr
+        if is_vector:
+            res = res.squeeze(-1)
+        return res
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        rhs = ctx.saved_tensors[0]
+        matrix_args = ctx.saved_tensors[1:]
+        rhs_shape = rhs.shape
+        rhs_grad = None
+        arg_grads = [None] * len(matrix_args)
+        if any(ctx.needs_input_grad[2:]):
+            rhs = rhs.unsqueeze(-1) if rhs.ndimension() == 1 else rhs
+            grad_output_matrix = grad_output.unsqueeze(-1
+                ) if grad_output.ndimension() == 1 else grad_output
+            arg_grads = ctx.representation_tree(*matrix_args
+                )._quad_form_derivative(grad_output_matrix, rhs)
+        if ctx.needs_input_grad[1]:
+            if hasattr(ctx, '_lazy_tsr'):
+                lazy_tsr = ctx._lazy_tsr
+            else:
+                lazy_tsr = ctx.representation_tree(*matrix_args)
+            if grad_output.dim() == 1:
+                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)
+                    ).squeeze(-1)
+            else:
+                rhs_grad = lazy_tsr._t_matmul(grad_output)
+            if rhs_grad.dim() > len(rhs_shape):
+                rhs_grad = rhs_grad.reshape(-1, *rhs_shape).sum(0)
+        return tuple([None] + [rhs_grad] + list(arg_grads))
+
+
+def delazify(obj):
+    """
+    A function which ensures that `obj` is a (normal) Tensor.
+
+    If `obj` is a Tensor, this function does nothing.
+    If `obj` is a LazyTensor, this function evaluates it.
+    """
+    if torch.is_tensor(obj):
+        return obj
+    elif isinstance(obj, LazyTensor):
+        return obj.evaluate()
+    else:
+        raise TypeError('object of class {} cannot be made into a Tensor'.
+            format(obj.__class__.__name__))
+
+
+def lanczos_tridiag_to_diag(t_mat):
+    """
+    Given a num_init_vecs x num_batch x k x k tridiagonal matrix t_mat,
+    returns a num_init_vecs x num_batch x k set of eigenvalues
+    and a num_init_vecs x num_batch x k x k set of eigenvectors.
+
+    TODO: make the eigenvalue computations done in batch mode.
+    """
+    orig_device = t_mat.device
+    if t_mat.size(-1) < 32:
+        retr = torch.symeig(t_mat.cpu(), eigenvectors=True)
+    else:
+        retr = torch.symeig(t_mat, eigenvectors=True)
+    evals, evecs = retr
+    mask = evals.ge(0)
+    evecs = evecs * mask.type_as(evecs).unsqueeze(-2)
+    evals = evals.masked_fill_(~mask, 1)
+    return evals.to(orig_device), evecs.to(orig_device)
 
 
 def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape,
@@ -854,26 +935,6 @@ class StochasticLQ(object):
                 results[i] = results[i] + matrix_shape[-1] / float(
                     num_random_probes) * dot_products
         return results
-
-
-def lanczos_tridiag_to_diag(t_mat):
-    """
-    Given a num_init_vecs x num_batch x k x k tridiagonal matrix t_mat,
-    returns a num_init_vecs x num_batch x k set of eigenvalues
-    and a num_init_vecs x num_batch x k x k set of eigenvectors.
-
-    TODO: make the eigenvalue computations done in batch mode.
-    """
-    orig_device = t_mat.device
-    if t_mat.size(-1) < 32:
-        retr = torch.symeig(t_mat.cpu(), eigenvectors=True)
-    else:
-        retr = torch.symeig(t_mat, eigenvectors=True)
-    evals, evecs = retr
-    mask = evals.ge(0)
-    evecs = evecs * mask.type_as(evecs).unsqueeze(-2)
-    evals = evals.masked_fill_(~mask, 1)
-    return evals.to(orig_device), evecs.to(orig_device)
 
 
 class InvQuadLogDet(Function):
@@ -1091,22 +1152,194 @@ class InvQuadLogDet(Function):
         return tuple([None] * 9 + res)
 
 
-_noop_index = slice(None, None, None)
-
-
-def _is_noop_index(index):
-    """
-    Determine if a given index is a noop (e.g. ":")
-    """
-    return isinstance(index, slice) and index == _noop_index
-
-
 def add_to_cache(obj, name, val):
     """Add a result to the cache of an object."""
     if not hasattr(obj, '_memoize_cache'):
         obj._memoize_cache = dict()
     obj._memoize_cache[name] = val
     return obj
+
+
+def _mul_broadcast_shape(*shapes, error_msg=None):
+    """Compute dimension suggested by multiple tensor indices (supports broadcasting)"""
+    num_dims = max(len(shape) for shape in shapes)
+    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in
+        shapes)
+    final_size = []
+    for size_by_dim in zip(*shapes):
+        non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
+        if len(non_singleton_sizes):
+            if any(size != non_singleton_sizes[0] for size in
+                non_singleton_sizes):
+                if error_msg is None:
+                    raise RuntimeError(
+                        'Shapes are not broadcastable for mul operation')
+                else:
+                    raise RuntimeError(error_msg)
+            final_size.append(non_singleton_sizes[0])
+        else:
+            final_size.append(1)
+    return torch.Size(final_size)
+
+
+_noop_index = slice(None, None, None)
+
+
+def _compute_getitem_size(obj, indices):
+    """
+    Given an object and a tuple of indices, computes the final size of the
+    Indices is a tuple containing ints, slices, and tensors
+
+    .. note::
+        The length of indices must match the dimensionality of obj
+
+    Args:
+        obj - tensor or LazyTensor
+        indices - tuple of ints, slices, tensors
+
+    Returns:
+        :class:`torch.Size`
+    """
+    if obj.dim() != len(indices):
+        raise RuntimeError(
+            '_compute_getitem_size assumes that obj (size: {}) and indices (len: {}) have the same dimensionality.'
+            .format(obj.shape, len(indices)))
+    final_shape = []
+    tensor_idx = None
+    tensor_idx_shape = None
+    slice_after_tensor_idx = False
+    for i, (size, idx) in enumerate(zip(obj.shape, indices)):
+        if isinstance(idx, slice):
+            if idx == _noop_index:
+                final_shape.append(size)
+            else:
+                final_shape.append(len(range(*idx.indices(size))))
+            if tensor_idx is not None:
+                slice_after_tensor_idx = True
+        elif isinstance(idx, int):
+            if settings.debug.on():
+                try:
+                    range(size)[idx]
+                except IndexError:
+                    raise IndexError(
+                        'index element {} ({}) is invalid: out of range for obj of size {}.'
+                        .format(i, idx, obj.shape))
+        elif torch.is_tensor(idx):
+            if tensor_idx_shape is None:
+                tensor_idx_shape = idx.shape
+                tensor_idx = len(final_shape)
+            else:
+                try:
+                    tensor_idx_shape = _mul_broadcast_shape(tensor_idx_shape,
+                        idx.shape)
+                except RuntimeError:
+                    raise IndexError(
+                        'Incompatible tensor indices in index - got shapes of {} .'
+                        .format([idx.shape for idx in indices if torch.
+                        is_tensor(idx)]))
+                if slice_after_tensor_idx:
+                    tensor_idx = 0
+    if tensor_idx is not None:
+        final_shape = final_shape[:tensor_idx] + list(tensor_idx_shape
+            ) + final_shape[tensor_idx:]
+    return torch.Size(final_shape)
+
+
+class LazyTensorRepresentationTree(object):
+
+    def __init__(self, lazy_tsr):
+        self._cls = lazy_tsr.__class__
+        self._kwargs = lazy_tsr._kwargs
+        counter = 0
+        self.children = []
+        for arg in lazy_tsr._args:
+            if hasattr(arg, 'representation') and callable(arg.representation):
+                representation_size = len(arg.representation())
+                self.children.append((slice(counter, counter +
+                    representation_size, None), arg.representation_tree()))
+                counter += representation_size
+            else:
+                self.children.append((counter, None))
+                counter += 1
+
+    def __call__(self, *flattened_representation):
+        unflattened_representation = []
+        for index, subtree in self.children:
+            if subtree is None:
+                unflattened_representation.append(flattened_representation[
+                    index])
+            else:
+                sub_representation = flattened_representation[index]
+                unflattened_representation.append(subtree(*sub_representation))
+        return self._cls(*unflattened_representation, **self._kwargs)
+
+
+def _solve(lazy_tsr, rhs):
+    if settings.fast_computations.solves.off() or lazy_tsr.size(-1
+        ) <= settings.max_cholesky_size.value():
+        return lazy_tsr._cholesky()._cholesky_solve(rhs)
+    else:
+        with torch.no_grad():
+            preconditioner = lazy_tsr.detach()._inv_matmul_preconditioner()
+        return lazy_tsr._solve(rhs, preconditioner)
+
+
+class InvQuad(Function):
+    """
+    Given a PSD matrix A (or a batch of PSD matrices A), this function computes b A^{-1} b
+    where b is a vector or batch of vectors
+    """
+
+    @staticmethod
+    def forward(ctx, representation_tree, *args):
+        """
+        *args - The arguments representing the PSD matrix A (or batch of PSD matrices A)
+        If inv_quad is true, the first entry in *args is inv_quad_rhs (Tensor)
+        - the RHS of the matrix solves.
+
+        Returns:
+        - (Scalar) The inverse quadratic form (or None, if inv_quad is False)
+        - (Scalar) The log determinant (or None, if logdet is False)
+        """
+        inv_quad_rhs, *matrix_args = args
+        ctx.representation_tree = representation_tree
+        lazy_tsr = ctx.representation_tree(*matrix_args)
+        ctx.is_vector = False
+        if inv_quad_rhs.ndimension() == 1:
+            inv_quad_rhs = inv_quad_rhs.unsqueeze(-1)
+            ctx.is_vector = True
+        inv_quad_solves = _solve(lazy_tsr, inv_quad_rhs)
+        inv_quad_term = (inv_quad_solves * inv_quad_rhs).sum(-2)
+        to_save = matrix_args + [inv_quad_solves]
+        ctx.save_for_backward(*to_save)
+        if settings.memory_efficient.off():
+            ctx._lazy_tsr = lazy_tsr
+        return inv_quad_term
+
+    @staticmethod
+    def backward(ctx, inv_quad_grad_output):
+        *matrix_args, inv_quad_solves = ctx.saved_tensors
+        if hasattr(ctx, '_lazy_tsr'):
+            lazy_tsr = ctx._lazy_tsr
+        else:
+            lazy_tsr = ctx.representation_tree(*matrix_args)
+        inv_quad_grad_output = inv_quad_grad_output.unsqueeze(-2)
+        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
+            inv_quad_grad_output).mul(-1)
+        matrix_arg_grads = [None] * len(matrix_args)
+        if any(ctx.needs_input_grad[2:]):
+            left_factors = neg_inv_quad_solves_times_grad_out
+            right_factors = inv_quad_solves
+            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
+                right_factors)
+        if ctx.needs_input_grad[1]:
+            inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul(-2)
+        else:
+            inv_quad_rhs_grad = torch.zeros_like(inv_quad_solves)
+        if ctx.is_vector:
+            inv_quad_rhs_grad.squeeze_(-1)
+        res = tuple([None] + [inv_quad_rhs_grad] + list(matrix_arg_grads))
+        return tuple(res)
 
 
 class RootDecomposition(Function):
@@ -1240,295 +1473,11 @@ class RootDecomposition(Function):
             pass
 
 
-def _mul_broadcast_shape(*shapes, error_msg=None):
-    """Compute dimension suggested by multiple tensor indices (supports broadcasting)"""
-    num_dims = max(len(shape) for shape in shapes)
-    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in
-        shapes)
-    final_size = []
-    for size_by_dim in zip(*shapes):
-        non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
-        if len(non_singleton_sizes):
-            if any(size != non_singleton_sizes[0] for size in
-                non_singleton_sizes):
-                if error_msg is None:
-                    raise RuntimeError(
-                        'Shapes are not broadcastable for mul operation')
-                else:
-                    raise RuntimeError(error_msg)
-            final_size.append(non_singleton_sizes[0])
-        else:
-            final_size.append(1)
-    return torch.Size(final_size)
-
-
-def _solve(lazy_tsr, rhs):
-    if settings.fast_computations.solves.off() or lazy_tsr.size(-1
-        ) <= settings.max_cholesky_size.value():
-        return lazy_tsr._cholesky()._cholesky_solve(rhs)
-    else:
-        with torch.no_grad():
-            preconditioner = lazy_tsr.detach()._inv_matmul_preconditioner()
-        return lazy_tsr._solve(rhs, preconditioner)
-
-
-class InvQuad(Function):
-    """
-    Given a PSD matrix A (or a batch of PSD matrices A), this function computes b A^{-1} b
-    where b is a vector or batch of vectors
-    """
-
-    @staticmethod
-    def forward(ctx, representation_tree, *args):
-        """
-        *args - The arguments representing the PSD matrix A (or batch of PSD matrices A)
-        If inv_quad is true, the first entry in *args is inv_quad_rhs (Tensor)
-        - the RHS of the matrix solves.
-
-        Returns:
-        - (Scalar) The inverse quadratic form (or None, if inv_quad is False)
-        - (Scalar) The log determinant (or None, if logdet is False)
-        """
-        inv_quad_rhs, *matrix_args = args
-        ctx.representation_tree = representation_tree
-        lazy_tsr = ctx.representation_tree(*matrix_args)
-        ctx.is_vector = False
-        if inv_quad_rhs.ndimension() == 1:
-            inv_quad_rhs = inv_quad_rhs.unsqueeze(-1)
-            ctx.is_vector = True
-        inv_quad_solves = _solve(lazy_tsr, inv_quad_rhs)
-        inv_quad_term = (inv_quad_solves * inv_quad_rhs).sum(-2)
-        to_save = matrix_args + [inv_quad_solves]
-        ctx.save_for_backward(*to_save)
-        if settings.memory_efficient.off():
-            ctx._lazy_tsr = lazy_tsr
-        return inv_quad_term
-
-    @staticmethod
-    def backward(ctx, inv_quad_grad_output):
-        *matrix_args, inv_quad_solves = ctx.saved_tensors
-        if hasattr(ctx, '_lazy_tsr'):
-            lazy_tsr = ctx._lazy_tsr
-        else:
-            lazy_tsr = ctx.representation_tree(*matrix_args)
-        inv_quad_grad_output = inv_quad_grad_output.unsqueeze(-2)
-        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
-            inv_quad_grad_output).mul(-1)
-        matrix_arg_grads = [None] * len(matrix_args)
-        if any(ctx.needs_input_grad[2:]):
-            left_factors = neg_inv_quad_solves_times_grad_out
-            right_factors = inv_quad_solves
-            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
-                right_factors)
-        if ctx.needs_input_grad[1]:
-            inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul(-2)
-        else:
-            inv_quad_rhs_grad = torch.zeros_like(inv_quad_solves)
-        if ctx.is_vector:
-            inv_quad_rhs_grad.squeeze_(-1)
-        res = tuple([None] + [inv_quad_rhs_grad] + list(matrix_arg_grads))
-        return tuple(res)
-
-
-class Matmul(Function):
-
-    @staticmethod
-    def forward(ctx, representation_tree, rhs, *matrix_args):
-        ctx.representation_tree = representation_tree
-        orig_rhs = rhs
-        if rhs.ndimension() == 1:
-            is_vector = True
-            rhs = rhs.unsqueeze(-1)
-        else:
-            is_vector = False
-        lazy_tsr = ctx.representation_tree(*matrix_args)
-        res = lazy_tsr._matmul(rhs)
-        to_save = [orig_rhs] + list(matrix_args)
-        ctx.save_for_backward(*to_save)
-        if settings.memory_efficient.off():
-            ctx._lazy_tsr = lazy_tsr
-        if is_vector:
-            res = res.squeeze(-1)
-        return res
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        rhs = ctx.saved_tensors[0]
-        matrix_args = ctx.saved_tensors[1:]
-        rhs_shape = rhs.shape
-        rhs_grad = None
-        arg_grads = [None] * len(matrix_args)
-        if any(ctx.needs_input_grad[2:]):
-            rhs = rhs.unsqueeze(-1) if rhs.ndimension() == 1 else rhs
-            grad_output_matrix = grad_output.unsqueeze(-1
-                ) if grad_output.ndimension() == 1 else grad_output
-            arg_grads = ctx.representation_tree(*matrix_args
-                )._quad_form_derivative(grad_output_matrix, rhs)
-        if ctx.needs_input_grad[1]:
-            if hasattr(ctx, '_lazy_tsr'):
-                lazy_tsr = ctx._lazy_tsr
-            else:
-                lazy_tsr = ctx.representation_tree(*matrix_args)
-            if grad_output.dim() == 1:
-                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)
-                    ).squeeze(-1)
-            else:
-                rhs_grad = lazy_tsr._t_matmul(grad_output)
-            if rhs_grad.dim() > len(rhs_shape):
-                rhs_grad = rhs_grad.reshape(-1, *rhs_shape).sum(0)
-        return tuple([None] + [rhs_grad] + list(arg_grads))
-
-
-def _compute_getitem_size(obj, indices):
-    """
-    Given an object and a tuple of indices, computes the final size of the
-    Indices is a tuple containing ints, slices, and tensors
-
-    .. note::
-        The length of indices must match the dimensionality of obj
-
-    Args:
-        obj - tensor or LazyTensor
-        indices - tuple of ints, slices, tensors
-
-    Returns:
-        :class:`torch.Size`
-    """
-    if obj.dim() != len(indices):
-        raise RuntimeError(
-            '_compute_getitem_size assumes that obj (size: {}) and indices (len: {}) have the same dimensionality.'
-            .format(obj.shape, len(indices)))
-    final_shape = []
-    tensor_idx = None
-    tensor_idx_shape = None
-    slice_after_tensor_idx = False
-    for i, (size, idx) in enumerate(zip(obj.shape, indices)):
-        if isinstance(idx, slice):
-            if idx == _noop_index:
-                final_shape.append(size)
-            else:
-                final_shape.append(len(range(*idx.indices(size))))
-            if tensor_idx is not None:
-                slice_after_tensor_idx = True
-        elif isinstance(idx, int):
-            if settings.debug.on():
-                try:
-                    range(size)[idx]
-                except IndexError:
-                    raise IndexError(
-                        'index element {} ({}) is invalid: out of range for obj of size {}.'
-                        .format(i, idx, obj.shape))
-        elif torch.is_tensor(idx):
-            if tensor_idx_shape is None:
-                tensor_idx_shape = idx.shape
-                tensor_idx = len(final_shape)
-            else:
-                try:
-                    tensor_idx_shape = _mul_broadcast_shape(tensor_idx_shape,
-                        idx.shape)
-                except RuntimeError:
-                    raise IndexError(
-                        'Incompatible tensor indices in index - got shapes of {} .'
-                        .format([idx.shape for idx in indices if torch.
-                        is_tensor(idx)]))
-                if slice_after_tensor_idx:
-                    tensor_idx = 0
-    if tensor_idx is not None:
-        final_shape = final_shape[:tensor_idx] + list(tensor_idx_shape
-            ) + final_shape[tensor_idx:]
-    return torch.Size(final_shape)
-
-
 class NumericalWarning(RuntimeWarning):
     """
     Warning thrown when convergence criteria are not met, or when comptuations require extra stability.
     """
     pass
-
-
-class InvMatmul(Function):
-
-    @staticmethod
-    def forward(ctx, representation_tree, has_left, *args):
-        left_tensor = None
-        right_tensor = None
-        matrix_args = None
-        ctx.representation_tree = representation_tree
-        ctx.has_left = has_left
-        if ctx.has_left:
-            left_tensor, right_tensor, *matrix_args = args
-        else:
-            right_tensor, *matrix_args = args
-        orig_right_tensor = right_tensor
-        lazy_tsr = ctx.representation_tree(*matrix_args)
-        ctx.is_vector = False
-        if right_tensor.ndimension() == 1:
-            right_tensor = right_tensor.unsqueeze(-1)
-            ctx.is_vector = True
-        if ctx.has_left:
-            rhs = torch.cat([left_tensor.transpose(-1, -2), right_tensor], -1)
-            solves = _solve(lazy_tsr, rhs)
-            res = solves[(...), left_tensor.size(-2):]
-            res = left_tensor @ res
-        else:
-            solves = _solve(lazy_tsr, right_tensor)
-            res = solves
-        if ctx.is_vector:
-            res = res.squeeze(-1)
-        if ctx.has_left:
-            args = [solves, left_tensor, orig_right_tensor] + list(matrix_args)
-        else:
-            args = [solves, orig_right_tensor] + list(matrix_args)
-        ctx.save_for_backward(*args)
-        if settings.memory_efficient.off():
-            ctx._lazy_tsr = lazy_tsr
-        return res
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        if ctx.has_left:
-            solves, left_tensor, right_tensor, *matrix_args = ctx.saved_tensors
-            left_solves = solves[(...), :left_tensor.size(-2)]
-            right_solves = solves[(...), left_tensor.size(-2):]
-        else:
-            right_solves, right_tensor, *matrix_args = ctx.saved_tensors
-        if hasattr(ctx, '_lazy_tsr'):
-            lazy_tsr = ctx._lazy_tsr
-        else:
-            lazy_tsr = ctx.representation_tree(*matrix_args)
-        arg_grads = [None] * len(matrix_args)
-        left_grad = None
-        right_grad = None
-        if any(ctx.needs_input_grad):
-            if ctx.is_vector:
-                right_tensor = right_tensor.unsqueeze(-1)
-                grad_output = grad_output.unsqueeze(-1)
-            if not ctx.has_left:
-                left_solves = InvMatmul.apply(ctx.representation_tree, 
-                    False, grad_output, *matrix_args)
-                if any(ctx.needs_input_grad[3:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
-                if ctx.needs_input_grad[2]:
-                    right_grad = left_solves
-                    if ctx.is_vector:
-                        right_grad.squeeze_(-1)
-                return tuple([None, None] + [right_grad] + list(arg_grads))
-            else:
-                left_solves = left_solves @ grad_output
-                if ctx.needs_input_grad[3]:
-                    left_grad = grad_output @ right_solves.transpose(-1, -2)
-                if any(ctx.needs_input_grad[4:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
-                if ctx.needs_input_grad[2]:
-                    right_grad = left_solves
-                    if ctx.is_vector:
-                        right_grad.squeeze_(-1)
-                return tuple([None, None] + [left_grad, right_grad] + list(
-                    arg_grads))
 
 
 class NanError(RuntimeError):
@@ -1574,6 +1523,41 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
             except RuntimeError:
                 continue
         raise e
+
+
+def _matmul_broadcast_shape(shape_a, shape_b, error_msg=None):
+    """Compute dimension of matmul operation on shapes (supports broadcasting)"""
+    m, n, p = shape_a[-2], shape_a[-1], shape_b[-1]
+    if len(shape_b) == 1:
+        if n != p:
+            if error_msg is None:
+                raise RuntimeError(
+                    f'Incompatible dimensions for matmul: {shape_a} and {shape_b}'
+                    )
+            else:
+                raise RuntimeError(error_msg)
+        return shape_a[:-1]
+    if n != shape_b[-2]:
+        if error_msg is None:
+            raise RuntimeError(
+                f'Incompatible dimensions for matmul: {shape_a} and {shape_b}')
+        else:
+            raise RuntimeError(error_msg)
+    tail_shape = torch.Size([m, p])
+    batch_shape_a = shape_a[:-2]
+    batch_shape_b = shape_b[:-2]
+    if batch_shape_a == batch_shape_b:
+        bc_shape = batch_shape_a
+    else:
+        bc_shape = _mul_broadcast_shape(batch_shape_a, batch_shape_b)
+    return bc_shape + tail_shape
+
+
+def _is_noop_index(index):
+    """
+    Determine if a given index is a noop (e.g. ":")
+    """
+    return isinstance(index, slice) and index == _noop_index
 
 
 def is_in_cache(obj, name):
@@ -1697,65 +1681,119 @@ def _convert_indices_to_tensors(obj, indices):
     return tuple(new_indices)
 
 
-def _matmul_broadcast_shape(shape_a, shape_b, error_msg=None):
-    """Compute dimension of matmul operation on shapes (supports broadcasting)"""
-    m, n, p = shape_a[-2], shape_a[-1], shape_b[-1]
-    if len(shape_b) == 1:
-        if n != p:
-            if error_msg is None:
-                raise RuntimeError(
-                    f'Incompatible dimensions for matmul: {shape_a} and {shape_b}'
-                    )
-            else:
-                raise RuntimeError(error_msg)
-        return shape_a[:-1]
-    if n != shape_b[-2]:
-        if error_msg is None:
-            raise RuntimeError(
-                f'Incompatible dimensions for matmul: {shape_a} and {shape_b}')
+class InvMatmul(Function):
+
+    @staticmethod
+    def forward(ctx, representation_tree, has_left, *args):
+        left_tensor = None
+        right_tensor = None
+        matrix_args = None
+        ctx.representation_tree = representation_tree
+        ctx.has_left = has_left
+        if ctx.has_left:
+            left_tensor, right_tensor, *matrix_args = args
         else:
-            raise RuntimeError(error_msg)
-    tail_shape = torch.Size([m, p])
-    batch_shape_a = shape_a[:-2]
-    batch_shape_b = shape_b[:-2]
-    if batch_shape_a == batch_shape_b:
-        bc_shape = batch_shape_a
-    else:
-        bc_shape = _mul_broadcast_shape(batch_shape_a, batch_shape_b)
-    return bc_shape + tail_shape
+            right_tensor, *matrix_args = args
+        orig_right_tensor = right_tensor
+        lazy_tsr = ctx.representation_tree(*matrix_args)
+        ctx.is_vector = False
+        if right_tensor.ndimension() == 1:
+            right_tensor = right_tensor.unsqueeze(-1)
+            ctx.is_vector = True
+        if ctx.has_left:
+            rhs = torch.cat([left_tensor.transpose(-1, -2), right_tensor], -1)
+            solves = _solve(lazy_tsr, rhs)
+            res = solves[(...), left_tensor.size(-2):]
+            res = left_tensor @ res
+        else:
+            solves = _solve(lazy_tsr, right_tensor)
+            res = solves
+        if ctx.is_vector:
+            res = res.squeeze(-1)
+        if ctx.has_left:
+            args = [solves, left_tensor, orig_right_tensor] + list(matrix_args)
+        else:
+            args = [solves, orig_right_tensor] + list(matrix_args)
+        ctx.save_for_backward(*args)
+        if settings.memory_efficient.off():
+            ctx._lazy_tsr = lazy_tsr
+        return res
 
-
-class LazyTensorRepresentationTree(object):
-
-    def __init__(self, lazy_tsr):
-        self._cls = lazy_tsr.__class__
-        self._kwargs = lazy_tsr._kwargs
-        counter = 0
-        self.children = []
-        for arg in lazy_tsr._args:
-            if hasattr(arg, 'representation') and callable(arg.representation):
-                representation_size = len(arg.representation())
-                self.children.append((slice(counter, counter +
-                    representation_size, None), arg.representation_tree()))
-                counter += representation_size
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.has_left:
+            solves, left_tensor, right_tensor, *matrix_args = ctx.saved_tensors
+            left_solves = solves[(...), :left_tensor.size(-2)]
+            right_solves = solves[(...), left_tensor.size(-2):]
+        else:
+            right_solves, right_tensor, *matrix_args = ctx.saved_tensors
+        if hasattr(ctx, '_lazy_tsr'):
+            lazy_tsr = ctx._lazy_tsr
+        else:
+            lazy_tsr = ctx.representation_tree(*matrix_args)
+        arg_grads = [None] * len(matrix_args)
+        left_grad = None
+        right_grad = None
+        if any(ctx.needs_input_grad):
+            if ctx.is_vector:
+                right_tensor = right_tensor.unsqueeze(-1)
+                grad_output = grad_output.unsqueeze(-1)
+            if not ctx.has_left:
+                left_solves = InvMatmul.apply(ctx.representation_tree, 
+                    False, grad_output, *matrix_args)
+                if any(ctx.needs_input_grad[3:]):
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
+                        left_solves, right_solves], -1), torch.cat([
+                        right_solves, left_solves], -1).mul(-0.5))
+                if ctx.needs_input_grad[2]:
+                    right_grad = left_solves
+                    if ctx.is_vector:
+                        right_grad.squeeze_(-1)
+                return tuple([None, None] + [right_grad] + list(arg_grads))
             else:
-                self.children.append((counter, None))
-                counter += 1
-
-    def __call__(self, *flattened_representation):
-        unflattened_representation = []
-        for index, subtree in self.children:
-            if subtree is None:
-                unflattened_representation.append(flattened_representation[
-                    index])
-            else:
-                sub_representation = flattened_representation[index]
-                unflattened_representation.append(subtree(*sub_representation))
-        return self._cls(*unflattened_representation, **self._kwargs)
+                left_solves = left_solves @ grad_output
+                if ctx.needs_input_grad[3]:
+                    left_grad = grad_output @ right_solves.transpose(-1, -2)
+                if any(ctx.needs_input_grad[4:]):
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
+                        left_solves, right_solves], -1), torch.cat([
+                        right_solves, left_solves], -1).mul(-0.5))
+                if ctx.needs_input_grad[2]:
+                    right_grad = left_solves
+                    if ctx.is_vector:
+                        right_grad.squeeze_(-1)
+                return tuple([None, None] + [left_grad, right_grad] + list(
+                    arg_grads))
 
 
 class Noise(Module):
     pass
+
+
+def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_priors'):
+        module.local_load_samples(samples_dict, memo, prefix)
+    for mname, module_ in module.named_children():
+        submodule_prefix = prefix + ('.' if prefix else '') + mname
+        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=
+            submodule_prefix)
+
+
+def _extract_named_added_loss_terms(module, memo=None, prefix=''):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_added_loss_terms'):
+        for name, strategy in module._added_loss_terms.items():
+            if strategy is not None and strategy not in memo:
+                memo.add(strategy)
+                yield prefix + ('.' if prefix else '') + name, strategy
+    for mname, module_ in module.named_children():
+        submodule_prefix = prefix + ('.' if prefix else '') + mname
+        for name, strategy in _extract_named_added_loss_terms(module=
+            module_, memo=memo, prefix=submodule_prefix):
+            yield name, strategy
 
 
 def _pyro_sample_from_prior(module, memo=None, prefix=''):
@@ -1785,8 +1823,33 @@ def _pyro_sample_from_prior(module, memo=None, prefix=''):
             submodule_prefix)
 
 
+def _extract_named_priors(module, memo=None, prefix=''):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_priors'):
+        for name, (prior, closure, inv_closure) in module._priors.items():
+            if prior is not None and prior not in memo:
+                memo.add(prior)
+                full_name = ('.' if prefix else '').join([prefix, name])
+                yield full_name, prior, closure, inv_closure
+    for mname, module_ in module.named_children():
+        submodule_prefix = prefix + ('.' if prefix else '') + mname
+        for name, prior, closure, inv_closure in _extract_named_priors(module_,
+            memo=memo, prefix=submodule_prefix):
+            yield name, prior, closure, inv_closure
+
+
 class DeprecationError(Exception):
     pass
+
+
+def _set_strict(module, value, memo=None):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_strict_init'):
+        module._strict_init = value
+    for mname, module_ in module.named_children():
+        _set_strict(module_, value)
 
 
 def _extract_named_constraints(module, memo=None, prefix=''):
@@ -1825,57 +1888,6 @@ def _validate_module_outputs(outputs):
             .format(outputs.__class__.__name__))
 
 
-def _set_strict(module, value, memo=None):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_strict_init'):
-        module._strict_init = value
-    for mname, module_ in module.named_children():
-        _set_strict(module_, value)
-
-
-def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_priors'):
-        module.local_load_samples(samples_dict, memo, prefix)
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=
-            submodule_prefix)
-
-
-def _extract_named_priors(module, memo=None, prefix=''):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_priors'):
-        for name, (prior, closure, inv_closure) in module._priors.items():
-            if prior is not None and prior not in memo:
-                memo.add(prior)
-                full_name = ('.' if prefix else '').join([prefix, name])
-                yield full_name, prior, closure, inv_closure
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, prior, closure, inv_closure in _extract_named_priors(module_,
-            memo=memo, prefix=submodule_prefix):
-            yield name, prior, closure, inv_closure
-
-
-def _extract_named_added_loss_terms(module, memo=None, prefix=''):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_added_loss_terms'):
-        for name, strategy in module._added_loss_terms.items():
-            if strategy is not None and strategy not in memo:
-                memo.add(strategy)
-                yield prefix + ('.' if prefix else '') + name, strategy
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, strategy in _extract_named_added_loss_terms(module=
-            module_, memo=memo, prefix=submodule_prefix):
-            yield name, strategy
-
-
 class Prior(Distribution, Module, ABC):
     """
     Base class for Priors in GPyTorch.
@@ -1900,12 +1912,12 @@ class Test_cornellius_gp_gpytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

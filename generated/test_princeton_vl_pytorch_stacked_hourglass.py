@@ -245,11 +245,11 @@ class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
         self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Residual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HeatmapLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(HeatmapLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

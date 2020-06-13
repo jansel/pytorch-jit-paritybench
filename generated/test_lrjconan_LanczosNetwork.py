@@ -2028,11 +2028,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lrjconan_LanczosNetwork(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Set2SetLSTM(*[], **{'hidden_dim': 4}), [torch.rand([8, 8]), torch.rand([4, 4, 8, 4])], {})
+        self._check(Set2Set(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(Set2Vec(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
+        self._check(Set2SetLSTM(*[], **{'hidden_dim': 4}), [torch.rand([8, 8]), torch.rand([4, 4, 8, 4])], {})
 
     def test_002(self):
-        self._check(Set2Set(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
+        self._check(Set2Vec(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
 

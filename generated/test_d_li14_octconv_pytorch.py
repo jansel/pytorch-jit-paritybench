@@ -228,13 +228,13 @@ class Test_d_li14_octconv_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(OctaveConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Conv_BN(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(Conv_BN_ACT(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(OctaveConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
 

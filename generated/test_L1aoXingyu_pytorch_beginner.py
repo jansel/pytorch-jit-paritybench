@@ -419,29 +419,29 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Logistic_Regression(*[], **{'in_dim': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CBOW(*[], **{'n_word': 4, 'n_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
-        self._check(linearRegression(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(Logistic_Regression(*[], **{'in_dim': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(neuralNetwork(*[], **{'in_dim': 4, 'n_hidden_1': 4, 'n_hidden_2': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NgramModel(*[], **{'vocb_size': 4, 'context_size': 4, 'n_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     def test_003(self):
         self._check(Rnn(*[], **{'in_dim': 4, 'hidden_dim': 4, 'n_layer': 1, 'n_class': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_004(self):
-        self._check(NgramModel(*[], **{'vocb_size': 4, 'context_size': 4, 'n_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_005(self):
-        self._check(CBOW(*[], **{'n_word': 4, 'n_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_006(self):
         self._check(autoencoder(*[], **{}), [torch.rand([784, 784])], {})
 
-    def test_007(self):
+    def test_005(self):
         self._check(discriminator(*[], **{}), [torch.rand([784, 784])], {})
 
-    def test_008(self):
+    def test_006(self):
         self._check(generator(*[], **{}), [torch.rand([100, 100])], {})
+
+    def test_007(self):
+        self._check(linearRegression(*[], **{}), [torch.rand([1, 1])], {})
+
+    def test_008(self):
+        self._check(neuralNetwork(*[], **{'in_dim': 4, 'n_hidden_1': 4, 'n_hidden_2': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

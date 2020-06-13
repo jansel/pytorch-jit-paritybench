@@ -705,30 +705,6 @@ class FP16Model(nn.Module):
         return self.network(*inputs)
 
 
-class FusedLayerNormFunction(torch.autograd.Function):
-
-    def __init__(self, normalized_shape, eps=1e-06):
-        global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
-            )
-        self.normalized_shape = normalized_shape
-        self.eps = eps
-
-    def forward(self, input):
-        input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, self.
-            normalized_shape, self.eps)
-        self.save_for_backward(input_, mean, invvar)
-        return output
-
-    def backward(self, grad_output):
-        input_, mean, invvar = self.saved_tensors
-        grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
-            ), mean, invvar, input_, self.normalized_shape, self.eps)
-        return grad_input
-
-
 class FusedLayerNormAffineFunction(torch.autograd.Function):
 
     def __init__(self, normalized_shape, eps=1e-06):
@@ -754,6 +730,30 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
             backward_affine(grad_output.contiguous(), mean, invvar, input_,
             self.normalized_shape, weight_, bias_, self.eps))
         return grad_input, grad_weight, grad_bias
+
+
+class FusedLayerNormFunction(torch.autograd.Function):
+
+    def __init__(self, normalized_shape, eps=1e-06):
+        global fused_layer_norm_cuda
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
+            )
+        self.normalized_shape = normalized_shape
+        self.eps = eps
+
+    def forward(self, input):
+        input_ = input.contiguous()
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, self.
+            normalized_shape, self.eps)
+        self.save_for_backward(input_, mean, invvar)
+        return output
+
+    def backward(self, grad_output):
+        input_, mean, invvar = self.saved_tensors
+        grad_input = None
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
+            ), mean, invvar, input_, self.normalized_shape, self.eps)
+        return grad_input
 
 
 class FusedLayerNorm(torch.nn.Module):
@@ -856,33 +856,6 @@ class FusedLayerNorm(torch.nn.Module):
             .format(**self.__dict__))
 
 
-class MultiTensorApply(object):
-    available = False
-    warned = False
-
-    def __init__(self, chunk_size):
-        try:
-            import amp_C
-            MultiTensorApply.available = True
-            self.chunk_size = chunk_size
-        except ImportError as err:
-            MultiTensorApply.available = False
-            MultiTensorApply.import_err = err
-
-    def check_avail(self):
-        if MultiTensorApply.available == False:
-            raise RuntimeError(
-                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
-                , MultiTensorApply.import_err)
-
-    def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
-        self.check_avail()
-        return op(self.chunk_size, noop_flag_buffer, tensor_lists, *args)
-
-
-multi_tensor_applier = MultiTensorApply(2048 * 32)
-
-
 imported_flatten_impl = False
 
 
@@ -913,16 +886,15 @@ def unflatten(coalesced, bucket):
     return unflatten_impl(coalesced, bucket)
 
 
-def apply_flat_dist_call(bucket, call, extra_args=None):
-    coalesced = flatten(bucket)
-    if extra_args is not None:
-        call(coalesced, *extra_args)
-    else:
-        call(coalesced)
-    if call is dist.all_reduce:
-        coalesced /= dist.get_world_size()
-    for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
-        buf.copy_(synced)
+def split_half_float_double(tensors):
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
+        'torch.cuda.DoubleTensor']
+    buckets = []
+    for i, dtype in enumerate(dtypes):
+        bucket = [t for t in tensors if t.type() == dtype]
+        if bucket:
+            buckets.append(bucket)
+    return buckets
 
 
 def split_by_type(tensors):
@@ -935,6 +907,18 @@ def split_by_type(tensors):
     return buckets
 
 
+def apply_flat_dist_call(bucket, call, extra_args=None):
+    coalesced = flatten(bucket)
+    if extra_args is not None:
+        call(coalesced, *extra_args)
+    else:
+        call(coalesced)
+    if call is dist.all_reduce:
+        coalesced /= dist.get_world_size()
+    for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
+        buf.copy_(synced)
+
+
 def flat_dist_call(tensors, call, extra_args=None):
     buckets = split_by_type(tensors)
     for tp in buckets:
@@ -942,15 +926,31 @@ def flat_dist_call(tensors, call, extra_args=None):
         apply_flat_dist_call(bucket, call, extra_args)
 
 
-def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
-    buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
-            buckets.append(bucket)
-    return buckets
+class MultiTensorApply(object):
+    available = False
+    warned = False
+
+    def __init__(self, chunk_size):
+        try:
+            import amp_C
+            MultiTensorApply.available = True
+            self.chunk_size = chunk_size
+        except ImportError as err:
+            MultiTensorApply.available = False
+            MultiTensorApply.import_err = err
+
+    def check_avail(self):
+        if MultiTensorApply.available == False:
+            raise RuntimeError(
+                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
+                , MultiTensorApply.import_err)
+
+    def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
+        self.check_avail()
+        return op(self.chunk_size, noop_flag_buffer, tensor_lists, *args)
+
+
+multi_tensor_applier = MultiTensorApply(2048 * 32)
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -1234,6 +1234,18 @@ class PositionEmbedding(nn.Module):
         return pos_emb
 
 
+def def_tqdm(x):
+    return tqdm(x, leave=True, file=sys.stdout, bar_format=
+        '{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
+
+
+def get_range(x):
+    if dist.get_rank() == 0:
+        return def_tqdm(x)
+    else:
+        return x
+
+
 def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
         Args:
@@ -1261,12 +1273,8 @@ def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     return logits
 
 
-def split_chunks(length, chunk_size):
-    n_passes = (length + chunk_size - 1) // chunk_size
-    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) %
-        chunk_size + 1]
-    assert sum(chunk_sizes) == length
-    return chunk_sizes
+def roll(x, n):
+    return t.cat((x[:, -n:], x[:, :-n]), dim=1)
 
 
 def empty_cache():
@@ -1274,20 +1282,12 @@ def empty_cache():
     t.cuda.empty_cache()
 
 
-def roll(x, n):
-    return t.cat((x[:, -n:], x[:, :-n]), dim=1)
-
-
-def def_tqdm(x):
-    return tqdm(x, leave=True, file=sys.stdout, bar_format=
-        '{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
-
-
-def get_range(x):
-    if dist.get_rank() == 0:
-        return def_tqdm(x)
-    else:
-        return x
+def split_chunks(length, chunk_size):
+    n_passes = (length + chunk_size - 1) // chunk_size
+    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) %
+        chunk_size + 1]
+    assert sum(chunk_sizes) == length
+    return chunk_sizes
 
 
 class ConditionalAutoregressive2D(nn.Module):
@@ -1794,38 +1794,25 @@ class LabelConditioner(nn.Module):
         return start_emb, pos_emb
 
 
-class TextProcessor:
+def calculate_strides(strides, downs):
+    return [(stride ** down) for stride, down in zip(strides, downs)]
 
-    def __init__(self, v3=False):
-        if v3:
-            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-'"()[] 	
-"""
-            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
-        else:
-            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+'"()[] 	
-"""
-            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
-        self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
-        self.vocab['<unk>'] = 0
-        self.n_vocab = len(vocab) + 1
-        self.tokens = {v: k for k, v in self.vocab.items()}
-        self.tokens[0] = ''
-        self.not_vocab = not_vocab
 
-    def clean(self, text):
-        text = unidecode(text)
-        text = text.replace('\\', '\n')
-        text = self.not_vocab.sub('', text)
-        return text
+def print_once(msg):
+    if not dist.is_available() or dist.get_rank() == 0:
+        print(msg)
 
-    def tokenise(self, text):
-        return [self.vocab[char] for char in text]
 
-    def textise(self, tokens):
-        return ''.join([self.tokens[token] for token in tokens])
-
-    def characterise(self, tokens):
-        return [self.tokens[token] for token in tokens]
+def create_reverse_lookup(atoi):
+    itoa = {}
+    for a, i in atoi.items():
+        if i not in itoa:
+            itoa[i] = []
+        itoa[i].append(a)
+    indices = sorted(list(itoa.keys()))
+    for i in indices:
+        itoa[i] = '_'.join(sorted(itoa[i]))
+    return itoa
 
 
 def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
@@ -2387,19 +2374,20 @@ class Mask(nn.Module):
         return w
 
 
-def swish(x):
-    return x * t.sigmoid(x)
-
-
-@t.jit.script
-def quick_gelu(x):
-    return x * t.sigmoid(1.702 * x)
+def gelu(x):
+    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t
+        .pow(x, 3))))
 
 
 @t.jit.script
 def quick_gelu_bwd(x, grad_output):
     sig = t.sigmoid(1.702 * x)
     return grad_output * sig * (1.702 * x * (1 - sig) + 1.0)
+
+
+@t.jit.script
+def quick_gelu(x):
+    return x * t.sigmoid(1.702 * x)
 
 
 class QuickGelu(t.autograd.Function):
@@ -2418,9 +2406,8 @@ def memory_efficient_quick_gelu(x):
     return QuickGelu.apply(x)
 
 
-def gelu(x):
-    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t
-        .pow(x, 3))))
+def swish(x):
+    return x * t.sigmoid(x)
 
 
 ACT_FNS = {'relu': t.nn.functional.relu, 'swish': swish, 'gelu': gelu,
@@ -3027,11 +3014,21 @@ class Resnet1D(nn.Module):
             return self.model(x)
 
 
-def calculate_strides(strides, downs):
-    return [(stride ** down) for stride, down in zip(strides, downs)]
+class DefaultSTFTValues:
+
+    def __init__(self, hps):
+        self.sr = hps.sr
+        self.n_fft = 2048
+        self.hop_length = 256
+        self.window_size = 6 * self.hop_length
 
 
-def audio_postprocess(x, hps):
+def squeeze(x):
+    if len(x.shape) == 3:
+        assert x.shape[-1] in [1, 2]
+        x = t.mean(x, -1)
+    if len(x.shape) != 2:
+        raise ValueError(f'Unknown input shape {x.shape}')
     return x
 
 
@@ -3044,22 +3041,14 @@ def spec(x, hps):
     return t.norm(stft(x, hps), p=2, dim=-1)
 
 
-def squeeze(x):
-    if len(x.shape) == 3:
-        assert x.shape[-1] in [1, 2]
-        x = t.mean(x, -1)
-    if len(x.shape) != 2:
-        raise ValueError(f'Unknown input shape {x.shape}')
-    return x
-
-
-class DefaultSTFTValues:
-
-    def __init__(self, hps):
-        self.sr = hps.sr
-        self.n_fft = 2048
-        self.hop_length = 256
-        self.window_size = 6 * self.hop_length
+def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
+    hps = DefaultSTFTValues(hps)
+    spec_in = spec(squeeze(x_in.float()), hps)
+    spec_out = spec(squeeze(x_out.float()), hps)
+    gt_norm = norm(spec_in)
+    residual_norm = norm(spec_in - spec_out)
+    mask = (gt_norm > epsilon).float()
+    return residual_norm * mask / t.clamp(gt_norm, min=epsilon)
 
 
 def spectral_loss(x_in, x_out, hps):
@@ -3091,14 +3080,18 @@ def _loss_fn(loss_fn, x_target, x_pred, hps):
         assert False, f'Unknown loss_fn {loss_fn}'
 
 
-def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
-    hps = DefaultSTFTValues(hps)
-    spec_in = spec(squeeze(x_in.float()), hps)
-    spec_out = spec(squeeze(x_out.float()), hps)
-    gt_norm = norm(spec_in)
-    residual_norm = norm(spec_in - spec_out)
-    mask = (gt_norm > epsilon).float()
-    return residual_norm * mask / t.clamp(gt_norm, min=epsilon)
+def average_metrics(_metrics):
+    metrics = {}
+    for _metric in _metrics:
+        for key, val in _metric.items():
+            if key not in metrics:
+                metrics[key] = []
+            metrics[key].append(val)
+    return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
+
+
+def audio_postprocess(x, hps):
+    return x
 
 
 class STFTValues:
@@ -3122,16 +3115,6 @@ def multispectral_loss(x_in, x_out, hps):
         spec_out = spec(squeeze(x_out.float()), hps)
         losses.append(norm(spec_in - spec_out))
     return sum(losses) / len(losses)
-
-
-def average_metrics(_metrics):
-    metrics = {}
-    for _metric in _metrics:
-        for key, val in _metric.items():
-            if key not in metrics:
-                metrics[key] = []
-            metrics[key].append(val)
-    return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
 
 
 class VQVAE(nn.Module):
@@ -3500,75 +3483,75 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_openai_jukebox(_paritybench_base):
     pass
     def test_000(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(PositionEmbedding(*[], **{'input_shape': 4, 'width': 4}), [], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(FactoredAttention(*[], **{'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(Conv1D(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Mask(*[], **{'n_ctx': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
         self._check(Bottleneck(*[], **{'l_bins': 4, 'emb_width': 4, 'mu': 4, 'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
-        self._check(NoBottleneck(*[], **{'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(Conv1D(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_003(self):
+        self._check(DecoderConvBock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_004(self):
+        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(EncoderConvBlock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
+    def test_006(self):
+        self._check(FactoredAttention(*[], **{'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(MLP(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Mask(*[], **{'n_ctx': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+
     def test_011(self):
-        self._check(DecoderConvBock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
 
+    @_fails_compile()
     def test_012(self):
-        self._check(ResConvBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoBottleneck(*[], **{'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_013(self):
-        self._check(Resnet(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PositionEmbedding(*[], **{'input_shape': 4, 'width': 4}), [], {})
 
     def test_014(self):
         self._check(ResConv1DBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 64])], {})
 
-    @_fails_compile()
     def test_015(self):
-        self._check(Resnet1D(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 64])], {})
+        self._check(ResConvBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
-        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(Resnet(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_017(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(Resnet1D(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 64])], {})
 
     def test_018(self):
-        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
-
-    def test_019(self):
         self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_019(self):
+        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_020(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

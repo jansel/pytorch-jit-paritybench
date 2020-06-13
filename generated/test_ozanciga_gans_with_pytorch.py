@@ -63,29 +63,6 @@ parser = argparse.ArgumentParser()
 opt = parser.parse_args()
 
 
-class Discriminator(nn.Module):
-
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(240, 1), nn.Sigmoid())
-        self.x_map = nn.Sequential(nn.Linear(n_features, 240 * 5))
-        self.y_map = nn.Sequential(nn.Linear(opt.n_classes, 50 * 5))
-        self.j_map = nn.Sequential(nn.Linear(240 + 50, 240 * 4))
-
-    def forward(self, x, y):
-        x = x.view(-1, n_features)
-        x = self.x_map(x)
-        x, _ = x.view(-1, 240, 5).max(dim=2)
-        y = y.view(-1, opt.n_classes)
-        y = self.y_map(y)
-        y, _ = y.view(-1, 50, 5).max(dim=2)
-        jmx = torch.cat((x, y), dim=1)
-        jmx = self.j_map(jmx)
-        jmx, _ = jmx.view(-1, 240, 4).max(dim=2)
-        prob = self.model(jmx)
-        return prob
-
-
 class MeanPoolConv(nn.Module):
 
     def __init__(self, n_input, n_output, k_size, kaiming_init=True):
@@ -254,6 +231,28 @@ class Discriminator(nn.Module):
         if intermediate_output:
             return critic_value, y
         return critic_value
+
+
+class Generator(nn.Module):
+
+    def __init__(self):
+        super(Generator, self).__init__()
+
+        def convlayer(n_input, n_output, k_size=4, stride=2, padding=0):
+            block = [nn.ConvTranspose2d(n_input, n_output, kernel_size=
+                k_size, stride=stride, padding=padding, bias=False), nn.
+                ReLU(inplace=True), nn.BatchNorm2d(n_output)]
+            return block
+        self.project = nn.Sequential(nn.Linear(opt.latent_dim, 256 * 4 * 4),
+            nn.BatchNorm1d(256 * 4 * 4), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(*convlayer(opt.latent_dim, 256, 4, 1, 0),
+            *convlayer(256, 128, 4, 2, 1), *convlayer(128, 64, 4, 2, 1), nn
+            .ConvTranspose2d(64, opt.channels, 4, 2, 1), nn.Tanh())
+
+    def forward(self, z):
+        img = self.model(z)
+        img = img.view(z.size(0), *img_dims)
+        return img
 
 
 class Discriminator(nn.Module):
@@ -859,17 +858,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ozanciga_gans_with_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MeanPoolConv(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(ConvMeanPool(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(UpsampleConv(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
+    def test_001(self):
         self._check(DiscBlock1(*[], **{'n_output': 4}), [torch.rand([4, 3, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
+        self._check(MeanPoolConv(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(ShuffleBlock(*[], **{'n_input': 4, 'n_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(UpsampleConv(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

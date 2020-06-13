@@ -313,13 +313,13 @@ class OneByOneConv(nn.Module):
         return x, log_det
 
 
-DEFAULT_MIN_BIN_HEIGHT = 0.001
+DEFAULT_MIN_DERIVATIVE = 0.001
 
 
 DEFAULT_MIN_BIN_WIDTH = 0.001
 
 
-DEFAULT_MIN_DERIVATIVE = 0.001
+DEFAULT_MIN_BIN_HEIGHT = 0.001
 
 
 def searchsorted(bin_locations, inputs, eps=1e-06):
@@ -583,34 +583,34 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tonyduan_normalizing_flows(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Planar(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Radial(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
-
-    def test_002(self):
-        self._check(FCNN(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(RealNVP(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 2])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(MAF(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
-
-    def test_005(self):
         self._check(ActNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
-        self._check(OneByOneConv(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(FCNN(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_002(self):
+        self._check(MAF(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(NSF_AR(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_004(self):
         self._check(NSF_CL(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+
+    def test_005(self):
+        self._check(OneByOneConv(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(Planar(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(Radial(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+
+    def test_008(self):
+        self._check(RealNVP(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 2])], {})
 

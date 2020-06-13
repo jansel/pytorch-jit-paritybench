@@ -103,62 +103,7 @@ from torch.autograd import Variable
 from torch.nn import Module
 
 
-def sph_pad(sph_tensor, padding_margin=16):
-    F = torch.nn.functional
-    pad2d = padding_margin, padding_margin, padding_margin, padding_margin
-    rep_padded_sph = F.pad(sph_tensor, pad2d, mode='replicate')
-    _, _, h, w = rep_padded_sph.shape
-    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w -
-        2 * padding_margin:w - padding_margin]
-    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :,
-        padding_margin:2 * padding_margin]
-    return rep_padded_sph
-
-
-def resize(im, target_size, which_dim, interpolation='bicubic', clamp=None):
-    """
-    Resize one dimension of the image to a certain size while maintaining the aspect ratio
-
-    Args:
-        im: Image to resize
-            Any type that cv2.resize() accepts
-        target_size: Target horizontal or vertical dimension
-            Integer
-        which_dim: Which dimension to match target_size
-            'horizontal' or 'vertical'
-        interpolation: Interpolation method
-            'bicubic'
-            Optional; defaults to 'bicubic'
-        clamp: Clamp the resized image with minimum and maximum values
-            Array_likes of one smaller float and another larger float
-            Optional; defaults to None (no clamping)
-
-    Returns:
-        im_resized: Resized image
-            Numpy array with new horizontal and vertical dimensions
-    """
-    h, w = im.shape[:2]
-    if interpolation == 'bicubic':
-        interpolation = cv2.INTER_CUBIC
-    else:
-        raise NotImplementedError(interpolation)
-    if which_dim == 'horizontal':
-        scale_factor = target_size / w
-    elif which_dim == 'vertical':
-        scale_factor = target_size / h
-    else:
-        raise ValueError(which_dim)
-    im_resized = cv2.resize(im, None, fx=scale_factor, fy=scale_factor,
-        interpolation=interpolation)
-    if clamp is not None:
-        min_val, max_val = clamp
-        im_resized[im_resized < min_val] = min_val
-        im_resized[im_resized > max_val] = max_val
-    return im_resized
-
-
-def make_sgrid(b, alpha, beta, gamma):
-    res = b * 2
+def gen_sph_grid(res=128):
     pi = np.pi
     phi = np.linspace(0, 180, res * 2 + 1)[1::2]
     theta = np.linspace(0, 360, res + 1)[:-1]
@@ -169,84 +114,8 @@ def make_sgrid(b, alpha, beta, gamma):
             proj = np.sin(p * pi / 180)
             grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
             grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
-    grid = np.reshape(grid, (res * res, 3))
-    return grid
-
-
-def depth_to_mesh_df(depth_im, th, jitter, upsample=0.6, cam_dist=2.0):
-    from util.util_camera import tsdf_renderer
-    depth = depth_im[:, :, (0)]
-    mask = np.where(depth == 0, -1.0, 1.0)
-    depth = 1 - depth
-    t = tsdf_renderer()
-    thl = th[0]
-    thh = th[1]
-    if jitter:
-        th = th + (np.random.rand(2) - 0.5) * 0.1
-        thl = np.min(th)
-        thh = np.max(th)
-    scale = thh - thl
-    depth = depth * scale
-    t.depth = (depth + thl) * mask
-    t.camera.focal_length = 0.05
-    t.camera.sensor_width = 0.03059411708155671
-    t.camera.position = np.array([-cam_dist, 0, 0])
-    t.camera.res = [480, 480]
-    t.camera.rx = np.array([0, 0, 1])
-    t.camera.ry = np.array([0, 1, 0])
-    t.camera.rz = -np.array([1, 0, 0])
-    t.back_project_ptcloud(upsample=upsample)
-    tdf = np.ones([128, 128, 128]) / 128
-    cnt = np.zeros([128, 128, 128])
-    for pts in t.ptcld:
-        pt = pts
-        ids = np.floor((pt + 0.5) * 128).astype(int)
-        if np.any(np.abs(pt) >= 0.5):
-            continue
-        center = (ids + 0.5) * 1 / 128 - 0.5
-        dist = ((center[0] - pt[0]) ** 2 + (center[1] - pt[1]) ** 2 + (
-            center[2] - pt[2]) ** 2) ** 0.5
-        n = cnt[ids[0], ids[1], ids[2]]
-        tdf[ids[0], ids[1], ids[2]] = (tdf[ids[0], ids[1], ids[2]] * n + dist
-            ) / (n + 1)
-        cnt[ids[0], ids[1], ids[2]] += 1
-    return tdf
-
-
-def render_model(mesh, sgrid):
-    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid,
-        ray_directions=-sgrid, multiple_hits=False, return_locations=True)
-    loc = loc.reshape((-1, 3))
-    grid_hits = sgrid[index_ray]
-    dist = np.linalg.norm(grid_hits - loc, axis=-1)
-    dist_im = np.ones(sgrid.shape[0])
-    dist_im[index_ray] = dist
-    im = dist_im
-    return im
-
-
-def render_spherical(data, mask, obj_path=None, debug=False):
-    depth_im = data['depth'][(0), (0), :, :]
-    th = data['depth_minmax']
-    depth_im = resize(depth_im, 480, 'vertical')
-    im = resize(mask, 480, 'vertical')
-    gt_sil = np.where(im > 0.95, 1, 0)
-    depth_im = depth_im * gt_sil
-    depth_im = depth_im[:, :, (np.newaxis)]
-    b = 64
-    tdf = depth_to_mesh_df(depth_im, th, False, 1.0, 2.2)
-    try:
-        verts, faces, normals, values = measure.marching_cubes_lewiner(tdf,
-            0.999 / 128, spacing=(1 / 128, 1 / 128, 1 / 128))
-        mesh = trimesh.Trimesh(vertices=verts - 0.5, faces=faces)
-        sgrid = make_sgrid(b, 0, 0, 0)
-        im_depth = render_model(mesh, sgrid)
-        im_depth = im_depth.reshape(2 * b, 2 * b)
-        im_depth = np.where(im_depth > 1, 1, im_depth)
-    except:
-        im_depth = np.ones([128, 128])
-        return im_depth
-    return im_depth
+    grid = np.reshape(grid, (1, 1, res, res, 3))
+    return torch.from_numpy(grid).float()
 
 
 class Net(nn.Module):
@@ -332,9 +201,8 @@ class ImageEncoder(nn.Module):
         return self.main(x)
 
 
-def deconv3d_2x(n_ch_in, n_ch_out, bias):
-    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
-        dilation=1, groups=1, bias=bias)
+def batchnorm3d(n_feat):
+    return nn.BatchNorm3d(n_feat, eps=1e-05, momentum=0.1, affine=True)
 
 
 def deconv3d_add3(n_ch_in, n_ch_out, bias):
@@ -342,12 +210,13 @@ def deconv3d_add3(n_ch_in, n_ch_out, bias):
         dilation=1, groups=1, bias=bias)
 
 
+def deconv3d_2x(n_ch_in, n_ch_out, bias):
+    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
+        dilation=1, groups=1, bias=bias)
+
+
 def relu():
     return nn.ReLU(inplace=True)
-
-
-def batchnorm3d(n_feat):
-    return nn.BatchNorm3d(n_feat, eps=1e-05, momentum=0.1, affine=True)
 
 
 class VoxelDecoder(nn.Module):
@@ -392,10 +261,6 @@ class VoxelGenerator(nn.Module):
         return self.main(x)
 
 
-def relu_leaky():
-    return nn.LeakyReLU(0.2, inplace=True)
-
-
 def conv3d_half(n_ch_in, n_ch_out, bias):
     return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=2, padding=1, dilation=1,
         groups=1, bias=bias)
@@ -404,6 +269,10 @@ def conv3d_half(n_ch_in, n_ch_out, bias):
 def conv3d_minus3(n_ch_in, n_ch_out, bias):
     return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1,
         groups=1, bias=bias)
+
+
+def relu_leaky():
+    return nn.LeakyReLU(0.2, inplace=True)
 
 
 class VoxelDiscriminator(nn.Module):
@@ -760,3 +629,60 @@ class spherical_backprojection(nn.Module):
 
     def forward(self, spherical):
         return self.backprojection_layer(spherical, self.grid, self.vox_res)
+
+
+class Camera_back_projection_layer(nn.Module):
+
+    def __init__(self, res=128):
+        super(Camera_back_projection_layer, self).__init__()
+        assert res == 128
+        self.res = 128
+
+    def forward(self, depth_t, fl=418.3, cam_dist=2.2, shift=True):
+        n = depth_t.size(0)
+        if type(fl) == float:
+            fl_v = fl
+            fl = torch.FloatTensor(n, 1)
+            fl.fill_(fl_v)
+        if type(cam_dist) == float:
+            cmd_v = cam_dist
+            cam_dist = torch.FloatTensor(n, 1)
+            cam_dist.fill_(cmd_v)
+        df = CameraBackProjection.apply(depth_t, fl, cam_dist, self.res)
+        return self.shift_tdf(df) if shift else df
+
+    @staticmethod
+    def shift_tdf(input_tdf, res=128):
+        out_tdf = 1 - res * input_tdf
+        return out_tdf
+
+
+class camera_backprojection(nn.Module):
+
+    def __init__(self, vox_res=128):
+        super(camera_backprojection, self).__init__()
+        self.vox_res = vox_res
+        self.backprojection_layer = CameraBackProjection()
+
+    def forward(self, depth, fl, camdist):
+        return self.backprojection_layer(depth, fl, camdist, self.voxel_res)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(Conv3d_block(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_001(self):
+        self._check(Deconv3d_skip(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {})
+
+    def test_002(self):
+        self._check(RevBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+

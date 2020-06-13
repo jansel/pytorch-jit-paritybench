@@ -1722,71 +1722,71 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_meetshah1995_pytorch_semseg(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(frrn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(RU(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(pspnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(bottleNeckIdentifyPSP(*[], **{'in_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(refinenet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(bottleNeckPSP(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(cascadeFeatureFusion(*[], **{'n_classes': 4, 'low_in_channels': 4, 'high_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 7, 7]), torch.rand([4, 4, 13, 13])], {})
 
     def test_004(self):
-        self._check(fcn32s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
-        self._check(fcn16s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
-        self._check(fcn8s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_007(self):
         self._check(conv2DBatchNorm(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
-        self._check(deconv2DBatchNorm(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_009(self):
+    def test_005(self):
         self._check(conv2DBatchNormRelu(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_006(self):
+        self._check(deconv2DBatchNorm(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_007(self):
         self._check(deconv2DBatchNormRelu(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_011(self):
-        self._check(unetConv2(*[], **{'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}), [torch.rand([4, 4, 64, 64])], {})
+    def test_008(self):
+        self._check(fcn16s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_012(self):
-        self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_009(self):
+        self._check(fcn32s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_013(self):
-        self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(RU(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_010(self):
+        self._check(fcn8s(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_011(self):
+        self._check(frrn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(pspnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
         self._check(pyramidPooling(*[], **{'in_channels': 4, 'pool_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
-        self._check(bottleNeckPSP(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_014(self):
+        self._check(refinenet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
-        self._check(bottleNeckIdentifyPSP(*[], **{'in_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_015(self):
+        self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_016(self):
         self._check(residualBlockPSP(*[], **{'n_blocks': 1, 'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_017(self):
+        self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_018(self):
+        self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_020(self):
-        self._check(cascadeFeatureFusion(*[], **{'n_classes': 4, 'low_in_channels': 4, 'high_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 7, 7]), torch.rand([4, 4, 13, 13])], {})
+        self._check(unetConv2(*[], **{'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}), [torch.rand([4, 4, 64, 64])], {})
 

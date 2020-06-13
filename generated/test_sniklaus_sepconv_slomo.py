@@ -120,6 +120,32 @@ class Network(torch.nn.Module):
         return tenDot1 + tenDot2
 
 
+def cupy_kernel(strFunction, objVariables):
+    strKernel = globals()[strFunction]
+    while True:
+        objMatch = re.search('(SIZE_)([0-4])(\\()([^\\)]*)(\\))', strKernel)
+        if objMatch is None:
+            break
+        intArg = int(objMatch.group(2))
+        strTensor = objMatch.group(4)
+        intSizes = objVariables[strTensor].size()
+        strKernel = strKernel.replace(objMatch.group(), str(intSizes[intArg]))
+    while True:
+        objMatch = re.search('(VALUE_)([0-4])(\\()([^\\)]+)(\\))', strKernel)
+        if objMatch is None:
+            break
+        intArgs = int(objMatch.group(2))
+        strArgs = objMatch.group(4).split(',')
+        strTensor = strArgs[0]
+        intStrides = objVariables[strTensor].stride()
+        strIndex = [('((' + strArgs[intArg + 1].replace('{', '(').replace(
+            '}', ')').strip() + ')*' + str(intStrides[intArg]) + ')') for
+            intArg in range(intArgs)]
+        strKernel = strKernel.replace(objMatch.group(0), strTensor + '[' +
+            str.join('+', strIndex) + ']')
+    return strKernel
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

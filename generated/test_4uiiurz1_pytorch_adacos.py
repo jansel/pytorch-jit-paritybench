@@ -273,11 +273,11 @@ class Test_4uiiurz1_pytorch_adacos(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(SphereFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CosFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(CosFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SphereFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(VGGBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})

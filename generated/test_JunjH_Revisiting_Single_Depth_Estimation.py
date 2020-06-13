@@ -682,7 +682,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_JunjH_Revisiting_Single_Depth_Estimation(_paritybench_base):
     pass
     def test_000(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -692,11 +692,11 @@ class Test_JunjH_Revisiting_Single_Depth_Estimation(_paritybench_base):
         self._check(R(*[], **{'block_channel': [4, 4, 4, 4]}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(Sobel(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_005(self):
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

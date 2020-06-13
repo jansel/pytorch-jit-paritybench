@@ -262,6 +262,32 @@ class CheapConvBlock(nn.Module):
         return x
 
 
+def require_dict_kwargs(kwargs, msg=None):
+    """ Ensure arguments passed kwargs are either None or a dict.
+        If arguments are neither a dict nor None a RuntimeError
+        is thrown
+    Args:
+        kwargs (object): possible dict or None
+        msg (None, optional): Error msg
+
+    Returns:
+        dict: kwargs dict
+
+    Raises:
+        RuntimeError: if the passed value is neither a dict nor None
+            this error is raised
+    """
+    if kwargs is None:
+        return dict()
+    elif isinstance(kwargs, dict):
+        return kwargs
+    elif msg is None:
+        raise RuntimeError(
+            'value passed as keyword argument dict is neither None nor a dict')
+    else:
+        raise RuntimeError('%s' % str(msg))
+
+
 class MySideLoss(nn.Module):
     """Wrap a criterion. Collect regularization losses from model and combine with wrapped criterion.
     """
@@ -338,10 +364,6 @@ class Criteria(nn.Module):
         return loss
 
 
-class NotTorchModuleError(TypeError):
-    pass
-
-
 class ShapeError(ValueError):
     pass
 
@@ -350,6 +372,10 @@ def assert_(condition, message='', exception_type=AssertionError):
     """Like assert, but with arbitrary exception types."""
     if not condition:
         raise exception_type(message)
+
+
+class NotTorchModuleError(TypeError):
+    pass
 
 
 class As2DCriterion(nn.Module):
@@ -855,16 +881,16 @@ class ResidualBlock(nn.Module):
         return output
 
 
-class DeviceError(ValueError):
-    pass
-
-
 def is_listlike(x):
     return isinstance(x, (list, tuple))
 
 
 def from_iterable(x):
     return x[0] if is_listlike(x) and len(x) == 1 else x
+
+
+class DeviceError(ValueError):
+    pass
 
 
 class DeviceTransfer(nn.Module):
@@ -1542,43 +1568,43 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_inferno_pytorch_inferno(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(RegularizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(As2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(Sequential1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(As3D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(SorensenDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(RegularizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
         self._check(SELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Sequential1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
+        self._check(SorensenDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(View(*[], **{'as_shape': [4, 4]}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(As3D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(As2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_010(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

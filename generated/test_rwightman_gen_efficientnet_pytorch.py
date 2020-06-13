@@ -240,14 +240,14 @@ class MishAuto(nn.Module):
 
 
 @torch.jit.script
-def swish_jit_fwd(x):
-    return x.mul(torch.sigmoid(x))
-
-
-@torch.jit.script
 def swish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+
+
+@torch.jit.script
+def swish_jit_fwd(x):
+    return x.mul(torch.sigmoid(x))
 
 
 class SwishJitAutoFn(torch.autograd.Function):
@@ -386,13 +386,20 @@ def is_scriptable():
     return _SCRIPTABLE
 
 
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+_EXPORTABLE = False
+
+
+def is_exportable():
+    return _EXPORTABLE
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
+
+
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def get_padding_value(padding, kernel_size, **kwargs):
@@ -410,13 +417,6 @@ def get_padding_value(padding, kernel_size, **kwargs):
         else:
             padding = _get_padding(kernel_size, **kwargs)
     return padding, dynamic
-
-
-_EXPORTABLE = False
-
-
-def is_exportable():
-    return _EXPORTABLE
 
 
 def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
@@ -471,18 +471,6 @@ class MixedConv2d(nn.ModuleDict):
         return x
 
 
-def _ntuple(n):
-
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-
-
-_pair = _ntuple(2)
-
-
 def get_condconv_initializer(initializer, num_experts, expert_shape):
 
     def condconv_initializer(weight):
@@ -495,6 +483,18 @@ def get_condconv_initializer(initializer, num_experts, expert_shape):
         for i in range(num_experts):
             initializer(weight[i].view(expert_shape))
     return condconv_initializer
+
+
+def _ntuple(n):
+
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+
+_pair = _ntuple(2)
 
 
 class CondConv2d(nn.Module):
@@ -569,16 +569,16 @@ class CondConv2d(nn.Module):
         return out
 
 
+def sigmoid(x, inplace: bool=False):
+    return x.sigmoid_() if inplace else x.sigmoid()
+
+
 def make_divisible(v: int, divisor: int=8, min_value: int=None):
     min_value = min_value or divisor
     new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
-
-
-def sigmoid(x, inplace: bool=False):
-    return x.sigmoid_() if inplace else x.sigmoid()
 
 
 class SqueezeExcite(nn.Module):
@@ -802,6 +802,52 @@ class EdgeResidual(nn.Module):
         return x
 
 
+def initialize_weight_default(m, n=''):
+    if isinstance(m, CondConv2d):
+        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
+            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
+            )
+        init_fn(m.weight)
+    elif isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
+
+
+def initialize_weight_goog(m, n='', fix_group_fanout=True):
+    if isinstance(m, CondConv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
+            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
+        init_weight_fn(m.weight)
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.Conv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        fan_out = m.weight.size(0)
+        fan_in = 0
+        if 'routing_fn' in n:
+            fan_in = m.weight.size(1)
+        init_range = 1.0 / math.sqrt(fan_in + fan_out)
+        m.weight.data.uniform_(-init_range, init_range)
+        m.bias.data.zero_()
+
+
 class CondConvResidual(InvertedResidual):
     """ Inverted residual block w/ CondConv routing"""
 
@@ -946,52 +992,6 @@ class EfficientNetBuilder:
         return blocks
 
 
-def initialize_weight_default(m, n=''):
-    if isinstance(m, CondConv2d):
-        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
-            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
-            )
-        init_fn(m.weight)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
-
-
-def initialize_weight_goog(m, n='', fix_group_fanout=True):
-    if isinstance(m, CondConv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
-            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
-        init_weight_fn(m.weight)
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.Conv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        fan_out = m.weight.size(0)
-        fan_in = 0
-        if 'routing_fn' in n:
-            fan_in = m.weight.size(1)
-        init_range = 1.0 / math.sqrt(fan_in + fan_out)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
-
-
 class GenEfficientNet(nn.Module):
     """ Generic EfficientNets
 
@@ -1131,63 +1131,63 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dSameExport(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
+        self._check(EdgeResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_006(self):
-        self._check(SwishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    def test_007(self):
+        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_010(self):
         self._check(MishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_011(self):
-        self._check(Conv2dSameExport(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
         self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_016(self):
-        self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SwishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_017(self):
-        self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
-        self._check(EdgeResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

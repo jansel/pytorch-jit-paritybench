@@ -340,12 +340,24 @@ class Block8(nn.Module):
         return out
 
 
-def _check_contiguous(*args):
-    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
-        raise ValueError('Non-contiguous input')
-
-
 ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_ELU = 'elu'
+
+
+ACT_NONE = 'none'
+
+
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _ext.leaky_relu_backward_cuda(x, dx, ctx.slope)
+        _ext.leaky_relu_cuda(x, 1.0 / ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _ext.elu_backward_cuda(x, dx)
+        _ext.elu_inv_cuda(x)
+    elif ctx.activation == ACT_NONE:
+        pass
 
 
 def _count_samples(x):
@@ -356,10 +368,9 @@ def _count_samples(x):
     return count
 
 
-ACT_NONE = 'none'
-
-
-ACT_ELU = 'elu'
+def _check_contiguous(*args):
+    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
+        raise ValueError('Non-contiguous input')
 
 
 def _act_forward(ctx, x):
@@ -367,17 +378,6 @@ def _act_forward(ctx, x):
         _ext.leaky_relu_cuda(x, ctx.slope)
     elif ctx.activation == ACT_ELU:
         _ext.elu_cuda(x)
-    elif ctx.activation == ACT_NONE:
-        pass
-
-
-def _act_backward(ctx, x, dx):
-    if ctx.activation == ACT_LEAKY_RELU:
-        _ext.leaky_relu_backward_cuda(x, dx, ctx.slope)
-        _ext.leaky_relu_cuda(x, 1.0 / ctx.slope)
-    elif ctx.activation == ACT_ELU:
-        _ext.elu_backward_cuda(x, dx)
-        _ext.elu_inv_cuda(x)
     elif ctx.activation == ACT_NONE:
         pass
 
@@ -1442,68 +1442,68 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ansleliu_LightNet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(ASPPBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
 
     def test_002(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(ASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
 
     def test_003(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_005(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_006(self):
         self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CatInPlaceABN(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
         self._check(DenseModule(*[], **{'in_chns': 4, 'squeeze_ratio': 4, 'out_chns': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(SemanticSupervision(*[], **{'in_chns': 4, 'out_chns': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_010(self):
+        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_011(self):
-        self._check(CatInPlaceABN(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(LightHeadBlock(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(VortexPooling(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_014(self):
-        self._check(ASPPBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_015(self):
-        self._check(ASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_016(self):
-        self._check(SDASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
-
-    def test_017(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_018(self):
         self._check(SCSEInvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+    def test_017(self):
+        self._check(SDASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_018(self):
         self._check(SemanticEncodingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(SemanticSupervision(*[], **{'in_chns': 4, 'out_chns': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(VortexPooling(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
 

@@ -1008,11 +1008,11 @@ class Test_bj80heyue_One_Shot_Face_Reenactment(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(MLP(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
-        self._check(MLP(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 

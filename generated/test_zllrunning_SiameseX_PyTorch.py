@@ -141,37 +141,19 @@ class SiamRPNPP(nn.Module):
         return loc, cls
 
 
-Rectangle = collections.namedtuple('Rectangle', ['x', 'y', 'width', 'height'])
-
-
-def gen_xz(img, inbox, to='x', pdrt=1):
-    box = Rectangle(inbox.x, inbox.y, inbox.width * pdrt, inbox.height * pdrt)
-    x_sz = 255, 255
-    z_sz = 127, 127
-    bg = Image.new('RGB', (int(box.width), int(box.height)), tuple(map(int,
-        ImageStat.Stat(img).mean)))
-    bg.paste(img, (-int(box.x - 0.5 * box.width), -int(box.y - 0.5 * box.
-        height)))
-    if to == 'x':
-        temp = bg.resize(x_sz)
-    elif to == 'z':
-        temp = bg.resize(z_sz)
+def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
+    c = patch_sz / 2
+    xleft_pad = max(0, -int(round(pos_x - c)))
+    ytop_pad = max(0, -int(round(pos_y - c)))
+    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
+    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
+    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
+    if avg_chan is not None:
+        avg_chan = tuple([int(round(c)) for c in avg_chan])
+        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
     else:
-        raise ValueError('Bbox format: {} was not recognized'.format(to))
-    return temp
-
-
-def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
-    c = sz_src / 2
-    tr_x = npad + int(round(pos_x - c))
-    tr_y = npad + int(round(pos_y - c))
-    width = round(pos_x + c) - round(pos_x - c)
-    height = round(pos_y + c) - round(pos_y - c)
-    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y +
-        height)))
-    crop = crop.resize((sz_dst, sz_dst), Image.BILINEAR)
-    crops = 255.0 * F.to_tensor(crop).unsqueeze(0)
-    return crops
+        im_padded = ImageOps.expand(im, border=npad, fill=0)
+    return im_padded, npad
 
 
 def Image_to_Tensor(img, mean=[0.5, 0.5, 0.5], std=[0.25, 0.25, 0.25]):
@@ -207,19 +189,37 @@ def extract_crops_x(im, npad, pos_x, pos_y, sz_src0, sz_src1, sz_src2, sz_dst):
     return crops
 
 
-def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
-    c = patch_sz / 2
-    xleft_pad = max(0, -int(round(pos_x - c)))
-    ytop_pad = max(0, -int(round(pos_y - c)))
-    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
-    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
-    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
-    if avg_chan is not None:
-        avg_chan = tuple([int(round(c)) for c in avg_chan])
-        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
+Rectangle = collections.namedtuple('Rectangle', ['x', 'y', 'width', 'height'])
+
+
+def gen_xz(img, inbox, to='x', pdrt=1):
+    box = Rectangle(inbox.x, inbox.y, inbox.width * pdrt, inbox.height * pdrt)
+    x_sz = 255, 255
+    z_sz = 127, 127
+    bg = Image.new('RGB', (int(box.width), int(box.height)), tuple(map(int,
+        ImageStat.Stat(img).mean)))
+    bg.paste(img, (-int(box.x - 0.5 * box.width), -int(box.y - 0.5 * box.
+        height)))
+    if to == 'x':
+        temp = bg.resize(x_sz)
+    elif to == 'z':
+        temp = bg.resize(z_sz)
     else:
-        im_padded = ImageOps.expand(im, border=npad, fill=0)
-    return im_padded, npad
+        raise ValueError('Bbox format: {} was not recognized'.format(to))
+    return temp
+
+
+def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
+    c = sz_src / 2
+    tr_x = npad + int(round(pos_x - c))
+    tr_y = npad + int(round(pos_y - c))
+    width = round(pos_x + c) - round(pos_x - c)
+    height = round(pos_y + c) - round(pos_y - c)
+    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y +
+        height)))
+    crop = crop.resize((sz_dst, sz_dst), Image.BILINEAR)
+    crops = 255.0 * F.to_tensor(crop).unsqueeze(0)
+    return crops
 
 
 class SiameseNet(nn.Module):
@@ -1209,31 +1209,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zllrunning_SiameseX_PyTorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Corr_Up(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AdjustAllLayer(*[], **{'in_channels': [4, 4], 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     def test_001(self):
-        self._check(DepthwiseXCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(BasicConv2d_1x1(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicConv2d_3x3(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(InceptionM(*[], **{'in_channels': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(BasicBlock_C(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(AdjustLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_002(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(BasicBlock_C(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(BasicConv2d_1x1(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(BasicConv2d_3x3(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(Corr_Up(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(DepthwiseXCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(AdjustAllLayer(*[], **{'in_channels': [4, 4], 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(InceptionM(*[], **{'in_channels': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

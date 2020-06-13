@@ -128,10 +128,6 @@ class Highway(nn.Module):
         return x
 
 
-def mask_logits(target, mask):
-    return target * (1 - mask) + mask * -1e+30
-
-
 _global_config['num_heads'] = 4
 
 
@@ -139,6 +135,10 @@ n_head = config.num_heads
 
 
 d_k = d_model // n_head
+
+
+def mask_logits(target, mask):
+    return target * (1 - mask) + mask * -1e+30
 
 
 class SelfAttention(nn.Module):
@@ -221,6 +221,12 @@ class MultiHeadAttention(nn.Module):
         return out.transpose(1, 2)
 
 
+_global_config['dropout_char'] = 0.5
+
+
+dropout_char = config.dropout_char
+
+
 _global_config['glove_dim'] = 4
 
 
@@ -231,12 +237,6 @@ _global_config['char_dim'] = 4
 
 
 d_char = config.char_dim
-
-
-_global_config['dropout_char'] = 0.5
-
-
-dropout_char = config.dropout_char
 
 
 class Embedding(nn.Module):
@@ -419,8 +419,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_setoidz_QANet_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(PosEncoder(*[], **{'length': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CQAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_ch': 4, 'out_ch': 4, 'k': 4}), [torch.rand([4, 4, 64])], {})
@@ -431,13 +432,12 @@ class Test_setoidz_QANet_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(SelfAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(MultiHeadAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+
+    def test_004(self):
+        self._check(PosEncoder(*[], **{'length': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(CQAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(SelfAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

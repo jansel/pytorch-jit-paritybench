@@ -611,32 +611,32 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_tomguluson92_StyleGAN_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 512])], {})
-
-    def test_001(self):
         self._check(ApplyNoise(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(ApplyStyle(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(FC(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
+    def test_002(self):
         self._check(Blur2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_003(self):
         self._check(Conv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(FC(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
+
     def test_006(self):
-        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Generator(*[], **{}), [torch.rand([4, 512])], {})
 
     def test_007(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
         self._check(InstanceNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_008(self):
+        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_009(self):
-        self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
+        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

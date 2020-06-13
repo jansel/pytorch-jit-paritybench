@@ -68,6 +68,22 @@ import math
 import torch.nn.init as init
 
 
+def fwd():
+    """Get file's working directory"""
+    return Path(__file__).parent.absolute()
+
+
+def hierarchy_to_path_graph(dataset, hierarchy):
+    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
+
+
+def dataset_to_default_path_graph(dataset):
+    return hierarchy_to_path_graph(dataset, 'induced')
+
+
+DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
+
+
 class FakeSynset:
 
     def __init__(self, wnid):
@@ -91,6 +107,20 @@ class FakeSynset:
         return '(generated)'
 
 
+DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
+    200, 'Imagenet1000': 1000}
+
+
+def dataset_to_dummy_classes(dataset):
+    assert dataset in DATASETS
+    num_classes = DATASET_TO_NUM_CLASSES[dataset]
+    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
+
+
+def synset_to_name(synset):
+    return synset.name().split('.')[0]
+
+
 def wnid_to_synset(wnid):
     from nltk.corpus import wordnet as wn
     offset = int(wnid[1:])
@@ -101,46 +131,17 @@ def wnid_to_synset(wnid):
         return FakeSynset(wnid)
 
 
-def synset_to_name(synset):
-    return synset.name().split('.')[0]
-
-
 def wnid_to_name(wnid):
     return synset_to_name(wnid_to_synset(wnid))
 
 
-def get_roots(G):
-    for node in G.nodes:
-        if len(G.pred[node]) == 0:
-            yield node
-
-
-def get_root(G):
-    roots = list(get_roots(G))
-    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
-    return roots[0]
-
-
-def fwd():
-    """Get file's working directory"""
-    return Path(__file__).parent.absolute()
-
-
-def dataset_to_default_path_wnids(dataset):
-    return os.path.join(fwd(), f'wnids/{dataset}.txt')
-
-
-DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
-    200, 'Imagenet1000': 1000}
-
-
-DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
-
-
-def dataset_to_dummy_classes(dataset):
-    assert dataset in DATASETS
-    num_classes = DATASET_TO_NUM_CLASSES[dataset]
-    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
+def read_graph(path):
+    if not os.path.exists(path):
+        parent = Path(fwd()).parent
+        print(f'No such file or directory: {path}. Looking in {str(parent)}')
+        path = parent / path
+    with open(path) as f:
+        return node_link_graph(json.load(f))
 
 
 def get_wnids(path_wnids):
@@ -153,23 +154,6 @@ def get_wnids(path_wnids):
     with open(path_wnids) as f:
         wnids = [wnid.strip() for wnid in f.readlines()]
     return wnids
-
-
-def hierarchy_to_path_graph(dataset, hierarchy):
-    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
-
-
-def dataset_to_default_path_graph(dataset):
-    return hierarchy_to_path_graph(dataset, 'induced')
-
-
-def read_graph(path):
-    if not os.path.exists(path):
-        parent = Path(fwd()).parent
-        print(f'No such file or directory: {path}. Looking in {str(parent)}')
-        path = parent / path
-    with open(path) as f:
-        return node_link_graph(json.load(f))
 
 
 def get_non_leaves(G):
@@ -319,6 +303,22 @@ class Node:
     @staticmethod
     def dim(nodes):
         return sum([node.num_classes for node in nodes])
+
+
+def dataset_to_default_path_wnids(dataset):
+    return os.path.join(fwd(), f'wnids/{dataset}.txt')
+
+
+def get_roots(G):
+    for node in G.nodes:
+        if len(G.pred[node]) == 0:
+            yield node
+
+
+def get_root(G):
+    roots = list(get_roots(G))
+    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
+    return roots[0]
 
 
 class EmbeddedDecisionRules(nn.Module):

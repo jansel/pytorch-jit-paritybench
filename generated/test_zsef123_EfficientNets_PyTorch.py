@@ -230,31 +230,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zsef123_EfficientNets_PyTorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MBConv(*[], **{'in_': 4, 'out_': 4, 'expand': 4, 'kernel_size': 4, 'stride': 1, 'skip': 4, 'se_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DropConnect(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MBBlock(*[], **{'in_': 4, 'out_': 4, 'expand': 4, 'kernel': 4, 'stride': 1, 'num_repeat': 4, 'skip': 4, 'se_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(EfficientNet(*[], **{'width_coeff': 4, 'depth_coeff': 1}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_002(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(SamePadConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MBBlock(*[], **{'in_': 4, 'out_': 4, 'expand': 4, 'kernel': 4, 'stride': 1, 'num_repeat': 4, 'skip': 4, 'se_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MBConv(*[], **{'in_': 4, 'out_': 4, 'expand': 4, 'kernel_size': 4, 'stride': 1, 'skip': 4, 'se_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
         self._check(SEModule(*[], **{'in_': 4, 'squeeze_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_006(self):
+        self._check(SamePadConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(DropConnect(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

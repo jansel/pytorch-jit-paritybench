@@ -372,22 +372,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_frombeijingwithlove_dlcv_for_beginners(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(NetG(*[], **{'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicResBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(NetD(*[], **{'ndf': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(BasicResBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NetG(*[], **{'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(TriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PSPTriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(PSPTriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

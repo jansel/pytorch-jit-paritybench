@@ -146,16 +146,16 @@ class RNNModel(nn.Module):
         return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
 
-def tensor_transform(linear, X):
-    return linear(X.contiguous().view(-1, X.size(2))).view(X.size(0), X.
-        size(1), -1)
-
-
 def word2id(sents, vocab):
     if type(sents[0]) == list:
         return [[vocab[w] for w in s] for s in sents]
     else:
         return [vocab[w] for w in sents]
+
+
+def tensor_transform(linear, X):
+    return linear(X.contiguous().view(-1, X.size(2))).view(X.size(0), X.
+        size(1), -1)
 
 
 def input_transpose(sents, pad_token):
@@ -579,25 +579,25 @@ class NMT(nn.Module):
 _global_config['beam_size'] = 4
 
 
+_global_config['sample_size'] = 4
+
+
 _global_config['decode_max_time_step'] = 4
 
 
 _global_config['dropout'] = 0.5
 
 
-_global_config['cuda'] = 4
-
-
 _global_config['embed_size'] = 4
-
-
-_global_config['hidden_size'] = 4
 
 
 _global_config['sample_method'] = 4
 
 
-_global_config['sample_size'] = 4
+_global_config['cuda'] = 4
+
+
+_global_config['hidden_size'] = 4
 
 
 class NMT(nn.Module):

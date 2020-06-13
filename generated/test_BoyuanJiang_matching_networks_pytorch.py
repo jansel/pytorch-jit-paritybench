@@ -233,10 +233,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_BoyuanJiang_matching_networks_pytorch(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(Classifier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(AttentionalClassify(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Classifier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

@@ -920,12 +920,12 @@ class Test_xiaoyufenfei_LEDNet(_paritybench_base):
     def test_000(self):
         self._check(Conv2dBnRelu(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Encoder(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
         self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(Encoder(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):

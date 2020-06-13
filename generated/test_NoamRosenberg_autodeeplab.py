@@ -154,10 +154,6 @@ from collections import OrderedDict
 import torch.backends
 
 
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
-    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
-
-
 def network_layer_to_space(net_arch):
     for i, layer in enumerate(net_arch):
         if i == 0:
@@ -471,6 +467,10 @@ class Decoder(object):
         normalized_alphas = F.softmax(self._alphas, dim=-1).data.cpu().numpy()
         gene_cell = _parse(normalized_alphas, self._steps)
         return gene_cell
+
+
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
+    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
 
 
 OPS = {'none': lambda C, stride, affine, use_ABN: Zero(stride),
@@ -2008,15 +2008,6 @@ class Decoder(nn.Module):
                     nn.init.constant_(ly.bias, 0)
 
 
-def build_decoder(num_classes, backbone, BatchNorm, args, separate):
-    return Decoder(num_classes, backbone, BatchNorm, args, separate)
-
-
-def build_aspp(backbone, output_stride, BatchNorm, args, separate):
-    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5,
-        BatchNorm, separate)
-
-
 def get_default_cell():
     cell = np.zeros((10, 2))
     cell[0] = [0, 7]
@@ -2058,6 +2049,15 @@ def build_backbone(backbone, output_stride, BatchNorm, args):
         return get_default_net(filter_multiplier=args.filter_multiplier)
     else:
         raise NotImplementedError
+
+
+def build_decoder(num_classes, backbone, BatchNorm, args, separate):
+    return Decoder(num_classes, backbone, BatchNorm, args, separate)
+
+
+def build_aspp(backbone, output_stride, BatchNorm, args, separate):
+    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5,
+        BatchNorm, separate)
 
 
 class DeepLab(nn.Module):
@@ -2118,10 +2118,10 @@ class DeepLab(nn.Module):
                             yield p
 
 
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
 ACT_RELU = 'relu'
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
 
 
 ACT_ELU = 'elu'
@@ -2221,11 +2221,18 @@ class SingleGPU(nn.Module):
         return self.module(input)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -2251,18 +2258,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -2338,17 +2334,21 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
 
 
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -3112,55 +3112,55 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_NoamRosenberg_autodeeplab(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(NaiveBN(*[], **{'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(DoubleFactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NaiveBN(*[], **{'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(DoubleFactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_014(self):
+        self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_015(self):
-        self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

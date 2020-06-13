@@ -516,12 +516,12 @@ class MultiboxLoss(nn.Module):
         return smooth_l1_loss / num_pos, classification_loss / num_pos
 
 
-GraphPath = namedtuple('GraphPath', ['s0', 'name', 's1'])
-
-
 def _xavier_init_(m: nn.Module):
     if isinstance(m, nn.Conv2d):
         nn.init.xavier_uniform_(m.weight)
+
+
+GraphPath = namedtuple('GraphPath', ['s0', 'name', 's1'])
 
 
 class SSD(nn.Module):
@@ -659,17 +659,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_cunjian_pytorch_face_landmark(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_001(self):
         self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_002(self):
+        self._check(ConvBlock(*[], **{'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 

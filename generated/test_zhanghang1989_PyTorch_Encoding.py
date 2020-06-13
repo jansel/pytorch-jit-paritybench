@@ -816,7 +816,37 @@ class Xception71(nn.Module):
                 m.bias.data.zero_()
 
 
-_url_format = 'https://hangzh.s3.amazonaws.com/encoding/models/{}-{}.pth'
+_model_sha1 = {name: checksum for checksum, name in [(
+    'fb9de5b360976e3e8bd3679d3e93c5409a5eff3c', 'resnest50'), (
+    '966fb78c22323b0c68097c5c1242bd16d3e07fd5', 'resnest101'), (
+    'd7fd712f5a1fcee5b3ce176026fbb6d0d278454a', 'resnest200'), (
+    '51ae5f19032e22af4ec08e695496547acdba5ce5', 'resnest269'), (
+    'a75c83cfc89a56a4e8ba71b14f1ec67e923787b3', 'resnet50s'), (
+    '03a0f310d6447880f1b22a83bd7d1aa7fc702c6e', 'resnet101s'), (
+    '36670e8bc2428ecd5b7db1578538e2dd23872813', 'resnet152s'), (
+    'da4785cfc837bf00ef95b52fb218feefe703011f', 'wideresnet38'), (
+    'b41562160173ee2e979b795c551d3c7143b1e5b5', 'wideresnet50'), (
+    '1225f149519c7a0113c43a056153c1bb15468ac0', 'deepten_resnet50_minc'), (
+    '662e979de25a389f11c65e9f1df7e06c2c356381', 'fcn_resnet50s_ade'), (
+    '4de91d5922d4d3264f678b663f874da72e82db00', 'encnet_resnet50s_pcontext'
+    ), ('9f27ea13d514d7010e59988341bcbd4140fcc33d',
+    'encnet_resnet101s_pcontext'), (
+    '07ac287cd77e53ea583f37454e17d30ce1509a4a', 'encnet_resnet50s_ade'), (
+    '3f54fa3b67bac7619cd9b3673f5c8227cf8f4718', 'encnet_resnet101s_ade'), (
+    '4aba491aaf8e4866a9c9981b210e3e3266ac1f2a', 'fcn_resnest50_ade'), (
+    '2225f09d0f40b9a168d9091652194bc35ec2a5a9', 'deeplab_resnest50_ade'), (
+    '06ca799c8cc148fe0fafb5b6d052052935aa3cc8', 'deeplab_resnest101_ade'),
+    ('7b9e7d3e6f0e2c763c7d77cad14d306c0a31fe05', 'deeplab_resnest200_ade'),
+    ('0074dd10a6e6696f6f521653fb98224e75955496', 'deeplab_resnest269_ade'),
+    ('77a2161deeb1564e8b9c41a4bb7a3f33998b00ad', 'fcn_resnest50_pcontext'),
+    ('08dccbc4f4694baab631e037a374d76d8108c61f',
+    'deeplab_resnest50_pcontext'), (
+    'faf5841853aae64bd965a7bdc2cdc6e7a2b5d898',
+    'deeplab_resnest101_pcontext'), (
+    'fe76a26551dd5dcf2d474fd37cba99d43f6e984e',
+    'deeplab_resnest200_pcontext'), (
+    'b661fd26c49656e01e9487cd9245babb12f37449', 'deeplab_resnest269_pcontext')]
+    }
 
 
 def check_sha1(filename, sha1_hash):
@@ -840,6 +870,13 @@ def check_sha1(filename, sha1_hash):
                 break
             sha1.update(data)
     return sha1.hexdigest() == sha1_hash
+
+
+def short_hash(name):
+    if name not in _model_sha1:
+        raise ValueError('Pretrained model for {name} is not available.'.
+            format(name=name))
+    return _model_sha1[name][:8]
 
 
 def download(url, path=None, overwrite=False, sha1_hash=None):
@@ -897,44 +934,7 @@ def download(url, path=None, overwrite=False, sha1_hash=None):
     return fname
 
 
-_model_sha1 = {name: checksum for checksum, name in [(
-    'fb9de5b360976e3e8bd3679d3e93c5409a5eff3c', 'resnest50'), (
-    '966fb78c22323b0c68097c5c1242bd16d3e07fd5', 'resnest101'), (
-    'd7fd712f5a1fcee5b3ce176026fbb6d0d278454a', 'resnest200'), (
-    '51ae5f19032e22af4ec08e695496547acdba5ce5', 'resnest269'), (
-    'a75c83cfc89a56a4e8ba71b14f1ec67e923787b3', 'resnet50s'), (
-    '03a0f310d6447880f1b22a83bd7d1aa7fc702c6e', 'resnet101s'), (
-    '36670e8bc2428ecd5b7db1578538e2dd23872813', 'resnet152s'), (
-    'da4785cfc837bf00ef95b52fb218feefe703011f', 'wideresnet38'), (
-    'b41562160173ee2e979b795c551d3c7143b1e5b5', 'wideresnet50'), (
-    '1225f149519c7a0113c43a056153c1bb15468ac0', 'deepten_resnet50_minc'), (
-    '662e979de25a389f11c65e9f1df7e06c2c356381', 'fcn_resnet50s_ade'), (
-    '4de91d5922d4d3264f678b663f874da72e82db00', 'encnet_resnet50s_pcontext'
-    ), ('9f27ea13d514d7010e59988341bcbd4140fcc33d',
-    'encnet_resnet101s_pcontext'), (
-    '07ac287cd77e53ea583f37454e17d30ce1509a4a', 'encnet_resnet50s_ade'), (
-    '3f54fa3b67bac7619cd9b3673f5c8227cf8f4718', 'encnet_resnet101s_ade'), (
-    '4aba491aaf8e4866a9c9981b210e3e3266ac1f2a', 'fcn_resnest50_ade'), (
-    '2225f09d0f40b9a168d9091652194bc35ec2a5a9', 'deeplab_resnest50_ade'), (
-    '06ca799c8cc148fe0fafb5b6d052052935aa3cc8', 'deeplab_resnest101_ade'),
-    ('7b9e7d3e6f0e2c763c7d77cad14d306c0a31fe05', 'deeplab_resnest200_ade'),
-    ('0074dd10a6e6696f6f521653fb98224e75955496', 'deeplab_resnest269_ade'),
-    ('77a2161deeb1564e8b9c41a4bb7a3f33998b00ad', 'fcn_resnest50_pcontext'),
-    ('08dccbc4f4694baab631e037a374d76d8108c61f',
-    'deeplab_resnest50_pcontext'), (
-    'faf5841853aae64bd965a7bdc2cdc6e7a2b5d898',
-    'deeplab_resnest101_pcontext'), (
-    'fe76a26551dd5dcf2d474fd37cba99d43f6e984e',
-    'deeplab_resnest200_pcontext'), (
-    'b661fd26c49656e01e9487cd9245babb12f37449', 'deeplab_resnest269_pcontext')]
-    }
-
-
-def short_hash(name):
-    if name not in _model_sha1:
-        raise ValueError('Pretrained model for {name} is not available.'.
-            format(name=name))
-    return _model_sha1[name][:8]
+_url_format = 'https://hangzh.s3.amazonaws.com/encoding/models/{}-{}.pth'
 
 
 encoding_repo_url = 'https://hangzh.s3-us-west-1.amazonaws.com/'
@@ -1018,9 +1018,6 @@ class ATTENHead(nn.Module):
         return attn
 
 
-up_kwargs = {'mode': 'bilinear', 'align_corners': True}
-
-
 def batch_intersection_union(output, target, nclass):
     """Batch Intersection of Union
     Args:
@@ -1045,64 +1042,22 @@ def batch_intersection_union(output, target, nclass):
     return area_inter, area_union
 
 
-def resnest101(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest101', root=
-            root)), strict=True)
-    return model
+up_kwargs = {'mode': 'bilinear', 'align_corners': True}
 
 
-def resnest269(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 30, 48, 8], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest269', root=
-            root)), strict=True)
-    return model
-
-
-def resnest200(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 24, 36, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest200', root=
-            root)), strict=False)
-    return model
-
-
-def wideresnet38(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a WideResNet-38 model.
-
+def batch_pix_accuracy(output, target):
+    """Batch Pixel Accuracy
     Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        predict: input 4D tensor
+        target: label 3D tensor
     """
-    model = WideResNet([3, 3, 6, 3, 1, 1], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('wideresnet38',
-            root=root)), strict=False)
-    return model
-
-
-def resnext101_32x8d(pretrained=False, root='~/.encoding/models', **kwargs):
-    """ResNeXt-101 32x8d model from
-    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['groups'] = 32
-    kwargs['bottleneck_width'] = 8
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnext101_32x8d',
-            root=root)), strict=False)
-    return model
+    _, predict = torch.max(output, 1)
+    predict = predict.cpu().numpy().astype('int64') + 1
+    target = target.cpu().numpy().astype('int64') + 1
+    pixel_labeled = np.sum(target > 0)
+    pixel_correct = np.sum((predict == target) * (target > 0))
+    assert pixel_correct <= pixel_labeled, 'Correct area should be smaller than Labeled'
+    return pixel_correct, pixel_labeled
 
 
 def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
@@ -1115,59 +1070,6 @@ def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
     if pretrained:
         model.load_state_dict(torch.load(get_model_file('resnet152', root=
             root)), strict=False)
-    return model
-
-
-def resnet101(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet101', root=
-            root)), strict=False)
-    return model
-
-
-def wideresnet50(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a WideResNet-50 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = WideResNet([3, 3, 6, 6, 3, 1], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('wideresnet50',
-            root=root)), strict=False)
-    return model
-
-
-def resnet101s(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNetS-101 model as in PSPNet.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    kwargs['deep_stem'] = True
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet101s', root=
-            root)), strict=False)
-    return model
-
-
-def xception65(pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = Xception65(**kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('xception65', root=
-            root)))
     return model
 
 
@@ -1184,16 +1086,11 @@ def resnet50(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def resnet50s(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNetS-50 model as in PSPNet.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    kwargs['deep_stem'] = True
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+def resnet50d(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], deep_stem=True, stem_width=32,
+        avg_down=True, **kwargs)
     if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet50s', root=
+        model.load_state_dict(torch.load(get_model_file('resnet50d', root=
             root)), strict=False)
     return model
 
@@ -1215,15 +1112,6 @@ def resnext50_32x4d(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def resnet50d(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], deep_stem=True, stem_width=32,
-        avg_down=True, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet50d', root=
-            root)), strict=False)
-    return model
-
-
 def resnest50(pretrained=False, root='~/.encoding/models', **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], radix=2, groups=1,
         bottleneck_width=64, deep_stem=True, stem_width=32, avg_down=True,
@@ -1231,6 +1119,133 @@ def resnest50(pretrained=False, root='~/.encoding/models', **kwargs):
     if pretrained:
         model.load_state_dict(torch.load(get_model_file('resnest50', root=
             root)), strict=True)
+    return model
+
+
+def resnest101(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest101', root=
+            root)), strict=True)
+    return model
+
+
+def resnet101(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNet-101 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet101', root=
+            root)), strict=False)
+    return model
+
+
+def xception65(pretrained=False, **kwargs):
+    """Constructs a ResNet-18 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = Xception65(**kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('xception65', root=
+            root)))
+    return model
+
+
+def resnest200(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 24, 36, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest200', root=
+            root)), strict=False)
+    return model
+
+
+def resnest269(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 30, 48, 8], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest269', root=
+            root)), strict=True)
+    return model
+
+
+def resnet101s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-101 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet101s', root=
+            root)), strict=False)
+    return model
+
+
+def wideresnet50(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a WideResNet-50 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = WideResNet([3, 3, 6, 6, 3, 1], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('wideresnet50',
+            root=root)), strict=False)
+    return model
+
+
+def resnet152s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-152 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet152s', root=
+            root)), strict=False)
+    return model
+
+
+def resnext101_32x8d(pretrained=False, root='~/.encoding/models', **kwargs):
+    """ResNeXt-101 32x8d model from
+    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    kwargs['groups'] = 32
+    kwargs['bottleneck_width'] = 8
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnext101_32x8d',
+            root=root)), strict=False)
+    return model
+
+
+def wideresnet38(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a WideResNet-38 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = WideResNet([3, 3, 6, 3, 1, 1], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('wideresnet38',
+            root=root)), strict=False)
     return model
 
 
@@ -1248,21 +1263,6 @@ def get_backbone(name, **kwargs):
             .keys()))))
     net = models[name](**kwargs)
     return net
-
-
-def batch_pix_accuracy(output, target):
-    """Batch Pixel Accuracy
-    Args:
-        predict: input 4D tensor
-        target: label 3D tensor
-    """
-    _, predict = torch.max(output, 1)
-    predict = predict.cpu().numpy().astype('int64') + 1
-    target = target.cpu().numpy().astype('int64') + 1
-    pixel_labeled = np.sum(target > 0)
-    pixel_correct = np.sum((predict == target) * (target > 0))
-    assert pixel_correct <= pixel_labeled, 'Correct area should be smaller than Labeled'
-    return pixel_correct, pixel_labeled
 
 
 class BaseNet(nn.Module):
@@ -1322,12 +1322,26 @@ class BaseNet(nn.Module):
         return correct, labeled, inter, union
 
 
-def resize_image(img, h, w, **up_kwargs):
-    return F.interpolate(img, (h, w), **up_kwargs)
-
-
 def crop_image(img, h0, h1, w0, w1):
     return img[:, :, h0:h1, w0:w1]
+
+
+def pad_image(img, mean, std, crop_size):
+    b, c, h, w = img.size()
+    assert c == 3
+    padh = crop_size - h if h < crop_size else 0
+    padw = crop_size - w if w < crop_size else 0
+    pad_values = -np.array(mean) / np.array(std)
+    img_pad = img.new().resize_(b, c, h + padh, w + padw)
+    for i in range(c):
+        img_pad[:, (i), :, :] = F.pad(img[:, (i), :, :], (0, padw, 0, padh),
+            value=pad_values[i])
+    assert img_pad.size(2) >= crop_size and img_pad.size(3) >= crop_size
+    return img_pad
+
+
+def resize_image(img, h, w, **up_kwargs):
+    return F.interpolate(img, (h, w), **up_kwargs)
 
 
 def flip_image(img):
@@ -1344,20 +1358,6 @@ def module_inference(module, image, flip=True):
         foutput = module.evaluate(fimg)
         output += flip_image(foutput)
     return output.exp()
-
-
-def pad_image(img, mean, std, crop_size):
-    b, c, h, w = img.size()
-    assert c == 3
-    padh = crop_size - h if h < crop_size else 0
-    padw = crop_size - w if w < crop_size else 0
-    pad_values = -np.array(mean) / np.array(std)
-    img_pad = img.new().resize_(b, c, h + padh, w + padw)
-    for i in range(c):
-        img_pad[:, (i), :, :] = F.pad(img[:, (i), :, :], (0, padw, 0, padh),
-            value=pad_values[i])
-    assert img_pad.size(2) >= crop_size and img_pad.size(3) >= crop_size
-    return img_pad
 
 
 class MultiEvalModule(DataParallel):
@@ -2010,45 +2010,6 @@ class DropBlock2D(nn.Module):
             step_size)
 
 
-class _scaled_l2(Function):
-
-    @staticmethod
-    def forward(ctx, X, C, S):
-        if X.is_cuda:
-            SL = lib.gpu.scaled_l2_forward(X, C, S)
-        else:
-            SL = lib.cpu.scaled_l2_forward(X, C, S)
-        ctx.save_for_backward(X, C, S, SL)
-        return SL
-
-    @staticmethod
-    def backward(ctx, gradSL):
-        X, C, S, SL = ctx.saved_variables
-        if X.is_cuda:
-            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C,
-                S, SL)
-        else:
-            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C,
-                S, SL)
-        return gradX, gradC, gradS
-
-
-def scaled_l2(X, C, S):
-    """ scaled_l2 distance
-
-    .. math::
-        sl_{ik} = s_k \\|x_i-c_k\\|^2
-
-    Shape:
-        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
-          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
-          (where :math:`B` is batch, :math:`N` is total number of features,
-          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
-        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
-    """
-    return _scaled_l2.apply(X, C, S)
-
-
 class _aggregate(Function):
 
     @staticmethod
@@ -2094,6 +2055,45 @@ def aggregate(A, X, C):
         >>> E = func(A, X, C)
     """
     return _aggregate.apply(A, X, C)
+
+
+class _scaled_l2(Function):
+
+    @staticmethod
+    def forward(ctx, X, C, S):
+        if X.is_cuda:
+            SL = lib.gpu.scaled_l2_forward(X, C, S)
+        else:
+            SL = lib.cpu.scaled_l2_forward(X, C, S)
+        ctx.save_for_backward(X, C, S, SL)
+        return SL
+
+    @staticmethod
+    def backward(ctx, gradSL):
+        X, C, S, SL = ctx.saved_variables
+        if X.is_cuda:
+            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C,
+                S, SL)
+        else:
+            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C,
+                S, SL)
+        return gradX, gradC, gradS
+
+
+def scaled_l2(X, C, S):
+    """ scaled_l2 distance
+
+    .. math::
+        sl_{ik} = s_k \\|x_i-c_k\\|^2
+
+    Shape:
+        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
+          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
+          (where :math:`B` is batch, :math:`N` is total number of features,
+          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
+        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
+    """
+    return _scaled_l2.apply(X, C, S)
 
 
 class Encoding(Module):
@@ -2825,6 +2825,26 @@ class DistSyncBatchNorm(_BatchNorm):
         return y.view(input_shape)
 
 
+def _act_backward(ctx, x, dx):
+    if ctx.activation.lower() == 'leaky_relu':
+        if x.is_cuda:
+            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
+        else:
+            raise NotImplemented
+    else:
+        assert activation == 'none'
+
+
+def _act_forward(ctx, x):
+    if ctx.activation.lower() == 'leaky_relu':
+        if x.is_cuda:
+            lib.gpu.leaky_relu_forward(x, ctx.slope)
+        else:
+            raise NotImplemented
+    else:
+        assert activation == 'none'
+
+
 class DataParallelModel(DataParallel):
     """Implements data parallelism at the module level.
 
@@ -2967,47 +2987,47 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zhanghang1989_PyTorch_Encoding(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBnAct(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MixtureOfSoftMaxACF(*[], **{'n_mix': 4, 'd_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ConvBnAct(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_005(self):
-        self._check(Sum(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(Inspiration(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
+        self._check(LabelSmoothing(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_007(self):
         self._check(Mean(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
+        self._check(MixtureOfSoftMaxACF(*[], **{'n_mix': 4, 'd_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(Inspiration(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_010(self):
-        self._check(UpsampleConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RFConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(LabelSmoothing(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(Sum(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_012(self):
-        self._check(RFConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpsampleConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})

@@ -194,21 +194,6 @@ class convLR(nn.Module):
         return fea
 
 
-def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
-    return gauss / gauss.sum()
-
-
-def create_window(window_size, channel):
-    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
-    return window
-
-
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
     mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
@@ -229,6 +214,21 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
+
+
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
+        sigma ** 2)) for x in range(window_size)])
+    return gauss / gauss.sum()
+
+
+def create_window(window_size, channel):
+    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
+        )
+    window = Variable(_2D_window.expand(channel, 1, window_size,
+        window_size).contiguous())
+    return window
 
 
 class SSIM(torch.nn.Module):
@@ -962,16 +962,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_gjy3035_C_3_Framework(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(CMTL(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(SANet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MCNN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(CMTL(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_003(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -981,27 +981,27 @@ class Test_gjy3035_C_3_Framework(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(convDU(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(MCNN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(convLR(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(SAModule(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SAModule_Head(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(BasicConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SANet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(BasicDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(SAModule_Head(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(convDU(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(SAModule(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(convLR(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 

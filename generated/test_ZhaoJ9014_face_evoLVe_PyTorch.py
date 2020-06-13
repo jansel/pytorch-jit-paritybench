@@ -1013,17 +1013,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ZhaoJ9014_face_evoLVe_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(bottleneck_IR(*[], **{'in_channel': 4, 'depth': 1, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(bottleneck_IR_SE(*[], **{'in_channel': 4, 'depth': 64, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(bottleneck_IR(*[], **{'in_channel': 4, 'depth': 1, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(bottleneck_IR_SE(*[], **{'in_channel': 4, 'depth': 64, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

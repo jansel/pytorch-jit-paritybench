@@ -293,6 +293,58 @@ class DataPoint:
         return all_labels
 
 
+class Image(DataPoint):
+
+    def __init__(self, data=None, imageURL=None):
+        super().__init__()
+        self.data = data
+        self._embeddings: Dict = {}
+        self.imageURL = imageURL
+
+    @property
+    def embedding(self):
+        return self.get_embedding()
+
+    def __str__(self):
+        image_repr = self.data.size() if self.data else ''
+        image_url = self.imageURL if self.imageURL else ''
+        return f'Image: {image_repr} {image_url}'
+
+    def get_embedding(self) ->torch.tensor:
+        embeddings = [self._embeddings[embed] for embed in sorted(self.
+            _embeddings.keys())]
+        if embeddings:
+            return torch.cat(embeddings, dim=0)
+        return torch.tensor([], device=flair.device)
+
+    def set_embedding(self, name: str, vector: torch.tensor):
+        device = flair.device
+        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.
+            keys()) > 0:
+            device = next(iter(self._embeddings.values())).device
+        if device != vector.device:
+            vector = vector.to(device)
+        self._embeddings[name] = vector
+
+    def to(self, device: str, pin_memory: bool=False):
+        for name, vector in self._embeddings.items():
+            if str(vector.device) != str(device):
+                if pin_memory:
+                    self._embeddings[name] = vector.to(device, non_blocking
+                        =True).pin_memory()
+                else:
+                    self._embeddings[name] = vector.to(device, non_blocking
+                        =True)
+
+    def clear_embeddings(self, embedding_names: List[str]=None):
+        if embedding_names is None:
+            self._embeddings: Dict = {}
+        else:
+            for name in embedding_names:
+                if name in self._embeddings.keys():
+                    del self._embeddings[name]
+
+
 log = logging.getLogger('flair')
 
 
@@ -420,12 +472,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_flairNLP_flair(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(SimilarityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(SimilarityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

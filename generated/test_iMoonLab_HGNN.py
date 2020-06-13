@@ -133,14 +133,14 @@ class Test_iMoonLab_HGNN(_paritybench_base):
         self._check(HGNN(*[], **{'in_ch': 4, 'n_class': 4, 'n_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(HGNN_conv(*[], **{'in_ft': 4, 'out_ft': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(HGNN_classifier(*[], **{'n_hid': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(HGNN_fc(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGNN_conv(*[], **{'in_ft': 4, 'out_ft': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(HGNN_embedding(*[], **{'in_ch': 4, 'n_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(HGNN_classifier(*[], **{'n_hid': 4, 'n_class': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGNN_fc(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

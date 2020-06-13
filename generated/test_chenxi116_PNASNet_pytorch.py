@@ -273,21 +273,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_chenxi116_PNASNet_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_001(self):
+        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_003(self):
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_004(self):
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_005(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

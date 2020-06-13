@@ -130,10 +130,6 @@ class GatedResBlock(nn.Module):
         return out
 
 
-def wn_linear(in_dim, out_dim):
-    return nn.utils.weight_norm(nn.Linear(in_dim, out_dim))
-
-
 @lru_cache(maxsize=64)
 def causal_mask(size):
     shape = [size, size]
@@ -142,6 +138,10 @@ def causal_mask(size):
     start_mask[0] = 0
     return torch.from_numpy(mask).unsqueeze(0), torch.from_numpy(start_mask
         ).unsqueeze(1)
+
+
+def wn_linear(in_dim, out_dim):
+    return nn.utils.weight_norm(nn.Linear(in_dim, out_dim))
 
 
 class CausalAttention(nn.Module):
@@ -235,12 +235,12 @@ class CondResNet(nn.Module):
         return self.blocks(input)
 
 
-def shift_right(input, size=1):
-    return F.pad(input, [size, 0, 0, 0])[:, :, :, :input.shape[3]]
-
-
 def shift_down(input, size=1):
     return F.pad(input, [0, 0, size, 0])[:, :, :input.shape[2], :]
+
+
+def shift_right(input, size=1):
+    return F.pad(input, [size, 0, 0, 0])[:, :, :, :input.shape[3]]
 
 
 class PixelSNAIL(nn.Module):
@@ -469,10 +469,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(WNConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CausalConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(CausalConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 1, 'n_res_channel': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -481,10 +481,10 @@ class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):
     def test_003(self):
         self._check(ResBlock(*[], **{'in_channel': 4, 'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Decoder(*[], **{'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 1, 'n_res_channel': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(VQVAE(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(WNConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

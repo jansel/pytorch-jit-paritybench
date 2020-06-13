@@ -162,10 +162,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_araffin_srl_zoo(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GaussianNoiseVariant(*[], **{'device': 4, 'std': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Discriminator(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(GaussianNoiseVariant(*[], **{'device': 4, 'std': 4}), [torch.rand([4, 4, 4, 4])], {})
 

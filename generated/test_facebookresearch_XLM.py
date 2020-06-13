@@ -83,59 +83,6 @@ import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 
 
-def cartesian_product(a, b):
-    """
-    Compute the batched cartesian product between two matrices.
-    Input:
-        a: Tensor(n, d1)
-        b: Tensor(n, d2)
-    Output:
-        output: Tensor(n, d1 * d2, 2)
-    """
-    n1, d1 = a.shape
-    n2, d2 = b.shape
-    assert n1 == n2
-    return torch.cat([a.unsqueeze(-1).repeat(1, 1, d2).unsqueeze(-1), b.
-        repeat(1, d1).view(n2, d1, d2).unsqueeze(-1)], 3).view(n1, d1 * d2, 2)
-
-
-def swig_ptr_from_LongTensor(x):
-    assert x.is_contiguous()
-    assert x.dtype == torch.int64, 'dtype=%s' % x.dtype
-    return faiss.cast_integer_to_long_ptr(x.storage().data_ptr() + x.
-        storage_offset() * 8)
-
-
-def swig_ptr_from_FloatTensor(x):
-    assert x.is_contiguous()
-    assert x.dtype == torch.float32
-    return faiss.cast_integer_to_float_ptr(x.storage().data_ptr() + x.
-        storage_offset() * 4)
-
-
-def get_knn_faiss(xb, xq, k, distance='dot_product'):
-    """
-    `metric` can be faiss.METRIC_INNER_PRODUCT or faiss.METRIC_L2
-    https://github.com/facebookresearch/faiss/blob/master/gpu/test/test_pytorch_faiss.py
-    """
-    assert xb.device == xq.device
-    assert distance in ['dot_product', 'l2']
-    metric = (faiss.METRIC_INNER_PRODUCT if distance == 'dot_product' else
-        faiss.METRIC_L2)
-    xq_ptr = swig_ptr_from_FloatTensor(xq)
-    xb_ptr = swig_ptr_from_FloatTensor(xb)
-    nq, d1 = xq.size()
-    nb, d2 = xb.size()
-    assert d1 == d2
-    D = torch.empty(nq, k, device=xb.device, dtype=torch.float32)
-    I = torch.empty(nq, k, device=xb.device, dtype=torch.int64)
-    D_ptr = swig_ptr_from_FloatTensor(D)
-    I_ptr = swig_ptr_from_LongTensor(I)
-    faiss.bruteForceKnn(FAISS_RES, metric, xb_ptr, nb, xq_ptr, nq, d1, k,
-        D_ptr, I_ptr)
-    return D, I
-
-
 def get_uniform_keys(n_keys, dim, normalized, seed):
     """
     Generate random uniform keys (same initialization as nn.Linear).
@@ -541,6 +488,32 @@ class TransformerFFN(nn.Module):
         return x
 
 
+def get_masks(slen, lengths, causal):
+    """
+    Generate hidden states mask, and optionally an attention mask.
+    """
+    assert lengths.max().item() <= slen
+    bs = lengths.size(0)
+    alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
+    mask = alen < lengths[:, (None)]
+    if causal:
+        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(
+            None), :, (None)]
+    else:
+        attn_mask = mask
+    assert mask.size() == (bs, slen)
+    assert causal is False or attn_mask.size() == (bs, slen, slen)
+    return mask, attn_mask
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx=None):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    if padding_idx is not None:
+        nn.init.constant_(m.weight[padding_idx], 0)
+    return m
+
+
 class BeamHypotheses(object):
 
     def __init__(self, n_hyp, max_len, length_penalty, early_stopping):
@@ -589,22 +562,7 @@ class BeamHypotheses(object):
                 self.length_penalty)
 
 
-def get_masks(slen, lengths, causal):
-    """
-    Generate hidden states mask, and optionally an attention mask.
-    """
-    assert lengths.max().item() <= slen
-    bs = lengths.size(0)
-    alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
-    mask = alen < lengths[:, (None)]
-    if causal:
-        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(
-            None), :, (None)]
-    else:
-        attn_mask = mask
-    assert mask.size() == (bs, slen)
-    assert causal is False or attn_mask.size() == (bs, slen, slen)
-    return mask, attn_mask
+N_MAX_POSITIONS = 512
 
 
 def create_sinusoidal_embeddings(n_pos, dim, out):
@@ -614,17 +572,6 @@ def create_sinusoidal_embeddings(n_pos, dim, out):
     out[:, 1::2] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
     out.detach_()
     out.requires_grad = False
-
-
-N_MAX_POSITIONS = 512
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx=None):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
-    if padding_idx is not None:
-        nn.init.constant_(m.weight[padding_idx], 0)
-    return m
 
 
 class TransformerModel(nn.Module):

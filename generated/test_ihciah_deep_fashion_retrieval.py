@@ -53,6 +53,9 @@ import torch.nn.functional as F
 import random
 
 
+CATEGORIES = 20
+
+
 DATASET_BASE = '/DATACETNER/1/ch/deepfashion_data'
 
 
@@ -64,9 +67,6 @@ def load_model(path=None):
         if os.path.isfile(i):
             return torch.load(i)
     return None
-
-
-CATEGORIES = 20
 
 
 INTER_DIM = 512
@@ -188,8 +188,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ihciah_deep_fashion_retrieval(_paritybench_base):
     pass
     def test_000(self):
-        self._check(p_model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TripletMarginLossCosine(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(TripletMarginLossCosine(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(p_model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

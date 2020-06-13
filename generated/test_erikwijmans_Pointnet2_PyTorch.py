@@ -176,6 +176,40 @@ class PointnetFPModule(nn.Module):
         return new_features.squeeze(-1)
 
 
+class BallQuery(Function):
+
+    @staticmethod
+    def forward(ctx, radius, nsample, xyz, new_xyz):
+        """
+
+        Parameters
+        ----------
+        radius : float
+            radius of the balls
+        nsample : int
+            maximum number of features in the balls
+        xyz : torch.Tensor
+            (B, N, 3) xyz coordinates of the features
+        new_xyz : torch.Tensor
+            (B, npoint, 3) centers of the ball query
+
+        Returns
+        -------
+        torch.Tensor
+            (B, npoint, nsample) tensor with the indicies of the features that form the query balls
+        """
+        output = _ext.ball_query(new_xyz, xyz, radius, nsample)
+        ctx.mark_non_differentiable(output)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        return ()
+
+
+ball_query = BallQuery.apply
+
+
 class GroupingOperation(Function):
 
     @staticmethod
@@ -219,40 +253,6 @@ class GroupingOperation(Function):
 
 
 grouping_operation = GroupingOperation.apply
-
-
-class BallQuery(Function):
-
-    @staticmethod
-    def forward(ctx, radius, nsample, xyz, new_xyz):
-        """
-
-        Parameters
-        ----------
-        radius : float
-            radius of the balls
-        nsample : int
-            maximum number of features in the balls
-        xyz : torch.Tensor
-            (B, N, 3) xyz coordinates of the features
-        new_xyz : torch.Tensor
-            (B, npoint, 3) centers of the ball query
-
-        Returns
-        -------
-        torch.Tensor
-            (B, npoint, nsample) tensor with the indicies of the features that form the query balls
-        """
-        output = _ext.ball_query(new_xyz, xyz, radius, nsample)
-        ctx.mark_non_differentiable(output)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        return ()
-
-
-ball_query = BallQuery.apply
 
 
 class QueryAndGroup(nn.Module):

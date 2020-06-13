@@ -308,21 +308,6 @@ def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
     return residuals, occ
 
 
-def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
-    """ chained gradient of image w.r.t. the pose
-    :param the Jacobian of the feature map in x direction
-    :param the Jacobian of the feature map in y direction
-    :param the Jacobian of the x map to manifold p
-    :param the Jacobian of the y map to manifold p
-    ------------
-    :return the image jacobian in x, y, direction, Bx2x6 each
-    """
-    B, C, H, W = Jf_x.shape
-    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
-        -1, 1) * Jy_p.view(B, 1, -1, 6)
-    return Jf_p.view(B, -1, 6)
-
-
 def compute_jacobian_warping(p_invdepth, K, px, py):
     """ Compute the Jacobian matrix of the warped (x,y) w.r.t. the inverse depth
     (linearized at origin)
@@ -344,6 +329,21 @@ def compute_jacobian_warping(p_invdepth, K, px, py):
     dy_dp = torch.cat((-1 - y ** 2, xy, x, O, invd, -invd * y), dim=2)
     fx, fy, cx, cy = torch.split(K, 1, dim=1)
     return dx_dp * fx.view(B, 1, 1), dy_dp * fy.view(B, 1, 1)
+
+
+def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
+    """ chained gradient of image w.r.t. the pose
+    :param the Jacobian of the feature map in x direction
+    :param the Jacobian of the feature map in y direction
+    :param the Jacobian of the x map to manifold p
+    :param the Jacobian of the y map to manifold p
+    ------------
+    :return the image jacobian in x, y, direction, Bx2x6 each
+    """
+    B, C, H, W = Jf_x.shape
+    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
+        -1, 1) * Jy_p.view(B, 1, -1, 6)
+    return Jf_p.view(B, -1, 6)
 
 
 class TrustRegionBase(nn.Module):
@@ -566,6 +566,20 @@ class DeepRobustEstimator(nn.Module):
         return torch.ones(x.shape).type_as(x)
 
 
+def fcLayer(in_planes, out_planes, bias=True):
+    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(
+        inplace=True))
+
+
+def deep_damping_regressor(D):
+    """ Output a damping vector at each dimension
+    """
+    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True),
+        fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(
+        in_planes=256, out_planes=6, bias=True))
+    return net
+
+
 def invH(H):
     """ Generate (H+damp)^{-1}, with predicted damping values
     :param approximate Hessian matrix JtWJ
@@ -597,20 +611,6 @@ def inverse_update_pose(H, Rhs, pose):
     R, t = pose
     pose = geometry.batch_Rt_compose(R, t, d_R, d_t)
     return pose
-
-
-def fcLayer(in_planes, out_planes, bias=True):
-    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(
-        inplace=True))
-
-
-def deep_damping_regressor(D):
-    """ Output a damping vector at each dimension
-    """
-    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True),
-        fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(
-        in_planes=256, out_planes=6, bias=True))
-    return net
 
 
 class DirectSolverNet(nn.Module):

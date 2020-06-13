@@ -476,11 +476,11 @@ class Test_PacktPublishing_Hands_On_Intelligent_Agents_with_OpenAI_Gym(_paritybe
         self._check(Actor(*[], **{'input_shape': [4, 4], 'output_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(DiscreteActor(*[], **{'input_shape': [4, 4], 'output_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ActorCritic(*[], **{'input_shape': [4, 4], 'actor_shape': 4, 'critic_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Critic(*[], **{'input_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(ActorCritic(*[], **{'input_shape': [4, 4], 'actor_shape': 4, 'critic_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiscreteActor(*[], **{'input_shape': [4, 4], 'output_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 

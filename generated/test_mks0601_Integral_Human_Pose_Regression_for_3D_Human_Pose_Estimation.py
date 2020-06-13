@@ -236,14 +236,10 @@ class DataParallelCriterion(DataParallel):
         return Reduce.apply(*outputs) / len(outputs)
 
 
-def _assert_no_grad(tensor):
-    assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
+_global_config['depth_dim'] = 1
 
 
 _global_config['output_shape'] = 4
-
-
-_global_config['depth_dim'] = 1
 
 
 def soft_argmax(heatmaps, joint_num):
@@ -270,6 +266,10 @@ def soft_argmax(heatmaps, joint_num):
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
     coord_out = torch.cat((accu_x, accu_y, accu_z), dim=2)
     return coord_out
+
+
+def _assert_no_grad(tensor):
+    assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
 
 
 class JointLocationLoss(nn.Module):

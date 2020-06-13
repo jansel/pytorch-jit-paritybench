@@ -181,8 +181,8 @@ class Test_hujinsen_pytorch_StarGAN_VC(_paritybench_base):
         self._check(Down2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Up2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Generator(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4])], {})
+        self._check(Up2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
 

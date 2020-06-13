@@ -312,6 +312,13 @@ class Sent2FeatMap(nn.Module):
         return output
 
 
+def branch_out(in_dim, out_dim=3):
+    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
+        kernel_size=3, padding=0, bias=False)]
+    _layers += [nn.Tanh()]
+    return nn.Sequential(*_layers)
+
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -320,13 +327,6 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
-
-
-def branch_out(in_dim, out_dim=3):
-    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
-        kernel_size=3, padding=0, bias=False)]
-    _layers += [nn.Tanh()]
-    return nn.Sequential(*_layers)
 
 
 class Generator(nn.Module):
@@ -599,18 +599,18 @@ class ImageEncoder(nn.Module):
         return feat
 
 
+def xavier_weight(tensor):
+    nin, nout = tensor.size()[0], tensor.size()[1]
+    r = np.sqrt(6.0) / np.sqrt(nin + nout)
+    return tensor.normal_(0, r)
+
+
 def l2norm(input, p=2.0, dim=1, eps=1e-12):
     """
     Compute L2 norm, row-wise
     """
     l2_inp = input / input.norm(p, dim, keepdim=True).clamp(min=eps)
     return l2_inp.expand_as(input)
-
-
-def xavier_weight(tensor):
-    nin, nout = tensor.size()[0], tensor.size()[1]
-    r = np.sqrt(6.0) / np.sqrt(nin + nout)
-    return tensor.normal_(0, r)
 
 
 class ImgSenRanking(torch.nn.Module):
@@ -2200,66 +2200,66 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ypxie_HDGan(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ImageDown(*[], **{'input_size': 4, 'num_chan': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Sent2FeatMap(*[], **{'in_dim': 4, 'row': 4, 'col': 4, 'channel': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(ImgSenRanking(*[], **{'dim_image': 4, 'sent_dim': 4, 'hid_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_001(self):
         self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    def test_007(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_008(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_009(self):
+    def test_002(self):
         self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
-    def test_010(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+    def test_003(self):
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
-    def test_011(self):
+    def test_004(self):
         self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
 
-    def test_012(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+    def test_005(self):
+        self._check(ImageDown(*[], **{'input_size': 4, 'num_chan': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+    @_fails_compile()
+    def test_006(self):
+        self._check(ImgSenRanking(*[], **{'dim_image': 4, 'sent_dim': 4, 'hid_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    def test_015(self):
+    def test_007(self):
         self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
+    def test_008(self):
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    def test_009(self):
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    def test_010(self):
+        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_012(self):
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    def test_013(self):
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_014(self):
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_015(self):
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
     def test_016(self):
-        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_017(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
     def test_018(self):
         self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_019(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_020(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Sent2FeatMap(*[], **{'in_dim': 4, 'row': 4, 'col': 4, 'channel': 4}), [torch.rand([4, 4])], {})
 

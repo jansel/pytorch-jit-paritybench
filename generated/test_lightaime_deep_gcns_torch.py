@@ -970,17 +970,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lightaime_deep_gcns_torch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(DenseDilated(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(MLP(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicConv(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(DenseDilated(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(Dilated(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(MLP(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

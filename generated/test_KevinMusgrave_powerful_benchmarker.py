@@ -171,13 +171,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_KevinMusgrave_powerful_benchmarker(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(ListOfModels(*[], **{'list_of_models': [ReLU()]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
-        self._check(MLP(*[], **{'layer_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLP(*[], **{'layer_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

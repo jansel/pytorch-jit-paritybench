@@ -85,30 +85,6 @@ import torch.utils.data.distributed
 from collections import OrderedDict
 
 
-def drop_connect(inputs, p, training):
-    """Drop connect.
-       
-    Args:
-        input (tensor: BCWH): Input of this structure.
-        p (float: 0.0~1.0): Probability of drop connection.
-        training (bool): The running mode.
-
-    Returns:
-        output: Output after drop connection.
-    """
-    assert p >= 0 and p <= 1, 'p must be in range of [0,1]'
-    if not training:
-        return inputs
-    batch_size = inputs.shape[0]
-    keep_prob = 1 - p
-    random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
-    binary_tensor = torch.floor(random_tensor)
-    output = inputs / keep_prob * binary_tensor
-    return output
-
-
 def get_width_and_height_from_size(x):
     """Obtain height and width from x.
 
@@ -145,6 +121,30 @@ def calculate_output_image_size(input_image_size, stride):
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
     return [image_height, image_width]
+
+
+def drop_connect(inputs, p, training):
+    """Drop connect.
+       
+    Args:
+        input (tensor: BCWH): Input of this structure.
+        p (float: 0.0~1.0): Probability of drop connection.
+        training (bool): The running mode.
+
+    Returns:
+        output: Output after drop connection.
+    """
+    assert p >= 0 and p <= 1, 'p must be in range of [0,1]'
+    if not training:
+        return inputs
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
+        device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    output = inputs / keep_prob * binary_tensor
+    return output
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -262,6 +262,29 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
+def round_repeats(repeats, global_params):
+    """Calculate module's repeat number of a block based on depth multiplier.
+       Use depth_coefficient of global_params.
+
+    Args:
+        repeats (int): num_repeat to be calculated.
+        global_params (namedtuple): Global params of the model.
+
+    Returns:
+        new repeat: New repeat number after calculating.
+    """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient',
+    'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes',
+    'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate',
+    'depth_divisor', 'min_depth'])
+
+
 BlockArgs = collections.namedtuple('BlockArgs', ['num_repeat',
     'kernel_size', 'stride', 'expand_ratio', 'input_filters',
     'output_filters', 'se_ratio', 'id_skip'])
@@ -351,12 +374,6 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient',
-    'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes',
-    'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate',
-    'depth_divisor', 'min_depth'])
-
-
 def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
     =None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
     """Create BlockArgs and GlobalParams for efficientnet model.
@@ -426,23 +443,6 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
-
-
-def round_repeats(repeats, global_params):
-    """Calculate module's repeat number of a block based on depth multiplier.
-       Use depth_coefficient of global_params.
-
-    Args:
-        repeats (int): num_repeat to be calculated.
-        global_params (namedtuple): Global params of the model.
-
-    Returns:
-        new repeat: New repeat number after calculating.
-    """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
 
 
 url_map = {'efficientnet-b0':
@@ -937,18 +937,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(MaxPool2dDynamicSamePadding(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_003(self):
+        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

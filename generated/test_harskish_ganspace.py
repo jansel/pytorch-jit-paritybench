@@ -345,6 +345,59 @@ class Generator(nn.Module):
         return z
 
 
+WEIGHTS_NAME = 'pytorch_model.bin'
+
+
+class BigGANConfig(object):
+    """ Configuration class to store the configuration of a `BigGAN`. 
+        Defaults are for the 128x128 model.
+        layers tuple are (up-sample in the layer ?, input channels, output channels)
+    """
+
+    def __init__(self, output_dim=128, z_dim=128, class_embed_dim=128,
+        channel_width=128, num_classes=1000, layers=[(False, 16, 16), (True,
+        16, 16), (False, 16, 16), (True, 16, 8), (False, 8, 8), (True, 8, 4
+        ), (False, 4, 4), (True, 4, 2), (False, 2, 2), (True, 2, 1)],
+        attention_layer_position=8, eps=0.0001, n_stats=51):
+        """Constructs BigGANConfig. """
+        self.output_dim = output_dim
+        self.z_dim = z_dim
+        self.class_embed_dim = class_embed_dim
+        self.channel_width = channel_width
+        self.num_classes = num_classes
+        self.layers = layers
+        self.attention_layer_position = attention_layer_position
+        self.eps = eps
+        self.n_stats = n_stats
+
+    @classmethod
+    def from_dict(cls, json_object):
+        """Constructs a `BigGANConfig` from a Python dictionary of parameters."""
+        config = BigGANConfig()
+        for key, value in json_object.items():
+            config.__dict__[key] = value
+        return config
+
+    @classmethod
+    def from_json_file(cls, json_file):
+        """Constructs a `BigGANConfig` from a json file of parameters."""
+        with open(json_file, 'r', encoding='utf-8') as reader:
+            text = reader.read()
+        return cls.from_dict(json.loads(text))
+
+    def __repr__(self):
+        return str(self.to_json_string())
+
+    def to_dict(self):
+        """Serializes this instance to a Python dictionary."""
+        output = copy.deepcopy(self.__dict__)
+        return output
+
+    def to_json_string(self):
+        """Serializes this instance to a JSON string."""
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
+
+
 PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
     'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json'
     , 'biggan-deep-256':
@@ -354,7 +407,16 @@ PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
     }
 
 
-CONFIG_NAME = 'config.json'
+def http_get(url, temp_file):
+    req = requests.get(url, stream=True)
+    content_length = req.headers.get('Content-Length')
+    total = int(content_length) if content_length is not None else None
+    progress = tqdm(unit='B', total=total)
+    for chunk in req.iter_content(chunk_size=1024):
+        if chunk:
+            progress.update(len(chunk))
+            temp_file.write(chunk)
+    progress.close()
 
 
 def url_to_filename(url, etag=None):
@@ -373,6 +435,18 @@ def url_to_filename(url, etag=None):
     return filename
 
 
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
+
+
 def s3_request(func):
     """
     Wrapper function for s3 requests in order to create more helpful error
@@ -389,18 +463,6 @@ def s3_request(func):
             else:
                 raise
     return wrapper
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
 
 
 class MyLinear(nn.Module):
@@ -1977,50 +2039,50 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_harskish_ganspace(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_001(self):
-        self._check(MyLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(MyConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(NoiseLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(StyleMod(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
         self._check(BlurLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
-
-    @_fails_compile()
-    def test_009(self):
+    def test_001(self):
         self._check(DoubleResolutionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
-        self._check(WScaleLayer(*[], **{'size': 4, 'fan_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_002(self):
+        self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
 
-    def test_011(self):
+    def test_003(self):
+        self._check(MyConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(MyLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(NoiseLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(NormConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_007(self):
         self._check(NormUpscaleConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_008(self):
         self._check(OutputConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_011(self):
+        self._check(StyleMod(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(WScaleLayer(*[], **{'size': 4, 'fan_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 

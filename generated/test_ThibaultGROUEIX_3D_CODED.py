@@ -209,11 +209,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ThibaultGROUEIX_3D_CODED(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PointNetfeat(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(PointGenCon(*[], **{}), [torch.rand([4, 2500, 64])], {})
 
     def test_001(self):
-        self._check(patchDeformationMLP(*[], **{}), [torch.rand([4, 2, 64])], {})
+        self._check(PointNetfeat(*[], **{}), [torch.rand([4, 3, 64])], {})
 
     def test_002(self):
-        self._check(PointGenCon(*[], **{}), [torch.rand([4, 2500, 64])], {})
+        self._check(patchDeformationMLP(*[], **{}), [torch.rand([4, 2, 64])], {})
 

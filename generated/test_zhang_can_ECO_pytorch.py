@@ -389,12 +389,12 @@ class ConsensusModule(torch.nn.Module):
         return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
+LAYER_BUILDER_DICT = dict()
+
+
 def parse_expr(expr):
     parts = expr.split('<=')
     return parts[0].split(','), parts[1], parts[2].split(',')
-
-
-LAYER_BUILDER_DICT = dict()
 
 
 def get_basic_layer(info, channels=None, conv_bias=False, num_segments=4):
@@ -985,36 +985,36 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zhang_can_ECO_pytorch(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    @_fails_compile()
-    def test_005(self):
+    def test_001(self):
         self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     @_fails_compile()
+    def test_002(self):
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+
+    def test_004(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
     def test_006(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
@@ -1030,21 +1030,21 @@ class Test_zhang_can_ECO_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_011(self):
-        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     @_fails_compile()
     def test_013(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     @_fails_compile()
     def test_014(self):
-        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
     @_fails_compile()
     def test_015(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 

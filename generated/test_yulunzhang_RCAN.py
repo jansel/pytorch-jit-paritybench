@@ -1296,8 +1296,8 @@ class Test_yulunzhang_RCAN(_paritybench_base):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SELayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_002(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(SELayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 

@@ -127,30 +127,6 @@ def similarity_matrix(x):
     return R
 
 
-_global_config['momentum'] = 4
-
-
-_global_config['dropout'] = 0.5
-
-
-_global_config['weight_decay'] = 4
-
-
-_global_config['no_print_stats'] = 4
-
-
-_global_config['no_batch_norm'] = 4
-
-
-_global_config['optim'] = 4
-
-
-_global_config['beta'] = 4
-
-
-_global_config['alpha'] = 4
-
-
 class LocalLossBlockLinear(nn.Module):
     """A module containing nn.Linear -> nn.BatchNorm1d -> nn.ReLU -> nn.Dropout
        The block can be trained by backprop or by locally generated error signal based on cross-entropy and/or similarity matching loss.
@@ -548,10 +524,19 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
-_global_config['pre_act'] = 4
-
-
 _global_config['no_detach'] = 4
+
+
+_global_config['momentum'] = 4
+
+
+_global_config['weight_decay'] = 4
+
+
+_global_config['optim'] = 4
+
+
+_global_config['pre_act'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -981,10 +966,10 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_hidden'] = 4
-
-
 _global_config['num_layers'] = 1
+
+
+_global_config['num_hidden'] = 4
 
 
 class VGGn(nn.Module):

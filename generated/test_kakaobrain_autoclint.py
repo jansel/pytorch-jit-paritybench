@@ -407,43 +407,43 @@ class Test_kakaobrain_autoclint(_paritybench_base):
     def test_000(self):
         self._check(BinaryCrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ToDevice(*[], **{}), [], {})
-
-    def test_002(self):
         self._check(CopyChannels(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_002(self):
+        self._check(Cutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(Normalize(*[], **{'mean': 4, 'std': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(SplitTime(*[], **{'times': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DelayedPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_004(self):
+        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_006(self):
-        self._check(Cutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(KeepByPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(Mul(*[], **{'weight': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Normalize(*[], **{'mean': 4, 'std': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_009(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(DelayedPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
         self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_010(self):
+        self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SplitTime(*[], **{'times': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_012(self):
-        self._check(KeepByPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ToDevice(*[], **{}), [], {})
 

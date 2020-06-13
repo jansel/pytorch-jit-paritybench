@@ -548,6 +548,40 @@ class MLPEncoder(Module):
         return self.seq(data)
 
 
+class LoadError(Exception):
+    """Error thrown because of fatal error when loading"""
+
+
+class State(OrderedDict):
+    """A state object for Flambe."""
+    _metadata: Dict[str, Any]
+
+
+C = TypeVar('C', bound='Component')
+
+
+def make_to_yaml_with_metadata(to_yaml_fn: Callable[..., Any]) ->Callable[
+    ..., Any]:
+
+    @functools.wraps(to_yaml_fn)
+    def wrapped(representer: Any, node: Any) ->Any:
+        if hasattr(node, '_created_with_tag'):
+            tag = node._created_with_tag
+        else:
+            tag = Registrable.get_default_tag(type(node))
+        return to_yaml_fn(representer, node, tag=tag)
+    return wrapped
+
+
+class RegistrationError(Exception):
+    """Error thrown when acessing yaml tag on a non-registered class
+
+    Thrown when trying to access the default yaml tag for a class
+    typically occurs when called on an abstract class
+    """
+    pass
+
+
 class MixtureOfSoftmax(Module):
     """Implement the MixtureOfSoftmax output layer.
 
@@ -652,24 +686,6 @@ class LastPooling(Module):
         return data[(torch.arange(data.size(0)).long()), (lengths - 1), :]
 
 
-def _default_padding_mask(data: torch.Tensor) ->torch.Tensor:
-    """
-    Builds a 1s padding mask taking into account initial 2 dimensions
-    of input data.
-
-    Parameters
-    ----------
-    data : torch.Tensor
-        The input data, as a tensor of shape [B x S x H]
-
-    Returns
-    ----------
-    torch.Tensor
-        A padding mask , as a tensor of shape [B x S]
-    """
-    return torch.ones((data.size(0), data.size(1))).to(data)
-
-
 def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
     ) ->torch.Tensor:
     """
@@ -688,6 +704,24 @@ def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
 
     """
     return (data * padding_mask.unsqueeze(2)).sum(dim=1)
+
+
+def _default_padding_mask(data: torch.Tensor) ->torch.Tensor:
+    """
+    Builds a 1s padding mask taking into account initial 2 dimensions
+    of input data.
+
+    Parameters
+    ----------
+    data : torch.Tensor
+        The input data, as a tensor of shape [B x S x H]
+
+    Returns
+    ----------
+    torch.Tensor
+        A padding mask , as a tensor of shape [B x S]
+    """
+    return torch.ones((data.size(0), data.size(1))).to(data)
 
 
 class SumPooling(Module):
@@ -1986,48 +2020,48 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_asappresearch_flambe(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LogisticRegression(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(CNNEncoder(*[], **{'input_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_002(self):
+        self._check(FirstPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(LastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(LogisticRegression(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(MLPEncoder(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_006(self):
         self._check(MixtureOfSoftmax(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(FirstPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(LastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(SumPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_007(self):
-        self._check(AvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SoftmaxLayer(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
         self._check(StructuredSelfAttentivePooling(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_009(self):
-        self._check(SoftmaxLayer(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SumPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):
         self._check(TransformerDecoder(*[], **{'input_size': 4, 'd_model': 4, 'nhead': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_011(self):
-        self._check(TransformerEncoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_012(self):
         self._check(TransformerDecoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(TransformerEncoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4])], {})
 

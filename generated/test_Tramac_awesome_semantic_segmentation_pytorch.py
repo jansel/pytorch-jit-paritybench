@@ -2300,6 +2300,11 @@ class _DeepLabHead(nn.Module):
         return self.block(torch.cat([x, c1], dim=1))
 
 
+densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
+    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
+    32])}
+
+
 class DilatedDenseNet(DenseNet):
 
     def __init__(self, growth_rate=12, block_config=(6, 12, 24, 16),
@@ -2329,11 +2334,6 @@ class DilatedDenseNet(DenseNet):
                 m.dilation = dilate, dilate
 
 
-densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
-    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
-    32])}
-
-
 def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
     model = DilatedDenseNet(growth_rate, block_config, num_init_features,
@@ -2353,20 +2353,20 @@ def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     return model
 
 
+def dilated_densenet201(dilate_scale, **kwargs):
+    return get_dilated_densenet(201, dilate_scale, **kwargs)
+
+
 def dilated_densenet169(dilate_scale, **kwargs):
     return get_dilated_densenet(169, dilate_scale, **kwargs)
-
-
-def dilated_densenet121(dilate_scale, **kwargs):
-    return get_dilated_densenet(121, dilate_scale, **kwargs)
 
 
 def dilated_densenet161(dilate_scale, **kwargs):
     return get_dilated_densenet(161, dilate_scale, **kwargs)
 
 
-def dilated_densenet201(dilate_scale, **kwargs):
-    return get_dilated_densenet(201, dilate_scale, **kwargs)
+def dilated_densenet121(dilate_scale, **kwargs):
+    return get_dilated_densenet(121, dilate_scale, **kwargs)
 
 
 class DenseASPP(nn.Module):
@@ -3874,6 +3874,15 @@ class _PSPHead(nn.Module):
         return self.block(x)
 
 
+def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
+    if pretrained:
+        from ..model_store import get_resnet_file
+        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
+            root)), strict=False)
+    return model
+
+
 def resnet101_v1s(pretrained=False, root='~/.torch/models', **kwargs):
     model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True, **kwargs)
     if pretrained:
@@ -3888,15 +3897,6 @@ def resnet50_v1s(pretrained=False, root='~/.torch/models', **kwargs):
     if pretrained:
         from ..model_store import get_resnet_file
         model.load_state_dict(torch.load(get_resnet_file('resnet50', root=
-            root)), strict=False)
-    return model
-
-
-def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
-    if pretrained:
-        from ..model_store import get_resnet_file
-        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
             root)), strict=False)
     return model
 
@@ -4079,25 +4079,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-class _CAWeight(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, t, f):
-        weight = _C.ca_forward(t, f)
-        ctx.save_for_backward(t, f)
-        return weight
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dw):
-        t, f = ctx.saved_tensors
-        dt, df = _C.ca_backward(dw, t, f)
-        return dt, df
-
-
-ca_weight = _CAWeight.apply
-
-
 class _CAMap(torch.autograd.Function):
 
     @staticmethod
@@ -4115,6 +4096,25 @@ class _CAMap(torch.autograd.Function):
 
 
 ca_map = _CAMap.apply
+
+
+class _CAWeight(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, t, f):
+        weight = _C.ca_forward(t, f)
+        ctx.save_for_backward(t, f)
+        return weight
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dw):
+        t, f = ctx.saved_tensors
+        dt, df = _C.ca_backward(dw, t, f)
+        return dt, df
+
+
+ca_weight = _CAWeight.apply
 
 
 class CrissCrossAttention(nn.Module):
@@ -4253,114 +4253,20 @@ class DistributeAttention(nn.Module):
         return out
 
 
-class _SyncBatchNorm(Function):
-
-    @classmethod
-    def forward(cls, ctx, x, gamma, beta, running_mean, running_var, extra,
-        sync=True, training=True, momentum=0.1, eps=1e-05, activation=
-        'none', slope=0.01):
-        cls._parse_extra(ctx, extra)
-        ctx.sync = sync
-        ctx.training = training
-        ctx.momentum = momentum
-        ctx.eps = eps
-        ctx.activation = activation
-        ctx.slope = slope
-        assert activation == 'none'
-        x = x.contiguous()
-        gamma = gamma.contiguous()
-        beta = beta.contiguous()
-        if ctx.training:
-            _ex, _exs = _C.expectation_forward(x)
-            if ctx.sync:
-                if ctx.is_master:
-                    _ex, _exs = [_ex.unsqueeze(0)], [_exs.unsqueeze(0)]
-                    for _ in range(ctx.master_queue.maxsize):
-                        _ex_w, _exs_w = ctx.master_queue.get()
-                        ctx.master_queue.task_done()
-                        _ex.append(_ex_w.unsqueeze(0))
-                        _exs.append(_exs_w.unsqueeze(0))
-                    _ex = comm.gather(_ex).mean(0)
-                    _exs = comm.gather(_exs).mean(0)
-                    tensors = comm.broadcast_coalesced((_ex, _exs), [_ex.
-                        get_device()] + ctx.worker_ids)
-                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
-                        queue.put(ts)
-                else:
-                    ctx.master_queue.put((_ex, _exs))
-                    _ex, _exs = ctx.worker_queue.get()
-                    ctx.worker_queue.task_done()
-            _var = _exs - _ex ** 2
-            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * _ex)
-            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
-            ctx.mark_dirty(running_mean, running_var)
-        else:
-            _ex, _var = running_mean.contiguous(), running_var.contiguous()
-            _exs = _var + _ex ** 2
-        y = _C.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
-        ctx.save_for_backward(x, _ex, _exs, gamma, beta)
-        return y
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dz):
-        x, _ex, _exs, gamma, beta = ctx.saved_tensors
-        dz = dz.contiguous()
-        dx, _dex, _dexs, dgamma, dbeta = _C.batchnorm_backward(dz, x, _ex,
-            _exs, gamma, beta, ctx.eps)
-        if ctx.training:
-            if ctx.sync:
-                if ctx.is_master:
-                    _dex, _dexs = [_dex.unsqueeze(0)], [_dexs.unsqueeze(0)]
-                    for _ in range(ctx.master_queue.maxsize):
-                        _dex_w, _dexs_w = ctx.master_queue.get()
-                        ctx.master_queue.task_done()
-                        _dex.append(_dex_w.unsqueeze(0))
-                        _dexs.append(_dexs_w.unsqueeze(0))
-                    _dex = comm.gather(_dex).mean(0)
-                    _dexs = comm.gather(_dexs).mean(0)
-                    tensors = comm.broadcast_coalesced((_dex, _dexs), [_dex
-                        .get_device()] + ctx.worker_ids)
-                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
-                        queue.put(ts)
-                else:
-                    ctx.master_queue.put((_dex, _dexs))
-                    _dex, _dexs = ctx.worker_queue.get()
-                    ctx.worker_queue.task_done()
-            dx_ = _C.expectation_backward(x, _dex, _dexs)
-            dx = dx + dx_
-        return (dx, dgamma, dbeta, None, None, None, None, None, None, None,
-            None, None)
-
-    @staticmethod
-    def _parse_extra(ctx, extra):
-        ctx.is_master = extra['is_master']
-        if ctx.is_master:
-            ctx.master_queue = extra['master_queue']
-            ctx.worker_queues = extra['worker_queues']
-            ctx.worker_ids = extra['worker_ids']
-        else:
-            ctx.master_queue = extra['master_queue']
-            ctx.worker_queue = extra['worker_queue']
-
-
-syncbatchnorm = _SyncBatchNorm.apply
-
-
-def _act_forward(ctx, x):
+def _act_backward(ctx, x, dx):
     if ctx.activation.lower() == 'leaky_relu':
         if x.is_cuda:
-            lib.gpu.leaky_relu_forward(x, ctx.slope)
+            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
         else:
             raise NotImplemented
     else:
         assert ctx.activation == 'none'
 
 
-def _act_backward(ctx, x, dx):
+def _act_forward(ctx, x):
     if ctx.activation.lower() == 'leaky_relu':
         if x.is_cuda:
-            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
+            lib.gpu.leaky_relu_forward(x, ctx.slope)
         else:
             raise NotImplemented
     else:
@@ -4473,6 +4379,100 @@ class inp_syncbatchnorm_(Function):
 
 
 inp_syncbatchnorm = inp_syncbatchnorm_.apply
+
+
+class _SyncBatchNorm(Function):
+
+    @classmethod
+    def forward(cls, ctx, x, gamma, beta, running_mean, running_var, extra,
+        sync=True, training=True, momentum=0.1, eps=1e-05, activation=
+        'none', slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.sync = sync
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        assert activation == 'none'
+        x = x.contiguous()
+        gamma = gamma.contiguous()
+        beta = beta.contiguous()
+        if ctx.training:
+            _ex, _exs = _C.expectation_forward(x)
+            if ctx.sync:
+                if ctx.is_master:
+                    _ex, _exs = [_ex.unsqueeze(0)], [_exs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _ex_w, _exs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _ex.append(_ex_w.unsqueeze(0))
+                        _exs.append(_exs_w.unsqueeze(0))
+                    _ex = comm.gather(_ex).mean(0)
+                    _exs = comm.gather(_exs).mean(0)
+                    tensors = comm.broadcast_coalesced((_ex, _exs), [_ex.
+                        get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_ex, _exs))
+                    _ex, _exs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            _var = _exs - _ex ** 2
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * _ex)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
+            ctx.mark_dirty(running_mean, running_var)
+        else:
+            _ex, _var = running_mean.contiguous(), running_var.contiguous()
+            _exs = _var + _ex ** 2
+        y = _C.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+        ctx.save_for_backward(x, _ex, _exs, gamma, beta)
+        return y
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        x, _ex, _exs, gamma, beta = ctx.saved_tensors
+        dz = dz.contiguous()
+        dx, _dex, _dexs, dgamma, dbeta = _C.batchnorm_backward(dz, x, _ex,
+            _exs, gamma, beta, ctx.eps)
+        if ctx.training:
+            if ctx.sync:
+                if ctx.is_master:
+                    _dex, _dexs = [_dex.unsqueeze(0)], [_dexs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _dex_w, _dexs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _dex.append(_dex_w.unsqueeze(0))
+                        _dexs.append(_dexs_w.unsqueeze(0))
+                    _dex = comm.gather(_dex).mean(0)
+                    _dexs = comm.gather(_dexs).mean(0)
+                    tensors = comm.broadcast_coalesced((_dex, _dexs), [_dex
+                        .get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_dex, _dexs))
+                    _dex, _dexs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            dx_ = _C.expectation_backward(x, _dex, _dexs)
+            dx = dx + dx_
+        return (dx, dgamma, dbeta, None, None, None, None, None, None, None,
+            None, None)
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
+
+
+syncbatchnorm = _SyncBatchNorm.apply
 
 
 class SyncBatchNorm(_BatchNorm):

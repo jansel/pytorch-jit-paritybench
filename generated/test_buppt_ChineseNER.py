@@ -36,12 +36,6 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-STOP_TAG = '<STOP>'
-
-
-START_TAG = '<START>'
-
-
 def argmax(vec):
     _, idx = torch.max(vec, 1)
     return idx.item()
@@ -52,6 +46,12 @@ def log_sum_exp(vec):
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
     return max_score + torch.log(torch.sum(torch.exp(vec -
         max_score_broadcast)))
+
+
+STOP_TAG = '<STOP>'
+
+
+START_TAG = '<START>'
 
 
 class BiLSTM_CRF(nn.Module):

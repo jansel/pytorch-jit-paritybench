@@ -226,14 +226,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NVIDIA_AI_IOT_trt_pose(_paritybench_base):
     pass
     def test_000(self):
-        self._check(UpsampleCBR(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(CmapPafHead(*[], **{'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(CmapPafHeadAttention(*[], **{'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(InputReNormalization(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_003(self):
+        self._check(UpsampleCBR(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

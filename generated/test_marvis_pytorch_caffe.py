@@ -510,6 +510,51 @@ class PriorBox(nn.Module):
             return Variable(output)
 
 
+def print_prototxt(net_info):
+
+    def format_value(value):
+        if is_number(value):
+            return value
+        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
+            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
+            'LANCZOS4', 'CENTER', 'LMDB']:
+            return value
+        else:
+            return '"%s"' % value
+
+    def print_block(block_info, prefix, indent):
+        blanks = ''.join([' '] * indent)
+        print('%s%s {' % (blanks, prefix))
+        for key, value in list(block_info.items()):
+            if type(value) == OrderedDict:
+                print_block(value, key, indent + 4)
+            elif type(value) == list:
+                for v in value:
+                    print('%s    %s: %s' % (blanks, key, format_value(v)))
+            else:
+                print('%s    %s: %s' % (blanks, key, format_value(value)))
+        print('%s}' % blanks)
+    props = net_info['props']
+    layers = net_info['layers']
+    print('name: "%s"' % props['name'])
+    print('input: "%s"' % props['input'])
+    print('input_dim: %s' % props['input_dim'][0])
+    print('input_dim: %s' % props['input_dim'][1])
+    print('input_dim: %s' % props['input_dim'][2])
+    print('input_dim: %s' % props['input_dim'][3])
+    print('')
+    for layer in layers:
+        print_block(layer, 'layer', 0)
+
+
+def parse_caffemodel(caffemodel):
+    model = caffe_pb2.NetParameter()
+    print('Loading caffemodel: ', caffemodel)
+    with open(caffemodel, 'rb') as fp:
+        model.ParseFromString(fp.read())
+    return model
+
+
 def parse_prototxt(protofile):
 
     def line_type(line):
@@ -579,51 +624,6 @@ def parse_prototxt(protofile):
         return net_info
     else:
         return props
-
-
-def print_prototxt(net_info):
-
-    def format_value(value):
-        if is_number(value):
-            return value
-        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
-            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
-            'LANCZOS4', 'CENTER', 'LMDB']:
-            return value
-        else:
-            return '"%s"' % value
-
-    def print_block(block_info, prefix, indent):
-        blanks = ''.join([' '] * indent)
-        print('%s%s {' % (blanks, prefix))
-        for key, value in list(block_info.items()):
-            if type(value) == OrderedDict:
-                print_block(value, key, indent + 4)
-            elif type(value) == list:
-                for v in value:
-                    print('%s    %s: %s' % (blanks, key, format_value(v)))
-            else:
-                print('%s    %s: %s' % (blanks, key, format_value(value)))
-        print('%s}' % blanks)
-    props = net_info['props']
-    layers = net_info['layers']
-    print('name: "%s"' % props['name'])
-    print('input: "%s"' % props['input'])
-    print('input_dim: %s' % props['input_dim'][0])
-    print('input_dim: %s' % props['input_dim'][1])
-    print('input_dim: %s' % props['input_dim'][2])
-    print('input_dim: %s' % props['input_dim'][3])
-    print('')
-    for layer in layers:
-        print_block(layer, 'layer', 0)
-
-
-def parse_caffemodel(caffemodel):
-    model = caffe_pb2.NetParameter()
-    print('Loading caffemodel: ', caffemodel)
-    with open(caffemodel, 'rb') as fp:
-        model.ParseFromString(fp.read())
-    return model
 
 
 SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
@@ -1471,6 +1471,17 @@ class Detection(nn.Module):
             return Variable(outputs.unsqueeze(0).unsqueeze(0))
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -1575,17 +1586,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1725,27 +1725,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_marvis_pytorch_caffe(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Scale(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(Crop(*[], **{'axis': 4, 'offset': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Normalize(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Flatten(*[], **{'axis': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
         self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 64])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_001(self):
+        self._check(Crop(*[], **{'axis': 4, 'offset': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Flatten(*[], **{'axis': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Normalize(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(PriorBox(*[], **{'min_size': 4, 'max_size': 4, 'aspects': 4, 'clip': 4, 'flip': 4, 'step': 4, 'offset': 4, 'variances': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(Scale(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

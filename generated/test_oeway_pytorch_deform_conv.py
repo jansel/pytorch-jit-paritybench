@@ -314,9 +314,9 @@ class Test_oeway_pytorch_deform_conv(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(DeformConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(ConvOffset2D(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(ConvOffset2D(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DeformConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

@@ -119,14 +119,6 @@ class ScaledDotProductAttention(nn.Module):
         return output, attn
 
 
-def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(pad_idx)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
-
-
 def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
     """padding position is set to 0, either use input_lengths or pad_idx
     """
@@ -140,9 +132,6 @@ def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
         assert padded_input.dim() == 2
         non_pad_mask = padded_input.ne(pad_idx).float()
     return non_pad_mask.unsqueeze(-1)
-
-
-IGNORE_ID = -1
 
 
 def get_attn_pad_mask(padded_input, input_lengths, expand_length):
@@ -169,6 +158,17 @@ def get_subsequent_mask(seq):
         device, dtype=torch.uint8), diagonal=1)
     subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
     return subsequent_mask
+
+
+def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(pad_idx)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
+
+
+IGNORE_ID = -1
 
 
 class Decoder(nn.Module):
@@ -584,22 +584,22 @@ class Test_kaituoxu_Speech_Transformer(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(Encoder(*[], **{'d_input': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Encoder(*[], **{'d_input': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
-
-    def test_003(self):
         self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(PositionwiseFeedForwardUseConv(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

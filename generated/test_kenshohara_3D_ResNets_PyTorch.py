@@ -406,14 +406,14 @@ class ResNet(nn.Module):
         return x
 
 
-def conv1x3x3(in_planes, mid_planes, stride=1):
-    return nn.Conv3d(in_planes, mid_planes, kernel_size=(1, 3, 3), stride=(
-        1, stride, stride), padding=(0, 1, 1), bias=False)
-
-
 def conv3x1x1(mid_planes, planes, stride=1):
     return nn.Conv3d(mid_planes, planes, kernel_size=(3, 1, 1), stride=(
         stride, 1, 1), padding=(1, 0, 0), bias=False)
+
+
+def conv1x3x3(in_planes, mid_planes, stride=1):
+    return nn.Conv3d(in_planes, mid_planes, kernel_size=(1, 3, 3), stride=(
+        1, stride, stride), padding=(0, 1, 1), bias=False)
 
 
 class BasicBlock(nn.Module):

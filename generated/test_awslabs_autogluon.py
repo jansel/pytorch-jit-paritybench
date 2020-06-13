@@ -202,9 +202,6 @@ import torch
 from torch import nn
 
 
-input_size = 112
-
-
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

@@ -374,16 +374,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_microsoft_snca_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LinearAverage(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(LinearAverage(*[], **{'inputSize': 4, 'outputSize': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

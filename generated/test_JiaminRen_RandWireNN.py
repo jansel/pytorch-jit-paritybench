@@ -94,6 +94,10 @@ class Node_OP(nn.Module):
         return out
 
 
+def save_graph(graph, path):
+    nx.write_yaml(graph, path)
+
+
 def build_graph(Nodes, args):
     if args.graph_model == 'ER':
         return nx.random_graphs.erdos_renyi_graph(Nodes, args.P, args.seed)
@@ -102,10 +106,6 @@ def build_graph(Nodes, args):
     elif args.graph_model == 'WS':
         return nx.random_graphs.connected_watts_strogatz_graph(Nodes, args.
             K, args.P, tries=200, seed=args.seed)
-
-
-def save_graph(graph, path):
-    nx.write_yaml(graph, path)
 
 
 def load_graph(path):
@@ -202,8 +202,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_JiaminRen_RandWireNN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(depthwise_separable_conv_3x3(*[], **{'nin': 4, 'nout': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Triplet_unit(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Triplet_unit(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(depthwise_separable_conv_3x3(*[], **{'nin': 4, 'nout': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1147,36 +1147,36 @@ class Test_supernotman_RetinaFace_Pytorch(_paritybench_base):
         self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ClassHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(BboxHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
 
     def test_003(self):
-        self._check(LandmarkHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
-
-    def test_004(self):
-        self._check(ClassHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
-
-    def test_005(self):
         self._check(BboxHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_006(self):
-        self._check(LandmarkHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
-
-    def test_007(self):
-        self._check(CBR(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
+    def test_004(self):
         self._check(CB(*[], **{'inchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_005(self):
+        self._check(CBR(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ClassHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+
+    def test_007(self):
+        self._check(ClassHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(Context(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(ContextModule(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
+    def test_010(self):
+        self._check(LandmarkHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+
     def test_011(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LandmarkHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 

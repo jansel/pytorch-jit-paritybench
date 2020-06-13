@@ -124,10 +124,10 @@ def upBlock(in_planes, out_planes):
     return block
 
 
-_global_config['FINE_GRAINED_CATEGORIES'] = 4
-
-
 _global_config['GAN'] = 4
+
+
+_global_config['FINE_GRAINED_CATEGORIES'] = 4
 
 
 class BACKGROUND_STAGE(nn.Module):
@@ -280,6 +280,12 @@ class G_NET(nn.Module):
         return fake_imgs, fg_imgs, mk_imgs, fg_mk
 
 
+def downBlock(in_planes, out_planes):
+    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=
+        False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
+    return block
+
+
 def encode_parent_and_child_img(ndf, in_c=3):
     encode_img = nn.Sequential(nn.Conv2d(in_c, ndf, 4, 2, 1, bias=False),
         nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1,
@@ -294,12 +300,6 @@ def encode_parent_and_child_img(ndf, in_c=3):
 def Block3x3_leakRelu(in_planes, out_planes):
     block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
         out_planes), nn.LeakyReLU(0.2, inplace=True))
-    return block
-
-
-def downBlock(in_planes, out_planes):
-    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=
-        False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
@@ -900,38 +900,38 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Yuheng_Li_MixNMatch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BACKGROUND_D(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
-        self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CHILD_STAGE(*[], **{'ngf': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(GET_IMAGE(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvT_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(GET_MASK(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(CHILD_STAGE(*[], **{'ngf': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Dis_Dis(*[], **{'in_c': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(FeatureExtractor(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_006(self):
-        self._check(BACKGROUND_D(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(GET_IMAGE(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(Gaussian(*[], **{'std': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GET_MASK(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(ConvT_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(Conv_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Gaussian(*[], **{'std': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
         self._check(Linear_Block(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_011(self):
-        self._check(Dis_Dis(*[], **{'in_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -256,16 +256,6 @@ class EncoderLayer(nn.Module):
         return enc_output, self_attn
 
 
-def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
-    """
-    For masking out the padding part of key sequence.
-    """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(pad_idx)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
-
-
 def is_chinese_char(cc):
     return unicodedata.category(cc) == 'Lo'
 
@@ -363,6 +353,16 @@ def get_subsequent_mask(seq):
         device, dtype=torch.uint8), diagonal=1)
     subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
     return subsequent_mask
+
+
+def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
+    """
+    For masking out the padding part of key sequence.
+    """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(pad_idx)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
 
 
 class Decoder(nn.Module):
@@ -906,27 +906,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_gentaiscool_end2end_asr_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(DotProductAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(Encoder(*[], **{'num_layers': 1, 'num_heads': 4, 'dim_model': 4, 'dim_key': 4, 'dim_value': 4, 'dim_input': 4, 'dim_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
-    def test_001(self):
-        self._check(PositionalEncoding(*[], **{'dim_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-
+    @_fails_compile()
     def test_002(self):
-        self._check(PositionwiseFeedForward(*[], **{'dim_model': 4, 'dim_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'num_heads': 4, 'dim_model': 4, 'dim_key': 4, 'dim_value': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_003(self):
+        self._check(PositionalEncoding(*[], **{'dim_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(PositionwiseFeedForward(*[], **{'dim_model': 4, 'dim_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(PositionwiseFeedForwardWithConv(*[], **{'dim_model': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(MultiHeadAttention(*[], **{'num_heads': 4, 'dim_model': 4, 'dim_key': 4, 'dim_value': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
     def test_006(self):
-        self._check(DotProductAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

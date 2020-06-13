@@ -463,10 +463,10 @@ class Test_dr_costas_mad_twinnet(_paritybench_base):
         self._check(AffineTransform(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(FNNMasker(*[], **{'input_dim': 4, 'output_dim': 4, 'context_length': 4}), [torch.rand([4, 0, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FNNDenoiser(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(FNNDenoiser(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FNNMasker(*[], **{'input_dim': 4, 'output_dim': 4, 'context_length': 4}), [torch.rand([4, 0, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(RNNDec(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})

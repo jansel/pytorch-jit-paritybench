@@ -289,17 +289,17 @@ class Test_j_min_Adversarial_Video_Summary(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(cLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Discriminator(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(cLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
     def test_002(self):
-        self._check(sLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(eLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(eLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(sLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 

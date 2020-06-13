@@ -486,6 +486,9 @@ class RegistryException(Exception):
         super().__init__(message)
 
 
+LateAddCallbak = Callable[['Registry'], None]
+
+
 class ABN(nn.Module):
     """Activated Batch Normalization.
 
@@ -1681,6 +1684,21 @@ def _lovasz_hinge_flat(logits, targets):
     return loss
 
 
+def _flatten_binary_scores(logits, targets, ignore=None):
+    """
+    Flattens predictions in the batch (binary case).
+    Remove targets equal to "ignore"
+    """
+    logits = logits.reshape(-1)
+    targets = targets.reshape(-1)
+    if ignore is None:
+        return logits, targets
+    valid = targets != ignore
+    logits_ = logits[valid]
+    targets_ = targets[valid]
+    return logits_, targets_
+
+
 def isnan(x):
     return x != x
 
@@ -1704,21 +1722,6 @@ def mean(values, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def _flatten_binary_scores(logits, targets, ignore=None):
-    """
-    Flattens predictions in the batch (binary case).
-    Remove targets equal to "ignore"
-    """
-    logits = logits.reshape(-1)
-    targets = targets.reshape(-1)
-    if ignore is None:
-        return logits, targets
-    valid = targets != ignore
-    logits_ = logits[valid]
-    targets_ = targets[valid]
-    return logits_, targets_
 
 
 def _lovasz_hinge(logits, targets, per_image=True, ignore=None):
@@ -1917,13 +1920,7 @@ class LovaszLossMultiLabel(_Loss):
         return loss
 
 
-def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
-    ) ->torch.Tensor:
-    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
-        labels.device).reshape(-1)
-    skip_condition = (labels.unsqueeze(-1) == skip_labels).any(-1)
-    skip_mask = ~(skip_condition.unsqueeze(-1) & skip_condition.unsqueeze(0))
-    return skip_mask
+_EPS = 1e-08
 
 
 def euclidean_distance(x: torch.Tensor, y: torch.Tensor=None) ->torch.Tensor:
@@ -1945,7 +1942,13 @@ def _create_margin_mask(labels: torch.Tensor) ->torch.Tensor:
     return marign_mask
 
 
-_EPS = 1e-08
+def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
+    ) ->torch.Tensor:
+    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
+        labels.device).reshape(-1)
+    skip_condition = (labels.unsqueeze(-1) == skip_labels).any(-1)
+    skip_mask = ~(skip_condition.unsqueeze(-1) & skip_condition.unsqueeze(0))
+    return skip_mask
 
 
 def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha:
@@ -3422,19 +3425,19 @@ class ClassifyUnet(nn.Module):
 LOG_SCALE_MIN = -10
 
 
-def normal_sample(mu, sigma):
-    return mu + sigma * torch.randn_like(sigma)
-
-
-LOG_SCALE_MAX = 2
-
-
 def normal_logprob(mu, sigma, z):
     normalization_constant = -sigma.log() - 0.5 * np.log(2 * np.pi)
     square_term = -0.5 * ((z - mu) / sigma) ** 2
     logprob_vec = normalization_constant + square_term
     logprob = logprob_vec.sum(1)
     return logprob
+
+
+LOG_SCALE_MAX = 2
+
+
+def normal_sample(mu, sigma):
+    return mu + sigma * torch.randn_like(sigma)
 
 
 class ClassifyVAE(torch.nn.Module):
@@ -3466,124 +3469,124 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_catalyst_team_catalyst(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ChannelSqueezeAndSpatialExcitation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(PyramidBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ClassifyAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(PSPBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ClassifyUnet(*[], **{'in_channels': 4, 'in_hw': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ClassifyVAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(NaiveCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ContrastiveDistanceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(ContrastiveEmbeddingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ContrastiveDistanceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(ContrastivePairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
+    def test_007(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_008(self):
-        self._check(MeanOutputLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(LovaszLossBinary(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(LovaszLossMultiClass(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(LovaszLossMultiLabel(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(MarginLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_014(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
-        self._check(TripletLossV2(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_016(self):
-        self._check(TripletPairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_017(self):
-        self._check(WingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_018(self):
         self._check(GaussianNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
-        self._check(TemporalLastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_020(self):
-        self._check(TemporalAvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_021(self):
-        self._check(TemporalMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_022(self):
-        self._check(TemporalAttentionPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_023(self):
-        self._check(TemporalConcatPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_024(self):
-        self._check(LamaPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_025(self):
+    def test_009(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    @_fails_compile()
+    def test_010(self):
+        self._check(GlobalConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(GlobalMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_012(self):
+        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(LamaPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(LovaszLossBinary(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(LovaszLossMultiClass(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(LovaszLossMultiLabel(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_017(self):
+        self._check(MarginLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_018(self):
+        self._check(MeanOutputLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(NaiveCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(PSPBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
+        self._check(Projector(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_023(self):
+        self._check(PyramidBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(RMSNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_025(self):
+        self._check(TemporalAttentionPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(TemporalAvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_027(self):
-        self._check(GlobalConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalConcatPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_028(self):
-        self._check(RMSNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalLastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_029(self):
-        self._check(ChannelSqueezeAndSpatialExcitation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_030(self):
-        self._check(Projector(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_031(self):
-        self._check(ClassifyAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TripletLossV2(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_032(self):
-        self._check(ClassifyUnet(*[], **{'in_channels': 4, 'in_hw': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TripletPairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_033(self):
-        self._check(ClassifyVAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(WingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

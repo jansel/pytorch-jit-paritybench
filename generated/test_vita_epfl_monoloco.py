@@ -307,16 +307,16 @@ class Test_vita_epfl_monoloco(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(LinearModel(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(GaussianLoss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(LaplacianLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Linear(*[], **{'linear_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(LaplacianLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_003(self):
-        self._check(GaussianLoss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearModel(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
 

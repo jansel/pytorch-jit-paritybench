@@ -76,10 +76,10 @@ class L2Loss(_Loss):
 FLOAT = 2
 
 
-INT = 0
-
-
 LONG = 1
+
+
+INT = 0
 
 
 def cast_type(var, dtype, use_gpu):
@@ -148,10 +148,10 @@ class NLLEntropy(_Loss):
         return loss
 
 
-EOS = '</s>'
-
-
 PAD = '<pad>'
+
+
+EOS = '</s>'
 
 
 class BaseRNN(nn.Module):
@@ -417,10 +417,10 @@ class RnnUttEncoder(nn.Module):
             return utt_embedded
 
 
-TEACH_FORCE = 'teacher_forcing'
-
-
 GEN = 'gen'
+
+
+TEACH_FORCE = 'teacher_forcing'
 
 
 class DecoderPointerGen(BaseRNN):
@@ -808,24 +808,24 @@ class Test_snakeztc_NeuralDialog_ZSDG(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(L2Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AttnConnector(*[], **{'rnn_cell': 4, 'query_size': 4, 'key_size': 4, 'content_size': 4, 'output_size': 4, 'attn_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(Hidden2Feat(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(IdentityConnector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(AttnConnector(*[], **{'rnn_cell': 4, 'query_size': 4, 'key_size': 4, 'content_size': 4, 'output_size': 4, 'attn_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
     def test_004(self):
-        self._check(LinearConnector(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(L2Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(Hidden2Feat(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearConnector(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
 

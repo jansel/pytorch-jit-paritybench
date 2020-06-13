@@ -130,12 +130,10 @@ class HighwayBlock(nn.Module):
             )
 
 
-def matmul(x, y):
-    if x.dim() == y.dim():
-        return x @ y
-    if x.dim() == y.dim() - 1:
-        return (x.unsqueeze(-2) @ y).squeeze(-2)
-    return (x @ y.unsqueeze(-1)).squeeze(-1)
+INF = 10000000000.0
+
+
+TINY = 1e-09
 
 
 def softmax(x):
@@ -144,16 +142,18 @@ def softmax(x):
     return F.softmax(x)
 
 
-INF = 10000000000.0
-
-
-TINY = 1e-09
-
-
 def gumbel_softmax(input, beta=0.5, tau=1.0):
     noise = input.data.new(*input.size()).uniform_()
     noise.add_(TINY).log_().neg_().add_(TINY).log_().neg_()
     return softmax((input + beta * Variable(noise)) / tau)
+
+
+def matmul(x, y):
+    if x.dim() == y.dim():
+        return x @ y
+    if x.dim() == y.dim() - 1:
+        return (x.unsqueeze(-2) @ y).squeeze(-2)
+    return (x @ y.unsqueeze(-1)).squeeze(-1)
 
 
 class Attention(nn.Module):
@@ -954,16 +954,16 @@ class Test_salesforce_nonauto_nmt(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_001(self):
         self._check(Fertility(*[], **{'args': _mock_config(d_model=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -502,6 +502,81 @@ class BertEmbeddingPredictor(nn.Module):
         return generate_embedding(self.model, labels)
 
 
+class Hypothesis:
+    """Hypothesis for beam search decoding.
+       Stores the history of label sequence & score 
+       Stores the previous decoder state, ctc state, ctc score, lm state and attention map (if necessary)"""
+
+    def __init__(self, decoder_state, output_seq, output_scores, lm_state,
+        ctc_state, ctc_prob, att_map):
+        assert len(output_seq) == len(output_scores)
+        self.decoder_state = decoder_state
+        self.att_map = att_map
+        if type(lm_state) is tuple:
+            self.lm_state = lm_state[0].cpu(), lm_state[1].cpu()
+        elif lm_state is None:
+            self.lm_state = None
+        else:
+            self.lm_state = lm_state.cpu()
+        self.output_seq = output_seq
+        self.output_scores = output_scores
+        self.ctc_state = ctc_state
+        self.ctc_prob = ctc_prob
+
+    def avgScore(self):
+        """Return the averaged log probability of hypothesis"""
+        assert len(self.output_scores) != 0
+        return sum(self.output_scores) / len(self.output_scores)
+
+    def addTopk(self, topi, topv, decoder_state, att_map=None, lm_state=
+        None, ctc_state=None, ctc_prob=0.0, ctc_candidates=[]):
+        """Expand current hypothesis with a given beam size"""
+        new_hypothesis = []
+        term_score = None
+        ctc_s, ctc_p = None, None
+        beam_size = topi.shape[-1]
+        for i in range(beam_size):
+            if topi[i].item() == 1:
+                term_score = topv[i].cpu()
+                continue
+            idxes = self.output_seq[:]
+            scores = self.output_scores[:]
+            idxes.append(topi[i].cpu())
+            scores.append(topv[i].cpu())
+            if ctc_state is not None:
+                idx = ctc_candidates.index(topi[i].item())
+                ctc_s = ctc_state[(idx), :, :]
+                ctc_p = ctc_prob[idx]
+            new_hypothesis.append(Hypothesis(decoder_state, output_seq=
+                idxes, output_scores=scores, lm_state=lm_state, ctc_state=
+                ctc_s, ctc_prob=ctc_p, att_map=att_map))
+        if term_score is not None:
+            self.output_seq.append(torch.tensor(1))
+            self.output_scores.append(term_score)
+            return self, new_hypothesis
+        return None, new_hypothesis
+
+    def get_state(self, device):
+        prev_token = self.output_seq[-1] if len(self.output_seq) != 0 else 0
+        prev_token = torch.LongTensor([prev_token]).to(device)
+        att_map = self.att_map.to(device) if self.att_map is not None else None
+        if type(self.lm_state) is tuple:
+            lm_state = self.lm_state[0].to(device), self.lm_state[1].to(device)
+        elif self.lm_state is None:
+            lm_state = None
+        else:
+            lm_state = self.lm_state.to(device)
+        return (prev_token, self.decoder_state, att_map, lm_state, self.
+            ctc_state)
+
+    @property
+    def outIndex(self):
+        return [i.item() for i in self.output_seq]
+
+
+LOG_ZERO = -10000000.0
+
+
 CTC_BEAM_RATIO = 1.5
 
 
@@ -577,81 +652,6 @@ class CTCPrefixScore:
         if self.eos in candidates:
             psi[candidates.index(self.eos)] = sum_prev[-1]
         return psi, np.rollaxis(r, 2)
-
-
-LOG_ZERO = -10000000.0
-
-
-class Hypothesis:
-    """Hypothesis for beam search decoding.
-       Stores the history of label sequence & score 
-       Stores the previous decoder state, ctc state, ctc score, lm state and attention map (if necessary)"""
-
-    def __init__(self, decoder_state, output_seq, output_scores, lm_state,
-        ctc_state, ctc_prob, att_map):
-        assert len(output_seq) == len(output_scores)
-        self.decoder_state = decoder_state
-        self.att_map = att_map
-        if type(lm_state) is tuple:
-            self.lm_state = lm_state[0].cpu(), lm_state[1].cpu()
-        elif lm_state is None:
-            self.lm_state = None
-        else:
-            self.lm_state = lm_state.cpu()
-        self.output_seq = output_seq
-        self.output_scores = output_scores
-        self.ctc_state = ctc_state
-        self.ctc_prob = ctc_prob
-
-    def avgScore(self):
-        """Return the averaged log probability of hypothesis"""
-        assert len(self.output_scores) != 0
-        return sum(self.output_scores) / len(self.output_scores)
-
-    def addTopk(self, topi, topv, decoder_state, att_map=None, lm_state=
-        None, ctc_state=None, ctc_prob=0.0, ctc_candidates=[]):
-        """Expand current hypothesis with a given beam size"""
-        new_hypothesis = []
-        term_score = None
-        ctc_s, ctc_p = None, None
-        beam_size = topi.shape[-1]
-        for i in range(beam_size):
-            if topi[i].item() == 1:
-                term_score = topv[i].cpu()
-                continue
-            idxes = self.output_seq[:]
-            scores = self.output_scores[:]
-            idxes.append(topi[i].cpu())
-            scores.append(topv[i].cpu())
-            if ctc_state is not None:
-                idx = ctc_candidates.index(topi[i].item())
-                ctc_s = ctc_state[(idx), :, :]
-                ctc_p = ctc_prob[idx]
-            new_hypothesis.append(Hypothesis(decoder_state, output_seq=
-                idxes, output_scores=scores, lm_state=lm_state, ctc_state=
-                ctc_s, ctc_prob=ctc_p, att_map=att_map))
-        if term_score is not None:
-            self.output_seq.append(torch.tensor(1))
-            self.output_scores.append(term_score)
-            return self, new_hypothesis
-        return None, new_hypothesis
-
-    def get_state(self, device):
-        prev_token = self.output_seq[-1] if len(self.output_seq) != 0 else 0
-        prev_token = torch.LongTensor([prev_token]).to(device)
-        att_map = self.att_map.to(device) if self.att_map is not None else None
-        if type(self.lm_state) is tuple:
-            lm_state = self.lm_state[0].to(device), self.lm_state[1].to(device)
-        elif self.lm_state is None:
-            lm_state = None
-        else:
-            lm_state = self.lm_state.to(device)
-        return (prev_token, self.decoder_state, att_map, lm_state, self.
-            ctc_state)
-
-    @property
-    def outIndex(self):
-        return [i.item() for i in self.output_seq]
 
 
 class BeamDecoder(nn.Module):

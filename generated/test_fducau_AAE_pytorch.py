@@ -234,14 +234,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_fducau_AAE_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Q_net(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(D_net_cat(*[], **{}), [torch.rand([10, 10])], {})
 
     def test_001(self):
-        self._check(P_net(*[], **{}), [torch.rand([12, 12])], {})
-
-    def test_002(self):
         self._check(D_net_gauss(*[], **{}), [torch.rand([2, 2])], {})
 
+    def test_002(self):
+        self._check(P_net(*[], **{}), [torch.rand([12, 12])], {})
+
     def test_003(self):
-        self._check(D_net_cat(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(Q_net(*[], **{}), [torch.rand([784, 784])], {})
 

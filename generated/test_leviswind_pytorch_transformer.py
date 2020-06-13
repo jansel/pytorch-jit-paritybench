@@ -354,8 +354,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_leviswind_pytorch_transformer(_paritybench_base):
     pass
     def test_000(self):
-        self._check(layer_normalization(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(label_smoothing(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(label_smoothing(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(layer_normalization(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

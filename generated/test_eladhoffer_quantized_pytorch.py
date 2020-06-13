@@ -123,6 +123,19 @@ def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
         out_planes), nn.ReLU())
 
 
+class block8(block):
+
+    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
+        super(block8, self).__init__(in_planes, scale, activation)
+        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
+            in_planes, 192, 1))]))
+        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
+            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
+            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
+            3, 1), padding=(1, 0)))]))
+        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
+
+
 class block17(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
@@ -149,19 +162,6 @@ class block35(block):
             conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3,
             padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
         self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
-
-
-class block8(block):
-
-    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block8, self).__init__(in_planes, scale, activation)
-        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
-            in_planes, 192, 1))]))
-        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
-            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
-            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
-            3, 1), padding=(1, 0)))]))
-        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
 
 
 class InceptionResnetV2(nn.Module):
@@ -484,10 +484,10 @@ NUM_BITS_GRAD = 8
 NUM_BITS_WEIGHT = 8
 
 
-BIPRECISION = True
-
-
 NUM_BITS = 8
+
+
+BIPRECISION = True
 
 
 class DepthwiseSeparableFusedConv2d(nn.Module):
@@ -1449,52 +1449,52 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_eladhoffer_quantized_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(block35(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BiReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DepthwiseSeparableFusedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
         self._check(InceptionModule(*[], **{'in_channels': 4, 'n1x1_channels': 4, 'n3x3r_channels': 4, 'n3x3_channels': 4, 'dn3x3r_channels': 4, 'dn3x3_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(mnist_model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(PlainDownSample(*[], **{'input_dims': 4, 'output_dims': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(DepthwiseSeparableFusedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
         self._check(QConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_006(self):
         self._check(QLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_007(self):
+        self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(RangeBN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
-        self._check(BiReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
+    def test_009(self):
         self._check(RnLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_010(self):
+        self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_011(self):
+        self._check(block35(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_013(self):
-        self._check(PlainDownSample(*[], **{'input_dims': 4, 'output_dims': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(mnist_model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

@@ -586,10 +586,10 @@ class RPN_REGR_Loss(nn.Module):
         return loss.to(self.device)
 
 
-_global_config['OHEM'] = 4
-
-
 _global_config['RPN_TOTAL_NUM'] = 4
+
+
+_global_config['OHEM'] = 4
 
 
 class RPN_CLS_Loss(nn.Module):
@@ -830,10 +830,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_courao_ocr_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(basic_conv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(basic_conv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(basic_res_block(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})

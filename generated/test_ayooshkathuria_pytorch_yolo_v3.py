@@ -177,34 +177,6 @@ class ReOrgLayer(nn.Module):
         return x
 
 
-def parse_cfg(cfgfile):
-    """
-    Takes a configuration file
-    
-    Returns a list of blocks. Each blocks describes a block in the neural
-    network to be built. Block is represented as a dictionary in the list
-    
-    """
-    file = open(cfgfile, 'r')
-    lines = file.read().split('\n')
-    lines = [x for x in lines if len(x) > 0]
-    lines = [x for x in lines if x[0] != '#']
-    lines = [x.rstrip().lstrip() for x in lines]
-    block = {}
-    blocks = []
-    for line in lines:
-        if line[0] == '[':
-            if len(block) != 0:
-                blocks.append(block)
-                block = {}
-            block['type'] = line[1:-1].rstrip()
-        else:
-            key, value = line.split('=')
-            block[key.rstrip()] = value.lstrip()
-    blocks.append(block)
-    return blocks
-
-
 def create_modules(blocks):
     net_info = blocks[0]
     module_list = nn.ModuleList()
@@ -292,6 +264,34 @@ def create_modules(blocks):
         output_filters.append(filters)
         index += 1
     return net_info, module_list
+
+
+def parse_cfg(cfgfile):
+    """
+    Takes a configuration file
+    
+    Returns a list of blocks. Each blocks describes a block in the neural
+    network to be built. Block is represented as a dictionary in the list
+    
+    """
+    file = open(cfgfile, 'r')
+    lines = file.read().split('\n')
+    lines = [x for x in lines if len(x) > 0]
+    lines = [x for x in lines if x[0] != '#']
+    lines = [x.rstrip().lstrip() for x in lines]
+    block = {}
+    blocks = []
+    for line in lines:
+        if line[0] == '[':
+            if len(block) != 0:
+                blocks.append(block)
+                block = {}
+            block['type'] = line[1:-1].rstrip()
+        else:
+            key, value = line.split('=')
+            block[key.rstrip()] = value.lstrip()
+    blocks.append(block)
+    return blocks
 
 
 class Darknet(nn.Module):
@@ -465,8 +465,8 @@ class Test_ayooshkathuria_pytorch_yolo_v3(_paritybench_base):
         self._check(MaxPoolStride1(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReOrgLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ReOrgLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

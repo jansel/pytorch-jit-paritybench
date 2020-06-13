@@ -303,18 +303,6 @@ class RRDB(nn.Module):
         return out.mul_(0.2) + x
 
 
-def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
-    stride=2, padding=0, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
-    kernel_size = int(mode[0])
-    stride = int(mode[0])
-    mode = mode.replace(mode[0], 'C')
-    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
-        bias, mode)
-    return down1
-
-
 def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3,
     stride=1, padding=1, bias=True, mode='2R'):
     assert len(mode) < 4 and mode[0] in ['2', '3'
@@ -339,6 +327,18 @@ def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
     pool_tail = conv(in_channels, out_channels, kernel_size, stride,
         padding, bias, mode=mode[1:])
     return sequential(pool, pool_tail)
+
+
+def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
+    stride=2, padding=0, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
+        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
+    kernel_size = int(mode[0])
+    stride = int(mode[0])
+    mode = mode.replace(mode[0], 'C')
+    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
+        bias, mode)
+    return down1
 
 
 class NonLocalBlock2D(nn.Module):
@@ -458,22 +458,8 @@ class ResUNet(nn.Module):
         return x
 
 
-def splits(a, sf):
-    """
-    a: tensor NxCxWxHx2
-    sf: scale factor
-    out: tensor NxCx(W/sf)x(H/sf)x2x(sf^2)
-    """
-    b = torch.stack(torch.chunk(a, sf, dim=2), dim=5)
-    b = torch.cat(torch.chunk(b, sf, dim=3), dim=5)
-    return b
-
-
-def cdiv(x, y):
-    a, b = x[..., 0], x[..., 1]
-    c, d = y[..., 0], y[..., 1]
-    cd2 = c ** 2 + d ** 2
-    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
+def csum(x, y):
+    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
 
 
 def cmul(t1, t2):
@@ -488,8 +474,22 @@ def cmul(t1, t2):
         imag1 * real2], dim=-1)
 
 
-def csum(x, y):
-    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
+def cdiv(x, y):
+    a, b = x[..., 0], x[..., 1]
+    c, d = y[..., 0], y[..., 1]
+    cd2 = c ** 2 + d ** 2
+    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
+
+
+def splits(a, sf):
+    """
+    a: tensor NxCxWxHx2
+    sf: scale factor
+    out: tensor NxCx(W/sf)x(H/sf)x2x(sf^2)
+    """
+    b = torch.stack(torch.chunk(a, sf, dim=2), dim=5)
+    b = torch.cat(torch.chunk(b, sf, dim=3), dim=5)
+    return b
 
 
 class DataNet(nn.Module):
@@ -523,28 +523,6 @@ class HyPaNet(nn.Module):
         return x
 
 
-def cconj(t, inplace=False):
-    """
-    # complex's conjugation
-    t: NxCxHxWx2
-    output: NxCxHxWx2
-    """
-    c = t.clone() if not inplace else t
-    c[..., 1] *= -1
-    return c
-
-
-def upsample(x, sf=3, center=False):
-    """
-    x: tensor image, NxCxWxH
-    """
-    st = (sf - 1) // 2 if center else 0
-    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)
-        ).type_as(x)
-    z[(...), st::sf, st::sf].copy_(x)
-    return z
-
-
 def p2o(psf, shape):
     """
     Args:
@@ -564,6 +542,28 @@ def p2o(psf, shape):
     otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0
         ).type_as(psf)
     return otf
+
+
+def upsample(x, sf=3, center=False):
+    """
+    x: tensor image, NxCxWxH
+    """
+    st = (sf - 1) // 2 if center else 0
+    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)
+        ).type_as(x)
+    z[(...), st::sf, st::sf].copy_(x)
+    return z
+
+
+def cconj(t, inplace=False):
+    """
+    # complex's conjugation
+    t: NxCxHxWx2
+    output: NxCxHxWx2
+    """
+    c = t.clone() if not inplace else t
+    c[..., 1] *= -1
+    return c
 
 
 def r2c(x):
@@ -616,30 +616,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_cszn_USRNet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_001(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_002(self):
         self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
 
+    def test_001(self):
+        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_002(self):
+        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+
+    @_fails_compile()
     def test_003(self):
-        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(NonLocalBlock2D(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_005(self):
-        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_006(self):
         self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(NonLocalBlock2D(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_008(self):
-        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 

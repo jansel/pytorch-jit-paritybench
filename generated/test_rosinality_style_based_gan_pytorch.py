@@ -471,18 +471,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_rosinality_style_based_gan_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(FusedUpsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Blur(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(FusedDownsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(ConstantInput(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Blur(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
     def test_004(self):
         self._check(EqualConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -491,22 +492,21 @@ class Test_rosinality_style_based_gan_pytorch(_paritybench_base):
         self._check(EqualLinear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FusedDownsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_007(self):
-        self._check(NoiseInjection(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FusedUpsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(ConstantInput(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoiseInjection(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
+        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(StyledConvBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512]), torch.rand([512, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_010(self):
-        self._check(StyledGenerator(*[], **{}), [torch.rand([512, 512])], {})
-
-    @_fails_compile()
     def test_011(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(StyledGenerator(*[], **{}), [torch.rand([512, 512])], {})
 

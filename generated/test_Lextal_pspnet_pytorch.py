@@ -389,17 +389,17 @@ class Test_Lextal_pspnet_pytorch(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(SqueezeNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_004(self):
+    def test_002(self):
         self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_003(self):
         self._check(PSPUpsample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(SqueezeNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -891,6 +891,12 @@ class ChunkEnergy(nn.Module):
         return energy
 
 
+def add_gaussian_noise(xs, std):
+    """Additive gaussian nosie to encourage discreteness."""
+    noise = xs.new_zeros(xs.size()).normal_(std=std)
+    return xs + noise
+
+
 def moving_sum(x, back, forward):
     """Compute the moving sum of x over a chunk_size with the provided bounds.
 
@@ -986,12 +992,6 @@ def safe_cumprod(x, eps):
     """
     return torch.exp(exclusive_cumsum(torch.log(torch.clamp(x, min=eps, max
         =1.0))))
-
-
-def add_gaussian_noise(xs, std):
-    """Additive gaussian nosie to encourage discreteness."""
-    noise = xs.new_zeros(xs.size()).normal_(std=std)
-    return xs + noise
 
 
 class MoChA(nn.Module):
@@ -1451,13 +1451,13 @@ class XLPositionalEmbedding(nn.Module):
         return pos_emb.unsqueeze(1)
 
 
+def gelu(x):
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+
 def gelu_accurate(x):
     return 0.5 * x * (1 + torch.tanh(gelu_accurate._a * (x + 0.044715 *
         torch.pow(x, 3))))
-
-
-def gelu(x):
-    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
 class PositionwiseFeedForward(nn.Module):
@@ -2384,24 +2384,24 @@ class Test_hirofumi0810_neural_sp(_paritybench_base):
     def test_000(self):
         self._check(CausalConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(LinearGLUBlock(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatSubsampler(*[], **{'factor': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MaxpoolSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(Conv1dSubsampler(*[], **{'factor': 4, 'n_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(DropSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4]), [4, 4]], {})
+
+    def test_004(self):
+        self._check(LinearGLUBlock(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(ConcatSubsampler(*[], **{'factor': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MaxpoolSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(NiN(*[], **{'dim': 4}), [torch.rand([4, 4, 4])], {})

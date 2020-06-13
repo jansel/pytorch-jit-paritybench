@@ -568,30 +568,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mcahny_Deep_Video_Inpainting(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MaskEstimator_(*[], **{'args': _mock_config(), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(WarpingLayer(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
-
-    def test_002(self):
         self._check(ContextNetwork(*[], **{'args': _mock_config(batch_norm=4), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(GatedConvolution(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(GatedUpConvolution(*[], **{'size': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'bias': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(LongFlowEstimatorCorr(*[], **{'args': _mock_config(batch_norm=4), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(GatedConvolution(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(MaskEstimator_(*[], **{'args': _mock_config(), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(GatedUpConvolution(*[], **{'size': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'bias': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
         self._check(VI_2D_BottleNeck(*[], **{'opt': 4, 'in_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_006(self):
         self._check(VI_Aggregator(*[], **{'opt': 4, 'in_ch': 4, 'T': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_007(self):
+        self._check(WarpingLayer(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
 

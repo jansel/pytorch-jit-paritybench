@@ -49,10 +49,10 @@ import torch.optim as optim
 from torch import nn
 
 
-HIDDEN_SIZE = 100
-
-
 INPUT_SIZE = 50
+
+
+HIDDEN_SIZE = 100
 
 
 class MyModel(torch.nn.Module):

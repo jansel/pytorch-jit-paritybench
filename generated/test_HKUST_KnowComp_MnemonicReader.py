@@ -781,15 +781,15 @@ class Test_HKUST_KnowComp_MnemonicReader(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(FeedForwardNetwork(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(Gate(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(SFU(*[], **{'input_size': 4, 'fusion_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

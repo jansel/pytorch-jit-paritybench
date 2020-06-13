@@ -319,83 +319,6 @@ import inspect
 from functools import partial
 
 
-def multi_apply(func, *args, **kwargs):
-    pfunc = partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
-
-
-def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
-    max_shape=None, wh_ratio_clip=16 / 1000):
-    """
-    Apply deltas to shift/scale base boxes.
-
-    Typically the rois are anchor or proposed bounding boxes and the deltas are
-    network outputs used to shift/scale those boxes.
-
-    Args:
-        rois (Tensor): boxes to be transformed. Has shape (N, 4)
-        deltas (Tensor): encoded offsets with respect to each roi.
-            Has shape (N, 4). Note N = num_anchors * W * H when rois is a grid
-            of anchors. Offset encoding follows [1]_.
-        means (list): denormalizing means for delta coordinates
-        stds (list): denormalizing standard deviation for delta coordinates
-        max_shape (tuple[int, int]): maximum bounds for boxes. specifies (H, W)
-        wh_ratio_clip (float): maximum aspect ratio for boxes.
-
-    Returns:
-        Tensor: boxes with shape (N, 4), where columns represent
-            tl_x, tl_y, br_x, br_y.
-
-    References:
-        .. [1] https://arxiv.org/abs/1311.2524
-
-    Example:
-        >>> rois = torch.Tensor([[ 0.,  0.,  1.,  1.],
-        >>>                      [ 0.,  0.,  1.,  1.],
-        >>>                      [ 0.,  0.,  1.,  1.],
-        >>>                      [ 5.,  5.,  5.,  5.]])
-        >>> deltas = torch.Tensor([[  0.,   0.,   0.,   0.],
-        >>>                        [  1.,   1.,   1.,   1.],
-        >>>                        [  0.,   0.,   2.,  -1.],
-        >>>                        [ 0.7, -1.9, -0.5,  0.3]])
-        >>> delta2bbox(rois, deltas, max_shape=(32, 32))
-        tensor([[0.0000, 0.0000, 1.0000, 1.0000],
-                [0.2817, 0.2817, 4.7183, 4.7183],
-                [0.0000, 0.6321, 7.3891, 0.3679],
-                [5.8967, 2.9251, 5.5033, 3.2749]])
-    """
-    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
-    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
-    denorm_deltas = deltas * stds + means
-    dx = denorm_deltas[:, 0::4]
-    dy = denorm_deltas[:, 1::4]
-    dw = denorm_deltas[:, 2::4]
-    dh = denorm_deltas[:, 3::4]
-    max_ratio = np.abs(np.log(wh_ratio_clip))
-    dw = dw.clamp(min=-max_ratio, max=max_ratio)
-    dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
-    gw = pw * dw.exp()
-    gh = ph * dh.exp()
-    gx = torch.addcmul(px, 1, pw, dx)
-    gy = torch.addcmul(py, 1, ph, dy)
-    x1 = gx - gw * 0.5 + 0.5
-    y1 = gy - gh * 0.5 + 0.5
-    x2 = gx + gw * 0.5 - 0.5
-    y2 = gy + gh * 0.5 - 0.5
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
-        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
-        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
-        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
-    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
-    return bboxes
-
-
 class AnchorGenerator(object):
     """
     Examples:
@@ -477,255 +400,10 @@ class AnchorGenerator(object):
         return valid
 
 
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
-def cast_tensor_type(inputs, src_type, dst_type):
-    if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
-    elif isinstance(inputs, str):
-        return inputs
-    elif isinstance(inputs, np.ndarray):
-        return inputs
-    elif isinstance(inputs, abc.Mapping):
-        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
-            k, v in inputs.items()})
-    elif isinstance(inputs, abc.Iterable):
-        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
-            item in inputs)
-    else:
-        return inputs
-
-
-def force_fp32(apply_to=None, out_fp16=False):
-    """Decorator to convert input arguments to fp32 in force.
-
-    This decorator is useful when you write custom modules and want to support
-    mixed precision training. If there are some inputs that must be processed
-    in fp32 mode, then this decorator can handle it. If inputs arguments are
-    fp16 tensors, they will be converted to fp32 automatically. Arguments other
-    than fp16 tensors are ignored.
-
-    Args:
-        apply_to (Iterable, optional): The argument names to be converted.
-            `None` indicates all arguments.
-        out_fp16 (bool): Whether to convert the output back to fp16.
-
-    :Example:
-
-        class MyModule1(nn.Module)
-
-            # Convert x and y to fp32
-            @force_fp32()
-            def loss(self, x, y):
-                pass
-
-        class MyModule2(nn.Module):
-
-            # convert pred to fp32
-            @force_fp32(apply_to=('pred', ))
-            def post_process(self, pred, others):
-                pass
-    """
-
-    def force_fp32_wrapper(old_func):
-
-        @functools.wraps(old_func)
-        def new_func(*args, **kwargs):
-            if not isinstance(args[0], torch.nn.Module):
-                raise TypeError(
-                    '@force_fp32 can only be used to decorate the method of nn.Module'
-                    )
-            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
-                return old_func(*args, **kwargs)
-            args_info = getfullargspec(old_func)
-            args_to_cast = args_info.args if apply_to is None else apply_to
-            new_args = []
-            if args:
-                arg_names = args_info.args[:len(args)]
-                for i, arg_name in enumerate(arg_names):
-                    if arg_name in args_to_cast:
-                        new_args.append(cast_tensor_type(args[i], torch.
-                            half, torch.float))
-                    else:
-                        new_args.append(args[i])
-            new_kwargs = dict()
-            if kwargs:
-                for arg_name, arg_value in kwargs.items():
-                    if arg_name in args_to_cast:
-                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
-                            torch.half, torch.float)
-                    else:
-                        new_kwargs[arg_name] = arg_value
-            output = old_func(*new_args, **new_kwargs)
-            if out_fp16:
-                output = cast_tensor_type(output, torch.float, torch.half)
-            return output
-        return new_func
-    return force_fp32_wrapper
-
-
-class Registry(object):
-
-    def __init__(self, name):
-        self._name = name
-        self._module_dict = dict()
-
-    def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
-        return format_str
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
-
-    def get(self, key):
-        return self._module_dict.get(key, None)
-
-    def _register_module(self, module_class, force=False):
-        """Register a module.
-
-        Args:
-            module (:obj:`nn.Module`): Module to be registered.
-        """
-        if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
-        module_name = module_class.__name__
-        if not force and module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
-        self._module_dict[module_name] = module_class
-
-    def register_module(self, cls=None, force=False):
-        if cls is None:
-            return partial(self.register_module, force=force)
-        self._register_module(cls, force=force)
-        return cls
-
-
-HEADS = Registry('head')
-
-
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
-    -1, score_factors=None):
-    """NMS for multi-class bboxes.
-
-    Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class), where the 0th column
-            contains scores of the background class, but this will be ignored.
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-        score_factors (Tensor): The factors multiplied to scores before
-            applying NMS
-
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
-            are 0-based.
-    """
-    num_classes = multi_scores.shape[1]
-    bboxes, labels = [], []
-    nms_cfg_ = nms_cfg.copy()
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = getattr(nms_wrapper, nms_type)
-    for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
-        if not cls_inds.any():
-            continue
-        if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
-        else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
-        _scores = multi_scores[cls_inds, i]
-        if score_factors is not None:
-            _scores *= score_factors[cls_inds]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
-        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
-        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
-            dtype=torch.long)
-        bboxes.append(cls_dets)
-        labels.append(cls_labels)
-    if bboxes:
-        bboxes = torch.cat(bboxes)
-        labels = torch.cat(labels)
-        if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
-            inds = inds[:max_num]
-            bboxes = bboxes[inds]
-            labels = labels[inds]
-    else:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-    return bboxes, labels
-
-
-def build_from_cfg(cfg, registry, default_args=None):
-    """Build a module from config dict.
-
-    Args:
-        cfg (dict): Config dict. It should at least contain the key "type".
-        registry (:obj:`Registry`): The registry to search the type from.
-        default_args (dict, optional): Default initialization arguments.
-
-    Returns:
-        obj: The constructed object.
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    assert isinstance(default_args, dict) or default_args is None
-    args = cfg.copy()
-    obj_type = args.pop('type')
-    if mmcv.is_str(obj_type):
-        obj_cls = registry.get(obj_type)
-        if obj_cls is None:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
-    elif inspect.isclass(obj_type):
-        obj_cls = obj_type
-    else:
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
-    if default_args is not None:
-        for name, value in default_args.items():
-            args.setdefault(name, value)
-    return obj_cls(**args)
-
-
-def build(cfg, registry, default_args=None):
-    if isinstance(cfg, list):
-        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
-            ]
-        return nn.Sequential(*modules)
-    else:
-        return build_from_cfg(cfg, registry, default_args)
-
-
-LOSSES = Registry('loss')
-
-
-def build_loss(cfg):
-    return build(cfg, LOSSES)
-
-
-def build_sampler(cfg, **kwargs):
-    if isinstance(cfg, samplers.BaseSampler):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
+def multi_apply(func, *args, **kwargs):
+    pfunc = partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
 
 
 def build_assigner(cfg, **kwargs):
@@ -738,14 +416,27 @@ def build_assigner(cfg, **kwargs):
             type(cfg)))
 
 
-def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
-    bbox_assigner = build_assigner(cfg.assigner)
-    bbox_sampler = build_sampler(cfg.sampler)
-    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
-        gt_bboxes_ignore, gt_labels)
-    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
-        gt_labels)
-    return assign_result, sampling_result
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
 
 
 def dice_loss(input, target):
@@ -803,17 +494,117 @@ def matrix_nms(seg_masks, cate_labels, cate_scores, kernel='gaussian',
     return cate_scores_update
 
 
+def points_nms(heat, kernel=2):
+    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=1
+        )
+    keep = (hmax[:, :, :-1, :-1] == heat).float()
+    return heat * keep
+
+
+class Registry(object):
+
+    def __init__(self, name):
+        self._name = name
+        self._module_dict = dict()
+
+    def __repr__(self):
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
+            self._name, list(self._module_dict.keys()))
+        return format_str
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def module_dict(self):
+        return self._module_dict
+
+    def get(self, key):
+        return self._module_dict.get(key, None)
+
+    def _register_module(self, module_class, force=False):
+        """Register a module.
+
+        Args:
+            module (:obj:`nn.Module`): Module to be registered.
+        """
+        if not inspect.isclass(module_class):
+            raise TypeError('module must be a class, but got {}'.format(
+                type(module_class)))
+        module_name = module_class.__name__
+        if not force and module_name in self._module_dict:
+            raise KeyError('{} is already registered in {}'.format(
+                module_name, self.name))
+        self._module_dict[module_name] = module_class
+
+    def register_module(self, cls=None, force=False):
+        if cls is None:
+            return partial(self.register_module, force=force)
+        self._register_module(cls, force=force)
+        return cls
+
+
+HEADS = Registry('head')
+
+
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
 def bias_init_with_prob(prior_prob):
     """ initialize conv/fc bias value according to giving probablity"""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
     return bias_init
 
 
-def points_nms(heat, kernel=2):
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=1
-        )
-    keep = (hmax[:, :, :-1, :-1] == heat).float()
-    return heat * keep
+def build_from_cfg(cfg, registry, default_args=None):
+    """Build a module from config dict.
+
+    Args:
+        cfg (dict): Config dict. It should at least contain the key "type".
+        registry (:obj:`Registry`): The registry to search the type from.
+        default_args (dict, optional): Default initialization arguments.
+
+    Returns:
+        obj: The constructed object.
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    assert isinstance(default_args, dict) or default_args is None
+    args = cfg.copy()
+    obj_type = args.pop('type')
+    if mmcv.is_str(obj_type):
+        obj_cls = registry.get(obj_type)
+        if obj_cls is None:
+            raise KeyError('{} is not in the {} registry'.format(obj_type,
+                registry.name))
+    elif inspect.isclass(obj_type):
+        obj_cls = obj_type
+    else:
+        raise TypeError('type must be a str or valid type, but got {}'.
+            format(type(obj_type)))
+    if default_args is not None:
+        for name, value in default_args.items():
+            args.setdefault(name, value)
+    return obj_cls(**args)
+
+
+def build(cfg, registry, default_args=None):
+    if isinstance(cfg, list):
+        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
+            ]
+        return nn.Sequential(*modules)
+    else:
+        return build_from_cfg(cfg, registry, default_args)
+
+
+LOSSES = Registry('loss')
+
+
+def build_loss(cfg):
+    return build(cfg, LOSSES)
 
 
 @HEADS.register_module
@@ -1168,9 +959,6 @@ class DecoupledSOLOHead(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
-INF = 100000000.0
-
-
 def distance2bbox(points, distance, max_shape=None):
     """Decode distance prediction to bounding box.
 
@@ -1193,6 +981,150 @@ def distance2bbox(points, distance, max_shape=None):
         x2 = x2.clamp(min=0, max=max_shape[1] - 1)
         y2 = y2.clamp(min=0, max=max_shape[0] - 1)
     return torch.stack([x1, y1, x2, y2], -1)
+
+
+INF = 100000000.0
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
+    -1, score_factors=None):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class), where the 0th column
+            contains scores of the background class, but this will be ignored.
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+        score_factors (Tensor): The factors multiplied to scores before
+            applying NMS
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
+            are 0-based.
+    """
+    num_classes = multi_scores.shape[1]
+    bboxes, labels = [], []
+    nms_cfg_ = nms_cfg.copy()
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = getattr(nms_wrapper, nms_type)
+    for i in range(1, num_classes):
+        cls_inds = multi_scores[:, (i)] > score_thr
+        if not cls_inds.any():
+            continue
+        if multi_bboxes.shape[1] == 4:
+            _bboxes = multi_bboxes[(cls_inds), :]
+        else:
+            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+        _scores = multi_scores[cls_inds, i]
+        if score_factors is not None:
+            _scores *= score_factors[cls_inds]
+        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
+        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
+            dtype=torch.long)
+        bboxes.append(cls_dets)
+        labels.append(cls_labels)
+    if bboxes:
+        bboxes = torch.cat(bboxes)
+        labels = torch.cat(labels)
+        if bboxes.shape[0] > max_num:
+            _, inds = bboxes[:, (-1)].sort(descending=True)
+            inds = inds[:max_num]
+            bboxes = bboxes[inds]
+            labels = labels[inds]
+    else:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+    return bboxes, labels
+
+
+def cast_tensor_type(inputs, src_type, dst_type):
+    if isinstance(inputs, torch.Tensor):
+        return inputs.to(dst_type)
+    elif isinstance(inputs, str):
+        return inputs
+    elif isinstance(inputs, np.ndarray):
+        return inputs
+    elif isinstance(inputs, abc.Mapping):
+        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
+            k, v in inputs.items()})
+    elif isinstance(inputs, abc.Iterable):
+        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
+            item in inputs)
+    else:
+        return inputs
+
+
+def force_fp32(apply_to=None, out_fp16=False):
+    """Decorator to convert input arguments to fp32 in force.
+
+    This decorator is useful when you write custom modules and want to support
+    mixed precision training. If there are some inputs that must be processed
+    in fp32 mode, then this decorator can handle it. If inputs arguments are
+    fp16 tensors, they will be converted to fp32 automatically. Arguments other
+    than fp16 tensors are ignored.
+
+    Args:
+        apply_to (Iterable, optional): The argument names to be converted.
+            `None` indicates all arguments.
+        out_fp16 (bool): Whether to convert the output back to fp16.
+
+    :Example:
+
+        class MyModule1(nn.Module)
+
+            # Convert x and y to fp32
+            @force_fp32()
+            def loss(self, x, y):
+                pass
+
+        class MyModule2(nn.Module):
+
+            # convert pred to fp32
+            @force_fp32(apply_to=('pred', ))
+            def post_process(self, pred, others):
+                pass
+    """
+
+    def force_fp32_wrapper(old_func):
+
+        @functools.wraps(old_func)
+        def new_func(*args, **kwargs):
+            if not isinstance(args[0], torch.nn.Module):
+                raise TypeError(
+                    '@force_fp32 can only be used to decorate the method of nn.Module'
+                    )
+            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
+                return old_func(*args, **kwargs)
+            args_info = getfullargspec(old_func)
+            args_to_cast = args_info.args if apply_to is None else apply_to
+            new_args = []
+            if args:
+                arg_names = args_info.args[:len(args)]
+                for i, arg_name in enumerate(arg_names):
+                    if arg_name in args_to_cast:
+                        new_args.append(cast_tensor_type(args[i], torch.
+                            half, torch.float))
+                    else:
+                        new_args.append(args[i])
+            new_kwargs = dict()
+            if kwargs:
+                for arg_name, arg_value in kwargs.items():
+                    if arg_name in args_to_cast:
+                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
+                            torch.half, torch.float)
+                    else:
+                        new_kwargs[arg_name] = arg_value
+            output = old_func(*new_args, **new_kwargs)
+            if out_fp16:
+                output = cast_tensor_type(output, torch.float, torch.half)
+            return output
+        return new_func
+    return force_fp32_wrapper
 
 
 @HEADS.register_module
@@ -1791,6 +1723,26 @@ class FeatureAdaption(nn.Module):
         offset = self.conv_offset(shape.detach())
         x = self.relu(self.conv_adaption(x, offset))
         return x
+
+
+def build_sampler(cfg, **kwargs):
+    if isinstance(cfg, samplers.BaseSampler):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
+def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
+    bbox_assigner = build_assigner(cfg.assigner)
+    bbox_sampler = build_sampler(cfg.sampler)
+    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
+        gt_bboxes_ignore, gt_labels)
+    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
+        gt_labels)
+    return assign_result, sampling_result
 
 
 def unmap(data, count, inds, fill=0):
@@ -2777,49 +2729,64 @@ class SOLOV2Head(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
-norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
-    ), 'GN': ('gn', nn.GroupNorm)}
+def get_root_logger(log_file=None, log_level=logging.INFO):
+    """Get the root logger.
 
-
-def build_norm_layer(cfg, num_features, postfix=''):
-    """ Build normalization layer
+    The logger will be initialized if it has not been initialized. By default a
+    StreamHandler will be added. If `log_file` is specified, a FileHandler will
+    also be added. The name of the root logger is the top-level package name,
+    e.g., "mmdet".
 
     Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into norm abbreviation to
-            create named layer.
+        log_file (str | None): The log filename. If specified, a FileHandler
+            will be added to the root logger.
+        log_level (int): The root logger level. Note that only the process of
+            rank 0 is affected, while other processes will set the level to
+            "Error" and be silent most of the time.
 
     Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created norm layer
+        logging.Logger: The root logger.
     """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    cfg_.setdefault('eps', 1e-05)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN':
-            layer._specify_ddp_gpu_num(1)
-    else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    return name, layer
+    logger = logging.getLogger(__name__.split('.')[0])
+    if logger.hasHandlers():
+        return logger
+    format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(format=format_str, level=log_level)
+    rank, _ = get_dist_info()
+    if rank != 0:
+        logger.setLevel('ERROR')
+    elif log_file is not None:
+        file_handler = logging.FileHandler(log_file, 'w')
+        file_handler.setFormatter(logging.Formatter(format_str))
+        file_handler.setLevel(log_level)
+        logger.addHandler(file_handler)
+    return logger
+
+
+def print_log(msg, logger=None, level=logging.INFO):
+    """Print a log message.
+
+    Args:
+        msg (str): The message to be logged.
+        logger (logging.Logger | str | None): The logger to be used. Some
+            special loggers are:
+            - "root": the root logger obtained with `get_root_logger()`.
+            - "silent": no message will be printed.
+            - None: The `print()` method will be used to print log messages.
+        level (int): Logging level. Only available when `logger` is a Logger
+            object or "root".
+    """
+    if logger is None:
+        print(msg)
+    elif logger == 'root':
+        _logger = get_root_logger()
+        _logger.log(level, msg)
+    elif isinstance(logger, logging.Logger):
+        logger.log(level, msg)
+    elif logger != 'silent':
+        raise TypeError(
+            'logger should be either a logging.Logger object, "root", "silent" or None, but got {}'
+            .format(logger))
 
 
 class ModulatedDeformConvFunction(Function):
@@ -2888,77 +2855,49 @@ class ModulatedDeformConvFunction(Function):
 modulated_deform_conv = ModulatedDeformConvFunction.apply
 
 
-def get_root_logger(log_file=None, log_level=logging.INFO):
-    """Get the root logger.
+norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
+    ), 'GN': ('gn', nn.GroupNorm)}
 
-    The logger will be initialized if it has not been initialized. By default a
-    StreamHandler will be added. If `log_file` is specified, a FileHandler will
-    also be added. The name of the root logger is the top-level package name,
-    e.g., "mmdet".
+
+def build_norm_layer(cfg, num_features, postfix=''):
+    """ Build normalization layer
 
     Args:
-        log_file (str | None): The log filename. If specified, a FileHandler
-            will be added to the root logger.
-        log_level (int): The root logger level. Note that only the process of
-            rank 0 is affected, while other processes will set the level to
-            "Error" and be silent most of the time.
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
 
     Returns:
-        logging.Logger: The root logger.
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
     """
-    logger = logging.getLogger(__name__.split('.')[0])
-    if logger.hasHandlers():
-        return logger
-    format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(format=format_str, level=log_level)
-    rank, _ = get_dist_info()
-    if rank != 0:
-        logger.setLevel('ERROR')
-    elif log_file is not None:
-        file_handler = logging.FileHandler(log_file, 'w')
-        file_handler.setFormatter(logging.Formatter(format_str))
-        file_handler.setLevel(log_level)
-        logger.addHandler(file_handler)
-    return logger
-
-
-def print_log(msg, logger=None, level=logging.INFO):
-    """Print a log message.
-
-    Args:
-        msg (str): The message to be logged.
-        logger (logging.Logger | str | None): The logger to be used. Some
-            special loggers are:
-            - "root": the root logger obtained with `get_root_logger()`.
-            - "silent": no message will be printed.
-            - None: The `print()` method will be used to print log messages.
-        level (int): Logging level. Only available when `logger` is a Logger
-            object or "root".
-    """
-    if logger is None:
-        print(msg)
-    elif logger == 'root':
-        _logger = get_root_logger()
-        _logger.log(level, msg)
-    elif isinstance(logger, logging.Logger):
-        logger.log(level, msg)
-    elif logger != 'silent':
-        raise TypeError(
-            'logger should be either a logging.Logger object, "root", "silent" or None, but got {}'
-            .format(logger))
-
-
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
     else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    cfg_.setdefault('eps', 1e-05)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    return name, layer
 
 
 class BasicBlock(nn.Module):
@@ -3114,9 +3053,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-BACKBONES = Registry('backbone')
-
-
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
     groups=1, base_width=4, style='pytorch', with_cp=False, conv_cfg=None,
     norm_cfg=dict(type='BN'), dcn=None, gcb=None):
@@ -3137,6 +3073,22 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
             style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg,
             dcn=dcn, gcb=gcb))
     return nn.Sequential(*layers)
+
+
+BACKBONES = Registry('backbone')
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 @BACKBONES.register_module
@@ -3344,6 +3296,44 @@ def accuracy(pred, target, topk=1):
     return res[0] if return_single else res
 
 
+def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
+    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
+    1.0, 1.0, 1.0]):
+    num_pos = pos_bboxes.size(0)
+    num_neg = neg_bboxes.size(0)
+    num_samples = num_pos + num_neg
+    labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
+    label_weights = pos_bboxes.new_zeros(num_samples)
+    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
+    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
+    if num_pos > 0:
+        labels[:num_pos] = pos_gt_labels
+        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
+        label_weights[:num_pos] = pos_weight
+        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
+            target_means, target_stds)
+        bbox_targets[:num_pos, :] = pos_bbox_targets
+        bbox_weights[:num_pos, :] = 1
+    if num_neg > 0:
+        label_weights[-num_neg:] = 1.0
+    return labels, label_weights, bbox_targets, bbox_weights
+
+
+def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
+    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
+    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
+    labels, label_weights, bbox_targets, bbox_weights = multi_apply(
+        bbox_target_single, pos_bboxes_list, neg_bboxes_list,
+        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
+        reg_classes, target_means=target_means, target_stds=target_stds)
+    if concat:
+        labels = torch.cat(labels, 0)
+        label_weights = torch.cat(label_weights, 0)
+        bbox_targets = torch.cat(bbox_targets, 0)
+        bbox_weights = torch.cat(bbox_weights, 0)
+    return labels, label_weights, bbox_targets, bbox_weights
+
+
 def auto_fp16(apply_to=None, out_fp32=False):
     """Decorator to enable fp16 training automatically.
 
@@ -3411,65 +3401,75 @@ def auto_fp16(apply_to=None, out_fp32=False):
     return auto_fp16_wrapper
 
 
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
+def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
+    max_shape=None, wh_ratio_clip=16 / 1000):
+    """
+    Apply deltas to shift/scale base boxes.
 
+    Typically the rois are anchor or proposed bounding boxes and the deltas are
+    network outputs used to shift/scale those boxes.
 
-def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
-    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
-    1.0, 1.0, 1.0]):
-    num_pos = pos_bboxes.size(0)
-    num_neg = neg_bboxes.size(0)
-    num_samples = num_pos + num_neg
-    labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
-    label_weights = pos_bboxes.new_zeros(num_samples)
-    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
-    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
-    if num_pos > 0:
-        labels[:num_pos] = pos_gt_labels
-        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
-        label_weights[:num_pos] = pos_weight
-        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
-            target_means, target_stds)
-        bbox_targets[:num_pos, :] = pos_bbox_targets
-        bbox_weights[:num_pos, :] = 1
-    if num_neg > 0:
-        label_weights[-num_neg:] = 1.0
-    return labels, label_weights, bbox_targets, bbox_weights
+    Args:
+        rois (Tensor): boxes to be transformed. Has shape (N, 4)
+        deltas (Tensor): encoded offsets with respect to each roi.
+            Has shape (N, 4). Note N = num_anchors * W * H when rois is a grid
+            of anchors. Offset encoding follows [1]_.
+        means (list): denormalizing means for delta coordinates
+        stds (list): denormalizing standard deviation for delta coordinates
+        max_shape (tuple[int, int]): maximum bounds for boxes. specifies (H, W)
+        wh_ratio_clip (float): maximum aspect ratio for boxes.
 
+    Returns:
+        Tensor: boxes with shape (N, 4), where columns represent
+            tl_x, tl_y, br_x, br_y.
 
-def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
-    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
-    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
-    labels, label_weights, bbox_targets, bbox_weights = multi_apply(
-        bbox_target_single, pos_bboxes_list, neg_bboxes_list,
-        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
-        reg_classes, target_means=target_means, target_stds=target_stds)
-    if concat:
-        labels = torch.cat(labels, 0)
-        label_weights = torch.cat(label_weights, 0)
-        bbox_targets = torch.cat(bbox_targets, 0)
-        bbox_weights = torch.cat(bbox_weights, 0)
-    return labels, label_weights, bbox_targets, bbox_weights
+    References:
+        .. [1] https://arxiv.org/abs/1311.2524
+
+    Example:
+        >>> rois = torch.Tensor([[ 0.,  0.,  1.,  1.],
+        >>>                      [ 0.,  0.,  1.,  1.],
+        >>>                      [ 0.,  0.,  1.,  1.],
+        >>>                      [ 5.,  5.,  5.,  5.]])
+        >>> deltas = torch.Tensor([[  0.,   0.,   0.,   0.],
+        >>>                        [  1.,   1.,   1.,   1.],
+        >>>                        [  0.,   0.,   2.,  -1.],
+        >>>                        [ 0.7, -1.9, -0.5,  0.3]])
+        >>> delta2bbox(rois, deltas, max_shape=(32, 32))
+        tensor([[0.0000, 0.0000, 1.0000, 1.0000],
+                [0.2817, 0.2817, 4.7183, 4.7183],
+                [0.0000, 0.6321, 7.3891, 0.3679],
+                [5.8967, 2.9251, 5.5033, 3.2749]])
+    """
+    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
+    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
+    denorm_deltas = deltas * stds + means
+    dx = denorm_deltas[:, 0::4]
+    dy = denorm_deltas[:, 1::4]
+    dw = denorm_deltas[:, 2::4]
+    dh = denorm_deltas[:, 3::4]
+    max_ratio = np.abs(np.log(wh_ratio_clip))
+    dw = dw.clamp(min=-max_ratio, max=max_ratio)
+    dh = dh.clamp(min=-max_ratio, max=max_ratio)
+    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    gw = pw * dw.exp()
+    gh = ph * dh.exp()
+    gx = torch.addcmul(px, 1, pw, dx)
+    gy = torch.addcmul(py, 1, ph, dy)
+    x1 = gx - gw * 0.5 + 0.5
+    y1 = gy - gh * 0.5 + 0.5
+    x2 = gx + gw * 0.5 - 0.5
+    y2 = gy + gh * 0.5 - 0.5
+    if max_shape is not None:
+        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
+        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
+        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
+        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
+    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
+    return bboxes
 
 
 @HEADS.register_module
@@ -4057,6 +4057,15 @@ class BalancedL1Loss(nn.Module):
         return loss_bbox
 
 
+def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
+    loss = F.cross_entropy(pred, label, reduction='none')
+    if weight is not None:
+        weight = weight.float()
+    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
+        avg_factor=avg_factor)
+    return loss
+
+
 def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
     assert reduction == 'mean' and avg_factor is None
     num_rois = pred.size()[0]
@@ -4085,15 +4094,6 @@ def binary_cross_entropy(pred, label, weight=None, reduction='mean',
     loss = F.binary_cross_entropy_with_logits(pred, label.float(), weight,
         reduction='none')
     loss = weight_reduce_loss(loss, reduction=reduction, avg_factor=avg_factor)
-    return loss
-
-
-def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
-    loss = F.cross_entropy(pred, label, reduction='none')
-    if weight is not None:
-        weight = weight.float()
-    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
-        avg_factor=avg_factor)
     return loss
 
 
@@ -5540,6 +5540,12 @@ class MergingCell(nn.Module):
         return x
 
 
+class SumCell(MergingCell):
+
+    def _binary_op(self, x1, x2):
+        return x1 + x2
+
+
 class GPCell(MergingCell):
 
     def __init__(self, *args, **kwargs):
@@ -5549,12 +5555,6 @@ class GPCell(MergingCell):
     def _binary_op(self, x1, x2):
         x2_att = self.global_pool(x2).sigmoid()
         return x2 + x2_att * x1
-
-
-class SumCell(MergingCell):
-
-    def _binary_op(self, x1, x2):
-        return x1 + x2
 
 
 @NECKS.register_module
@@ -6712,49 +6712,49 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Epiphqny_SOLOv2(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BalancedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(GHMC(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(GHMR(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(IoULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
+    def test_001(self):
         self._check(BoundedIoULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_002(self):
+        self._check(ConvWS2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(GHMC(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(GHMR(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(GIoULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_006(self):
+        self._check(IoULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(MSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(SmoothL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(ConvWS2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_011(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SmoothL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

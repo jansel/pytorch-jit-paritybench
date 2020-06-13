@@ -113,6 +113,39 @@ class Decoder(nn.Module):
         return x
 
 
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.ConvTranspose2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1)
+        m.bias.data.zero_()
+
+
+class UpConv(Decoder):
+
+    def upconv_module(self, in_channels):
+        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(
+            in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2,
+            kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm',
+            nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
+        return upconv
+
+    def __init__(self, in_channels):
+        super(UpConv, self).__init__()
+        self.layer1 = self.upconv_module(in_channels)
+        self.layer2 = self.upconv_module(in_channels // 2)
+        self.layer3 = self.upconv_module(in_channels // 4)
+        self.layer4 = self.upconv_module(in_channels // 8)
+
+
 class DeConv(Decoder):
 
     def __init__(self, in_channels, kernel_size):
@@ -175,23 +208,6 @@ class UpProj(Decoder):
         self.layer4 = self.UpProjModule(in_channels // 8)
 
 
-class UpConv(Decoder):
-
-    def upconv_module(self, in_channels):
-        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(
-            in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2,
-            kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm',
-            nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
-        return upconv
-
-    def __init__(self, in_channels):
-        super(UpConv, self).__init__()
-        self.layer1 = self.upconv_module(in_channels)
-        self.layer2 = self.upconv_module(in_channels // 2)
-        self.layer3 = self.upconv_module(in_channels // 4)
-        self.layer4 = self.upconv_module(in_channels // 8)
-
-
 def choose_decoder(decoder, in_channels):
     if decoder[:6] == 'deconv':
         assert len(decoder) == 7
@@ -203,22 +219,6 @@ def choose_decoder(decoder, in_channels):
         return UpConv(in_channels)
     else:
         assert False, 'invalid option for decoder: {}'.format(decoder)
-
-
-def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.ConvTranspose2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1)
-        m.bias.data.zero_()
 
 
 class ResNet(nn.Module):
@@ -289,20 +289,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_fangchangma_sparse_to_dense_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DeConv(*[], **{'in_channels': 64, 'kernel_size': 4}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
         self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Unpool(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(DeConv(*[], **{'in_channels': 64, 'kernel_size': 4}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(Unpool(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(UpProj(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(UpConv(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_005(self):
-        self._check(UpConv(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(UpProj(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
 

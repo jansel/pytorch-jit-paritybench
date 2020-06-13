@@ -132,6 +132,29 @@ def _check_contiguous(*args):
         raise ValueError('Non-contiguous input')
 
 
+class CA_Map(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, weight, g):
+        out = torch.zeros_like(g)
+        _ext.ca_map_forward_cuda(weight, g, out)
+        ctx.save_for_backward(weight, g)
+        return out
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dout):
+        weight, g = ctx.saved_tensors
+        dw = torch.zeros_like(weight)
+        dg = torch.zeros_like(g)
+        _ext.ca_map_backward_cuda(dout.contiguous(), weight, g, dw, dg)
+        _check_contiguous(dw, dg)
+        return dw, dg
+
+
+ca_map = CA_Map.apply
+
+
 class CA_Weight(autograd.Function):
 
     @staticmethod
@@ -156,29 +179,6 @@ class CA_Weight(autograd.Function):
 
 
 ca_weight = CA_Weight.apply
-
-
-class CA_Map(autograd.Function):
-
-    @staticmethod
-    def forward(ctx, weight, g):
-        out = torch.zeros_like(g)
-        _ext.ca_map_forward_cuda(weight, g, out)
-        ctx.save_for_backward(weight, g)
-        return out
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dout):
-        weight, g = ctx.saved_tensors
-        dw = torch.zeros_like(weight)
-        dg = torch.zeros_like(g)
-        _ext.ca_map_backward_cuda(dout.contiguous(), weight, g, dw, dg)
-        _check_contiguous(dw, dg)
-        return dw, dg
-
-
-ca_map = CA_Map.apply
 
 
 class CrissCrossAttention(nn.Module):
@@ -229,36 +229,19 @@ class ABN(nn.Sequential):
             num_features, **kwargs)), ('act', activation)]))
 
 
-def _count_samples(x):
-    count = 1
-    for i, s in enumerate(x.size()):
-        if i != 1:
-            count *= s
-    return count
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
-ACT_NONE = 'none'
-
-
 def _check(fn, *args, **kwargs):
     success = fn(*args, **kwargs)
     if not success:
         raise RuntimeError('CUDA Error encountered in {}'.format(fn))
 
 
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
 ACT_ELU = 'elu'
 
 
-def _act_forward(ctx, x):
-    if ctx.activation == ACT_LEAKY_RELU:
-        _check(_ext.leaky_relu_cuda, x, ctx.slope)
-    elif ctx.activation == ACT_ELU:
-        _check(_ext.elu_cuda, x)
-    elif ctx.activation == ACT_NONE:
-        pass
+ACT_NONE = 'none'
 
 
 def _act_backward(ctx, x, dx):
@@ -268,6 +251,23 @@ def _act_backward(ctx, x, dx):
     elif ctx.activation == ACT_ELU:
         _check(_ext.elu_backward_cuda, x, dx)
         _check(_ext.elu_inv_cuda, x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _check(_ext.leaky_relu_cuda, x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _check(_ext.elu_cuda, x)
     elif ctx.activation == ACT_NONE:
         pass
 

@@ -291,9 +291,9 @@ class Test_zalandoresearch_pytorch_dilated_rnn(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(DRNN_Copy(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'dropout': 0.5, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(DRNN(*[], **{'n_input': 4, 'n_hidden': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(DRNN(*[], **{'n_input': 4, 'n_hidden': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(DRNN_Copy(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'dropout': 0.5, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
 

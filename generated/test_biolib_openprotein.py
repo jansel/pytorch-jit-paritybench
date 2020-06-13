@@ -115,86 +115,6 @@ class SoftToAngle(nn.Module):
         return torch.cat((phi, psi, omega), 2)
 
 
-def write_to_pdb(structure, prot_id):
-    out = Bio.PDB.PDBIO()
-    out.set_structure(structure)
-    out.save('output/protein_' + str(prot_id) + '.pdb')
-
-
-def calc_pairwise_distances(chain_a, chain_b, use_gpu):
-    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(
-        torch.float)
-    epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
-    if use_gpu:
-        distance_matrix = distance_matrix.cuda()
-        epsilon = epsilon.cuda()
-    for idx, row in enumerate(chain_a.split(1)):
-        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) **
-            2, 1).view(1, -1)
-    return torch.sqrt(distance_matrix + epsilon)
-
-
-def calc_drmsd(chain_a, chain_b, use_gpu=False):
-    assert len(chain_a) == len(chain_b)
-    distance_matrix_a = calc_pairwise_distances(chain_a, chain_a, use_gpu)
-    distance_matrix_b = calc_pairwise_distances(chain_b, chain_b, use_gpu)
-    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(
-        len(chain_a) * (len(chain_a) - 1))
-
-
-def calc_angular_difference(values_1, values_2):
-    values_1 = values_1.transpose(0, 1).contiguous()
-    values_2 = values_2.transpose(0, 1).contiguous()
-    acc = 0
-    for idx, _ in enumerate(values_1):
-        assert values_1[idx].shape[1] == 3
-        assert values_2[idx].shape[1] == 3
-        a1_element = values_1[idx].view(-1, 1)
-        a2_element = values_2[idx].view(-1, 1)
-        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element -
-            a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) **
-            2))
-    return acc / values_1.shape[0]
-
-
-def write_out(*args, end='\n'):
-    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S'
-        ) + ': ' + str.join(' ', [str(a) for a in args]) + end
-    if globals().get('experiment_id') is not None:
-        with open('output/' + globals().get('experiment_id') + '.txt', 'a+'
-            ) as output_file:
-            output_file.write(output_string)
-            output_file.flush()
-    print(output_string, end='')
-
-
-AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 
-    8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 
-    16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
-
-
-def protein_id_to_str(protein_id_list):
-    _aa_dict_inverse = {v: k for k, v in AA_ID_DICT.items()}
-    aa_list = []
-    for protein_id in protein_id_list:
-        aa_symbol = _aa_dict_inverse[protein_id.item()]
-        aa_list.append(aa_symbol)
-    return aa_list
-
-
-def get_structure_from_angles(aa_list_encoded, angles):
-    aa_list = protein_id_to_str(aa_list_encoded)
-    omega_list = angles[1:, (0)]
-    phi_list = angles[1:, (1)]
-    psi_list = angles[:-1, (2)]
-    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(
-        omega_list) + 1
-    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x:
-        math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x),
-        psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
-    return structure
-
-
 def transpose_atoms_to_center_of_mass(atoms_matrix):
     center_of_mass = np.matrix([[atoms_matrix[(0), :].sum() / atoms_matrix.
         shape[1]], [atoms_matrix[(1), :].sum() / atoms_matrix.shape[1]], [
@@ -216,13 +136,13 @@ def calc_rmsd(chain_a, chain_b):
     return RMSD
 
 
-NUM_DIMENSIONS = 3
+BOND_ANGLES = torch.tensor([2.124, 1.941, 2.028], dtype=torch.float32)
 
 
 BOND_LENGTHS = torch.tensor([145.801, 152.326, 132.868], dtype=torch.float32)
 
 
-BOND_ANGLES = torch.tensor([2.124, 1.941, 2.028], dtype=torch.float32)
+NUM_DIMENSIONS = 3
 
 
 NUM_DIHEDRALS = 3
@@ -253,6 +173,9 @@ def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
     point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS,
         batch_size, NUM_DIMENSIONS)
     return point_final
+
+
+NUM_FRAGMENTS = torch.tensor(6)
 
 
 def compute_cross(tensor_a, tensor_b, dim):
@@ -368,9 +291,6 @@ def point_to_coordinate(points, use_gpu, num_fragments):
     return coords
 
 
-NUM_FRAGMENTS = torch.tensor(6)
-
-
 def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu
     ):
     points = dihedral_to_point(angular_emissions, use_gpu)
@@ -378,6 +298,65 @@ def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu
         NUM_FRAGMENTS) / 100
     return coordinates.transpose(0, 1).contiguous().view(len(batch_sizes), 
         -1, 9).transpose(0, 1), batch_sizes
+
+
+def write_out(*args, end='\n'):
+    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S'
+        ) + ': ' + str.join(' ', [str(a) for a in args]) + end
+    if globals().get('experiment_id') is not None:
+        with open('output/' + globals().get('experiment_id') + '.txt', 'a+'
+            ) as output_file:
+            output_file.write(output_string)
+            output_file.flush()
+    print(output_string, end='')
+
+
+AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 
+    8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 
+    16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
+
+
+def protein_id_to_str(protein_id_list):
+    _aa_dict_inverse = {v: k for k, v in AA_ID_DICT.items()}
+    aa_list = []
+    for protein_id in protein_id_list:
+        aa_symbol = _aa_dict_inverse[protein_id.item()]
+        aa_list.append(aa_symbol)
+    return aa_list
+
+
+def get_structure_from_angles(aa_list_encoded, angles):
+    aa_list = protein_id_to_str(aa_list_encoded)
+    omega_list = angles[1:, (0)]
+    phi_list = angles[1:, (1)]
+    psi_list = angles[:-1, (2)]
+    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(
+        omega_list) + 1
+    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x:
+        math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x),
+        psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
+    return structure
+
+
+def calc_pairwise_distances(chain_a, chain_b, use_gpu):
+    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(
+        torch.float)
+    epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
+    if use_gpu:
+        distance_matrix = distance_matrix.cuda()
+        epsilon = epsilon.cuda()
+    for idx, row in enumerate(chain_a.split(1)):
+        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) **
+            2, 1).view(1, -1)
+    return torch.sqrt(distance_matrix + epsilon)
+
+
+def calc_drmsd(chain_a, chain_b, use_gpu=False):
+    assert len(chain_a) == len(chain_b)
+    distance_matrix_a = calc_pairwise_distances(chain_a, chain_a, use_gpu)
+    distance_matrix_b = calc_pairwise_distances(chain_b, chain_b, use_gpu)
+    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(
+        len(chain_a) * (len(chain_a) - 1))
 
 
 def compute_dihedral_list(atomic_coords):
@@ -404,6 +383,21 @@ def calculate_dihedral_angles(atomic_coords, use_gpu):
     return angles
 
 
+def calc_angular_difference(values_1, values_2):
+    values_1 = values_1.transpose(0, 1).contiguous()
+    values_2 = values_2.transpose(0, 1).contiguous()
+    acc = 0
+    for idx, _ in enumerate(values_1):
+        assert values_1[idx].shape[1] == 3
+        assert values_2[idx].shape[1] == 3
+        a1_element = values_1[idx].view(-1, 1)
+        a2_element = values_2[idx].view(-1, 1)
+        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element -
+            a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) **
+            2))
+    return acc / values_1.shape[0]
+
+
 def calculate_dihedral_angles_over_minibatch(atomic_coords_padded,
     batch_sizes, use_gpu):
     angles = []
@@ -414,6 +408,12 @@ def calculate_dihedral_angles_over_minibatch(atomic_coords_padded,
             torch.arange(int(batch_sizes[idx].item())))
         angles.append(calculate_dihedral_angles(angles_from_coords, use_gpu))
     return torch.nn.utils.rnn.pad_sequence(angles), batch_sizes
+
+
+def write_to_pdb(structure, prot_id):
+    out = Bio.PDB.PDBIO()
+    out.set_structure(structure)
+    out.save('output/protein_' + str(prot_id) + '.pdb')
 
 
 class BaseModel(nn.Module):

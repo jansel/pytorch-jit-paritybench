@@ -685,21 +685,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_GMvandeVen_continual_learning(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LinearExcitability(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Reshape(*[], **{'image_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearExcitability(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(ToImage(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Reshape(*[], **{'image_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ToImage(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

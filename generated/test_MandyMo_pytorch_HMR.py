@@ -599,13 +599,13 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
     return new_J, A
 
 
-_global_config['batch_3d_size'] = 4
+_global_config['batch_size'] = 4
 
 
 _global_config['eval_batch_size'] = 4
 
 
-_global_config['batch_size'] = 4
+_global_config['batch_3d_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -813,6 +813,30 @@ model_urls = {'densenet121':
     'https://download.pytorch.org/models/densenet161-8d451a50.pth'}
 
 
+def densenet121(pretrained=False, **kwargs):
+    """Densenet-121 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
+        12, 24, 16), **kwargs)
+    if pretrained:
+        pattern = re.compile(
+            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
+            )
+        state_dict = model_zoo.load_url(model_urls['densenet121'])
+        for key in list(state_dict.keys()):
+            res = pattern.match(key)
+            if res:
+                new_key = res.group(1) + res.group(2)
+                state_dict[new_key] = state_dict[key]
+                del state_dict[key]
+        model.load_state_dict(state_dict)
+    return model
+
+
 def densenet161(pretrained=False, **kwargs):
     """Densenet-161 model from
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
@@ -827,30 +851,6 @@ def densenet161(pretrained=False, **kwargs):
             '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
             )
         state_dict = model_zoo.load_url(model_urls['densenet161'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
-def densenet169(pretrained=False, **kwargs):
-    """Densenet-169 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 32, 32), **kwargs)
-    if pretrained:
-        pattern = re.compile(
-            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
-            )
-        state_dict = model_zoo.load_url(model_urls['densenet169'])
         for key in list(state_dict.keys()):
             res = pattern.match(key)
             if res:
@@ -885,20 +885,20 @@ def densenet201(pretrained=False, **kwargs):
     return model
 
 
-def densenet121(pretrained=False, **kwargs):
-    """Densenet-121 model from
+def densenet169(pretrained=False, **kwargs):
+    """Densenet-169 model from
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 24, 16), **kwargs)
+        12, 32, 32), **kwargs)
     if pretrained:
         pattern = re.compile(
             '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
             )
-        state_dict = model_zoo.load_url(model_urls['densenet121'])
+        state_dict = model_zoo.load_url(model_urls['densenet169'])
         for key in list(state_dict.keys()):
             res = pattern.match(key)
             if res:
@@ -960,34 +960,34 @@ def _create_hourglass_net():
         nMidChannels=128, nChannels=256, nJointCount=1, bUseBn=True)
 
 
-_global_config['enable_inter_supervision'] = 4
-
-
-_global_config['crop_size'] = 4
+_global_config['smpl_model'] = 4
 
 
 _global_config['allowed_encoder_net'] = 4
 
 
-_global_config['encoder_network'] = 4
-
-
 _global_config['feature_count'] = 4
 
 
-_global_config['beta_count'] = 4
-
-
-_global_config['smpl_model'] = 4
-
-
 _global_config['smpl_mean_theta_path'] = 4
+
+
+_global_config['crop_size'] = 4
 
 
 _global_config['joint_count'] = 4
 
 
 _global_config['encoder_feature_count'] = 4
+
+
+_global_config['encoder_network'] = 4
+
+
+_global_config['enable_inter_supervision'] = 4
+
+
+_global_config['beta_count'] = 4
 
 
 _global_config['total_theta_count'] = 4
@@ -1119,28 +1119,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_MandyMo_pytorch_HMR(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(HourGlass(*[], **{'nStack': 4, 'nBlockCount': 4, 'nResidualEachBlock': 4, 'nMidChannels': 4, 'nChannels': 4, 'nJointCount': 4, 'bUseBn': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Residual(*[], **{'use_bn': 4, 'input_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HourGlass(*[], **{'nStack': 4, 'nBlockCount': 4, 'nResidualEachBlock': 4, 'nMidChannels': 4, 'nChannels': 4, 'nJointCount': 4, 'bUseBn': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(HourGlassBlock(*[], **{'block_count': 1, 'residual_each_block': 1, 'input_channels': 4, 'mid_channels': 4, 'use_bn': 4, 'stack_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual(*[], **{'use_bn': 4, 'input_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})

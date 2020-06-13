@@ -119,6 +119,59 @@ def order_points(pts):
     return torch.stack([p for p in pts_reorder])
 
 
+def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
+    """Generate anchors coordinates from scales/ratios/angles"""
+    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
+    scales = scales.transpose(0, 1).contiguous().view(-1, 1)
+    ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
+    wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
+    ws = torch.round(torch.sqrt(wh[:, (0)] * wh[:, (1)] / ratios))
+    dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
+    xy0 = 0.5 * (wh - dwh * scales)
+    xy2 = 0.5 * (wh + dwh * scales) - 1
+    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0, 1])
+    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1, 0])
+    angles = torch.FloatTensor(angles_vals)
+    theta = angles.repeat(xy0.size(0), 1)
+    theta = theta.transpose(0, 1).contiguous().view(-1, 1)
+    xmin_ymin = xy0.repeat(int(theta.size(0) / xy0.size(0)), 1)
+    xmax_ymax = xy2.repeat(int(theta.size(0) / xy2.size(0)), 1)
+    widths_heights = dwh * scales
+    widths_heights = widths_heights.repeat(int(theta.size(0) /
+        widths_heights.size(0)), 1)
+    u = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
+    l = torch.stack([-torch.sin(angles), torch.cos(angles)], dim=1)
+    R = torch.stack([u, l], dim=1)
+    xy0R = torch.matmul(R, xy0.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy1R = torch.matmul(R, xy1.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy2R = torch.matmul(R, xy2.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy3R = torch.matmul(R, xy3.transpose(1, 0) - stride / 2 + 0.5
+        ) + stride / 2 - 0.5
+    xy0R = xy0R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy1R = xy1R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy2R = xy2R.permute(0, 2, 1).contiguous().view(-1, 2)
+    xy3R = xy3R.permute(0, 2, 1).contiguous().view(-1, 2)
+    anchors_axis = torch.cat([xmin_ymin, xmax_ymax], dim=1)
+    anchors_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)
+        ).view(-1, 8)
+    return anchors_axis, anchors_rotated
+
+
+def box2delta_rotated(boxes, anchors):
+    """Convert boxes to deltas from anchors"""
+    anchors_wh = anchors[:, 2:4] - anchors[:, :2] + 1
+    anchors_ctr = anchors[:, :2] + 0.5 * anchors_wh
+    boxes_wh = boxes[:, 2:4] - boxes[:, :2] + 1
+    boxes_ctr = boxes[:, :2] + 0.5 * boxes_wh
+    boxes_sin = boxes[:, (4)]
+    boxes_cos = boxes[:, (5)]
+    return torch.cat([(boxes_ctr - anchors_ctr) / anchors_wh, torch.log(
+        boxes_wh / anchors_wh), boxes_sin[:, (None)], boxes_cos[:, (None)]], 1)
+
+
 def rotate_boxes(boxes, points=False):
     """
     Rotate target bounding boxes 
@@ -166,18 +219,6 @@ def rotate_boxes(boxes, points=False):
     boxes_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)
         ).view(-1, 8)
     return boxes_axis, boxes_rotated
-
-
-def box2delta_rotated(boxes, anchors):
-    """Convert boxes to deltas from anchors"""
-    anchors_wh = anchors[:, 2:4] - anchors[:, :2] + 1
-    anchors_ctr = anchors[:, :2] + 0.5 * anchors_wh
-    boxes_wh = boxes[:, 2:4] - boxes[:, :2] + 1
-    boxes_ctr = boxes[:, :2] + 0.5 * boxes_wh
-    boxes_sin = boxes[:, (4)]
-    boxes_cos = boxes[:, (5)]
-    return torch.cat([(boxes_ctr - anchors_ctr) / anchors_wh, torch.log(
-        boxes_wh / anchors_wh), boxes_sin[:, (None)], boxes_cos[:, (None)]], 1)
 
 
 def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes,
@@ -237,47 +278,6 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes,
     return cls_target.view(num_anchors, num_classes, height, width
         ), box_target.view(num_anchors, 6, height, width), depth.view(
         num_anchors, 1, height, width)
-
-
-def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
-    """Generate anchors coordinates from scales/ratios/angles"""
-    scales = torch.FloatTensor(scales_vals).repeat(len(ratio_vals), 1)
-    scales = scales.transpose(0, 1).contiguous().view(-1, 1)
-    ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
-    wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
-    ws = torch.round(torch.sqrt(wh[:, (0)] * wh[:, (1)] / ratios))
-    dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
-    xy0 = 0.5 * (wh - dwh * scales)
-    xy2 = 0.5 * (wh + dwh * scales) - 1
-    xy1 = xy0 + (xy2 - xy0) * torch.FloatTensor([0, 1])
-    xy3 = xy0 + (xy2 - xy0) * torch.FloatTensor([1, 0])
-    angles = torch.FloatTensor(angles_vals)
-    theta = angles.repeat(xy0.size(0), 1)
-    theta = theta.transpose(0, 1).contiguous().view(-1, 1)
-    xmin_ymin = xy0.repeat(int(theta.size(0) / xy0.size(0)), 1)
-    xmax_ymax = xy2.repeat(int(theta.size(0) / xy2.size(0)), 1)
-    widths_heights = dwh * scales
-    widths_heights = widths_heights.repeat(int(theta.size(0) /
-        widths_heights.size(0)), 1)
-    u = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
-    l = torch.stack([-torch.sin(angles), torch.cos(angles)], dim=1)
-    R = torch.stack([u, l], dim=1)
-    xy0R = torch.matmul(R, xy0.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy1R = torch.matmul(R, xy1.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy2R = torch.matmul(R, xy2.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy3R = torch.matmul(R, xy3.transpose(1, 0) - stride / 2 + 0.5
-        ) + stride / 2 - 0.5
-    xy0R = xy0R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy1R = xy1R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy2R = xy2R.permute(0, 2, 1).contiguous().view(-1, 2)
-    xy3R = xy3R.permute(0, 2, 1).contiguous().view(-1, 2)
-    anchors_axis = torch.cat([xmin_ymin, xmax_ymax], dim=1)
-    anchors_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)
-        ).view(-1, 8)
-    return anchors_axis, anchors_rotated
 
 
 def delta2box(deltas, anchors, size, stride):

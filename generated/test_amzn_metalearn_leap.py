@@ -56,6 +56,26 @@ from torch import nn
 from torch import optim
 
 
+def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps,
+    cuda=False, device=0):
+    """Construct a task iterator from input and output tensor"""
+    inner_size = inner_bsz * inner_steps
+    outer_size = outer_bsz * outer_steps
+    tsz = tensors[0].size(0)
+    if tsz != inner_size + outer_size:
+        raise ValueError('tensor size mismatch: expected {}, got {}'.format
+            (inner_size + outer_size, tsz))
+
+    def iterator(start, stop, size):
+        for i in range(start, stop, size):
+            out = tuple(t[i:i + size] for t in tensors)
+            if cuda:
+                out = tuple(t.cuda(device) for t in out)
+            yield out
+    return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz,
+        outer_bsz)
+
+
 def compute_auc(x):
     """Compute AUC (composite trapezoidal rule)"""
     T = len(x)
@@ -99,26 +119,51 @@ class AggRes:
         return mean_meta_loss, mean_loss, mean_acc, mean_losses, mean_accs
 
 
-def maml_inner_step(input, output, model, optimizer, criterion, create_graph):
-    """Create a computation graph through the gradient operation
+def n_correct(p, y):
+    """Number correct predictions"""
+    _, p = p.max(1)
+    correct = (p == y).sum().item()
+    return correct
 
-    Arguments:
-        input (torch.Tensor): input tensor.
-        output (torch.Tensor): target tensor.
-        model (torch.nn.Module): task learner.
-        optimizer (maml.optim): optimizer for inner loop.
-        criterion (func): loss criterion.
-        create_graph (bool): create graph through gradient step.
+
+class Res:
+    """Results container
+    Attributes:
+        losses (list): list of losses over batch iterator
+        accs (list): list of accs over batch iterator
+        meta_loss (float): auc over losses
+        loss (float): mean loss over losses. Call ``aggregate`` to compute.
+        acc (float): mean acc over accs. Call ``aggregate`` to compute.
     """
-    new_parameters = None
-    prediction = model(input)
-    loss = criterion(prediction, output)
-    loss.backward(create_graph=create_graph, retain_graph=create_graph)
-    if create_graph:
-        _, new_parameters = optimizer.step(retain_graph=create_graph)
-    else:
-        optimizer.step(retain_graph=create_graph)
-    return loss, prediction, new_parameters
+
+    def __init__(self):
+        self.losses = []
+        self.accs = []
+        self.ncorrects = []
+        self.nsamples = []
+        self.meta_loss = 0
+        self.loss = 0
+        self.acc = 0
+
+    def log(self, loss, pred, target):
+        """Log loss and accuracies"""
+        nsamples = target.size(0)
+        ncorr = n_correct(pred.data, target.data)
+        accuracy = ncorr / target.size(0)
+        self.losses.append(loss)
+        self.ncorrects.append(ncorr)
+        self.nsamples.append(nsamples)
+        self.accs.append(accuracy)
+
+    def aggregate(self):
+        """Compute aggregate statistics"""
+        self.accs = np.array(self.accs)
+        self.losses = np.array(self.losses)
+        self.nsamples = np.array(self.nsamples)
+        self.ncorrects = np.array(self.ncorrects)
+        self.loss = self.losses.mean()
+        self.meta_loss = compute_auc(self.losses)
+        self.acc = self.ncorrects.sum() / self.nsamples.sum()
 
 
 def _load_from_par_dict(module, par_dict, prefix):
@@ -181,57 +226,32 @@ def load_state_dict(module, state_dict):
     load(module)
 
 
-def n_correct(p, y):
-    """Number correct predictions"""
-    _, p = p.max(1)
-    correct = (p == y).sum().item()
-    return correct
-
-
-class Res:
-    """Results container
-    Attributes:
-        losses (list): list of losses over batch iterator
-        accs (list): list of accs over batch iterator
-        meta_loss (float): auc over losses
-        loss (float): mean loss over losses. Call ``aggregate`` to compute.
-        acc (float): mean acc over accs. Call ``aggregate`` to compute.
-    """
-
-    def __init__(self):
-        self.losses = []
-        self.accs = []
-        self.ncorrects = []
-        self.nsamples = []
-        self.meta_loss = 0
-        self.loss = 0
-        self.acc = 0
-
-    def log(self, loss, pred, target):
-        """Log loss and accuracies"""
-        nsamples = target.size(0)
-        ncorr = n_correct(pred.data, target.data)
-        accuracy = ncorr / target.size(0)
-        self.losses.append(loss)
-        self.ncorrects.append(ncorr)
-        self.nsamples.append(nsamples)
-        self.accs.append(accuracy)
-
-    def aggregate(self):
-        """Compute aggregate statistics"""
-        self.accs = np.array(self.accs)
-        self.losses = np.array(self.losses)
-        self.nsamples = np.array(self.nsamples)
-        self.ncorrects = np.array(self.ncorrects)
-        self.loss = self.losses.mean()
-        self.meta_loss = compute_auc(self.losses)
-        self.acc = self.ncorrects.sum() / self.nsamples.sum()
-
-
 def build_dict(names, parameters):
     """Populate an ordered dictionary of parameters"""
     state_dict = OrderedDict({n: p for n, p in zip(names, parameters)})
     return state_dict
+
+
+def maml_inner_step(input, output, model, optimizer, criterion, create_graph):
+    """Create a computation graph through the gradient operation
+
+    Arguments:
+        input (torch.Tensor): input tensor.
+        output (torch.Tensor): target tensor.
+        model (torch.nn.Module): task learner.
+        optimizer (maml.optim): optimizer for inner loop.
+        criterion (func): loss criterion.
+        create_graph (bool): create graph through gradient step.
+    """
+    new_parameters = None
+    prediction = model(input)
+    loss = criterion(prediction, output)
+    loss.backward(create_graph=create_graph, retain_graph=create_graph)
+    if create_graph:
+        _, new_parameters = optimizer.step(retain_graph=create_graph)
+    else:
+        optimizer.step(retain_graph=create_graph)
+    return loss, prediction, new_parameters
 
 
 def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph
@@ -319,26 +339,6 @@ def maml_outer_step(task_iterator, model, optimizer_cls, criterion,
     if return_results:
         out.append(results)
     return out
-
-
-def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps,
-    cuda=False, device=0):
-    """Construct a task iterator from input and output tensor"""
-    inner_size = inner_bsz * inner_steps
-    outer_size = outer_bsz * outer_steps
-    tsz = tensors[0].size(0)
-    if tsz != inner_size + outer_size:
-        raise ValueError('tensor size mismatch: expected {}, got {}'.format
-            (inner_size + outer_size, tsz))
-
-    def iterator(start, stop, size):
-        for i in range(start, stop, size):
-            out = tuple(t[i:i + size] for t in tensors)
-            if cuda:
-                out = tuple(t.cuda(device) for t in out)
-            yield out
-    return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz,
-        outer_bsz)
 
 
 class MAML(nn.Module):
@@ -491,10 +491,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_amzn_metalearn_leap(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(UnSqueeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(UnSqueeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

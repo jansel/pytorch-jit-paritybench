@@ -265,11 +265,6 @@ class LinearValueFn(nn.Module):
         return self.value_fn(x)
 
 
-def build_policy_bag(features_bag, n_actions, loss_fn, n_layers, hidden_dim):
-    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=
-        n_layers, hidden_dim=hidden_dim) for features in features_bag]
-
-
 def actions_to_probs(actions, n_actions):
     probs = torch.zeros(n_actions)
     bag_size = len(actions)
@@ -284,19 +279,6 @@ def bootstrap_probabilities(n_actions, policy_bag, state, deviate_to):
     actions = [[policy(state, deviate_to)] for policy in policy_bag]
     probs = actions_to_probs(actions, n_actions)
     return probs
-
-
-def delegate_with_poisson(params, functions, greedy_update):
-    total_loss = 0.0
-    functions_params_pairs = zip(functions, params)
-    for idx, (loss_fn, params) in enumerate(functions_params_pairs):
-        loss_i = loss_fn(*params)
-        if greedy_update and idx == 0:
-            count_i = 1
-        else:
-            count_i = np.random.poisson(1)
-        total_loss = total_loss + count_i * loss_i
-    return total_loss
 
 
 def min_set(costs, limit_actions=None):
@@ -358,6 +340,24 @@ class BootstrapCost:
             return self.costs[0].argmin()
         else:
             return self.average_cost().argmin()
+
+
+def delegate_with_poisson(params, functions, greedy_update):
+    total_loss = 0.0
+    functions_params_pairs = zip(functions, params)
+    for idx, (loss_fn, params) in enumerate(functions_params_pairs):
+        loss_i = loss_fn(*params)
+        if greedy_update and idx == 0:
+            count_i = 1
+        else:
+            count_i = np.random.poisson(1)
+        total_loss = total_loss + count_i * loss_i
+    return total_loss
+
+
+def build_policy_bag(features_bag, n_actions, loss_fn, n_layers, hidden_dim):
+    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=
+        n_layers, hidden_dim=hidden_dim) for features in features_bag]
 
 
 import torch

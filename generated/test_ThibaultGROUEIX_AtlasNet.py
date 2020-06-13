@@ -83,40 +83,6 @@ class Template(object):
         print('Please implement get_regular_points ')
 
 
-class SphereTemplate(Template):
-
-    def __init__(self, device=0, grain=6):
-        self.device = device
-        self.dim = 3
-        self.npoints = 0
-
-    def get_random_points(self, shape, device='gpu0'):
-        """
-        Get random points on a Sphere
-        Return Tensor of Size [x, 3, x ... x]
-        """
-        assert shape[1] == 3, 'shape should have 3 in dim 1'
-        rand_grid = torch.cuda.FloatTensor(shape).to(device).float()
-        rand_grid.data.normal_(0, 1)
-        rand_grid = rand_grid / torch.sqrt(torch.sum(rand_grid ** 2, dim=1,
-            keepdim=True))
-        return Variable(rand_grid)
-
-    def get_regular_points(self, npoints=None, device='gpu0'):
-        """
-        Get regular points on a Sphere
-        Return Tensor of Size [x, 3]
-        """
-        if not self.npoints == npoints:
-            self.mesh = pymesh.generate_icosphere(1, [0, 0, 0], 4)
-            self.vertex = torch.from_numpy(self.mesh.vertices).to(device
-                ).float()
-            self.num_vertex = self.vertex.size(0)
-            self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
-            self.npoints = npoints
-        return Variable(self.vertex.to(device))
-
-
 class SquareTemplate(Template):
 
     def __init__(self, device=0):
@@ -171,6 +137,40 @@ class SquareTemplate(Template):
                 faces.append([j + (grain + 1) * i, j + (grain + 1) * i - 1,
                     j + (grain + 1) * (i + 1)])
         return np.array(vertices), np.array(faces)
+
+
+class SphereTemplate(Template):
+
+    def __init__(self, device=0, grain=6):
+        self.device = device
+        self.dim = 3
+        self.npoints = 0
+
+    def get_random_points(self, shape, device='gpu0'):
+        """
+        Get random points on a Sphere
+        Return Tensor of Size [x, 3, x ... x]
+        """
+        assert shape[1] == 3, 'shape should have 3 in dim 1'
+        rand_grid = torch.cuda.FloatTensor(shape).to(device).float()
+        rand_grid.data.normal_(0, 1)
+        rand_grid = rand_grid / torch.sqrt(torch.sum(rand_grid ** 2, dim=1,
+            keepdim=True))
+        return Variable(rand_grid)
+
+    def get_regular_points(self, npoints=None, device='gpu0'):
+        """
+        Get regular points on a Sphere
+        Return Tensor of Size [x, 3]
+        """
+        if not self.npoints == npoints:
+            self.mesh = pymesh.generate_icosphere(1, [0, 0, 0], 4)
+            self.vertex = torch.from_numpy(self.mesh.vertices).to(device
+                ).float()
+            self.num_vertex = self.vertex.size(0)
+            self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
+            self.npoints = npoints
+        return Variable(self.vertex.to(device))
 
 
 def get_template(template_type, device=0):
@@ -425,11 +425,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ThibaultGROUEIX_AtlasNet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(PointNet(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PointNet(*[], **{}), [torch.rand([4, 3, 64])], {})
 

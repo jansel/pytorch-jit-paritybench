@@ -831,8 +831,8 @@ class Test_bearpaw_pytorch_classification(_paritybench_base):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

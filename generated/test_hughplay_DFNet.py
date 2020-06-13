@@ -396,27 +396,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hughplay_DFNet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ReconstructionLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(PerceptualLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(UpBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(EncodeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(BlendBlock(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_001(self):
+        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(EncodeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(FusionBlock(*[], **{'c_feat': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(PerceptualLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(ReconstructionLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(UpBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -80,10 +80,10 @@ class AnyHead(nn.Module):
         return cx
 
 
-_global_config['BN'] = 4
-
-
 _global_config['MEM'] = 4
+
+
+_global_config['BN'] = 4
 
 
 class VanillaBlock(nn.Module):
@@ -374,15 +374,6 @@ class AnyStage(nn.Module):
         return cx
 
 
-def get_stem_fun(stem_type):
-    """Retrieves the stem function by name."""
-    stem_funs = {'res_stem_cifar': ResStemCifar, 'res_stem_in': ResStemIN,
-        'simple_stem_in': SimpleStemIN}
-    err_str = "Stem type '{}' not supported"
-    assert stem_type in stem_funs.keys(), err_str.format(stem_type)
-    return stem_funs[stem_type]
-
-
 def get_block_fun(block_type):
     """Retrieves the block function by name."""
     block_funs = {'vanilla_block': VanillaBlock, 'res_basic_block':
@@ -390,6 +381,15 @@ def get_block_fun(block_type):
     err_str = "Block type '{}' not supported"
     assert block_type in block_funs.keys(), err_str.format(block_type)
     return block_funs[block_type]
+
+
+def get_stem_fun(stem_type):
+    """Retrieves the stem function by name."""
+    stem_funs = {'res_stem_cifar': ResStemCifar, 'res_stem_in': ResStemIN,
+        'simple_stem_in': SimpleStemIN}
+    err_str = "Stem type '{}' not supported"
+    assert stem_type in stem_funs.keys(), err_str.format(stem_type)
+    return stem_funs[stem_type]
 
 
 _global_config['MODEL'] = 4
@@ -631,10 +631,10 @@ class StemIN(nn.Module):
         return cx
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['TEST'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 class EffNet(nn.Module):
@@ -975,11 +975,11 @@ class Test_facebookresearch_pycls(_paritybench_base):
         self._check(AnyHead(*[], **{'w_in': 4, 'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SE(*[], **{'w_in': 4, 'w_se': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResHead(*[], **{'w_in': 4, 'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SE(*[], **{'w_in': 4, 'w_se': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(ResHead(*[], **{'w_in': 4, 'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

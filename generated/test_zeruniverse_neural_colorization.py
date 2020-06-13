@@ -67,8 +67,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zeruniverse_neural_colorization(_paritybench_base):
     pass
     def test_000(self):
-        self._check(shave_block(*[], **{'s': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(shave_block(*[], **{'s': 4}), [torch.rand([4, 4, 4, 4])], {})
 

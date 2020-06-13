@@ -1700,40 +1700,40 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ShuangXieIrene_ssds_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(_conv_bn(*[], **{'inp': 4, 'oup': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_002(self):
-        self._check(_conv_block(*[], **{'inp': 4, 'oup': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_003(self):
-        self._check(_residual_block(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicRFB_lite(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(_conv_dw(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicSepConv(*[], **{'in_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(_inverted_residual_bottleneck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(_basicblock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_conv_block(*[], **{'inp': 4, 'oup': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(BasicSepConv(*[], **{'in_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_conv_bn(*[], **{'inp': 4, 'oup': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(_conv_dw(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(_inverted_residual_bottleneck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(BasicRFB_lite(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(_residual_block(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(_router_v2(*[], **{'inp': 4, 'oup': 4}), [torch.rand([4, 4, 2, 2]), torch.rand([4, 4, 4, 4])], {})

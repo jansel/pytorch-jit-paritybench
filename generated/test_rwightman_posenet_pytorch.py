@@ -71,13 +71,13 @@ class SeperableConv(nn.Module):
         return x
 
 
-MOBILE_NET_V1_100 = [(InputConv, 3, 32, 2), (SeperableConv, 32, 64, 1), (
-    SeperableConv, 64, 128, 2), (SeperableConv, 128, 128, 1), (
-    SeperableConv, 128, 256, 2), (SeperableConv, 256, 256, 1), (
-    SeperableConv, 256, 512, 2), (SeperableConv, 512, 512, 1), (
-    SeperableConv, 512, 512, 1), (SeperableConv, 512, 512, 1), (
-    SeperableConv, 512, 512, 1), (SeperableConv, 512, 512, 1), (
-    SeperableConv, 512, 1024, 2), (SeperableConv, 1024, 1024, 1)]
+MOBILE_NET_V1_75 = [(InputConv, 3, 24, 2), (SeperableConv, 24, 48, 1), (
+    SeperableConv, 48, 96, 2), (SeperableConv, 96, 96, 1), (SeperableConv, 
+    96, 192, 2), (SeperableConv, 192, 192, 1), (SeperableConv, 192, 384, 2),
+    (SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
+    SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
+    SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
+    SeperableConv, 384, 384, 1)]
 
 
 def _to_output_strided_layers(convolution_def, output_stride):
@@ -105,6 +105,19 @@ def _to_output_strided_layers(convolution_def, output_stride):
     return buff
 
 
+MOBILENET_V1_CHECKPOINTS = {(50): 'mobilenet_v1_050', (75):
+    'mobilenet_v1_075', (100): 'mobilenet_v1_100', (101): 'mobilenet_v1_101'}
+
+
+MOBILE_NET_V1_100 = [(InputConv, 3, 32, 2), (SeperableConv, 32, 64, 1), (
+    SeperableConv, 64, 128, 2), (SeperableConv, 128, 128, 1), (
+    SeperableConv, 128, 256, 2), (SeperableConv, 256, 256, 1), (
+    SeperableConv, 256, 512, 2), (SeperableConv, 512, 512, 1), (
+    SeperableConv, 512, 512, 1), (SeperableConv, 512, 512, 1), (
+    SeperableConv, 512, 512, 1), (SeperableConv, 512, 512, 1), (
+    SeperableConv, 512, 1024, 2), (SeperableConv, 1024, 1024, 1)]
+
+
 MOBILE_NET_V1_50 = [(InputConv, 3, 16, 2), (SeperableConv, 16, 32, 1), (
     SeperableConv, 32, 64, 2), (SeperableConv, 64, 64, 1), (SeperableConv, 
     64, 128, 2), (SeperableConv, 128, 128, 1), (SeperableConv, 128, 256, 2),
@@ -112,19 +125,6 @@ MOBILE_NET_V1_50 = [(InputConv, 3, 16, 2), (SeperableConv, 16, 32, 1), (
     SeperableConv, 256, 256, 1), (SeperableConv, 256, 256, 1), (
     SeperableConv, 256, 256, 1), (SeperableConv, 256, 256, 1), (
     SeperableConv, 256, 256, 1)]
-
-
-MOBILE_NET_V1_75 = [(InputConv, 3, 24, 2), (SeperableConv, 24, 48, 1), (
-    SeperableConv, 48, 96, 2), (SeperableConv, 96, 96, 1), (SeperableConv, 
-    96, 192, 2), (SeperableConv, 192, 192, 1), (SeperableConv, 192, 384, 2),
-    (SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
-    SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
-    SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
-    SeperableConv, 384, 384, 1)]
-
-
-MOBILENET_V1_CHECKPOINTS = {(50): 'mobilenet_v1_050', (75):
-    'mobilenet_v1_075', (100): 'mobilenet_v1_100', (101): 'mobilenet_v1_101'}
 
 
 class MobileNetV1(nn.Module):

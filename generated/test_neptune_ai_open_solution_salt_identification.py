@@ -1709,45 +1709,45 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Conv2dBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(DeconvConv2dBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(NoOperation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(SpatialSELayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(GlobalConvolutionalNetwork(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(BoundaryRefinement(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(Conv2dBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(DecoderBlockV1(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(DecoderBlockV2(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(DeconvConv2dBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_006(self):
-        self._check(StackingFCN(*[], **{'input_model_nr': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(GlobalConvolutionalNetwork(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(NoOperation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(PSPUpsample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
-        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_011(self):
-        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialSELayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(DecoderBlockV1(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(DecoderBlockV2(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StackingFCN(*[], **{'input_model_nr': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

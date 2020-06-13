@@ -305,13 +305,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_twtygqyy_pytorch_LapSRN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(_Conv_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(L1_Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Net(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
-        self._check(L1_Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(_Conv_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_003(self):
         self._check(_netG(*[], **{}), [torch.rand([4, 1, 64, 64])], {})

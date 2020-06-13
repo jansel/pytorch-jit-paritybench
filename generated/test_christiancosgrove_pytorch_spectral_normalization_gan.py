@@ -77,10 +77,10 @@ class Generator(nn.Module):
         return self.model(z.view(-1, self.z_dim, 1, 1))
 
 
-leak = 0.1
-
-
 w_g = 4
+
+
+leak = 0.1
 
 
 class Discriminator(nn.Module):
@@ -322,17 +322,17 @@ class Test_christiancosgrove_pytorch_spectral_normalization_gan(_paritybench_bas
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Generator(*[], **{'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(FirstResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_002(self):
-        self._check(ResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Generator(*[], **{'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(FirstResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

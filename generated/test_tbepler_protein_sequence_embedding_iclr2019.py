@@ -567,23 +567,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tbepler_protein_sequence_embedding_iclr2019(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LSTM(*[], **{'n_in': 4, 'n_hidden': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
+        self._check(ConvContactMap(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DotProduct(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(DotProduct(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(OrdinalRegression(*[], **{'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LSTM(*[], **{'n_in': 4, 'n_hidden': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(ConvContactMap(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(OrdinalRegression(*[], **{'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

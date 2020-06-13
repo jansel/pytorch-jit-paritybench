@@ -80,13 +80,13 @@ class QNetwork(nn.Module):
         return x1, x2
 
 
-epsilon = 1e-06
+LOG_SIG_MAX = 2
 
 
 LOG_SIG_MIN = -20
 
 
-LOG_SIG_MAX = 2
+epsilon = 1e-06
 
 
 class GaussianPolicy(nn.Module):
@@ -178,15 +178,15 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_pranz24_pytorch_soft_actor_critic(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ValueNetwork(*[], **{'num_inputs': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(QNetwork(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(DeterministicPolicy(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(GaussianPolicy(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(QNetwork(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+
     def test_003(self):
-        self._check(DeterministicPolicy(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ValueNetwork(*[], **{'num_inputs': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

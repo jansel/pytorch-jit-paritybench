@@ -225,37 +225,6 @@ class Experts(nn.Module):
         return x
 
 
-def get_most_similar_str_to_a_from_b(a, b):
-    """Return the most similar string to a in b.
-
-    Args:
-        a (str): probe string.
-        b (list): a list of candidate strings.
-    """
-    highest_sim = 0
-    chosen = None
-    for candidate in b:
-        sim = SequenceMatcher(None, a, candidate).ratio()
-        if sim >= highest_sim:
-            highest_sim = sim
-            chosen = candidate
-    return chosen
-
-
-def check_availability(requested, available):
-    """Check if an element is available in a list.
-
-    Args:
-        requested (str): probe string.
-        available (list): a list of available strings.
-    """
-    if requested not in available:
-        psb_ans = get_most_similar_str_to_a_from_b(requested, available)
-        raise ValueError(
-            'The requested one is expected to belong to {}, but got [{}] (do you mean [{}]?)'
-            .format(available, requested, psb_ans))
-
-
 class Registry:
     """A registry providing name -> object mapping, to support
     custom modules.
@@ -314,6 +283,37 @@ class Registry:
 
 
 BACKBONE_REGISTRY = Registry('BACKBONE')
+
+
+def get_most_similar_str_to_a_from_b(a, b):
+    """Return the most similar string to a in b.
+
+    Args:
+        a (str): probe string.
+        b (list): a list of candidate strings.
+    """
+    highest_sim = 0
+    chosen = None
+    for candidate in b:
+        sim = SequenceMatcher(None, a, candidate).ratio()
+        if sim >= highest_sim:
+            highest_sim = sim
+            chosen = candidate
+    return chosen
+
+
+def check_availability(requested, available):
+    """Check if an element is available in a list.
+
+    Args:
+        requested (str): probe string.
+        available (list): a list of available strings.
+    """
+    if requested not in available:
+        psb_ans = get_most_similar_str_to_a_from_b(requested, available)
+        raise ValueError(
+            'The requested one is expected to belong to {}, but got [{}] (do you mean [{}]?)'
+            .format(available, requested, psb_ans))
 
 
 def build_backbone(name, verbose=True, **kwargs):
@@ -400,20 +400,6 @@ class Convolution(nn.Module):
         return self.relu(self.conv(x))
 
 
-def drop_connect(inputs, p, training):
-    """ Drop connect. """
-    if not training:
-        return inputs
-    batch_size = inputs.shape[0]
-    keep_prob = 1 - p
-    random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
-    binary_tensor = torch.floor(random_tensor)
-    output = inputs / keep_prob * binary_tensor
-    return output
-
-
 def get_width_and_height_from_size(x):
     """ Obtains width and height from a int or tuple """
     if isinstance(x, int):
@@ -437,6 +423,20 @@ def calculate_output_image_size(input_image_size, stride):
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
     return [image_height, image_width]
+
+
+def drop_connect(inputs, p, training):
+    """ Drop connect. """
+    if not training:
+        return inputs
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
+        device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    output = inputs / keep_prob * binary_tensor
+    return output
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -1336,68 +1336,68 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Experts(*[], **{'n_source': 4, 'fdim': 4, 'num_classes': 4}), [0, torch.rand([4, 4, 4, 4])], {})
+        self._check(Backbone(*[], **{}), [], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(PairClassifiers(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Prototypes(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(Backbone(*[], **{}), [], {})
+        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(Convolution(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Experts(*[], **{'n_source': 4, 'fdim': 4, 'num_classes': 4}), [0, torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_006(self):
+        self._check(FCN(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_014(self):
-        self._check(FCN(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
+    def test_009(self):
         self._check(MaximumMeanDiscrepancy(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_010(self):
+        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(PairClassifiers(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Prototypes(*[], **{'fdim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
         self._check(ReverseGrad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_016(self):
         self._check(Sequential2(*[], **{}), [], {})
+
+    def test_017(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -101,37 +101,6 @@ class L2Norm(nn.Module):
         return out
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -172,6 +141,37 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
+
+
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
+    Args:
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -222,17 +222,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
 def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
     ):
     """Match each prior box with the ground truth box of the highest jaccard
@@ -267,6 +256,17 @@ def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -365,6 +365,43 @@ class MultiBoxLoss(nn.Module):
         loss_l /= N
         loss_c /= N
         return loss_l, loss_c
+
+
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, input_size, feature_maps, cfg):
+        super(PriorBox, self).__init__()
+        self.imh = input_size[0]
+        self.imw = input_size[1]
+        self.variance = cfg.VARIANCE or [0.1]
+        self.min_sizes = cfg.ANCHOR_SIZES
+        self.steps = cfg.STEPS
+        self.clip = cfg.CLIP
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+        self.feature_maps = feature_maps
+
+    def forward(self):
+        mean = []
+        for k in range(len(self.feature_maps)):
+            feath = self.feature_maps[k][0]
+            featw = self.feature_maps[k][1]
+            for i, j in product(range(feath), range(featw)):
+                f_kw = self.imw / self.steps[k]
+                f_kh = self.imh / self.steps[k]
+                cx = (j + 0.5) / f_kw
+                cy = (i + 0.5) / f_kh
+                s_kw = self.min_sizes[k] / self.imw
+                s_kh = self.min_sizes[k] / self.imh
+                mean += [cx, cy, s_kw, s_kh]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -494,43 +531,6 @@ class Detect(Function):
                 count = count if count < self.top_k else self.top_k
                 output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
                     unsqueeze(1), boxes_[ids[:count]]), 1)
-        return output
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    """
-
-    def __init__(self, input_size, feature_maps, cfg):
-        super(PriorBox, self).__init__()
-        self.imh = input_size[0]
-        self.imw = input_size[1]
-        self.variance = cfg.VARIANCE or [0.1]
-        self.min_sizes = cfg.ANCHOR_SIZES
-        self.steps = cfg.STEPS
-        self.clip = cfg.CLIP
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-        self.feature_maps = feature_maps
-
-    def forward(self):
-        mean = []
-        for k in range(len(self.feature_maps)):
-            feath = self.feature_maps[k][0]
-            featw = self.feature_maps[k][1]
-            for i, j in product(range(feath), range(featw)):
-                f_kw = self.imw / self.steps[k]
-                f_kh = self.imh / self.steps[k]
-                cx = (j + 0.5) / f_kw
-                cy = (i + 0.5) / f_kh
-                s_kw = self.min_sizes[k] / self.imw
-                s_kh = self.min_sizes[k] / self.imh
-                mean += [cx, cy, s_kw, s_kh]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
         return output
 
 

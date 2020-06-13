@@ -2595,39 +2595,39 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_diegma_graph_2_text(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GlobalAttention(*[], **{'dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(BothContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GatedConv(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(StackedCNN(*[], **{'num_layers': 1, 'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GatedConv(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalAttention(*[], **{'dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_004(self):
-        self._check(ContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(SourceContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(TargetContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_007(self):
-        self._check(BothContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_008(self):
         self._check(PositionwiseFeedForward(*[], **{'size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_007(self):
+        self._check(SourceContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(StackedCNN(*[], **{'num_layers': 1, 'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_009(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TargetContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_010(self):

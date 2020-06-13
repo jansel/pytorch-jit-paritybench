@@ -216,11 +216,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_alibaba_edu_simple_effective_text_matching_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Embedding(*[], **{'args': _mock_config(fix_embeddings=4, num_vocab=4, embedding_dim=4, dropout=0.5)}), [torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Embedding(*[], **{'args': _mock_config(fix_embeddings=4, num_vocab=4, embedding_dim=4, dropout=0.5)}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

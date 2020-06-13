@@ -324,10 +324,10 @@ class QNetwork(nn.Module):
         return self.network(x)
 
 
-_global_config['weights_init'] = 4
-
-
 _global_config['pol_layer_norm'] = 1
+
+
+_global_config['weights_init'] = 4
 
 
 class Policy(nn.Module):
@@ -621,12 +621,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     return layer
 
 
-_global_config['seed'] = 4
-
-
-_global_config['exp_name'] = 4
-
-
 class Scale(nn.Module):
 
     def __init__(self, scale):
@@ -916,8 +910,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vwxyzjn_cleanrl(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

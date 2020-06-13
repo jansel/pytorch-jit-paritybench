@@ -125,10 +125,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_srijankr_jodie(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(NormalLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(JODIE(*[], **{'args': _mock_config(model=4, embedding_dim=4), 'num_features': 4, 'num_users': 4, 'num_items': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(NormalLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

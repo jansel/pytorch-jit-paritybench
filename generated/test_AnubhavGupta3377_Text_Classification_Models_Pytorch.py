@@ -684,6 +684,11 @@ class TextRNN(nn.Module):
         return train_losses, val_accuracies
 
 
+def clones(module, N):
+    """Produce N identical layers."""
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
 def attention(query, key, value, mask=None, dropout=None):
     """Implementation of Scaled dot product attention"""
     d_k = query.size(-1)
@@ -694,11 +699,6 @@ def attention(query, key, value, mask=None, dropout=None):
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
-
-
-def clones(module, N):
-    """Produce N identical layers."""
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class MultiHeadedAttention(nn.Module):
@@ -1036,26 +1036,26 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_AnubhavGupta3377_Text_Classification_Models_Pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Embeddings(*[], **{'d_model': 4, 'vocab': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_002(self):
+        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_003(self):
-        self._check(SublayerOutput(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
+        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Embeddings(*[], **{'d_model': 4, 'vocab': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SublayerOutput(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 
     def test_006(self):
         self._check(fastText(*[], **{'config': _mock_config(embed_size=4, hidden_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})

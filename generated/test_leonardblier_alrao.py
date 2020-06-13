@@ -869,35 +869,35 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_leonardblier_alrao(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LinearClassifier(*[], **{'in_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(LinearClassifierRNN(*[], **{'nhid': 4, 'ntoken': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(LinearRegressor(*[], **{'dim_input': 4, 'dim_output': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(RegModel(*[], **{'input_dim': 4, 'pre_output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(GoogLeNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    def test_003(self):
+        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(LinearClassifier(*[], **{'in_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(LinearClassifierRNN(*[], **{'nhid': 4, 'ntoken': 4}), [torch.rand([4, 4, 4])], {})
+
     def test_006(self):
-        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearRegressor(*[], **{'dim_input': 4, 'dim_output': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_008(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_009(self):
+        self._check(RegModel(*[], **{'input_dim': 4, 'pre_output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_010(self):
-        self._check(SENet(*[], **{'block': <function _mock_layer at 0x7fb93f6d1d30>, 'num_blocks': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SENet(*[], **{'block': _mock_layer, 'num_blocks': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
 

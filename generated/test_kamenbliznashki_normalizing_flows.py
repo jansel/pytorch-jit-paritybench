@@ -927,58 +927,58 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(AffineCoupling(*[], **{'n_channels': 4, 'width': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(AffineTransform(*[], **{}), [torch.rand([4, 4, 4, 2])], {})
 
+    @_fails_compile()
+    def test_002(self):
+        self._check(BatchNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_004(self):
-        self._check(Split(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FlowStep(*[], **{'n_channels': 4, 'width': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(Gaussianize(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(Preprocess(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(FlowStep(*[], **{'n_channels': 4, 'width': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(BatchNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(MADE(*[], **{'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_007(self):
         self._check(MADEMOG(*[], **{'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_008(self):
         self._check(MAF(*[], **{'n_blocks': 1, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_009(self):
         self._check(MAFMOG(*[], **{'n_blocks': 1, 'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
-        self._check(RealNVP(*[], **{'n_blocks': 1, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_014(self):
+    def test_010(self):
         self._check(PlanarTransform(*[], **{}), [torch.rand([2, 2])], {})
 
+    def test_011(self):
+        self._check(Preprocess(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(RealNVP(*[], **{'n_blocks': 1, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Split(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_015(self):
-        self._check(AffineTransform(*[], **{}), [torch.rand([4, 4, 4, 2])], {})
+        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

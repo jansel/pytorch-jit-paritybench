@@ -130,14 +130,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ptrblck_prog_gans_pytorch_inference(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(WScaleLayer(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(NormConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(NormUpscaleConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(WScaleLayer(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

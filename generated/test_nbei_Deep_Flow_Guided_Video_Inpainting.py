@@ -389,14 +389,6 @@ class Flatten_Module(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def reduce_mean(x):
-    for i in range(4):
-        if i == 1:
-            continue
-        x = torch.mean(x, dim=i, keepdim=True)
-    return x
-
-
 def l2_norm(x):
 
     def reduce_sum(x):
@@ -408,6 +400,14 @@ def l2_norm(x):
     x = x ** 2
     x = reduce_sum(x)
     return torch.sqrt(x)
+
+
+def reduce_mean(x):
+    for i in range(4):
+        if i == 1:
+            continue
+        x = torch.mean(x, dim=i, keepdim=True)
+    return x
 
 
 class Contextual_Attention_Module(nn.Module):
@@ -773,6 +773,17 @@ class FlowNet2CSS(nn.Module):
         return flownets2_flow
 
 
+def deconv(in_planes, out_planes):
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
+        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
+        inplace=True))
+
+
+def predict_flow(in_planes):
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
+        =True)
+
+
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
@@ -783,17 +794,6 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
             kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
             bias=True), nn.LeakyReLU(0.1, inplace=True))
-
-
-def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
-
-
-def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
 
 
 class FlowNetC(nn.Module):
@@ -1502,43 +1502,43 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_nbei_Deep_Flow_Guided_Video_Inpainting(_paritybench_base):
     pass
     def test_000(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(Conv_Downsample(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Dilation_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Down_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Flatten_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_007(self):
         self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_008(self):
         self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
 
-    def test_003(self):
-        self._check(Conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Conv_Downsample(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(Down_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Dilation_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_009(self):
         self._check(Up_Module(*[], **{'in_ch': 64, 'out_ch': 4}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_008(self):
+    def test_010(self):
         self._check(Up_Module_CNet(*[], **{'in_ch': 64, 'out_ch': 4}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_009(self):
-        self._check(Flatten_Module(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
+    def test_011(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
-        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_012(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

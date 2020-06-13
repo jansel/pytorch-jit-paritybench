@@ -2292,145 +2292,145 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lxtGH_Fast_Seg(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DFANet(*[], **{'nclass': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(A2Block(*[], **{'inplane': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(ASPPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(FastSCNN(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_003(self):
-        self._check(MSFNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(ConvBnRelu(*[], **{'in_planes': 4, 'out_planes': 4, 'ksize': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(ASPPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(A2Block(*[], **{'inplane': 4, 'plane': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(AttentionRefinement(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_010(self):
-        self._check(FeatureFusion(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+    def test_004(self):
+        self._check(BiSeNet(*[], **{'out_planes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_011(self):
-        self._check(SpatialPath(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
+    def test_005(self):
         self._check(BiSeNetHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
-        self._check(BiSeNet(*[], **{'out_planes': 4}), [torch.rand([4, 3, 64, 64])], {})
+    def test_006(self):
+        self._check(Block(*[], **{'in_channels': 4, 'mid_out_channels': 4, 'has_proj': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
-        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_007(self):
+        self._check(BlockA(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
-        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
+    def test_008(self):
         self._check(C(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_009(self):
+        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(CDilated(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
-        self._check(DownSamplerB(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
+    def test_012(self):
+        self._check(CascadeFeatureFusion(*[], **{'low_channels': 4, 'high_channels': 4, 'out_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_013(self):
+        self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ConvBnRelu(*[], **{'in_planes': 4, 'out_planes': 4, 'ksize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(DFANet(*[], **{'nclass': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_016(self):
         self._check(DilatedParllelResidualBlockB(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
 
+    def test_017(self):
+        self._check(DownSamplerB(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(ESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(ESPNet_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(Enc(*[], **{'in_channels': 4, 'out_channels': 4, 'blocks': 1}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_021(self):
-        self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FCAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_022(self):
-        self._check(ESPNet_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_023(self):
-        self._check(_ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_024(self):
-        self._check(_DSConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_025(self):
-        self._check(_DWConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_026(self):
-        self._check(LinearBottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FastSCNN(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
+    def test_023(self):
+        self._check(FeatureFusion(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(FeatureFusionModule(*[], **{'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_025(self):
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(GlobalFeatureExtractor(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
     def test_027(self):
-        self._check(PyramidPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_028(self):
         self._check(LearningToDownsample(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
     def test_029(self):
-        self._check(GlobalFeatureExtractor(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(LinearBottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_030(self):
-        self._check(FeatureFusionModule(*[], **{'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MSFNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_031(self):
-        self._check(Classifer(*[], **{'dw_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_032(self):
-        self._check(CascadeFeatureFusion(*[], **{'low_channels': 4, 'high_channels': 4, 'out_channels': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_032(self):
+        self._check(PyramidPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_033(self):
-        self._check(SpatialPyramidPooling(*[], **{'num_maps_in': 4, 'num_levels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_034(self):
-        self._check(_BNReluConv(*[], **{'num_maps_in': 4, 'num_maps_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialPath(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_035(self):
-        self._check(_Upsample(*[], **{'num_maps_in': 4, 'skip_maps_in': 4, 'num_maps_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SpatialPyramidPooling(*[], **{'num_maps_in': 4, 'num_levels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_036(self):
-        self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(XceptionA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
     def test_037(self):
-        self._check(Block(*[], **{'in_channels': 4, 'mid_out_channels': 4, 'has_proj': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_BNReluConv(*[], **{'num_maps_in': 4, 'num_maps_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_038(self):
-        self._check(BlockA(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_039(self):
-        self._check(Enc(*[], **{'in_channels': 4, 'out_channels': 4, 'blocks': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DSConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_040(self):
-        self._check(FCAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DWConv(*[], **{'dw_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_041(self):
-        self._check(XceptionA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(_Upsample(*[], **{'num_maps_in': 4, 'skip_maps_in': 4, 'num_maps_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

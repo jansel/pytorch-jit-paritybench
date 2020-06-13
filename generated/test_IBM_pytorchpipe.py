@@ -311,44 +311,6 @@ class AppState(metaclass=SingletonMetaClass):
             return self.__globals[key]
 
 
-class GlobalsFacade(object):
-    """
-    Simple facility for accessing global variables using provided mappings using list-like read-write access.
-    """
-
-    def __init__(self, key_mappings):
-        """
-        Constructor. Initializes app state and stores key mappings.
-
-        :param key_mappings: Dictionary of global key mappings of the parent object.
-        """
-        self.key_mappings = key_mappings
-        self.app_state = AppState()
-
-    def __setitem__(self, key, value):
-        """
-        Sets global value using parent object key mapping.
-
-        :param key: Global key name (that will be mapped).
-
-        :param value: Value that will be set.
-        """
-        mapped_key = self.key_mappings.get(key, key)
-        self.app_state[mapped_key] = value
-
-    def __getitem__(self, key):
-        """
-        Global value getter function.
-        Uses parent object key mapping for accesing the value.
-
-        :param key: Global key name (that will be mapped).
-
-        :return: Associated Value.
-        """
-        mapped_key = self.key_mappings.get(key, key)
-        return self.app_state[mapped_key]
-
-
 def load_class_default_config_file(class_type):
     """
     Function loads default configuration from the default config file associated with the given class type and adds it to parameter registry.
@@ -406,6 +368,44 @@ class KeyMappingsFacade(object):
         :return: Associated Value.
         """
         return self.keys_mappings.get(key, key)
+
+
+class GlobalsFacade(object):
+    """
+    Simple facility for accessing global variables using provided mappings using list-like read-write access.
+    """
+
+    def __init__(self, key_mappings):
+        """
+        Constructor. Initializes app state and stores key mappings.
+
+        :param key_mappings: Dictionary of global key mappings of the parent object.
+        """
+        self.key_mappings = key_mappings
+        self.app_state = AppState()
+
+    def __setitem__(self, key, value):
+        """
+        Sets global value using parent object key mapping.
+
+        :param key: Global key name (that will be mapped).
+
+        :param value: Value that will be set.
+        """
+        mapped_key = self.key_mappings.get(key, key)
+        self.app_state[mapped_key] = value
+
+    def __getitem__(self, key):
+        """
+        Global value getter function.
+        Uses parent object key mapping for accesing the value.
+
+        :param key: Global key name (that will be mapped).
+
+        :return: Associated Value.
+        """
+        mapped_key = self.key_mappings.get(key, key)
+        return self.app_state[mapped_key]
 
 
 import torch

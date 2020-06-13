@@ -122,6 +122,10 @@ from torch._utils import _unflatten_dense_tensors
 from torch.nn.utils import clip_grad_norm_
 
 
+def center_to_minmax_2d_0_5(centers, dims):
+    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
+
+
 def corners_nd(dims, origin=0.5):
     """generate relative box corners based on length per dim and
     origin point.
@@ -184,10 +188,6 @@ def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
     return corners
 
 
-def center_to_minmax_2d_0_5(centers, dims):
-    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
-
-
 def center_to_minmax_2d(centers, dims, origin=0.5):
     if origin == 0.5:
         return center_to_minmax_2d_0_5(centers, dims)
@@ -210,26 +210,10 @@ def rbbox2d_to_near_bbox(rbboxes):
     return bboxes
 
 
-def unmap(data, count, inds, fill=0):
-    """Unmap a subset of item (data) back to the original set of items (of
-    size count)"""
-    if count == len(inds):
-        return data
-    if len(data.shape) == 1:
-        ret = np.empty((count,), dtype=data.dtype)
-        ret.fill(fill)
-        ret[inds] = data
-    else:
-        ret = np.empty((count,) + data.shape[1:], dtype=data.dtype)
-        ret.fill(fill)
-        ret[(inds), :] = data
-    return ret
+_global_config['LOCAL_RANK'] = 4
 
 
-def conv3x3(in_planes, out_planes, stride=1, indice_key=None):
-    """3x3 convolution with padding"""
-    return spconv.SubMConv3d(in_planes, out_planes, kernel_size=3, stride=
-        stride, padding=1, bias=False, indice_key=indice_key)
+_global_config['MODEL'] = 4
 
 
 class Empty(torch.nn.Module):
@@ -590,9 +574,6 @@ def proposal_target_layer(input_dict, roi_sampler_cfg):
         batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois,
         'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
     return output_dict
-
-
-_global_config['MODEL'] = 4
 
 
 class RCNNHead(nn.Module):
@@ -1067,20 +1048,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sshaoshuai_PCDet(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Empty(*[], **{}), [], {})
+        self._check(BatchNorm1d(*[], **{'in_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Empty(*[], **{}), [], {})
 
     def test_002(self):
-        self._check(BatchNorm1d(*[], **{'in_size': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_003(self):
         self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(PFNLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

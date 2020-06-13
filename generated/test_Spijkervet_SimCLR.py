@@ -152,11 +152,21 @@ class SimCLR(nn.Module):
         return h, z
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -182,18 +192,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -287,7 +286,8 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
 
 
 class BatchNorm2dReimpl(nn.Module):
@@ -394,11 +394,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Spijkervet_SimCLR(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LogisticRegression(*[], **{'n_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LogisticRegression(*[], **{'n_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

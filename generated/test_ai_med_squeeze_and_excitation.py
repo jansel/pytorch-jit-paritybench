@@ -378,26 +378,26 @@ class Test_ai_med_squeeze_and_excitation(_paritybench_base):
     def test_000(self):
         self._check(ChannelSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(SpatialSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ChannelSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(ChannelSpatialSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(ChannelSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(SpatialSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
         self._check(ChannelSpatialSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_004(self):
         self._check(ProjectExciteLayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(SpatialSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(SpatialSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 

@@ -351,21 +351,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_atulkum_pointer_summarizer(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{'N': 4, 'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_001(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(MultiHeadedAttention(*[], **{'num_head': 4, 'd_model': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 1])], {})
-
-    def test_003(self):
         self._check(AffineLayer(*[], **{'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_001(self):
+        self._check(Encoder(*[], **{'N': 4, 'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(EncoderLayer(*[], **{'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 1])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(MultiHeadedAttention(*[], **{'num_head': 4, 'd_model': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 1])], {})
+
+    def test_004(self):
+        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

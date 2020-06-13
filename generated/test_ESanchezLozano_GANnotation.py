@@ -296,11 +296,11 @@ class Test_ESanchezLozano_GANnotation(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ResidualBlock(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 69, 64, 64])], {})
 
     def test_002(self):
         self._check(Generator(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 69, 64, 64])], {})
+        self._check(ResidualBlock(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

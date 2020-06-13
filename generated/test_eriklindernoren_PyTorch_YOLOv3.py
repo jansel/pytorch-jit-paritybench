@@ -69,10 +69,6 @@ class EmptyLayer(nn.Module):
         super(EmptyLayer, self).__init__()
 
 
-def to_cpu(tensor):
-    return tensor.detach().cpu()
-
-
 def bbox_iou(box1, box2, x1y1x2y2=True):
     """
     Returns the IoU of two bounding boxes
@@ -155,6 +151,10 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     tconf = obj_mask.float()
     return (iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th,
         tcls, tconf)
+
+
+def to_cpu(tensor):
+    return tensor.detach().cpu()
 
 
 class YOLOLayer(nn.Module):

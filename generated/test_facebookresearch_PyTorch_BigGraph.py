@@ -263,6 +263,32 @@ class AbstractComparator(nn.Module, ABC):
         pass
 
 
+LongTensorType = torch.Tensor
+
+
+Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
+
+
+def ceil_of_ratio(num: int, den: int) ->int:
+    return (num - 1) // den + 1
+
+
+T = TypeVar('T')
+
+
+class Side(Enum):
+    LHS = 0
+    RHS = 1
+
+    def pick(self, lhs: T, rhs: T) ->T:
+        if self is Side.LHS:
+            return lhs
+        elif self is Side.RHS:
+            return rhs
+        else:
+            raise NotImplementedError('Unknown side: %s' % self)
+
+
 def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
     Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
     """Compare the given tensor's shape with what you expect it to be.
@@ -331,24 +357,18 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
     return tuple(unknown_dims)
 
 
-def ceil_of_ratio(num: int, den: int) ->int:
-    return (num - 1) // den + 1
+class Negatives(Enum):
+    NONE = 'none'
+    UNIFORM = 'uniform'
+    BATCH_UNIFORM = 'batch_uniform'
+    ALL = 'all'
 
 
-T = TypeVar('T')
-
-
-class Side(Enum):
-    LHS = 0
-    RHS = 1
-
-    def pick(self, lhs: T, rhs: T) ->T:
-        if self is Side.LHS:
-            return lhs
-        elif self is Side.RHS:
-            return rhs
-        else:
-            raise NotImplementedError('Unknown side: %s' % self)
+class Scores(NamedTuple):
+    lhs_pos: FloatTensorType
+    rhs_pos: FloatTensorType
+    lhs_neg: FloatTensorType
+    rhs_neg: FloatTensorType
 
 
 import torch

@@ -52,17 +52,6 @@ def get_block(in_channels, out_channels, hidden_channels):
     return block
 
 
-def split_feature(tensor, type='split'):
-    """
-    type = ["split", "cross"]
-    """
-    C = tensor.size(1)
-    if type == 'split':
-        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
-    elif type == 'cross':
-        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
-
-
 class FlowNet(nn.Module):
 
     def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale,
@@ -109,9 +98,19 @@ class FlowNet(nn.Module):
         return z
 
 
-def gaussian_sample(mean, logs, temperature=1):
-    z = torch.normal(mean, torch.exp(logs) * temperature)
-    return z
+def gaussian_p(mean, logs, x):
+    """
+    lnL = -1/2 * { ln|Var| + ((X - Mu)^T)(Var^-1)(X - Mu) + kln(2*PI) }
+            k = 1 (Independent)
+            Var = logs ** 2
+    """
+    c = math.log(2 * math.pi)
+    return -0.5 * (logs * 2.0 + (x - mean) ** 2 / torch.exp(logs * 2.0) + c)
+
+
+def gaussian_likelihood(mean, logs, x):
+    p = gaussian_p(mean, logs, x)
+    return torch.sum(p, dim=[1, 2, 3])
 
 
 def uniform_binning_correction(x, n_bits=8):
@@ -132,19 +131,20 @@ def uniform_binning_correction(x, n_bits=8):
     return x, objective
 
 
-def gaussian_p(mean, logs, x):
-    """
-    lnL = -1/2 * { ln|Var| + ((X - Mu)^T)(Var^-1)(X - Mu) + kln(2*PI) }
-            k = 1 (Independent)
-            Var = logs ** 2
-    """
-    c = math.log(2 * math.pi)
-    return -0.5 * (logs * 2.0 + (x - mean) ** 2 / torch.exp(logs * 2.0) + c)
+def gaussian_sample(mean, logs, temperature=1):
+    z = torch.normal(mean, torch.exp(logs) * temperature)
+    return z
 
 
-def gaussian_likelihood(mean, logs, x):
-    p = gaussian_p(mean, logs, x)
-    return torch.sum(p, dim=[1, 2, 3])
+def split_feature(tensor, type='split'):
+    """
+    type = ["split", "cross"]
+    """
+    C = tensor.size(1)
+    if type == 'split':
+        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
+    elif type == 'cross':
+        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
 
 
 class Glow(nn.Module):
@@ -518,24 +518,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_y0ast_Glow_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(InvertibleConv1x1(*[], **{'num_channels': 4, 'LU_decomposed': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Split2d(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Split2d(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(InvertibleConv1x1(*[], **{'num_channels': 4, 'LU_decomposed': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 

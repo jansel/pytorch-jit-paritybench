@@ -2153,30 +2153,30 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_hellojialee_Improved_Body_Parts(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Full(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(Backbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
+        self._check(BasicResidual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_002(self):
-        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_003(self):
-        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Full(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(Backbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(BasicResidual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
 

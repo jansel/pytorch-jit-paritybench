@@ -598,11 +598,11 @@ class Test_vsitzmann_scene_representation_networks(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(LookupLayer(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(LookupFC(*[], **{'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(LookupFC(*[], **{'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(LookupLayer(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_002(self):

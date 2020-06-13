@@ -632,34 +632,34 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(CBAMLayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_001(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_008(self):
+    def test_000(self):
         self._check(BAP(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_001(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(CBAMLayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_004(self):
         self._check(CenterLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

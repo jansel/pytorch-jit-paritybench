@@ -123,13 +123,13 @@ class CudaModule(nn.Module):
         return m
 
 
+LONG = 1
+
+
 FLOAT = 2
 
 
 INT = 0
-
-
-LONG = 1
 
 
 def cast_type(var, dtype, use_gpu):
@@ -874,38 +874,38 @@ class Test_snakeztc_NeuralDialog_LaRL(_paritybench_base):
         self._check(BinaryNLLEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(NormKLLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(FeatureProjecter(*[], **{'input_dropout_p': 0.5, 'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_002(self):
+        self._check(GaussianConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_003(self):
-        self._check(SelectionClassifier(*[], **{'selection_length': 4, 'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GumbelConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(TaskMlpGoalEncoder(*[], **{'goal_vocab_sizes': [4, 4], 'nhid': 4, 'init_range': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Hidden2Discrete(*[], **{'input_size': 4, 'y_size': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(SelfAttn(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Hidden2Gaussian(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(IdentityConnector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Hidden2Gaussian(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NormKLLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Hidden2Discrete(*[], **{'input_size': 4, 'y_size': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SelectionClassifier(*[], **{'selection_length': 4, 'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(GaussianConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SelfAttn(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):
-        self._check(GumbelConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TaskMlpGoalEncoder(*[], **{'goal_vocab_sizes': [4, 4], 'nhid': 4, 'init_range': 4}), [torch.rand([4, 4, 4, 4])], {})
 

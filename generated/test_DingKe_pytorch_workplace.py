@@ -291,10 +291,10 @@ class CNN(nn.Module):
         return out
 
 
-drop_hid = 0.0
-
-
 drop_in = 0.0
+
+
+drop_hid = 0.0
 
 
 class MLP(nn.Module):
@@ -792,6 +792,41 @@ class RNNCellBase(Module):
         return s.format(name=self.__class__.__name__, **self.__dict__)
 
 
+class LSTMCell(RNNCellBase):
+
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
+        super(LSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size, hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(4 * hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, hx):
+        h, c = hx
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
+            .weight_hh)
+        if self.grad_clip:
+            pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
+        i = F.sigmoid(pre[:, :self.hidden_size])
+        f = F.sigmoid(pre[:, self.hidden_size:self.hidden_size * 2])
+        g = F.tanh(pre[:, self.hidden_size * 2:self.hidden_size * 3])
+        o = F.sigmoid(pre[:, self.hidden_size * 3:])
+        c = f * c + i * g
+        h = o * F.tanh(c)
+        return h, c
+
+
 def cumax(logits, dim=-1):
     return torch.cumsum(F.softmax(logits, dim), dim=dim)
 
@@ -839,6 +874,35 @@ class LSTMONCell(RNNCellBase):
         return h, c
 
 
+class RNNCell(RNNCellBase):
+
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
+        super(RNNCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, h):
+        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h,
+            self.weight_hh)
+        if self.grad_clip:
+            output = clip_grad(output, -self.grad_clip, self.grad_clip)
+        output = F.relu(output)
+        return output
+
+
 class IndRNNCell(RNNCellBase):
     """
     References:
@@ -866,35 +930,6 @@ class IndRNNCell(RNNCellBase):
     def forward(self, input, h):
         output = F.linear(input, self.weight_ih, self.bias
             ) + h * self.weight_hh
-        if self.grad_clip:
-            output = clip_grad(output, -self.grad_clip, self.grad_clip)
-        output = F.relu(output)
-        return output
-
-
-class RNNCell(RNNCellBase):
-
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
-        super(RNNCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, h):
-        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h,
-            self.weight_hh)
         if self.grad_clip:
             output = clip_grad(output, -self.grad_clip, self.grad_clip)
         output = F.relu(output)
@@ -977,41 +1012,6 @@ class LSTMPCell(RNNCellBase):
         c = f * c + i * g
         h = o * F.tanh(c)
         h = F.linear(h, self.weight_rec)
-        return h, c
-
-
-class LSTMCell(RNNCellBase):
-
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
-        super(LSTMCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size, hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(4 * hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, hx):
-        h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
-        if self.grad_clip:
-            pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
-        i = F.sigmoid(pre[:, :self.hidden_size])
-        f = F.sigmoid(pre[:, self.hidden_size:self.hidden_size * 2])
-        g = F.tanh(pre[:, self.hidden_size * 2:self.hidden_size * 3])
-        o = F.sigmoid(pre[:, self.hidden_size * 3:])
-        c = f * c + i * g
-        h = o * F.tanh(c)
         return h, c
 
 
@@ -1328,77 +1328,77 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_DingKe_pytorch_workplace(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BinaryConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(MLP(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(BinaryTanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
         self._check(BinaryLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
-        self._check(BinaryConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(BinaryTanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_003(self):
         self._check(DNI(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_008(self):
-        self._check(Net1(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(Net2(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
-
     @_fails_compile()
-    def test_010(self):
-        self._check(RNNModel(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(meLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(meConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(IndRNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_014(self):
-        self._check(RNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
+    def test_004(self):
         self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_005(self):
         self._check(IndRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_006(self):
+        self._check(IndRNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(MLP(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(Net1(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(Net2(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
         self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    @_fails_compile()
+    def test_013(self):
+        self._check(RNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(RNNModel(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
         self._check(SEWrapper(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_017(self):
         self._check(SiLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(meConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(meLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

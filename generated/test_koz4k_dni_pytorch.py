@@ -632,16 +632,16 @@ class Test_koz4k_dni_pytorch(_paritybench_base):
     def test_000(self):
         self._check(BackwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ForwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicSynthesizer(*[], **{'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(BidirectionalInterface(*[], **{'forward_synthesizer': 4, 'backward_synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(BasicSynthesizer(*[], **{'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ForwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

@@ -87,16 +87,15 @@ class L2Norm(nn.Module):
         return out
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 def decode(loc, priors, variances):
@@ -116,25 +115,6 @@ def decode(loc, priors, variances):
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh + 1e-10) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -177,6 +157,37 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh + 1e-10) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
+
+
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
+    Args:
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
 
 
 def match(threshold, predicts, truths, priors, variances, labels, loc_t,
@@ -224,17 +235,6 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t,
     second_truth_idx.squeeze_(0)
     matches_G = truths[second_truth_idx]
     loc_g[idx] = matches_G
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 _global_config['variance'] = 4
@@ -345,25 +345,6 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_l_repul, loss_c
 
 
-def decode_new(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2
-    boxes[:, 2:] = boxes[:, 2:] + boxes[:, :2]
-    return boxes
-
-
 def IoG(box_a, box_b):
     """Compute the IoG of two sets of boxes.  
     E.g.:
@@ -385,6 +366,25 @@ def IoG(box_a, box_b):
     return I / G
 
 
+def decode_new(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
+    """
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
+        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2
+    boxes[:, 2:] = boxes[:, 2:] + boxes[:, :2]
+    return boxes
+
+
 class RepulsionLoss(nn.Module):
 
     def __init__(self, use_gpu=True, sigma=0.0):
@@ -404,12 +404,45 @@ class RepulsionLoss(nn.Module):
         return loss
 
 
-voc = {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
-    120000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps':
-    [8, 16, 32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264],
-    'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 
-    3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True,
-    'name': 'VOC'}
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, cfg):
+        super(PriorBox, self).__init__()
+        self.image_size = cfg['min_dim']
+        self.num_priors = len(cfg['aspect_ratios'])
+        self.variance = cfg['variance'] or [0.1]
+        self.feature_maps = cfg['feature_maps']
+        self.min_sizes = cfg['min_sizes']
+        self.max_sizes = cfg['max_sizes']
+        self.steps = cfg['steps']
+        self.aspect_ratios = cfg['aspect_ratios']
+        self.clip = cfg['clip']
+        self.version = cfg['name']
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+
+    def forward(self):
+        mean = []
+        for k, f in enumerate(self.feature_maps):
+            for i, j in product(range(f), repeat=2):
+                f_k = self.image_size / self.steps[k]
+                cx = (j + 0.5) / f_k
+                cy = (i + 0.5) / f_k
+                s_k = self.min_sizes[k] / self.image_size
+                mean += [cx, cy, s_k, s_k]
+                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
+                mean += [cx, cy, s_k_prime, s_k_prime]
+                for ar in self.aspect_ratios[k]:
+                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
+                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -521,53 +554,20 @@ class Detect(Function):
         return output
 
 
+voc = {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
+    120000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps':
+    [8, 16, 32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264],
+    'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 
+    3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True,
+    'name': 'VOC'}
+
+
 coco = {'num_classes': 201, 'lr_steps': (280000, 360000, 400000),
     'max_iter': 400000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 
     300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [21, 45, 99, 153,
     207, 261], 'max_sizes': [45, 99, 153, 207, 261, 315], 'aspect_ratios':
     [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip':
     True, 'name': 'COCO'}
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    """
-
-    def __init__(self, cfg):
-        super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-
-    def forward(self):
-        mean = []
-        for k, f in enumerate(self.feature_maps):
-            for i, j in product(range(f), repeat=2):
-                f_k = self.image_size / self.steps[k]
-                cx = (j + 0.5) / f_k
-                cy = (i + 0.5) / f_k
-                s_k = self.min_sizes[k] / self.image_size
-                mean += [cx, cy, s_k, s_k]
-                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
-                mean += [cx, cy, s_k_prime, s_k_prime]
-                for ar in self.aspect_ratios[k]:
-                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
-                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
 
 
 class SSD(nn.Module):

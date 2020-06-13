@@ -87,15 +87,6 @@ class GraphConv(nn.Module):
         return outputs
 
 
-def spm_to_tensor(sparse_mx):
-    sparse_mx = sparse_mx.tocoo().astype(np.float32)
-    indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col))).long(
-        )
-    values = torch.from_numpy(sparse_mx.data)
-    shape = torch.Size(sparse_mx.shape)
-    return torch.sparse.FloatTensor(indices, values, shape)
-
-
 def normt_spm(mx, method='in'):
     if method == 'in':
         mx = mx.transpose()
@@ -112,6 +103,15 @@ def normt_spm(mx, method='in'):
         r_mat_inv = sp.diags(r_inv)
         mx = mx.dot(r_mat_inv).transpose().dot(r_mat_inv)
         return mx
+
+
+def spm_to_tensor(sparse_mx):
+    sparse_mx = sparse_mx.tocoo().astype(np.float32)
+    indices = torch.from_numpy(np.vstack((sparse_mx.row, sparse_mx.col))).long(
+        )
+    values = torch.from_numpy(sparse_mx.data)
+    shape = torch.Size(sparse_mx.shape)
+    return torch.sparse.FloatTensor(indices, values, shape)
 
 
 class GCN(nn.Module):
@@ -436,17 +436,10 @@ class ResNetBase(nn.Module):
         return x
 
 
-def make_resnet101_base(**kwargs):
-    """Constructs a ResNet-101 model.
+def make_resnet34_base(**kwargs):
+    """Constructs a ResNet-34 model.
     """
-    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
-    return model
-
-
-def make_resnet18_base(**kwargs):
-    """Constructs a ResNet-18 model.
-    """
-    model = ResNetBase(BasicBlock, [2, 2, 2, 2], **kwargs)
+    model = ResNetBase(BasicBlock, [3, 4, 6, 3], **kwargs)
     return model
 
 
@@ -464,10 +457,17 @@ def make_resnet50_base(**kwargs):
     return model
 
 
-def make_resnet34_base(**kwargs):
-    """Constructs a ResNet-34 model.
+def make_resnet18_base(**kwargs):
+    """Constructs a ResNet-18 model.
     """
-    model = ResNetBase(BasicBlock, [3, 4, 6, 3], **kwargs)
+    model = ResNetBase(BasicBlock, [2, 2, 2, 2], **kwargs)
+    return model
+
+
+def make_resnet101_base(**kwargs):
+    """Constructs a ResNet-101 model.
+    """
+    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
     return model
 
 

@@ -303,10 +303,6 @@ class AlbertOutput(nn.Module):
         return hidden_states
 
 
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
 def gelu(x):
     """ Original Implementation of the gelu activation function in Google Bert repo when initially created.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -322,6 +318,10 @@ def gelu_new(x):
     """
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
         torch.pow(x, 3))))
+
+
+def swish(x):
+    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish,
@@ -1052,7 +1052,7 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-CONFIG_NAME = 'config.json'
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 class Conv1D(nn.Module):
@@ -1365,9 +1365,8 @@ class Test_lonePatient_Bert_Multi_Label_Text_Classification(_paritybench_base):
     def test_000(self):
         self._check(AlbertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, embedding_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(AlbertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AlbertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -1376,16 +1375,16 @@ class Test_lonePatient_Bert_Multi_Label_Text_Classification(_paritybench_base):
     def test_003(self):
         self._check(AlbertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(AlbertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AlbertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
@@ -1394,8 +1393,9 @@ class Test_lonePatient_Bert_Multi_Label_Text_Classification(_paritybench_base):
     def test_008(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):

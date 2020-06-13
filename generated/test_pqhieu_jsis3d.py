@@ -234,8 +234,8 @@ class Test_pqhieu_jsis3d(_paritybench_base):
         self._check(MTPNet(*[], **{'input_channels': 4, 'num_classes': 4, 'embedding_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(STN3D(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(PointNet(*[], **{'input_channels': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_002(self):
-        self._check(PointNet(*[], **{'input_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(STN3D(*[], **{}), [torch.rand([4, 3, 64])], {})
 

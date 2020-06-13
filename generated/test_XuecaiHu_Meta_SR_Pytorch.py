@@ -1065,14 +1065,14 @@ class Test_XuecaiHu_Meta_SR_Pytorch(_paritybench_base):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_002(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(Pos2Weight(*[], **{'inC': 4}), [torch.rand([3, 3])], {})
 
+    def test_003(self):
+        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 

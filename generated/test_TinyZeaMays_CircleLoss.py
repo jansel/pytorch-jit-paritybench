@@ -142,8 +142,8 @@ class Test_TinyZeaMays_CircleLoss(_paritybench_base):
         self._check(CircleLoss(*[], **{'m': 4, 'gamma': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(NormLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(NormLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

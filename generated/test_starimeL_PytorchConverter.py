@@ -118,10 +118,10 @@ class Inception(nn.Module):
         return torch.cat([y1, y2, y3, y4], 1)
 
 
-anchors = 21, 1, 1
-
-
 CRelu = CReLUM()
+
+
+anchors = 21, 1, 1
 
 
 class FaceBoxes(nn.Module):
@@ -214,12 +214,6 @@ class MobileNet(nn.Module):
         return x
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
-
-
 model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet18-5c106cde.pth',
     'resnet34':
@@ -230,6 +224,12 @@ model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet101-5d3b4d8f.pth',
     'resnet152':
     'https://s3.amazonaws.com/pytorch/models/resnet152-b121ed2d.pth'}
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -535,28 +535,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_starimeL_PytorchConverter(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FaceBoxes(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
-        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
-        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_003(self):
-        self._check(CReLUM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_001(self):
+        self._check(CReLUM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(FaceBoxes(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
         self._check(Inception(*[], **{'in_planes': 4, 'n1x1down': 4, 'n1x1up': 4, 'n3x3': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
     def test_006(self):
-        self._check(UNetEnc(*[], **{'in_channels': 4, 'features': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UNetDec(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(UNetDec(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UNetEnc(*[], **{'in_channels': 4, 'features': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

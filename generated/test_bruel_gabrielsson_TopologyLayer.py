@@ -292,23 +292,6 @@ class TopLoss2(nn.Module):
         return self.topfn(dgminfo)
 
 
-def delaunay_complex(x, maxdim=2):
-    """
-    compute Delaunay triangulation
-    fill in simplices as appropriate
-
-    if x is 1-dimensional, defaults to 1D Delaunay
-    inputs:
-        x - pointcloud
-        maxdim - maximal simplex dimension (default = 2)
-    """
-    if x.shape[1] == 1:
-        x = x.flatten()
-        return alpha_complex_1d(x)
-    tri = Delaunay(x)
-    return unique_simplices(tri.simplices, maxdim)
-
-
 def delaunay_complex_1d(x):
     """
     returns Delaunay complex on 1D space
@@ -361,6 +344,23 @@ class FlagDiagram(Function):
         grad_ret = [gd.cpu() for gd in grad_dgms]
         grad_y = persistenceBackwardFlag(X, ycpu, grad_ret)
         return None, grad_y.to(device), None, None
+
+
+def delaunay_complex(x, maxdim=2):
+    """
+    compute Delaunay triangulation
+    fill in simplices as appropriate
+
+    if x is 1-dimensional, defaults to 1D Delaunay
+    inputs:
+        x - pointcloud
+        maxdim - maximal simplex dimension (default = 2)
+    """
+    if x.shape[1] == 1:
+        x = x.flatten()
+        return alpha_complex_1d(x)
+    tri = Delaunay(x)
+    return unique_simplices(tri.simplices, maxdim)
 
 
 class AlphaLayer(nn.Module):
@@ -793,8 +793,8 @@ class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):
         self._check(Generator(*[], **{}), [torch.rand([100, 100])], {})
 
     def test_001(self):
-        self._check(SobLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NormLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(NormLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SobLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
 

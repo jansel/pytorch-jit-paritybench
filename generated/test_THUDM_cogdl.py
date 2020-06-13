@@ -569,7 +569,7 @@ class Test_THUDM_cogdl(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(GraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FF(*[], **{'in_feats': 4, 'out_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -577,5 +577,5 @@ class Test_THUDM_cogdl(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(FF(*[], **{'in_feats': 4, 'out_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 

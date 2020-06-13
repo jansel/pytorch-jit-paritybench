@@ -95,52 +95,6 @@ from torch.autograd import Variable
 import torch.optim as optim
 
 
-class SpartanDatasetDataType:
-    SINGLE_OBJECT_WITHIN_SCENE = 0
-    SINGLE_OBJECT_ACROSS_SCENE = 1
-    DIFFERENT_OBJECT = 2
-    MULTI_OBJECT = 3
-    SYNTHETIC_MULTI_OBJECT = 4
-
-
-def getDictFromYamlFilename(filename):
-    """
-    Read data from a YAML files
-    """
-    return yaml.load(open(filename), Loader=CLoader)
-
-
-class CameraIntrinsics(object):
-    """
-    Useful class for wrapping camera intrinsics and loading them from a
-    camera_info.yaml file
-    """
-
-    def __init__(self, cx, cy, fx, fy, width, height):
-        self.cx = cx
-        self.cy = cy
-        self.fx = fx
-        self.fy = fy
-        self.width = width
-        self.height = height
-        self.K = self.get_camera_matrix()
-
-    def get_camera_matrix(self):
-        return np.array([[self.fx, 0, self.cx], [0, self.fy, self.cy], [0, 
-            0, 1]])
-
-    @staticmethod
-    def from_yaml_file(filename):
-        config = getDictFromYamlFilename(filename)
-        fx = config['camera_matrix']['data'][0]
-        cx = config['camera_matrix']['data'][2]
-        fy = config['camera_matrix']['data'][4]
-        cy = config['camera_matrix']['data'][5]
-        width = config['image_width']
-        height = config['image_height']
-        return CameraIntrinsics(cx, cy, fx, fy, width, height)
-
-
 class ImageType:
     RGB = 0
     DEPTH = 1

@@ -877,13 +877,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_iBelieveCJM_Tricks_of_Semi_supervisedDeepLeanring_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Bottleneck(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
@@ -892,8 +892,8 @@ class Test_iBelieveCJM_Tricks_of_Semi_supervisedDeepLeanring_Pytorch(_paritybenc
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShuffleBlock(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ShuffleBlock(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

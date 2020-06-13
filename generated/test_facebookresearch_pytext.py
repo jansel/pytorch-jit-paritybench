@@ -500,16 +500,6 @@ from inspect import isclass
 from inspect import isfunction
 
 
-CUDA_ENABLED = False
-
-
-def FloatTensor(*args):
-    if CUDA_ENABLED:
-        return torch.cuda.FloatTensor(*args)
-    else:
-        return torch.FloatTensor(*args)
-
-
 class ConfigBaseMeta(type):
 
     def annotations_and_defaults(cls):
@@ -581,6 +571,16 @@ class ConfigBase(metaclass=ConfigBaseMeta):
     def __eq__(self, other):
         """Mainly a convenience utility for unit testing."""
         return type(self) == type(other) and self._asdict() == other._asdict()
+
+
+CUDA_ENABLED = False
+
+
+def FloatTensor(*args):
+    if CUDA_ENABLED:
+        return torch.cuda.FloatTensor(*args)
+    else:
+        return torch.FloatTensor(*args)
 
 
 class ComponentType(enum.Enum):
@@ -2498,19 +2498,6 @@ class ResidualMLP(nn.Module):
         return input + bias
 
 
-def rename_state_keys(state, keys_regex, replacement):
-    """Rename keys from state that match a regex; replacement can use capture groups"""
-    regex = re.compile(keys_regex)
-    return {(k if not regex.findall(k) else regex.sub(replacement, k)): v for
-        k, v in state.items()}
-
-
-def rename_component_from_root(state, old_name, new_name):
-    """Rename keys from state using full python paths"""
-    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') +
-        '.?(.*)$', new_name + '.\\1')
-
-
 def remove_state_keys(state, keys_regex):
     """Remove keys from state that match a regex"""
     regex = re.compile(keys_regex)
@@ -2550,6 +2537,19 @@ def merge_input_projection(state):
     return state
 
 
+def rename_state_keys(state, keys_regex, replacement):
+    """Rename keys from state that match a regex; replacement can use capture groups"""
+    regex = re.compile(keys_regex)
+    return {(k if not regex.findall(k) else regex.sub(replacement, k)): v for
+        k, v in state.items()}
+
+
+def rename_component_from_root(state, old_name, new_name):
+    """Rename keys from state using full python paths"""
+    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') +
+        '.?(.*)$', new_name + '.\\1')
+
+
 def translate_roberta_state_dict(state_dict):
     """Translate the public RoBERTa weights to ones which match SentenceEncoder."""
     new_state = rename_component_from_root(state_dict,
@@ -2572,10 +2572,10 @@ def translate_roberta_state_dict(state_dict):
     return new_state
 
 
-DEFAULT_NUM_ATTENTION_HEADS = 12
-
-
 DEFAULT_EMBEDDING_DIM = 768
+
+
+DEFAULT_NUM_ATTENTION_HEADS = 12
 
 
 class TransformerLayer(nn.Module):
@@ -2602,16 +2602,16 @@ class TransformerLayer(nn.Module):
         return self.final_layer_norm(biased)
 
 
-DEFAULT_PADDING_IDX = 1
-
-
-DEFAULT_NUM_LAYERS = 12
+DEFAULT_VOCAB_SIZE = 50265
 
 
 DEFAULT_MAX_SEQUENCE_LENGTH = 514
 
 
-DEFAULT_VOCAB_SIZE = 50265
+DEFAULT_PADDING_IDX = 1
+
+
+DEFAULT_NUM_LAYERS = 12
 
 
 class Transformer(nn.Module):
@@ -3262,20 +3262,6 @@ class EncoderEnsemble(nn.Module):
 
 
 @torch.jit.script
-def get_single_unk_token(src_tokens: List[str], word_ids: List[int],
-    copy_unk_token: bool, unk_idx: int):
-    """Returns the string representation of the first UNK
-       we get in our source utterance. We can then use this string instead of
-       writing "<UNK>" in our decoding.
-    """
-    if copy_unk_token:
-        for i, x in enumerate(word_ids):
-            if x == unk_idx:
-                return src_tokens[i]
-    return None
-
-
-@torch.jit.script
 def list_membership(item: int, list: List[int]):
     item_present = False
     for i in list:
@@ -3364,6 +3350,20 @@ class ScriptVocabulary(torch.jit.ScriptModule):
         else:
             return self.vocab[self.unk_idx
                 ] if possible_unk_token is None else possible_unk_token
+
+
+@torch.jit.script
+def get_single_unk_token(src_tokens: List[str], word_ids: List[int],
+    copy_unk_token: bool, unk_idx: int):
+    """Returns the string representation of the first UNK
+       we get in our source utterance. We can then use this string instead of
+       writing "<UNK>" in our decoding.
+    """
+    if copy_unk_token:
+        for i, x in enumerate(word_ids):
+            if x == unk_idx:
+                return src_tokens[i]
+    return None
 
 
 class Seq2SeqJIT(torch.nn.Module):
@@ -3618,41 +3618,41 @@ class Test_facebookresearch_pytext(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MultiLabelClassificationScores(*[], **{'scores': [ReLU()]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_003(self):
         self._check(MaxPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_004(self):
         self._check(MeanPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(NoPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_005(self):
+        self._check(MultiLabelClassificationScores(*[], **{'scores': [ReLU()]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_006(self):
+        self._check(NoPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(PlaceholderAttentionIdentity(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(Transformer(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
-
-    def test_010(self):
         self._check(PlaceholderIdentity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_009(self):
+        self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_010(self):
+        self._check(Transformer(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+
     def test_011(self):
-        self._check(PlaceholderAttentionIdentity(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
         self._check(VectorNormalizer(*[], **{'dim': 4}), [], {})

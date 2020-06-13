@@ -210,6 +210,19 @@ class VPAwareSynthesizer(nn.Module):
         return self.generator(styles, rots, batch_size=input[0].shape[0])
 
 
+class CELoss:
+
+    def __init__(self):
+        self.CELoss = nn.CrossEntropyLoss().cuda()
+
+    def compute_loss(self, tgts, Pred, GT):
+        Loss = odict()
+        for tgt in tgts:
+            Loss[tgt] = self.CELoss(Pred[tgt].view(Pred[tgt].size()[0], 4),
+                GT[tgt].view(Pred[tgt].size()[0]))
+        return Loss
+
+
 class negDotLoss:
 
     def __init_(self):
@@ -221,19 +234,6 @@ class negDotLoss:
             Loss[tgt] = torch.mean(-torch.bmm(GT[tgt].view(GT[tgt].shape[0],
                 1, 2).float(), Pred[tgt].view(Pred[tgt].shape[0], 2, 1).
                 float()))
-        return Loss
-
-
-class CELoss:
-
-    def __init__(self):
-        self.CELoss = nn.CrossEntropyLoss().cuda()
-
-    def compute_loss(self, tgts, Pred, GT):
-        Loss = odict()
-        for tgt in tgts:
-            Loss[tgt] = self.CELoss(Pred[tgt].view(Pred[tgt].size()[0], 4),
-                GT[tgt].view(Pred[tgt].size()[0]))
         return Loss
 
 
@@ -564,20 +564,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_NVlabs_SSV(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(EqualLinear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(EqualConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(EqualConv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
+    def test_003(self):
+        self._check(EqualLinear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(StyledConvBlock2(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512])], {})
+        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StyledConvBlock2(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512])], {})
 

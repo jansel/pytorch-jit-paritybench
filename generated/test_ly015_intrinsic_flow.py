@@ -1147,19 +1147,19 @@ class Test_ly015_intrinsic_flow(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(SS_FlowLoss(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
+        self._check(FlowUnet(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GateBlock(*[], **{'dim': 4, 'dim_a': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(GateBlock(*[], **{'dim': 4, 'dim_a': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(FlowUnet(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(SS_FlowLoss(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
 

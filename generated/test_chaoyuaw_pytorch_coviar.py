@@ -50,24 +50,6 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-class GroupRandomHorizontalFlip(object):
-
-    def __init__(self, is_mv=False):
-        self._is_mv = is_mv
-
-    def __call__(self, img_group, is_mv=False):
-        if random.random() < 0.5:
-            ret = [img[:, ::-1, :].astype(np.int32) for img in img_group]
-            if self._is_mv:
-                for i in range(len(ret)):
-                    ret[i] -= 128
-                    ret[i][..., 0] *= -1
-                    ret[i] += 128
-            return ret
-        else:
-            return img_group
-
-
 def resize_mv(img, shape, interpolation):
     return np.stack([cv2.resize(img[..., i], shape, interpolation) for i in
         range(2)], axis=2)
@@ -144,6 +126,24 @@ class GroupMultiScaleCrop(object):
             ret.append((1 * w_step, 3 * h_step))
             ret.append((3 * w_step, 3 * h_step))
         return ret
+
+
+class GroupRandomHorizontalFlip(object):
+
+    def __init__(self, is_mv=False):
+        self._is_mv = is_mv
+
+    def __call__(self, img_group, is_mv=False):
+        if random.random() < 0.5:
+            ret = [img[:, ::-1, :].astype(np.int32) for img in img_group]
+            if self._is_mv:
+                for i in range(len(ret)):
+                    ret[i] -= 128
+                    ret[i][..., 0] *= -1
+                    ret[i] += 128
+            return ret
+        else:
+            return img_group
 
 
 class Model(nn.Module):

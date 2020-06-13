@@ -1059,13 +1059,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_microsoft_multiview_human_pose_estimation_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_003(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})

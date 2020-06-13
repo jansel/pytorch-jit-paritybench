@@ -792,35 +792,35 @@ class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_ba
         self._check(BNClassifier(*[], **{'in_dim': 4, 'class_num': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Conv1x1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Conv1x1Linear(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Conv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(LightConv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(LightConvStream(*[], **{'in_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(ChannelGate(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_008(self):
-        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_009(self):
-        self._check(OSBlockINin(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_010(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_002(self):
+        self._check(ChannelGate(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Conv1x1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Conv1x1Linear(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Conv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(LightConv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(LightConvStream(*[], **{'in_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_011(self):
+        self._check(OSBlockINin(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 

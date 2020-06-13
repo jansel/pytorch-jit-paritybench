@@ -912,31 +912,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hongyi_zhang_mixup(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(SepConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_004(self):
+    def test_002(self):
         self._check(CellA(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_003(self):
         self._check(CellB(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_004(self):
+        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_007(self):
+        self._check(SepConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

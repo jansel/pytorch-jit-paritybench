@@ -190,8 +190,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zhilin007_FFA_Net(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(PALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 64, 64])], {})
 

@@ -372,26 +372,26 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ybabakhin_kaggle_salt_bes_phalanx(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'in_channels': 4, 'channels': 4, 'out_channels': 64}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Decoderv2(*[], **{'up_in': 4, 'x_in': 4, 'n_out': 64}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 
     @_fails_compile()
-    def test_001(self):
-        self._check(FPAv2(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 16, 16])], {})
-
     def test_002(self):
-        self._check(SpatialAttention2d(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPAv2(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 16, 16])], {})
 
     def test_003(self):
         self._check(GAB(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Decoder(*[], **{'in_channels': 4, 'channels': 4, 'out_channels': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SCse(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Decoderv2(*[], **{'up_in': 4, 'x_in': 4, 'n_out': 64}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(SpatialAttention2d(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(SCse(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

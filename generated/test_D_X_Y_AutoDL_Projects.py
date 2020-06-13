@@ -3620,6 +3620,16 @@ def ChannelWiseInter(inputs, oC, mode='v2'):
         raise ValueError('invalid mode : {:}'.format(mode))
 
 
+def get_width_choices(nOut):
+    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    if nOut is None:
+        return len(xsrange)
+    else:
+        Xs = [int(nOut * i) for i in xsrange]
+        Xs = sorted(list(set(Xs)))
+        return tuple(Xs)
+
+
 def conv_forward(inputs, conv, choices):
     iC = conv.in_channels
     fill_size = list(inputs.size())
@@ -3629,16 +3639,6 @@ def conv_forward(inputs, conv, choices):
     outputs = conv(xinputs)
     selecteds = [outputs[:, :oC] for oC in choices]
     return selecteds
-
-
-def get_width_choices(nOut):
-    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    if nOut is None:
-        return len(xsrange)
-    else:
-        Xs = [int(nOut * i) for i in xsrange]
-        Xs = sorted(list(set(Xs)))
-        return tuple(Xs)
 
 
 class ConvBNReLU(nn.Module):
@@ -3908,6 +3908,22 @@ class ResNetBottleneck(nn.Module):
             expected_flop_c])
 
 
+def get_depth_choices(nDepth):
+    if nDepth is None:
+        return 3
+    else:
+        assert nDepth >= 3, 'nDepth should be greater than 2 vs {:}'.format(
+            nDepth)
+        if nDepth == 1:
+            return 1, 1, 1
+        elif nDepth == 2:
+            return 1, 1, 2
+        elif nDepth >= 3:
+            return nDepth // 3, nDepth * 2 // 3, nDepth
+        else:
+            raise ValueError('invalid Depth : {:}'.format(nDepth))
+
+
 def select2withP(logits, tau, just_prob=False, num=2, eps=1e-07):
     if tau <= 0:
         new_logits = logits
@@ -3929,22 +3945,6 @@ def select2withP(logits, tau, just_prob=False, num=2, eps=1e-07):
     selected_logit = torch.gather(new_logits, 1, selected_index)
     selcted_probs = nn.functional.softmax(selected_logit, dim=1)
     return selected_index, selcted_probs
-
-
-def get_depth_choices(nDepth):
-    if nDepth is None:
-        return 3
-    else:
-        assert nDepth >= 3, 'nDepth should be greater than 2 vs {:}'.format(
-            nDepth)
-        if nDepth == 1:
-            return 1, 1, 1
-        elif nDepth == 2:
-            return 1, 1, 2
-        elif nDepth >= 3:
-            return nDepth // 3, nDepth * 2 // 3, nDepth
-        else:
-            raise ValueError('invalid Depth : {:}'.format(nDepth))
 
 
 def linear_forward(inputs, linear):
@@ -6512,51 +6512,51 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Policy(*[], **{'max_nodes': 4, 'search_space': [4, 4]}), [], {})
-
-    def test_001(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(WideBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(CifarHEAD(*[], **{'C': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(Controller(*[], **{'num_edge': 4, 'num_ops': 4}), [], {})
+
+    def test_003(self):
+        self._check(Conv313(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Conv717(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_005(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_006(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(Controller(*[], **{'num_edge': 4, 'num_ops': 4}), [], {})
-
-    def test_010(self):
         self._check(ImageNetHEAD(*[], **{'C': 4}), [torch.rand([4, 3, 64, 64])], {})
 
+    def test_009(self):
+        self._check(Policy(*[], **{'max_nodes': 4, 'search_space': [4, 4]}), [], {})
+
+    def test_010(self):
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_011(self):
-        self._check(CifarHEAD(*[], **{'C': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(Conv313(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(Conv717(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(WideBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

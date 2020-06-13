@@ -427,11 +427,11 @@ class Test_npuichigo_waveglow(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InvertibleConv1d(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(InvertibleConv1d(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

@@ -123,28 +123,62 @@ class CustomModule(torch.nn.Module):
         return energies, forces, hessians
 
 
+class SpeciesAEV(NamedTuple):
+    species: Tensor
+    aevs: Tensor
+
+
+def triu_index(num_species: int) ->Tensor:
+    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
+    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
+    ret = torch.zeros(num_species, num_species, dtype=torch.long)
+    ret[species1, species2] = pair_index
+    ret[species2, species1] = pair_index
+    return ret
+
+
+def cumsum_from_zero(input_: Tensor) ->Tensor:
+    cumsum = torch.zeros_like(input_)
+    torch.cumsum(input_[:-1], dim=0, out=cumsum[1:])
+    return cumsum
+
+
+def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
+    """Input: indices for pairs of atoms that are close to each other.
+    each pair only appear once, i.e. only one of the pairs (1, 2) and
+    (2, 1) exists.
+
+    Output: indices for all central atoms and it pairs of neighbors. For
+    example, if input has pair (0, 1), (0, 2), (0, 3), (0, 4), (1, 2),
+    (1, 3), (1, 4), (2, 3), (2, 4), (3, 4), then the output would have
+    central atom 0, 1, 2, 3, 4 and for cental atom 0, its pairs of neighbors
+    are (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)
+    """
+    ai1 = atom_index12.view(-1)
+    sorted_ai1, rev_indices = ai1.sort()
+    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1,
+        return_inverse=False, return_counts=True)
+    pair_sizes = counts * (counts - 1) // 2
+    pair_indices = torch.repeat_interleave(pair_sizes)
+    central_atom_index = uniqued_central_atom_index.index_select(0,
+        pair_indices)
+    m = counts.max().item() if counts.numel() > 0 else 0
+    n = pair_sizes.shape[0]
+    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device
+        ).unsqueeze(1).expand(-1, n, -1)
+    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) <
+        pair_sizes.unsqueeze(1)).flatten()
+    sorted_local_index12 = intra_pair_indices.flatten(1, 2)[:, (mask)]
+    sorted_local_index12 += cumsum_from_zero(counts).index_select(0,
+        pair_indices)
+    local_index12 = rev_indices[sorted_local_index12]
+    n = atom_index12.shape[1]
+    sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
+    return central_atom_index, local_index12 % n, sign12
+
+
 def cutoff_cosine(distances: Tensor, cutoff: float) ->Tensor:
     return 0.5 * torch.cos(distances * (math.pi / cutoff)) + 0.5
-
-
-def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
-    ) ->Tensor:
-    """Compute the radial subAEV terms of the center atom given neighbors
-
-    This correspond to equation (3) in the `ANI paper`_. This function just
-    compute the terms. The sum in the equation is not computed.
-    The input tensor have shape (conformations, atoms, N), where ``N``
-    is the number of neighbor atoms within the cutoff radius and output
-    tensor should have shape
-    (conformations, atoms, ``self.radial_sublength()``)
-
-    .. _ANI paper:
-        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
-    """
-    distances = distances.unsqueeze(-1).unsqueeze(-1)
-    fc = cutoff_cosine(distances, Rcr)
-    ret = 0.25 * torch.exp(-EtaR * (distances - ShfR) ** 2) * fc
-    return ret.flatten(start_dim=-2)
 
 
 def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
@@ -172,6 +206,26 @@ def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
     factor2 = torch.exp(-EtaA * (distances12.sum(0) / 2 - ShfA) ** 2)
     ret = 2 * factor1 * factor2 * fcj12.prod(0)
     return ret.flatten(start_dim=-4)
+
+
+def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
+    ) ->Tensor:
+    """Compute the radial subAEV terms of the center atom given neighbors
+
+    This correspond to equation (3) in the `ANI paper`_. This function just
+    compute the terms. The sum in the equation is not computed.
+    The input tensor have shape (conformations, atoms, N), where ``N``
+    is the number of neighbor atoms within the cutoff radius and output
+    tensor should have shape
+    (conformations, atoms, ``self.radial_sublength()``)
+
+    .. _ANI paper:
+        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
+    """
+    distances = distances.unsqueeze(-1).unsqueeze(-1)
+    fc = cutoff_cosine(distances, Rcr)
+    ret = 0.25 * torch.exp(-EtaR * (distances - ShfR) ** 2) * fc
+    return ret.flatten(start_dim=-2)
 
 
 def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
@@ -218,46 +272,6 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     atom_index12 = p12_all[:, (pair_index)]
     shifts = shifts_all.index_select(0, pair_index)
     return molecule_index + atom_index12, shifts
-
-
-def cumsum_from_zero(input_: Tensor) ->Tensor:
-    cumsum = torch.zeros_like(input_)
-    torch.cumsum(input_[:-1], dim=0, out=cumsum[1:])
-    return cumsum
-
-
-def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-    """Input: indices for pairs of atoms that are close to each other.
-    each pair only appear once, i.e. only one of the pairs (1, 2) and
-    (2, 1) exists.
-
-    Output: indices for all central atoms and it pairs of neighbors. For
-    example, if input has pair (0, 1), (0, 2), (0, 3), (0, 4), (1, 2),
-    (1, 3), (1, 4), (2, 3), (2, 4), (3, 4), then the output would have
-    central atom 0, 1, 2, 3, 4 and for cental atom 0, its pairs of neighbors
-    are (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)
-    """
-    ai1 = atom_index12.view(-1)
-    sorted_ai1, rev_indices = ai1.sort()
-    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1,
-        return_inverse=False, return_counts=True)
-    pair_sizes = counts * (counts - 1) // 2
-    pair_indices = torch.repeat_interleave(pair_sizes)
-    central_atom_index = uniqued_central_atom_index.index_select(0,
-        pair_indices)
-    m = counts.max().item() if counts.numel() > 0 else 0
-    n = pair_sizes.shape[0]
-    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device
-        ).unsqueeze(1).expand(-1, n, -1)
-    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) <
-        pair_sizes.unsqueeze(1)).flatten()
-    sorted_local_index12 = intra_pair_indices.flatten(1, 2)[:, (mask)]
-    sorted_local_index12 += cumsum_from_zero(counts).index_select(0,
-        pair_indices)
-    local_index12 = rev_indices[sorted_local_index12]
-    n = atom_index12.shape[1]
-    sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
-    return central_atom_index, local_index12 % n, sign12
 
 
 def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
@@ -350,15 +364,6 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
     return torch.cat([radial_aev, angular_aev], dim=-1)
 
 
-def triu_index(num_species: int) ->Tensor:
-    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
-    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
-    ret = torch.zeros(num_species, num_species, dtype=torch.long)
-    ret[species1, species2] = pair_index
-    ret[species2, species1] = pair_index
-    return ret
-
-
 def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
     """Compute the shifts of unit cell along the given cell vectors to make it
     large enough to contain all pairs of neighbor atoms with PBC under
@@ -391,11 +396,6 @@ def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
         torch.cartesian_prod(r1, -r2, o), torch.cartesian_prod(r1, -r2, -r3
         ), torch.cartesian_prod(o, r2, r3), torch.cartesian_prod(o, r2, o),
         torch.cartesian_prod(o, r2, -r3), torch.cartesian_prod(o, o, r3)])
-
-
-class SpeciesAEV(NamedTuple):
-    species: Tensor
-    aevs: Tensor
 
 
 class AEVComputer(torch.nn.Module):
@@ -522,15 +522,18 @@ class AEVComputer(torch.nn.Module):
         return SpeciesAEV(species, aev)
 
 
+class SpeciesEnergies(NamedTuple):
+    species: Tensor
+    energies: Tensor
+
+
 all_species = ['H', 'C', 'N', 'O']
 
 
 species_indices = {all_species[i]: i for i in range(len(all_species))}
 
 
-class SpeciesEnergies(NamedTuple):
-    species: Tensor
-    energies: Tensor
+conv_au_ev = 27.21138505
 
 
 class ANIModel(torch.nn.ModuleDict):
@@ -713,8 +716,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_aiqm_torchani(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Gaussian(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Gaussian(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

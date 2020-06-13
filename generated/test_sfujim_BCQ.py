@@ -228,10 +228,10 @@ class Test_sfujim_BCQ(_paritybench_base):
     def test_001(self):
         self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(VAE(*[], **{'state_dim': 4, 'action_dim': 4, 'latent_dim': 4, 'max_action': 4, 'device': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_003(self):
         self._check(FC_Q(*[], **{'state_dim': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(VAE(*[], **{'state_dim': 4, 'action_dim': 4, 'latent_dim': 4, 'max_action': 4, 'device': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

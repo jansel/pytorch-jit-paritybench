@@ -181,42 +181,18 @@ class CrossEntropyLabelSmooth(torch.nn.Module):
         return loss
 
 
-def _ntuple(n):
+def get_condconv_initializer(initializer, num_experts, expert_shape):
 
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-
-
-_pair = _ntuple(2)
-
-
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
-
-
-def _get_padding(kernel_size, stride=1, dilation=1, **_):
-    padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
-    return padding
-
-
-def get_padding_value(padding, kernel_size, **kwargs):
-    dynamic = False
-    if isinstance(padding, str):
-        padding = padding.lower()
-        if padding == 'same':
-            if _is_static_pad(kernel_size, **kwargs):
-                padding = _get_padding(kernel_size, **kwargs)
-            else:
-                padding = 0
-                dynamic = True
-        elif padding == 'valid':
-            padding = 0
-        else:
-            padding = _get_padding(kernel_size, **kwargs)
-    return padding, dynamic
+    def condconv_initializer(weight):
+        """CondConv initializer function."""
+        num_params = np.prod(expert_shape)
+        if len(weight.shape) != 2 or weight.shape[0
+            ] != num_experts or weight.shape[1] != num_params:
+            raise ValueError(
+                'CondConv variables must have shape [num_experts, num_params]')
+        for i in range(num_experts):
+            initializer(weight[i].view(expert_shape))
+    return condconv_initializer
 
 
 def _calc_same_pad(i: int, k: int, s: int, d: int):
@@ -236,18 +212,42 @@ def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
     return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
 
 
-def get_condconv_initializer(initializer, num_experts, expert_shape):
+def _get_padding(kernel_size, stride=1, dilation=1, **_):
+    padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
+    return padding
 
-    def condconv_initializer(weight):
-        """CondConv initializer function."""
-        num_params = np.prod(expert_shape)
-        if len(weight.shape) != 2 or weight.shape[0
-            ] != num_experts or weight.shape[1] != num_params:
-            raise ValueError(
-                'CondConv variables must have shape [num_experts, num_params]')
-        for i in range(num_experts):
-            initializer(weight[i].view(expert_shape))
-    return condconv_initializer
+
+def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+
+
+def get_padding_value(padding, kernel_size, **kwargs):
+    dynamic = False
+    if isinstance(padding, str):
+        padding = padding.lower()
+        if padding == 'same':
+            if _is_static_pad(kernel_size, **kwargs):
+                padding = _get_padding(kernel_size, **kwargs)
+            else:
+                padding = 0
+                dynamic = True
+        elif padding == 'valid':
+            padding = 0
+        else:
+            padding = _get_padding(kernel_size, **kwargs)
+    return padding, dynamic
+
+
+def _ntuple(n):
+
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+
+_pair = _ntuple(2)
 
 
 class CondConv2d(nn.Module):
@@ -486,6 +486,20 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish()
 
 
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio', 'condconv_num_expert'])
@@ -555,12 +569,6 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
-
-
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=
     1000, condconv_num_expert=1):
@@ -609,14 +617,6 @@ def get_model_params(model_name, override_params, condconv_num_expert=1):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
 
 
 url_map = {'efficientnet-b0':
@@ -1581,49 +1581,49 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kakaobrain_fast_autoaugment(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+
+    def test_002(self):
+        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(RoutingFn(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_006(self):
-        self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(ShakeBottleNeck(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4, 'cardinary': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    @_fails_compile()
+    def test_008(self):
+        self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(ShakeResNeXt(*[], **{'depth': 1, 'w_base': 4, 'cardinary': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_010(self):
+        self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_011(self):
         self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
-        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_013(self):
+    def test_012(self):
         self._check(TpuBatchNormalization(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

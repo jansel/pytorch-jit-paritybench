@@ -784,25 +784,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_KunpengLi1994_VSRN(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Rs_GCN(*[], **{'in_channels': 4, 'inter_channels': 4}), [torch.rand([4, 4, 64])], {})
-
-    def test_001(self):
         self._check(Attention(*[], **{'dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(ContrastiveLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
     def test_002(self):
-        self._check(EncoderRNN(*[], **{'dim_vid': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_004(self):
         self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_003(self):
+        self._check(EncoderRNN(*[], **{'dim_vid': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
     def test_005(self):
-        self._check(ContrastiveLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(Rs_GCN(*[], **{'in_channels': 4, 'inter_channels': 4}), [torch.rand([4, 4, 64])], {})
 

@@ -1196,6 +1196,16 @@ def get_varlen_pooling_list(embedding_dict, features, feature_index,
     return varlen_sparse_embedding_list
 
 
+class DenseFeat(namedtuple('DenseFeat', ['name', 'dimension', 'dtype'])):
+    __slots__ = ()
+
+    def __new__(cls, name, dimension=1, dtype='float32'):
+        return super(DenseFeat, cls).__new__(cls, name, dimension, dtype)
+
+    def __hash__(self):
+        return self.name.__hash__()
+
+
 DEFAULT_GROUP_NAME = 'default_group'
 
 
@@ -1233,16 +1243,6 @@ def create_embedding_matrix(feature_columns, init_std=0.0001, linear=False,
     for tensor in embedding_dict.values():
         nn.init.normal_(tensor.weight, mean=0, std=init_std)
     return embedding_dict.to(device)
-
-
-class DenseFeat(namedtuple('DenseFeat', ['name', 'dimension', 'dtype'])):
-    __slots__ = ()
-
-    def __new__(cls, name, dimension=1, dtype='float32'):
-        return super(DenseFeat, cls).__new__(cls, name, dimension, dtype)
-
-    def __hash__(self):
-        return self.name.__hash__()
 
 
 class Linear(nn.Module):
@@ -1888,61 +1888,61 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Dice(*[], **{'emb_size': 4}), [torch.rand([4, 4])], {})
+        self._check(AFMLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LocalActivationUnit(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(AUGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(DNN(*[], **{'inputs_dim': 4, 'hidden_units': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AttentionSequencePoolingLayer(*[], **{}), [torch.rand([16384, 4, 4]), torch.rand([16384, 4, 4]), torch.rand([256, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(PredictionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BiInteractionPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(FM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(BiInteractionPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(AFMLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(CrossNet(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(InnerProductLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
         self._check(ConvLayer(*[], **{'field_size': 4, 'conv_kernel_width': [4, 4], 'conv_filters': [4, 4]}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
+    def test_007(self):
+        self._check(CrossNet(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(DNN(*[], **{'inputs_dim': 4, 'hidden_units': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Dice(*[], **{'emb_size': 4}), [torch.rand([4, 4])], {})
+
+    def test_010(self):
+        self._check(FM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_012(self):
-        self._check(AttentionSequencePoolingLayer(*[], **{}), [torch.rand([16384, 4, 4]), torch.rand([16384, 4, 4]), torch.rand([256, 4, 4, 4])], {})
+        self._check(InnerProductLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(AGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
+        self._check(Interac(*[], **{'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
+    @_fails_compile()
     def test_014(self):
-        self._check(AUGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
+        self._check(Linear(*[], **{'feature_columns': [4, 4], 'feature_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_015(self):
-        self._check(Linear(*[], **{'feature_columns': [4, 4], 'feature_index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LocalActivationUnit(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_016(self):
-        self._check(Interac(*[], **{'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(PredictionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -212,10 +212,10 @@ class Test_timomernick_pytorch_capsule(_paritybench_base):
     def test_000(self):
         self._check(CapsuleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_001(self):
-        self._check(ConvUnit(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
-
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(CapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'unit_size': 4, 'use_routing': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ConvUnit(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 

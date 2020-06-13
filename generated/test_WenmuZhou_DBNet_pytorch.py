@@ -236,13 +236,13 @@ class MaskL1Loss(nn.Module):
         return loss
 
 
+BatchNorm2d = nn.BatchNorm2d
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-BatchNorm2d = nn.BatchNorm2d
 
 
 def constant_init(module, constant, bias=0):
@@ -628,41 +628,41 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_WenmuZhou_DBNet_pytorch(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_001(self):
+        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_003(self):
-        self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(FPN(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(FPEM_FFM(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
-
-    def test_006(self):
-        self._check(FPEM(*[], **{}), [torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 64, 64]), torch.rand([4, 128, 4, 4])], {})
-
-    def test_007(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
         self._check(ConvHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_003(self):
         self._check(DBHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_004(self):
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_005(self):
+        self._check(FPEM(*[], **{}), [torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 64, 64]), torch.rand([4, 128, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(FPEM_FFM(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(FPN(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -285,8 +285,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_huanghoujing_EANet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PartSegHead(*[], **{'cfg': _mock_config(in_c=4, mid_c=4, num_classes=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PartSegHead(*[], **{'cfg': _mock_config(in_c=4, mid_c=4, num_classes=4)}), [torch.rand([4, 4, 4, 4])], {})
 

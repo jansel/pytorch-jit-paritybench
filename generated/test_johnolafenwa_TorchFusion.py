@@ -149,21 +149,6 @@ class tofp16(nn.Module):
         return (input.half() for input in inputs)
 
 
-class Normal(object):
-
-    def __init__(self, mean=0, std=1):
-        """
-
-        :param mean:
-        :param std:
-        """
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, tensor):
-        return normal_(tensor, self.mean, self.std)
-
-
 class Xavier_Uniform(object):
 
     def __init__(self, gain=1):
@@ -264,6 +249,21 @@ class StandardProjectionDiscriminator(nn.Module):
         else:
             return torch.sigmoid(linear_out
                 ) if self.apply_sigmoid else linear_out
+
+
+class Normal(object):
+
+    def __init__(self, mean=0, std=1):
+        """
+
+        :param mean:
+        :param std:
+        """
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        return normal_(tensor, self.mean, self.std)
 
 
 class DCGANGenerator(nn.Module):
@@ -544,24 +544,6 @@ class ConditionalBatchNorm2d(nn.Module):
         return out
 
 
-class Kaiming_Normal(object):
-
-    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
-        """
-
-        :param neg_slope:
-        :param mode:
-        :param non_linearity:
-        """
-        self.neg_slope = neg_slope
-        self.mode = mode
-        self.non_linearity = non_linearity
-
-    def __call__(self, tensor):
-        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.
-            non_linearity)
-
-
 class Constant(object):
 
     def __init__(self, value):
@@ -579,6 +561,24 @@ class Zeros(Constant):
 
     def __init__(self):
         super(Zeros, self).__init__(0)
+
+
+class Kaiming_Normal(object):
+
+    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
+        """
+
+        :param neg_slope:
+        :param mode:
+        :param non_linearity:
+        """
+        self.neg_slope = neg_slope
+        self.mode = mode
+        self.non_linearity = non_linearity
+
+    def __call__(self, tensor):
+        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.
+            non_linearity)
 
 
 class SelfAttention(nn.Module):
@@ -1195,84 +1195,85 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_johnolafenwa_TorchFusion(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(tofp16(*[], **{}), [], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(StandardProjectionDiscriminator(*[], **{'input_size': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(MLPGenerator(*[], **{'latent_size': 4, 'output_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(MLPDiscriminator(*[], **{'input_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(WMLPDiscriminator(*[], **{'input_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(SelfAttention(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_006(self):
-        self._check(DiscriminatorResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(StandardDiscriminatorBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(MultiSequential(*[], **{}), [], {})
-
-    def test_009(self):
         self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_010(self):
+    def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_002(self):
         self._check(Conv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
-    def test_012(self):
-        self._check(DepthwiseConv1d(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
-
-    def test_013(self):
+    def test_003(self):
         self._check(ConvTranspose1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_014(self):
+    def test_004(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_005(self):
         self._check(ConvTranspose3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
-    def test_016(self):
+    def test_006(self):
+        self._check(DepthwiseConv1d(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_007(self):
         self._check(DepthwiseConvTranspose1d(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_017(self):
+    def test_008(self):
         self._check(DepthwiseConvTranspose2d(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_009(self):
         self._check(DepthwiseConvTranspose3d(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
-    def test_019(self):
+    @_fails_compile()
+    def test_010(self):
+        self._check(DiscriminatorResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    def test_014(self):
+        self._check(MLPDiscriminator(*[], **{'input_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_015(self):
+        self._check(MLPGenerator(*[], **{'latent_size': 4, 'output_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(MultiSequential(*[], **{}), [], {})
+
+    @_fails_compile()
+    def test_017(self):
         self._check(Reshape(*[], **{'output_shape': 4}), [torch.rand([4, 4])], {})
 
-    def test_022(self):
+    def test_018(self):
+        self._check(SelfAttention(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_019(self):
+        self._check(StandardDiscriminatorBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(StandardProjectionDiscriminator(*[], **{'input_size': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_022(self):
+        self._check(WMLPDiscriminator(*[], **{'input_size': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_023(self):
-        self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(tofp16(*[], **{}), [], {})
 

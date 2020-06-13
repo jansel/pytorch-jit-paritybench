@@ -126,11 +126,6 @@ import torch.optim
 import torch.utils.data
 
 
-def byteps_torch_set_num_grads(num_grads_):
-    c_lib.byteps_torch_set_num_grads(num_grads_)
-    return 0
-
-
 def get_ext_suffix():
     """Determine library extension for various versions of Python."""
     ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')

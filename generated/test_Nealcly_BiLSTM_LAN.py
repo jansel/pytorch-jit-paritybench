@@ -274,12 +274,6 @@ class CharCNN(nn.Module):
         return self.get_all_hiddens(input, seq_lengths)
 
 
-STOP_TAG = -1
-
-
-START_TAG = -2
-
-
 def log_sum_exp(vec, m_size):
     """
     calculate log of exp sum
@@ -294,6 +288,12 @@ def log_sum_exp(vec, m_size):
         m_size)
     return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec -
         max_score.expand_as(vec)), 1)).view(-1, m_size)
+
+
+STOP_TAG = -1
+
+
+START_TAG = -2
 
 
 class CRF(nn.Module):

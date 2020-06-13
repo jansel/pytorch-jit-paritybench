@@ -465,9 +465,43 @@ class ONet(nn.Module):
         return b, c, a
 
 
-def fixed_image_standardization(image_tensor):
-    processed_tensor = (image_tensor - 127.5) / 128.0
-    return processed_tensor
+def rerec(bboxA):
+    h = bboxA[:, (3)] - bboxA[:, (1)]
+    w = bboxA[:, (2)] - bboxA[:, (0)]
+    l = torch.max(w, h)
+    bboxA[:, (0)] = bboxA[:, (0)] + w * 0.5 - l * 0.5
+    bboxA[:, (1)] = bboxA[:, (1)] + h * 0.5 - l * 0.5
+    bboxA[:, 2:4] = bboxA[:, :2] + l.repeat(2, 1).permute(1, 0)
+    return bboxA
+
+
+def pad(boxes, w, h):
+    boxes = boxes.trunc().int().cpu().numpy()
+    x = boxes[:, (0)]
+    y = boxes[:, (1)]
+    ex = boxes[:, (2)]
+    ey = boxes[:, (3)]
+    x[x < 1] = 1
+    y[y < 1] = 1
+    ex[ex > w] = w
+    ey[ey > h] = h
+    return y, ey, x, ex
+
+
+def generateBoundingBox(reg, probs, scale, thresh):
+    stride = 2
+    cellsize = 12
+    reg = reg.permute(1, 0, 2, 3)
+    mask = probs >= thresh
+    mask_inds = mask.nonzero()
+    image_inds = mask_inds[:, (0)]
+    score = probs[mask]
+    reg = reg[:, (mask)].permute(1, 0)
+    bb = mask_inds[:, 1:].type(reg.dtype).flip(1)
+    q1 = ((stride * bb + 1) / scale).floor()
+    q2 = ((stride * bb + cellsize - 1 + 1) / scale).floor()
+    boundingbox = torch.cat([q1, q2, score.unsqueeze(1), reg], dim=1)
+    return boundingbox, image_inds
 
 
 def nms_numpy(boxes, scores, threshold, method):
@@ -516,29 +550,6 @@ def batched_nms_numpy(boxes, scores, idxs, threshold, method):
     return torch.as_tensor(keep, dtype=torch.long, device=device)
 
 
-def pad(boxes, w, h):
-    boxes = boxes.trunc().int().cpu().numpy()
-    x = boxes[:, (0)]
-    y = boxes[:, (1)]
-    ex = boxes[:, (2)]
-    ey = boxes[:, (3)]
-    x[x < 1] = 1
-    y[y < 1] = 1
-    ex[ex > w] = w
-    ey[ey > h] = h
-    return y, ey, x, ex
-
-
-def rerec(bboxA):
-    h = bboxA[:, (3)] - bboxA[:, (1)]
-    w = bboxA[:, (2)] - bboxA[:, (0)]
-    l = torch.max(w, h)
-    bboxA[:, (0)] = bboxA[:, (0)] + w * 0.5 - l * 0.5
-    bboxA[:, (1)] = bboxA[:, (1)] + h * 0.5 - l * 0.5
-    bboxA[:, 2:4] = bboxA[:, :2] + l.repeat(2, 1).permute(1, 0)
-    return bboxA
-
-
 def bbreg(boundingbox, reg):
     if reg.shape[1] == 1:
         reg = torch.reshape(reg, (reg.shape[2], reg.shape[3]))
@@ -550,22 +561,6 @@ def bbreg(boundingbox, reg):
     b4 = boundingbox[:, (3)] + reg[:, (3)] * h
     boundingbox[:, :4] = torch.stack([b1, b2, b3, b4]).permute(1, 0)
     return boundingbox
-
-
-def generateBoundingBox(reg, probs, scale, thresh):
-    stride = 2
-    cellsize = 12
-    reg = reg.permute(1, 0, 2, 3)
-    mask = probs >= thresh
-    mask_inds = mask.nonzero()
-    image_inds = mask_inds[:, (0)]
-    score = probs[mask]
-    reg = reg[:, (mask)].permute(1, 0)
-    bb = mask_inds[:, 1:].type(reg.dtype).flip(1)
-    q1 = ((stride * bb + 1) / scale).floor()
-    q2 = ((stride * bb + cellsize - 1 + 1) / scale).floor()
-    boundingbox = torch.cat([q1, q2, score.unsqueeze(1), reg], dim=1)
-    return boundingbox, image_inds
 
 
 def imresample(img, sz):
@@ -750,6 +745,11 @@ def extract_face(img, box, image_size=160, margin=0, save_path=None):
         save_img(face, save_path)
     face = F.to_tensor(np.float32(face))
     return face
+
+
+def fixed_image_standardization(image_tensor):
+    processed_tensor = (image_tensor - 127.5) / 128.0
+    return processed_tensor
 
 
 class MTCNN(nn.Module):
@@ -968,10 +968,10 @@ class Test_timesler_facenet_pytorch(_paritybench_base):
         self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(Block17(*[], **{}), [torch.rand([4, 896, 64, 64])], {})
 
     def test_002(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 896, 64, 64])], {})
+        self._check(Block35(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
     def test_003(self):
         self._check(Block8(*[], **{}), [torch.rand([4, 1792, 64, 64])], {})

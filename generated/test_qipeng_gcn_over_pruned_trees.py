@@ -67,18 +67,6 @@ class GCNClassifier(nn.Module):
         return logits, pooling_output
 
 
-def pool(h, mask, type='max'):
-    if type == 'max':
-        h = h.masked_fill(mask, -constant.INFINITY_NUMBER)
-        return torch.max(h, 1)[0]
-    elif type == 'avg':
-        h = h.masked_fill(mask, 0)
-        return h.sum(1) / (mask.size(1) - mask.float().sum(1))
-    else:
-        h = h.masked_fill(mask, 0)
-        return h.sum(1)
-
-
 def tree_to_adj(sent_len, tree, directed=True, self_loop=False):
     """
     Convert a tree object to an (numpy) adjacency matrix.
@@ -226,6 +214,18 @@ def head_to_tree(head, tokens, len_, prune, subj_pos, obj_pos):
         root = nodes[highest_node]
     assert root is not None
     return root
+
+
+def pool(h, mask, type='max'):
+    if type == 'max':
+        h = h.masked_fill(mask, -constant.INFINITY_NUMBER)
+        return torch.max(h, 1)[0]
+    elif type == 'avg':
+        h = h.masked_fill(mask, 0)
+        return h.sum(1) / (mask.size(1) - mask.float().sum(1))
+    else:
+        h = h.masked_fill(mask, 0)
+        return h.sum(1)
 
 
 class GCNRelationModel(nn.Module):

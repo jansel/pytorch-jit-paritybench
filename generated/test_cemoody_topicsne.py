@@ -155,10 +155,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_cemoody_topicsne(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(TopicSNE(*[], **{'n_points': 4, 'n_topics': 4, 'n_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_001(self):
         self._check(TSNE(*[], **{'n_points': 4, 'n_topics': 4, 'n_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(TopicSNE(*[], **{'n_points': 4, 'n_topics': 4, 'n_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

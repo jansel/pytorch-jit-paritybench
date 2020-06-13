@@ -1205,17 +1205,6 @@ model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet152-b121ed2d.pth'}
 
 
-def resnet50(pretrained=False):
-    """Constructs a ResNet-50 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3])
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
-    return model
-
-
 def resnet152(pretrained=False):
     """Constructs a ResNet-152 model.
     Args:
@@ -1235,6 +1224,17 @@ def resnet101(pretrained=False):
     model = ResNet(Bottleneck, [3, 4, 23, 3])
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+def resnet50(pretrained=False):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3])
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     return model
 
 
@@ -1590,6 +1590,16 @@ def precook(s, n=4, out=False):
     return counts
 
 
+def cook_test(test, n=4):
+    """Takes a test sentence and returns an object that
+    encapsulates everything that BLEU needs to know about it.
+    :param test: list of string : hypothesis sentence for some image
+    :param n: int : number of ngrams for which (ngram) representation is calculated
+    :return: result (dict)
+    """
+    return precook(test, n, True)
+
+
 def cook_refs(refs, n=4):
     """Takes a list of reference sentences for a single segment
     and returns an object that encapsulates everything that BLEU
@@ -1599,16 +1609,6 @@ def cook_refs(refs, n=4):
     :return: result (list of dict)
     """
     return [precook(ref, n) for ref in refs]
-
-
-def cook_test(test, n=4):
-    """Takes a test sentence and returns an object that
-    encapsulates everything that BLEU needs to know about it.
-    :param test: list of string : hypothesis sentence for some image
-    :param n: int : number of ngrams for which (ngram) representation is calculated
-    :return: result (dict)
-    """
-    return precook(test, n, True)
 
 
 class CiderScorer(object):
@@ -1921,12 +1921,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jiasenlu_NeuralBabyTalk(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BNCriterion(*[], **{'opt': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_001(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

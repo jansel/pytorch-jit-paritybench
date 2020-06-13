@@ -106,20 +106,6 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
-def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
-    act_type = act_type.lower()
-    if act_type == 'relu':
-        layer = nn.ReLU(inplace)
-    elif act_type == 'leakyrelu':
-        layer = nn.LeakyReLU(neg_slope, inplace)
-    elif act_type == 'prelu':
-        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
-    else:
-        raise NotImplementedError('activation layer [{:s}] is not found'.
-            format(act_type))
-    return layer
-
-
 def pad(pad_type, padding):
     pad_type = pad_type.lower()
     if padding == 0:
@@ -132,12 +118,6 @@ def pad(pad_type, padding):
         raise NotImplementedError('padding layer [{:s}] is not implemented'
             .format(pad_type))
     return layer
-
-
-def get_valid_padding(kernel_size, dilation):
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
 
 
 def sequential(*args):
@@ -154,6 +134,26 @@ def sequential(*args):
         elif isinstance(module, nn.Module):
             modules.append(module)
     return nn.Sequential(*modules)
+
+
+def get_valid_padding(kernel_size, dilation):
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
+    act_type = act_type.lower()
+    if act_type == 'relu':
+        layer = nn.ReLU(inplace)
+    elif act_type == 'leakyrelu':
+        layer = nn.LeakyReLU(neg_slope, inplace)
+    elif act_type == 'prelu':
+        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
+    else:
+        raise NotImplementedError('activation layer [{:s}] is not found'.
+            format(act_type))
+    return layer
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
@@ -221,11 +221,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_hejingwenhejingwen_AdaFM(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(AdaptiveFM(*[], **{'in_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(Basic(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 

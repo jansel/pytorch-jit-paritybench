@@ -1442,14 +1442,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_he_y_filter_pruning_geometric_median(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DownsampleA(*[], **{'nIn': 4, 'nOut': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(ResNetBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(DownsampleA(*[], **{'nIn': 4, 'nOut': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

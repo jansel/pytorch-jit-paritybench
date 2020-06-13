@@ -144,10 +144,10 @@ from torch.nn.parallel._functions import ReduceAddCoalesced
 from torch.nn.parallel._functions import Broadcast
 
 
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
 ACT_RELU = 'relu'
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
 
 
 ACT_ELU = 'elu'
@@ -1610,19 +1610,6 @@ class DataParallelModel(DataParallel):
         return modules
 
 
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
-
-
 def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
     devices=None):
     assert len(modules) == len(inputs)
@@ -1671,6 +1658,19 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
+
+
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):

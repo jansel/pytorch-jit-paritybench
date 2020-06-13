@@ -84,6 +84,15 @@ class BabiUTransformer(nn.Module):
         return a_hat, self.softmax(a_hat), act
 
 
+def _gen_bias_mask(max_length):
+    """
+    Generates bias values (-Inf) to mask future timesteps during attention
+    """
+    np_mask = np.triu(np.full([max_length, max_length], -np.inf), 1)
+    torch_mask = torch.from_numpy(np_mask).type(torch.FloatTensor)
+    return torch_mask.unsqueeze(0).unsqueeze(1)
+
+
 def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
     10000.0):
     """
@@ -104,15 +113,6 @@ def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
         constant_values=[0.0, 0.0])
     signal = signal.reshape([1, length, channels])
     return torch.from_numpy(signal).type(torch.FloatTensor)
-
-
-def _gen_bias_mask(max_length):
-    """
-    Generates bias values (-Inf) to mask future timesteps during attention
-    """
-    np_mask = np.triu(np.full([max_length, max_length], -np.inf), 1)
-    torch_mask = torch.from_numpy(np_mask).type(torch.FloatTensor)
-    return torch_mask.unsqueeze(0).unsqueeze(1)
 
 
 class Encoder(nn.Module):
@@ -596,10 +596,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_andreamad8_Universal_Transformer_Pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PositionwiseFeedForward(*[], **{'input_depth': 1, 'filter_size': 4, 'output_depth': 1}), [torch.rand([1, 1])], {})
-
-    def test_001(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(PositionwiseFeedForward(*[], **{'input_depth': 1, 'filter_size': 4, 'output_depth': 1}), [torch.rand([1, 1])], {})
 

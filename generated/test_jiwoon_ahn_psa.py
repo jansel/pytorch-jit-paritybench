@@ -322,14 +322,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jiwoon_ahn_psa(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BatchNorm2dFixed(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(BatchNorm2dFixed(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlock(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

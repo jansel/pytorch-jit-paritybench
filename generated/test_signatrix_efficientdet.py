@@ -546,22 +546,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_signatrix_efficientdet(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(ConvBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Classifier(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_classes': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_004(self):
+        self._check(ConvBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_005(self):
-        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 

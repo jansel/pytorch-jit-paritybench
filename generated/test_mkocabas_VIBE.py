@@ -87,15 +87,6 @@ import numpy as np
 from torch.nn import functional as F
 
 
-def batch_encoder_disc_l2_loss(disc_value):
-    """
-        Inputs:
-            disc_value: N x 25
-    """
-    k = disc_value.shape[0]
-    return torch.sum((disc_value - 1.0) ** 2) * 1.0 / k
-
-
 def quat2mat(quat):
     """
     This function is borrowed from https://github.com/MandyMo/pytorch_HMR/blob/master/src/util.py#L50
@@ -131,6 +122,15 @@ def batch_rodrigues(axisang):
     rot_mat = quat2mat(quat)
     rot_mat = rot_mat.view(rot_mat.shape[0], 9)
     return rot_mat
+
+
+def batch_encoder_disc_l2_loss(disc_value):
+    """
+        Inputs:
+            disc_value: N x 25
+    """
+    k = disc_value.shape[0]
+    return torch.sum((disc_value - 1.0) ** 2) * 1.0 / k
 
 
 def batch_adv_disc_l2_loss(real_disc_value, fake_disc_value):
@@ -573,47 +573,50 @@ class Bottleneck(nn.Module):
         return out
 
 
-def perspective_projection(points, rotation, translation, focal_length,
-    camera_center):
+def quaternion_to_angle_axis(quaternion: torch.Tensor) ->torch.Tensor:
     """
-    This function computes the perspective projection of a set of points.
-    Input:
-        points (bs, N, 3): 3D points
-        rotation (bs, 3, 3): Camera rotation
-        translation (bs, 3): Camera translation
-        focal_length (bs,) or scalar: Focal length
-        camera_center (bs, 2): Camera center
+    This function is borrowed from https://github.com/kornia/kornia
+
+    Convert quaternion vector to angle axis of rotation.
+
+    Adapted from ceres C++ library: ceres-solver/include/ceres/rotation.h
+
+    Args:
+        quaternion (torch.Tensor): tensor with quaternions.
+
+    Return:
+        torch.Tensor: tensor with angle axis of rotation.
+
+    Shape:
+        - Input: :math:`(*, 4)` where `*` means, any number of dimensions
+        - Output: :math:`(*, 3)`
+
+    Example:
+        >>> quaternion = torch.rand(2, 4)  # Nx4
+        >>> angle_axis = tgm.quaternion_to_angle_axis(quaternion)  # Nx3
     """
-    batch_size = points.shape[0]
-    K = torch.zeros([batch_size, 3, 3], device=points.device)
-    K[:, (0), (0)] = focal_length
-    K[:, (1), (1)] = focal_length
-    K[:, (2), (2)] = 1.0
-    K[:, :-1, (-1)] = camera_center
-    points = torch.einsum('bij,bkj->bki', rotation, points)
-    points = points + translation.unsqueeze(1)
-    projected_points = points / points[:, :, (-1)].unsqueeze(-1)
-    projected_points = torch.einsum('bij,bkj->bki', K, projected_points)
-    return projected_points[:, :, :-1]
-
-
-def projection(pred_joints, pred_camera):
-    pred_cam_t = torch.stack([pred_camera[:, (1)], pred_camera[:, (2)], 2 *
-        5000.0 / (224.0 * pred_camera[:, (0)] + 1e-09)], dim=-1)
-    batch_size = pred_joints.shape[0]
-    camera_center = torch.zeros(batch_size, 2)
-    pred_keypoints_2d = perspective_projection(pred_joints, rotation=torch.
-        eye(3).unsqueeze(0).expand(batch_size, -1, -1).to(pred_joints.
-        device), translation=pred_cam_t, focal_length=5000.0, camera_center
-        =camera_center)
-    pred_keypoints_2d = pred_keypoints_2d / (224.0 / 2.0)
-    return pred_keypoints_2d
-
-
-VIBE_DATA_DIR = 'data/vibe_data'
-
-
-SMPL_MODEL_DIR = VIBE_DATA_DIR
+    if not torch.is_tensor(quaternion):
+        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
+            type(quaternion)))
+    if not quaternion.shape[-1] == 4:
+        raise ValueError('Input must be a tensor of shape Nx4 or 4. Got {}'
+            .format(quaternion.shape))
+    q1: torch.Tensor = quaternion[..., 1]
+    q2: torch.Tensor = quaternion[..., 2]
+    q3: torch.Tensor = quaternion[..., 3]
+    sin_squared_theta: torch.Tensor = q1 * q1 + q2 * q2 + q3 * q3
+    sin_theta: torch.Tensor = torch.sqrt(sin_squared_theta)
+    cos_theta: torch.Tensor = quaternion[..., 0]
+    two_theta: torch.Tensor = 2.0 * torch.where(cos_theta < 0.0, torch.
+        atan2(-sin_theta, -cos_theta), torch.atan2(sin_theta, cos_theta))
+    k_pos: torch.Tensor = two_theta / sin_theta
+    k_neg: torch.Tensor = 2.0 * torch.ones_like(sin_theta)
+    k: torch.Tensor = torch.where(sin_squared_theta > 0.0, k_pos, k_neg)
+    angle_axis: torch.Tensor = torch.zeros_like(quaternion)[(...), :3]
+    angle_axis[..., 0] += q1 * k
+    angle_axis[..., 1] += q2 * k
+    angle_axis[..., 2] += q3 * k
+    return angle_axis
 
 
 def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
@@ -688,52 +691,6 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
     return q
 
 
-def quaternion_to_angle_axis(quaternion: torch.Tensor) ->torch.Tensor:
-    """
-    This function is borrowed from https://github.com/kornia/kornia
-
-    Convert quaternion vector to angle axis of rotation.
-
-    Adapted from ceres C++ library: ceres-solver/include/ceres/rotation.h
-
-    Args:
-        quaternion (torch.Tensor): tensor with quaternions.
-
-    Return:
-        torch.Tensor: tensor with angle axis of rotation.
-
-    Shape:
-        - Input: :math:`(*, 4)` where `*` means, any number of dimensions
-        - Output: :math:`(*, 3)`
-
-    Example:
-        >>> quaternion = torch.rand(2, 4)  # Nx4
-        >>> angle_axis = tgm.quaternion_to_angle_axis(quaternion)  # Nx3
-    """
-    if not torch.is_tensor(quaternion):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(quaternion)))
-    if not quaternion.shape[-1] == 4:
-        raise ValueError('Input must be a tensor of shape Nx4 or 4. Got {}'
-            .format(quaternion.shape))
-    q1: torch.Tensor = quaternion[..., 1]
-    q2: torch.Tensor = quaternion[..., 2]
-    q3: torch.Tensor = quaternion[..., 3]
-    sin_squared_theta: torch.Tensor = q1 * q1 + q2 * q2 + q3 * q3
-    sin_theta: torch.Tensor = torch.sqrt(sin_squared_theta)
-    cos_theta: torch.Tensor = quaternion[..., 0]
-    two_theta: torch.Tensor = 2.0 * torch.where(cos_theta < 0.0, torch.
-        atan2(-sin_theta, -cos_theta), torch.atan2(sin_theta, cos_theta))
-    k_pos: torch.Tensor = two_theta / sin_theta
-    k_neg: torch.Tensor = 2.0 * torch.ones_like(sin_theta)
-    k: torch.Tensor = torch.where(sin_squared_theta > 0.0, k_pos, k_neg)
-    angle_axis: torch.Tensor = torch.zeros_like(quaternion)[(...), :3]
-    angle_axis[..., 0] += q1 * k
-    angle_axis[..., 1] += q2 * k
-    angle_axis[..., 2] += q3 * k
-    return angle_axis
-
-
 def rotation_matrix_to_angle_axis(rotation_matrix):
     """
     This function is borrowed from https://github.com/kornia/kornia
@@ -766,42 +723,7 @@ def rotation_matrix_to_angle_axis(rotation_matrix):
     return aa
 
 
-def rot6d_to_rotmat(x):
-    x = x.view(-1, 3, 2)
-    b1 = F.normalize(x[:, :, (0)], dim=1, eps=1e-06)
-    dot_prod = torch.sum(b1 * x[:, :, (1)], dim=1, keepdim=True)
-    b2 = F.normalize(x[:, :, (1)] - dot_prod * b1, dim=-1, eps=1e-06)
-    b3 = torch.cross(b1, b2, dim=1)
-    rot_mats = torch.stack([b1, b2, b3], dim=-1)
-    return rot_mats
-
-
-JOINT_MAP = {'OP Nose': 24, 'OP Neck': 12, 'OP RShoulder': 17, 'OP RElbow':
-    19, 'OP RWrist': 21, 'OP LShoulder': 16, 'OP LElbow': 18, 'OP LWrist': 
-    20, 'OP MidHip': 0, 'OP RHip': 2, 'OP RKnee': 5, 'OP RAnkle': 8,
-    'OP LHip': 1, 'OP LKnee': 4, 'OP LAnkle': 7, 'OP REye': 25, 'OP LEye': 
-    26, 'OP REar': 27, 'OP LEar': 28, 'OP LBigToe': 29, 'OP LSmallToe': 30,
-    'OP LHeel': 31, 'OP RBigToe': 32, 'OP RSmallToe': 33, 'OP RHeel': 34,
-    'Right Ankle': 8, 'Right Knee': 5, 'Right Hip': 45, 'Left Hip': 46,
-    'Left Knee': 4, 'Left Ankle': 7, 'Right Wrist': 21, 'Right Elbow': 19,
-    'Right Shoulder': 17, 'Left Shoulder': 16, 'Left Elbow': 18,
-    'Left Wrist': 20, 'Neck (LSP)': 47, 'Top of Head (LSP)': 48,
-    'Pelvis (MPII)': 49, 'Thorax (MPII)': 50, 'Spine (H36M)': 51,
-    'Jaw (H36M)': 52, 'Head (H36M)': 53, 'Nose': 24, 'Left Eye': 26,
-    'Right Eye': 25, 'Left Ear': 28, 'Right Ear': 27}
-
-
-JOINT_NAMES = ['OP Nose', 'OP Neck', 'OP RShoulder', 'OP RElbow',
-    'OP RWrist', 'OP LShoulder', 'OP LElbow', 'OP LWrist', 'OP MidHip',
-    'OP RHip', 'OP RKnee', 'OP RAnkle', 'OP LHip', 'OP LKnee', 'OP LAnkle',
-    'OP REye', 'OP LEye', 'OP REar', 'OP LEar', 'OP LBigToe',
-    'OP LSmallToe', 'OP LHeel', 'OP RBigToe', 'OP RSmallToe', 'OP RHeel',
-    'Right Ankle', 'Right Knee', 'Right Hip', 'Left Hip', 'Left Knee',
-    'Left Ankle', 'Right Wrist', 'Right Elbow', 'Right Shoulder',
-    'Left Shoulder', 'Left Elbow', 'Left Wrist', 'Neck (LSP)',
-    'Top of Head (LSP)', 'Pelvis (MPII)', 'Thorax (MPII)', 'Spine (H36M)',
-    'Jaw (H36M)', 'Head (H36M)', 'Nose', 'Left Eye', 'Right Eye',
-    'Left Ear', 'Right Ear']
+VIBE_DATA_DIR = 'data/vibe_data'
 
 
 class TemporalEncoder(nn.Module):
@@ -980,16 +902,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mkocabas_VIBE(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SelfAttention(*[], **{'attention_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(MotionDiscriminator(*[], **{'rnn_size': 4, 'input_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_001(self):
         self._check(L2Prior(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(MotionDiscriminator(*[], **{'rnn_size': 4, 'input_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(SelfAttention(*[], **{'attention_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

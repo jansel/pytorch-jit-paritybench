@@ -258,12 +258,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_deepsound_project_pggan_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(PGConv2d(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(GFirstBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DLastBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -271,12 +272,11 @@ class Test_deepsound_project_pggan_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(DBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GFirstBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DLastBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MinibatchStddev(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(MinibatchStddev(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PGConv2d(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

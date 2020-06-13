@@ -582,51 +582,51 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_bigmb_Unet_Segmentation_Pytorch_Nest_of_Unets(_paritybench_base):
     pass
     def test_000(self):
-        self._check(conv_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
-        self._check(up_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(Recurrent_block(*[], **{'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(RRCNN_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
         self._check(Attention_block(*[], **{'F_g': 4, 'F_l': 4, 'F_int': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(ContractiveBlock(*[], **{'in_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(ConvolutionBlock(*[], **{'in_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ExpansiveBlock(*[], **{'in_filters1': 4, 'in_filters2': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+
+    def test_005(self):
+        self._check(NestedUNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(R2AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
     def test_007(self):
-        self._check(AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(R2AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(RRCNN_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(conv_block_nested(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Recurrent_block(*[], **{'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(NestedUNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_011(self):
-        self._check(ConvolutionBlock(*[], **{'in_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Unet_dict(*[], **{'n_labels': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_012(self):
-        self._check(ContractiveBlock(*[], **{'in_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(conv_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(ExpansiveBlock(*[], **{'in_filters1': 4, 'in_filters2': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+        self._check(conv_block_nested(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(Unet_dict(*[], **{'n_labels': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(up_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -158,6 +158,14 @@ class GaussCRF(nn.Module):
             return torch.stack(bs * [Variable(self.mesh) * sdims])
 
 
+def exp_and_normalize(features, dim=0):
+    """
+    Aka "softmax" in deep learning literature
+    """
+    normalized = torch.nn.functional.softmax(features, dim=dim)
+    return normalized
+
+
 def show_memusage(device=0, name=''):
     import gpustat
     gc.collect()
@@ -339,14 +347,6 @@ class MessagePassingCol:
         if norm is not None:
             message = norm * message
         return message
-
-
-def exp_and_normalize(features, dim=0):
-    """
-    Aka "softmax" in deep learning literature
-    """
-    normalized = torch.nn.functional.softmax(features, dim=dim)
-    return normalized
 
 
 class ConvCRF(nn.Module):

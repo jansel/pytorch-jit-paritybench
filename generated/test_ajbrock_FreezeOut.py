@@ -416,13 +416,13 @@ class Test_ajbrock_FreezeOut(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Layer(*[], **{'n_in': 4, 'n_out': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Layer(*[], **{'n_in': 4, 'n_out': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4, 'layer_index': 1}), [torch.rand([4, 4, 4, 4])], {})
 

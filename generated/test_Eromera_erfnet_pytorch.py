@@ -687,13 +687,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Eromera_erfnet_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
 
     def test_001(self):
-        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 

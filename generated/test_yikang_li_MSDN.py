@@ -371,6 +371,19 @@ def bbox_transform_inv_hdn(boxes, deltas):
     return pred_boxes
 
 
+def clip_boxes(boxes, im_shape):
+    """
+    Clip boxes to image boundaries.
+    """
+    if boxes.shape[0] == 0:
+        return boxes
+    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
+    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
+    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
+    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
+    return boxes
+
+
 def im_list_to_blob(ims):
     """Convert a list of images into a network input.
 
@@ -384,19 +397,6 @@ def im_list_to_blob(ims):
         im = ims[i]
         blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
     return blob
-
-
-def clip_boxes(boxes, im_shape):
-    """
-    Clip boxes to image boundaries.
-    """
-    if boxes.shape[0] == 0:
-        return boxes
-    boxes[:, 0::4] = np.maximum(np.minimum(boxes[:, 0::4], im_shape[1] - 1), 0)
-    boxes[:, 1::4] = np.maximum(np.minimum(boxes[:, 1::4], im_shape[0] - 1), 0)
-    boxes[:, 2::4] = np.maximum(np.minimum(boxes[:, 2::4], im_shape[1] - 1), 0)
-    boxes[:, 3::4] = np.maximum(np.minimum(boxes[:, 3::4], im_shape[0] - 1), 0)
-    return boxes
 
 
 DEBUG = False
@@ -942,17 +942,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yikang_li_MSDN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Message_Passing_Unit_v2(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Message_Passing_Unit_v1(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Gated_Recurrent_Unit(*[], **{'fea_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Message_Passing_Unit_v1(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Message_Passing_Unit_v2(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

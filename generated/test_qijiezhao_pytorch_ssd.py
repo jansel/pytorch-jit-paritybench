@@ -84,6 +84,17 @@ class L2Norm(nn.Module):
         return out
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -204,17 +215,6 @@ v = {'512': {'feature_maps': [64, 32, 16, 8, 4, 2, 1], 'min_dim': 512,
     'name': 'v2_300'}}
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
 class MultiBoxLoss(nn.Module):
     """SSD Weighted Loss Function
     Compute Targets:
@@ -309,6 +309,52 @@ class MultiBoxLoss(nn.Module):
         loss_l /= N
         loss_c /= N
         return loss_l, loss_c
+
+
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    Note:
+    This 'layer' has changed between versions of the original SSD
+    paper, so we include both versions, but note v is the most tested and most
+    recent version of the paper.
+
+    """
+
+    def __init__(self, cfg):
+        super(PriorBox, self).__init__()
+        self.image_size = cfg['min_dim']
+        self.num_priors = len(cfg['aspect_ratios'])
+        self.variance = cfg['variance'] or [0.1]
+        self.feature_maps = cfg['feature_maps']
+        self.min_sizes = cfg['min_sizes']
+        self.max_sizes = cfg['max_sizes']
+        self.steps = cfg['steps']
+        self.aspect_ratios = cfg['aspect_ratios']
+        self.clip = cfg['clip']
+        self.version = cfg['name']
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+
+    def forward(self):
+        mean = []
+        for k, f in enumerate(self.feature_maps):
+            for i, j in product(range(f), repeat=2):
+                f_k = self.image_size / self.steps[k]
+                cx = (j + 0.5) / f_k
+                cy = (i + 0.5) / f_k
+                s_k = self.min_sizes[k] / self.image_size
+                mean += [cx, cy, s_k, s_k]
+                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
+                mean += [cx, cy, s_k_prime, s_k_prime]
+                for ar in self.aspect_ratios[k]:
+                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
+                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -445,52 +491,6 @@ class Detect(Function):
         _, rank = idx.sort(0)
         flt[(rank >= self.top_k).unsqueeze(1).expand_as(flt)].fill_(0)
         return self.output
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    Note:
-    This 'layer' has changed between versions of the original SSD
-    paper, so we include both versions, but note v is the most tested and most
-    recent version of the paper.
-
-    """
-
-    def __init__(self, cfg):
-        super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-
-    def forward(self):
-        mean = []
-        for k, f in enumerate(self.feature_maps):
-            for i, j in product(range(f), repeat=2):
-                f_k = self.image_size / self.steps[k]
-                cx = (j + 0.5) / f_k
-                cy = (i + 0.5) / f_k
-                s_k = self.min_sizes[k] / self.image_size
-                mean += [cx, cy, s_k, s_k]
-                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
-                mean += [cx, cy, s_k_prime, s_k_prime]
-                for ar in self.aspect_ratios[k]:
-                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
-                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
 
 
 class SSD(nn.Module):

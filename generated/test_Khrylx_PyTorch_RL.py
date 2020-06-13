@@ -220,7 +220,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Khrylx_PyTorch_RL(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Value(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiscretePolicy(*[], **{'state_dim': 4, 'action_num': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Discriminator(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -229,5 +229,5 @@ class Test_Khrylx_PyTorch_RL(_paritybench_base):
         self._check(Policy(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(DiscretePolicy(*[], **{'state_dim': 4, 'action_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Value(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

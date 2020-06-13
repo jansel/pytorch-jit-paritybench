@@ -247,9 +247,9 @@ class Test_gdlg_pytorch_compact_bilinear_pooling(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

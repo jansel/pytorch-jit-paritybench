@@ -1967,23 +1967,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Megvii_CSG_MegReader(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(CRNN(*[], **{'imgH': 16, 'nc': 4, 'nclass': 4, 'nh': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(FPNTopDown(*[], **{'pyramid_channels': [4, 4], 'feature_channel': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(BalanceL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PPMDeepsup(*[], **{}), [torch.rand([4, 4, 2048, 64, 64])], {})
+        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(CRNN(*[], **{'imgH': 16, 'nc': 4, 'nclass': 4, 'nh': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_004(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(FPNTopDown(*[], **{'pyramid_channels': [4, 4], 'feature_channel': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_005(self):
@@ -1995,5 +1995,5 @@ class Test_Megvii_CSG_MegReader(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(BalanceL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PPMDeepsup(*[], **{}), [torch.rand([4, 4, 2048, 64, 64])], {})
 

@@ -616,111 +616,212 @@ class ConfigurationError(Exception):
         return self.message
 
 
-def takes_kwargs(obj) ->bool:
+def unflatten(flat_dict: Dict[str, Any]) ->Dict[str, Any]:
     """
-    Checks whether a provided object takes in any positional arguments.
-    Similar to takes_arg, we do this for both the __init__ function of
-    the class or a function / method
-    Otherwise, we raise an error
+    Given a "flattened" dict with compound keys, e.g.
+        {"a.b": 0}
+    unflatten it:
+        {"a": {"b": 0}}
     """
-    if inspect.isclass(obj):
-        signature = inspect.signature(obj.__init__)
-    elif inspect.ismethod(obj) or inspect.isfunction(obj):
-        signature = inspect.signature(obj)
+    unflat: Dict[str, Any] = {}
+    for compound_key, value in flat_dict.items():
+        curr_dict = unflat
+        parts = compound_key.split('.')
+        for key in parts[:-1]:
+            curr_value = curr_dict.get(key)
+            if key not in curr_dict:
+                curr_dict[key] = {}
+                curr_dict = curr_dict[key]
+            elif isinstance(curr_value, dict):
+                curr_dict = curr_value
+            else:
+                raise ConfigurationError('flattened dictionary is invalid')
+        if not isinstance(curr_dict, dict) or parts[-1] in curr_dict:
+            raise ConfigurationError('flattened dictionary is invalid')
+        curr_dict[parts[-1]] = value
+    return unflat
+
+
+def _is_encodable(value: str) ->bool:
+    """
+    We need to filter out environment variables that can't
+    be unicode-encoded to avoid a "surrogates not allowed"
+    error in jsonnet.
+    """
+    return value == '' or value.encode('utf-8', 'ignore') != b''
+
+
+def _environment_variables() ->Dict[str, str]:
+    """
+    Wraps `os.environ` to filter out non-encodable values.
+    """
+    return {key: value for key, value in os.environ.items() if
+        _is_encodable(value)}
+
+
+def parse_overrides(serialized_overrides: str) ->Dict[str, Any]:
+    if serialized_overrides:
+        ext_vars = _environment_variables()
+        return unflatten(json.loads(evaluate_snippet('',
+            serialized_overrides, ext_vars=ext_vars)))
     else:
-        raise ConfigurationError(f'object {obj} is not callable')
-    return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.
-        parameters.values())
+        return {}
 
 
-def takes_arg(obj, arg: str) ->bool:
+def infer_and_cast(value: Any):
     """
-    Checks whether the provided obj takes a certain arg.
-    If it's a class, we're really checking whether its constructor does.
-    If it's a function or method, we're checking the object itself.
-    Otherwise, we raise an error.
+    In some cases we'll be feeding params dicts to functions we don't own;
+    for example, PyTorch optimizers. In that case we can't use `pop_int`
+    or similar to force casts (which means you can't specify `int` parameters
+    using environment variables). This function takes something that looks JSON-like
+    and recursively casts things that look like (bool, int, float) to (bool, int, float).
     """
-    if inspect.isclass(obj):
-        signature = inspect.signature(obj.__init__)
-    elif inspect.ismethod(obj) or inspect.isfunction(obj):
-        signature = inspect.signature(obj)
-    else:
-        raise ConfigurationError(f'object {obj} is not callable')
-    return arg in signature.parameters
-
-
-def info_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
-    """
-    if dtype == torch.bool:
-        raise TypeError('Does not support torch.bool')
-    elif dtype.is_floating_point:
-        return torch.finfo(dtype)
-    else:
-        return torch.iinfo(dtype)
-
-
-def min_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
-    """
-    return info_value_of_dtype(dtype).min
-
-
-def tiny_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns a moderately tiny value for a given PyTorch data type that is used to avoid numerical
-    issues such as division by zero.
-    This is different from `info_value_of_dtype(dtype).tiny` because it causes some NaN bugs.
-    Only supports floating point dtypes.
-    """
-    if not dtype.is_floating_point:
-        raise TypeError('Only supports floating point dtypes.')
-    if dtype == torch.float or dtype == torch.double:
-        return 1e-13
-    elif dtype == torch.half:
-        return 0.0001
-    else:
-        raise TypeError('Does not support dtype ' + str(dtype))
-
-
-def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
-    1, memory_efficient: bool=False) ->torch.Tensor:
-    """
-    `torch.nn.functional.softmax(vector)` does not work if some elements of `vector` should be
-    masked.  This performs a softmax on just the non-masked portions of `vector`.  Passing
-    `None` in for the mask is also acceptable; you'll just get a regular softmax.
-
-    `vector` can have an arbitrary number of dimensions; the only requirement is that `mask` is
-    broadcastable to `vector's` shape.  If `mask` has fewer dimensions than `vector`, we will
-    unsqueeze on dimension 1 until they match.  If you need a different unsqueezing of your mask,
-    do it yourself before passing the mask into this function.
-
-    If `memory_efficient` is set to true, we will simply use a very large negative number for those
-    masked positions so that the probabilities of those positions would be approximately 0.
-    This is not accurate in math, but works for most cases and consumes less memory.
-
-    In the case that the input vector is completely masked and `memory_efficient` is false, this function
-    returns an array of `0.0`. This behavior may cause `NaN` if this is used as the last layer of
-    a model that uses categorical cross-entropy loss. Instead, if `memory_efficient` is true, this function
-    will treat every element as equal, and do softmax over equal numbers.
-    """
-    if mask is None:
-        result = torch.nn.functional.softmax(vector, dim=dim)
-    else:
-        while mask.dim() < vector.dim():
-            mask = mask.unsqueeze(1)
-        if not memory_efficient:
-            result = torch.nn.functional.softmax(vector * mask, dim=dim)
-            result = result * mask
-            result = result / (result.sum(dim=dim, keepdim=True) +
-                tiny_value_of_dtype(result.dtype))
+    if isinstance(value, (int, float, bool)):
+        return value
+    elif isinstance(value, list):
+        return [infer_and_cast(item) for item in value]
+    elif isinstance(value, dict):
+        return {key: infer_and_cast(item) for key, item in value.items()}
+    elif isinstance(value, str):
+        if value.lower() == 'true':
+            return True
+        elif value.lower() == 'false':
+            return False
         else:
-            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(
-                vector.dtype))
-            result = torch.nn.functional.softmax(masked_vector, dim=dim)
-    return result
+            try:
+                return int(value)
+            except ValueError:
+                pass
+            try:
+                return float(value)
+            except ValueError:
+                return value
+    else:
+        raise ValueError(f'cannot infer type of {value}')
+
+
+def _replace_none(params: Any) ->Any:
+    if params == 'None':
+        return None
+    elif isinstance(params, dict):
+        for key, value in params.items():
+            params[key] = _replace_none(value)
+        return params
+    elif isinstance(params, list):
+        return [_replace_none(value) for value in params]
+    return params
+
+
+def with_fallback(preferred: Dict[str, Any], fallback: Dict[str, Any]) ->Dict[
+    str, Any]:
+    """
+    Deep merge two dicts, preferring values from `preferred`.
+    """
+
+    def merge(preferred_value: Any, fallback_value: Any) ->Any:
+        if isinstance(preferred_value, dict) and isinstance(fallback_value,
+            dict):
+            return with_fallback(preferred_value, fallback_value)
+        elif isinstance(preferred_value, dict) and isinstance(fallback_value,
+            list):
+            merged_list = fallback_value
+            for elem_key, preferred_element in preferred_value.items():
+                try:
+                    index = int(elem_key)
+                    merged_list[index] = merge(preferred_element,
+                        fallback_value[index])
+                except ValueError:
+                    raise ConfigurationError(
+                        f'could not merge dicts - the preferred dict contains invalid keys (key {elem_key} is not a valid list index)'
+                        )
+                except IndexError:
+                    raise ConfigurationError(
+                        f'could not merge dicts - the preferred dict contains invalid keys (key {index} is out of bounds)'
+                        )
+            return merged_list
+        else:
+            return copy.deepcopy(preferred_value)
+    preferred_keys = set(preferred.keys())
+    fallback_keys = set(fallback.keys())
+    common_keys = preferred_keys & fallback_keys
+    merged: Dict[str, Any] = {}
+    for key in (preferred_keys - fallback_keys):
+        merged[key] = copy.deepcopy(preferred[key])
+    for key in (fallback_keys - preferred_keys):
+        merged[key] = copy.deepcopy(fallback[key])
+    for key in common_keys:
+        preferred_value = preferred[key]
+        fallback_value = fallback[key]
+        merged[key] = merge(preferred_value, fallback_value)
+    return merged
+
+
+def _is_dict_free(obj: Any) ->bool:
+    """
+    Returns False if obj is a dict, or if it's a list with an element that _has_dict.
+    """
+    if isinstance(obj, dict):
+        return False
+    elif isinstance(obj, list):
+        return all(_is_dict_free(item) for item in obj)
+    else:
+        return True
+
+
+def _s3_request(func: Callable):
+    """
+    Wrapper function for s3 requests in order to create more helpful error
+    messages.
+    """
+
+    @wraps(func)
+    def wrapper(url: str, *args, **kwargs):
+        try:
+            return func(url, *args, **kwargs)
+        except ClientError as exc:
+            if int(exc.response['Error']['Code']) == 404:
+                raise FileNotFoundError('file {} not found'.format(url))
+            else:
+                raise
+    return wrapper
+
+
+def _split_s3_path(url: str) ->Tuple[str, str]:
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
+
+
+def _get_s3_resource():
+    session = boto3.session.Session()
+    if session.get_credentials() is None:
+        s3_resource = session.resource('s3', config=botocore.client.Config(
+            signature_version=botocore.UNSIGNED))
+    else:
+        s3_resource = session.resource('s3')
+    return s3_resource
+
+
+def is_base_registrable(cls) ->bool:
+    """
+    Checks whether this is a class that directly inherits from Registrable, or is a subclass of such
+    a class.
+    """
+    from allennlp.common.registrable import Registrable
+    if not issubclass(cls, Registrable):
+        return False
+    method_resolution_order = inspect.getmro(cls)[1:]
+    for base_class in method_resolution_order:
+        if issubclass(base_class, Registrable
+            ) and base_class is not Registrable:
+            return False
+    return True
 
 
 def block_orthogonal(tensor: torch.Tensor, split_sizes: List[int], gain:
@@ -1202,66 +1303,25 @@ class BiAugmentedLstm(torch.nn.Module):
         return output_sequence, final_state_tuple
 
 
-def multi_perspective_match_pairwise(vector1: torch.Tensor, vector2: torch.
-    Tensor, weight: torch.Tensor) ->torch.Tensor:
+def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor
+    ) ->torch.LongTensor:
     """
-    Calculate multi-perspective cosine matching between each time step of
-    one vector and each time step of another vector.
+    Compute sequence lengths for each batch element in a tensor using a
+    binary mask.
 
     # Parameters
 
-    vector1 : `torch.Tensor`
-        A tensor of shape `(batch, seq_len1, hidden_size)`
-    vector2 : `torch.Tensor`
-        A tensor of shape `(batch, seq_len2, hidden_size)`
-    weight : `torch.Tensor`
-        A tensor of shape `(num_perspectives, hidden_size)`
+    mask : `torch.BoolTensor`, required.
+        A 2D binary mask of shape (batch_size, sequence_length) to
+        calculate the per-batch sequence lengths from.
 
     # Returns
 
-    `torch.Tensor` :
-        A tensor of shape `(batch, seq_len1, seq_len2, num_perspectives)` consisting
-        multi-perspective matching results
+    `torch.LongTensor`
+        A torch.LongTensor of shape (batch_size,) representing the lengths
+        of the sequences in the batch.
     """
-    num_perspectives = weight.size(0)
-    weight = weight.unsqueeze(0).unsqueeze(2)
-    vector1 = weight * vector1.unsqueeze(1).expand(-1, num_perspectives, -1, -1
-        )
-    vector2 = weight * vector2.unsqueeze(1).expand(-1, num_perspectives, -1, -1
-        )
-    vector1_norm = vector1.norm(p=2, dim=3, keepdim=True)
-    vector2_norm = vector2.norm(p=2, dim=3, keepdim=True)
-    mul_result = torch.matmul(vector1, vector2.transpose(2, 3))
-    norm_value = vector1_norm * vector2_norm.transpose(2, 3)
-    return (mul_result / norm_value.clamp(min=tiny_value_of_dtype(
-        norm_value.dtype))).permute(0, 2, 3, 1)
-
-
-def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
-    keepdim: bool=False) ->torch.Tensor:
-    """
-    To calculate max along certain dimensions on masked values
-
-    # Parameters
-
-    vector : `torch.Tensor`
-        The vector to calculate max, assume unmasked parts are already zeros
-    mask : `torch.BoolTensor`
-        The mask of the vector. It must be broadcastable with vector.
-    dim : `int`
-        The dimension to calculate max
-    keepdim : `bool`
-        Whether to keep dimension
-
-    # Returns
-
-    `torch.Tensor`
-        A `torch.Tensor` of including the maximum values.
-    """
-    replaced_vector = vector.masked_fill(~mask, min_value_of_dtype(vector.
-        dtype))
-    max_value, _ = replaced_vector.max(dim=dim, keepdim=keepdim)
-    return max_value
+    return mask.sum(-1)
 
 
 def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor,
@@ -1296,6 +1356,69 @@ def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor,
     return similarity_single, similarity_multi
 
 
+def info_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
+    """
+    if dtype == torch.bool:
+        raise TypeError('Does not support torch.bool')
+    elif dtype.is_floating_point:
+        return torch.finfo(dtype)
+    else:
+        return torch.iinfo(dtype)
+
+
+def min_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
+    """
+    return info_value_of_dtype(dtype).min
+
+
+def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
+    keepdim: bool=False) ->torch.Tensor:
+    """
+    To calculate max along certain dimensions on masked values
+
+    # Parameters
+
+    vector : `torch.Tensor`
+        The vector to calculate max, assume unmasked parts are already zeros
+    mask : `torch.BoolTensor`
+        The mask of the vector. It must be broadcastable with vector.
+    dim : `int`
+        The dimension to calculate max
+    keepdim : `bool`
+        Whether to keep dimension
+
+    # Returns
+
+    `torch.Tensor`
+        A `torch.Tensor` of including the maximum values.
+    """
+    replaced_vector = vector.masked_fill(~mask, min_value_of_dtype(vector.
+        dtype))
+    max_value, _ = replaced_vector.max(dim=dim, keepdim=keepdim)
+    return max_value
+
+
+def tiny_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns a moderately tiny value for a given PyTorch data type that is used to avoid numerical
+    issues such as division by zero.
+    This is different from `info_value_of_dtype(dtype).tiny` because it causes some NaN bugs.
+    Only supports floating point dtypes.
+    """
+    if not dtype.is_floating_point:
+        raise TypeError('Only supports floating point dtypes.')
+    if dtype == torch.float or dtype == torch.double:
+        return 1e-13
+    elif dtype == torch.half:
+        return 0.0001
+    else:
+        raise TypeError('Does not support dtype ' + str(dtype))
+
+
 def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
     keepdim: bool=False) ->torch.Tensor:
     """
@@ -1324,25 +1447,77 @@ def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
         torch.float))
 
 
-def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor
-    ) ->torch.LongTensor:
+def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
+    1, memory_efficient: bool=False) ->torch.Tensor:
     """
-    Compute sequence lengths for each batch element in a tensor using a
-    binary mask.
+    `torch.nn.functional.softmax(vector)` does not work if some elements of `vector` should be
+    masked.  This performs a softmax on just the non-masked portions of `vector`.  Passing
+    `None` in for the mask is also acceptable; you'll just get a regular softmax.
+
+    `vector` can have an arbitrary number of dimensions; the only requirement is that `mask` is
+    broadcastable to `vector's` shape.  If `mask` has fewer dimensions than `vector`, we will
+    unsqueeze on dimension 1 until they match.  If you need a different unsqueezing of your mask,
+    do it yourself before passing the mask into this function.
+
+    If `memory_efficient` is set to true, we will simply use a very large negative number for those
+    masked positions so that the probabilities of those positions would be approximately 0.
+    This is not accurate in math, but works for most cases and consumes less memory.
+
+    In the case that the input vector is completely masked and `memory_efficient` is false, this function
+    returns an array of `0.0`. This behavior may cause `NaN` if this is used as the last layer of
+    a model that uses categorical cross-entropy loss. Instead, if `memory_efficient` is true, this function
+    will treat every element as equal, and do softmax over equal numbers.
+    """
+    if mask is None:
+        result = torch.nn.functional.softmax(vector, dim=dim)
+    else:
+        while mask.dim() < vector.dim():
+            mask = mask.unsqueeze(1)
+        if not memory_efficient:
+            result = torch.nn.functional.softmax(vector * mask, dim=dim)
+            result = result * mask
+            result = result / (result.sum(dim=dim, keepdim=True) +
+                tiny_value_of_dtype(result.dtype))
+        else:
+            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(
+                vector.dtype))
+            result = torch.nn.functional.softmax(masked_vector, dim=dim)
+    return result
+
+
+def multi_perspective_match_pairwise(vector1: torch.Tensor, vector2: torch.
+    Tensor, weight: torch.Tensor) ->torch.Tensor:
+    """
+    Calculate multi-perspective cosine matching between each time step of
+    one vector and each time step of another vector.
 
     # Parameters
 
-    mask : `torch.BoolTensor`, required.
-        A 2D binary mask of shape (batch_size, sequence_length) to
-        calculate the per-batch sequence lengths from.
+    vector1 : `torch.Tensor`
+        A tensor of shape `(batch, seq_len1, hidden_size)`
+    vector2 : `torch.Tensor`
+        A tensor of shape `(batch, seq_len2, hidden_size)`
+    weight : `torch.Tensor`
+        A tensor of shape `(num_perspectives, hidden_size)`
 
     # Returns
 
-    `torch.LongTensor`
-        A torch.LongTensor of shape (batch_size,) representing the lengths
-        of the sequences in the batch.
+    `torch.Tensor` :
+        A tensor of shape `(batch, seq_len1, seq_len2, num_perspectives)` consisting
+        multi-perspective matching results
     """
-    return mask.sum(-1)
+    num_perspectives = weight.size(0)
+    weight = weight.unsqueeze(0).unsqueeze(2)
+    vector1 = weight * vector1.unsqueeze(1).expand(-1, num_perspectives, -1, -1
+        )
+    vector2 = weight * vector2.unsqueeze(1).expand(-1, num_perspectives, -1, -1
+        )
+    vector1_norm = vector1.norm(p=2, dim=3, keepdim=True)
+    vector2_norm = vector2.norm(p=2, dim=3, keepdim=True)
+    mul_result = torch.matmul(vector1, vector2.transpose(2, 3))
+    norm_value = vector1_norm * vector2_norm.transpose(2, 3)
+    return (mul_result / norm_value.clamp(min=tiny_value_of_dtype(
+        norm_value.dtype))).permute(0, 2, 3, 1)
 
 
 VITERBI_DECODING = Tuple[List[int], float]
@@ -1704,23 +1879,7 @@ def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
     return tensor_with_boundary_tokens, new_mask
 
 
-def url_to_filename(url: str, etag: str=None) ->str:
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+RnnStateStorage = Tuple[torch.Tensor, ...]
 
 
 def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
@@ -1763,7 +1922,7 @@ def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
         permutation_index)
 
 
-RnnStateStorage = Tuple[torch.Tensor, ...]
+RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
 
 
 class _EncoderBase(torch.nn.Module):

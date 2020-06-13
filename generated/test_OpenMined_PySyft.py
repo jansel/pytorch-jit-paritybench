@@ -666,6 +666,232 @@ class AvgPool2d(Module):
         return pred
 
 
+class Overloaded:
+
+    def __init__(self):
+        self.method = Overloaded.overload_method
+        self.function = Overloaded.overload_function
+        self.module = Overloaded.overload_module
+
+    @staticmethod
+    def overload_method(attr):
+        """
+        hook args and response for methods that hold the @overloaded.method decorator
+        """
+
+        def _hook_method_args(self, *args, **kwargs):
+            new_self, new_args, new_kwargs = hook_args.unwrap_args_from_method(
+                attr.__name__, self, args, kwargs)
+            response = attr(self, new_self, *new_args, **new_kwargs)
+            response = hook_args.hook_response(attr.__name__, response,
+                wrap_type=type(self), wrap_args=self.get_class_attributes())
+            return response
+        return _hook_method_args
+
+    @staticmethod
+    def overload_function(attr):
+        """
+        hook args and response for functions that hold the @overloaded.function decorator
+        """
+
+        def _hook_function_args(*args, **kwargs):
+            tensor = args[0] if not isinstance(args[0], (tuple, list)
+                ) else args[0][0]
+            cls = type(tensor)
+            new_args, new_kwargs, new_type = (hook_args.
+                unwrap_args_from_function(attr.__name__, args, kwargs))
+            response = attr(*new_args, **new_kwargs)
+            response = hook_args.hook_response(attr.__name__, response,
+                wrap_type=cls, wrap_args=tensor.get_class_attributes())
+            return response
+        return _hook_function_args
+
+    @staticmethod
+    def overload_module(attr):
+        module = Module()
+        attr(module)
+        return module
+
+
+overloaded = Overloaded()
+
+
+protocol_store = {}
+
+
+def crypto_protocol(protocol_name):
+    """
+    Decorator to define a specific operation behaviour depending on the crypto
+    protocol used
+
+    Args:
+        protocol_name: the name of the protocol. Currently supported:
+            - snn: SecureNN
+            - fss: Function Secret Sharing
+
+    Example in a tensor file:
+        ```
+        @crypto_protocol("snn")
+        def foo(...):
+            # SNN specific code
+
+        @crypto_protocol("fss")
+        def foo(...):
+            # FSS specific code
+        ```
+
+        See additive_sharing.py for more usage
+    """
+
+    def decorator(f):
+        name = f.__qualname__
+        protocol_store[name, protocol_name] = f
+
+        def method(self, *args, **kwargs):
+            f = protocol_store[name, self.protocol]
+            return f(self, *args, **kwargs)
+        return method
+    return decorator
+
+
+no_wrap = {'no_wrap': True}
+
+
+class memorize(dict):
+    """
+    This is a decorator to cache a function output when the function is
+    deterministic and the input space is small. In such condition, the
+    function will be called many times to perform the same computation
+    so we want this computation to be cached.
+    """
+
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args):
+        return self[args]
+
+    def __missing__(self, key):
+        result = self[key] = self.func(*key)
+        return result
+
+
+class SyftSerializable:
+    """
+        Interface for the communication protocols in syft.
+
+        syft-proto methods:
+            1. bufferize
+            2. unbufferize
+            3. get_protobuf_schema
+
+        msgpack methods:
+            1. simplify
+            2. detail
+
+        Note: the interface can be inherited from parent class, but each class
+        has to write it's own explicit methods, even if they are the ones from the parent class.
+    """
+
+    @staticmethod
+    def simplify(worker, obj):
+        """
+            Serialization method for msgpack.
+
+            Parameters:
+                worker: the worker on which the serialization is being made.
+                obj: the object to be serialized, an instantiated type of
+                the class that implements SyftSerializable.
+
+            Returns:
+                Serialized object using msgpack.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def detail(worker, obj):
+        """
+            Deserialization method for msgpack.
+
+            Parameters:
+                worker: the worker on which the serialization is being made.
+                obj: the object to be deserialized, a serialized object of
+                the class that implements SyftSerializable.
+
+            Returns:
+                Serialized object using msgpack.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def bufferize(worker, obj):
+        """
+            Serialization method for protobuf.
+
+            Parameters:
+                worker: the worker on which the bufferize is being made.
+                obj: the object to be bufferized using protobufers, an instantiated type
+                of the class that implements SyftSerializable.
+
+            Returns:
+                Protobuf class for the current type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_msgpack_code():
+        """
+            Method that provides a code for msgpack if the type is not present in proto.json.
+
+            The returned object should be similar to:
+            {
+                "code": int value,
+                "forced_code": int value
+            }
+
+            Both keys are optional, the common and right way would be to add only the "code" key.
+
+            Returns:
+                dict: A dict with the "code" or "forced_code" keys.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def unbufferize(worker, obj):
+        """
+            Deserialization method for protobuf.
+
+            Parameters:
+                worker: the worker on which the unbufferize is being made.
+                obj: the object to be unbufferized using protobufers, an instantiated type
+                of the class that implements SyftSerializable.
+
+            Returns:
+                Protobuf class for the current type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_protobuf_schema():
+        """
+            Returns the protobuf schema used for this type.
+
+            Returns:
+                Protobuf type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_original_class():
+        """
+            Returns the original type, only used in wrappers.
+
+            Returns:
+                Wrapped type.
+        """
+        return NotImplementedError
+
+
 class TopLevelTraceModel(torch.nn.Module):
 
     def __init__(self):
@@ -683,12 +909,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_OpenMined_PySyft(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64, 4]), torch.rand([4, 4, 1024, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(AvgPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64, 4]), torch.rand([4, 4, 1024, 4])], {})
 
     def test_002(self):
         self._check(TopLevelTraceModel(*[], **{}), [torch.rand([3, 3])], {})

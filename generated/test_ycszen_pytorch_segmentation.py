@@ -518,8 +518,8 @@ class Test_ycszen_pytorch_segmentation(_paritybench_base):
         self._check(DUC(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Refine(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Fusion(*[], **{'inplanes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Fusion(*[], **{'inplanes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Refine(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

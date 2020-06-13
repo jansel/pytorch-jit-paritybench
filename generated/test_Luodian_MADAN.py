@@ -355,6 +355,14 @@ class Bottleneck(nn.Module):
         return out
 
 
+model_urls = {'drn26':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn26-ddedf421.pth',
+    'drn42':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn42-9d336e8c.pth',
+    'drn58':
+    'https://tigress-web.princeton.edu/~fy/drn/models/drn58-0a53a92c.pth'}
+
+
 def safe_load_state_dict(net, state_dict):
     """Copies parameters and buffers from :attr:`state_dict` into
     this module and its descendants. Any params in :attr:`state_dict`
@@ -379,14 +387,6 @@ def safe_load_state_dict(net, state_dict):
         own_state[name].copy_(param)
     if skipped:
         logging.info('Skipped loading some parameters: {}'.format(skipped))
-
-
-model_urls = {'drn26':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn26-ddedf421.pth',
-    'drn42':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn42-9d336e8c.pth',
-    'drn58':
-    'https://tigress-web.princeton.edu/~fy/drn/models/drn58-0a53a92c.pth'}
 
 
 def get_upsample_filter(size):
@@ -835,11 +835,11 @@ class Test_Luodian_MADAN(_paritybench_base):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 4096, 64, 64])], {})
 
     def test_003(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_004(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

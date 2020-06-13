@@ -39,12 +39,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 
-def mulaw_decode(y, mu):
-    mu = mu - 1
-    x = np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
-    return x
-
-
 def get_gru_cell(gru):
     gru_cell = nn.GRUCell(gru.input_size, gru.hidden_size)
     gru_cell.weight_hh.data = gru.weight_hh_l0.data
@@ -52,6 +46,12 @@ def get_gru_cell(gru):
     gru_cell.bias_hh.data = gru.bias_hh_l0.data
     gru_cell.bias_ih.data = gru.bias_ih_l0.data
     return gru_cell
+
+
+def mulaw_decode(y, mu):
+    mu = mu - 1
+    x = np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
+    return x
 
 
 class Vocoder(nn.Module):

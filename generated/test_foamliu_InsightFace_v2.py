@@ -474,16 +474,68 @@ class ONet(nn.Module):
         return c, b, a
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
+cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
+    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
+    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
+    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
+    'pretrain': True, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
+    3}, 'in_channel': 32, 'out_channel': 64}
+
+
+GPU = cfg_mnet['gpu_train']
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
+def intersect(box_a, box_b):
+    """ We resize both tensors to [A,B,2] without new malloc:
+    [A,2] -> [A,1,2] -> [A,B,2]
+    [B,2] -> [1,B,2] -> [A,B,2]
+    Then we compute the area of intersect between box_a and box_b.
+    Args:
+      box_a: (tensor) bounding boxes, Shape: [A,4].
+      box_b: (tensor) bounding boxes, Shape: [B,4].
+    Return:
+      (tensor) intersection area, Shape: [A,B].
+    """
+    A = box_a.size(0)
+    B = box_b.size(0)
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
+        2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
+        :2].unsqueeze(0).expand(A, B, 2))
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    return inter[:, :, (0)] * inter[:, :, (1)]
+
+
+def jaccard(box_a, box_b):
+    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
+    is simply the intersection over union of two boxes.  Here we operate on
+    ground truth boxes and default boxes.
+    E.g.:
+        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
+    Return:
+        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
+    """
+    inter = intersect(box_a, box_b)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+        ).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
+        ).unsqueeze(0).expand_as(inter)
+    union = area_a + area_b - inter
+    return inter / union
 
 
 def encode_landm(matched, priors, variances):
@@ -533,46 +585,16 @@ def encode(matched, priors, variances):
     return torch.cat([g_cxcy, g_wh], 1)
 
 
-def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
+        boxes: (tensor) center-size default boxes from priorbox layers.
     Return:
-      (tensor) intersection area, Shape: [A,B].
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
-
-
-def jaccard(box_a, box_b):
-    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
-    is simply the intersection over union of two boxes.  Here we operate on
-    ground truth boxes and default boxes.
-    E.g.:
-        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-    Return:
-        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
-    """
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
-    union = area_a + area_b - inter
-    return inter / union
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, landms, loc_t,
@@ -621,28 +643,6 @@ def match(threshold, truths, priors, variances, labels, landms, loc_t,
     loc_t[idx] = loc
     conf_t[idx] = conf
     landm_t[idx] = landm
-
-
-cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
-    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
-    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
-    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
-    'pretrain': True, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
-    3}, 'in_channel': 32, 'out_channel': 64}
-
-
-GPU = cfg_mnet['gpu_train']
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -748,14 +748,14 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_c, loss_landm
 
 
-def conv_bn_no_relu(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup))
-
-
 def conv_bn(inp, oup, stride=1, leaky=0):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
+
+
+def conv_bn_no_relu(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+        BatchNorm2d(oup))
 
 
 class SSH(nn.Module):
@@ -972,20 +972,20 @@ class Test_foamliu_InsightFace_v2(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(SSH(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(MobileNetV1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_004(self):
-        self._check(ClassHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
-
-    def test_005(self):
         self._check(BboxHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
 
-    def test_006(self):
+    def test_002(self):
+        self._check(ClassHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+
+    def test_003(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(LandmarkHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+
+    def test_005(self):
+        self._check(MobileNetV1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_006(self):
+        self._check(SSH(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

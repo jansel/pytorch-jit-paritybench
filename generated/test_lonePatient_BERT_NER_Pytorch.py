@@ -731,10 +731,6 @@ class AlbertOutput(nn.Module):
         return hidden_states
 
 
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
 def gelu(x):
     """ Implementation of the gelu activation function.
         XLNet is using OpenAI GPT's gelu (not exactly the same as BERT)
@@ -743,6 +739,10 @@ def gelu(x):
     cdf = 0.5 * (1.0 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
         torch.pow(x, 3))))
     return x * cdf
+
+
+def swish(x):
+    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -2553,7 +2553,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-CONFIG_NAME = 'config.json'
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 class Conv1D(nn.Module):
@@ -3219,69 +3219,69 @@ class Test_lonePatient_BERT_NER_Pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(FeedForwardNetwork(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(AlbertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, embedding_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
-    def test_003(self):
-        self._check(AlbertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(AlbertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(AlbertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
+    def test_001(self):
         self._check(AlbertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_002(self):
+        self._check(AlbertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(AlbertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(AlbertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
-    def test_008(self):
-        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
+    def test_006(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+    def test_007(self):
+        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_008(self):
+        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(Embeddings(*[], **{'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
-    def test_014(self):
-        self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+    def test_012(self):
+        self._check(FeedForwardNetwork(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
-        self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+    def test_013(self):
+        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    def test_016(self):
+    @_fails_compile()
+    def test_014(self):
+        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
         self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_016(self):
+        self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_017(self):
-        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_018(self):

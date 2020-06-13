@@ -177,9 +177,7 @@ from torch.nn.utils import clip_grad_norm_
 from typing import List
 
 
-FILE_LOG_FMT = (
-    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
-    )
+FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
 LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
@@ -220,15 +218,17 @@ class ColoredFormatter(logging.Formatter):
         return message
 
 
-FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
-
-
 STDOUT_LOG_FMT = (
     '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
     )
 
 
 STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+FILE_LOG_FMT = (
+    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+    )
 
 
 def _get_logger(log_to_file=True, log_filename='default.log', log_level='DEBUG'
@@ -462,7 +462,118 @@ class MLP(nn.Module):
         return x
 
 
-ROOT = '<ROOT>'
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def adjust_learning_rate(optimizer, new_lr):
+    """
+    Shrinks learning rate by a specified factor.
+
+    :param optimizer: optimizer whose learning rates must be decayed
+    :param new_lr: new learning rate
+    """
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+
+
+DEFAULT_CONFIG = {'save_path': './saves'}
+
+
+class BiLstmCrf(BaseModel):
+
+    def __init__(self, args):
+        super(BiLstmCrf, self).__init__(args)
+        self.args = args
+        self.hidden_dim = 300
+        self.tag_num = args.tag_num
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.num_layers = args.num_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        pos_size = args.pos_size
+        pos_dim = args.pos_dim
+        self.word_embedding = nn.Embedding(vocabulary_size, embedding_dimension
+            ).to(DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.word_embedding = nn.Embedding.from_pretrained(vectors,
+                freeze=not args.non_static).to(DEVICE)
+        self.pos_embedding = nn.Embedding(pos_size, pos_dim).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension + pos_dim + 1, self.
+            hidden_dim // 2, bidirectional=self.bidirectional, num_layers=
+            self.num_layers, dropout=self.dropout).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
+        self.crflayer = CRF(self.tag_num).to(DEVICE)
+
+    def init_weight(self):
+        nn.init.xavier_normal_(self.embedding.weight)
+        for name, param in self.lstm.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_normal_(param)
+        nn.init.xavier_normal_(self.hidden2label.weight)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def loss(self, x, sent_lengths, pos, rel, y):
+        mask = torch.ne(x, self.pad_index)
+        emissions = self.lstm_forward(x, pos, rel, sent_lengths)
+        return self.crflayer(emissions, y, mask=mask)
+
+    def forward(self, x, poses, rels, sent_lengths):
+        mask = torch.ne(x, self.pad_index)
+        emissions = self.lstm_forward(x, poses, rels, sent_lengths)
+        return self.crflayer.decode(emissions, mask=mask)
+
+    def lstm_forward(self, sentence, poses, rels, sent_lengths):
+        word = self.word_embedding(sentence.to(DEVICE)).to(DEVICE)
+        pos = self.pos_embedding(poses.to(DEVICE)).to(DEVICE)
+        rels = rels.view(rels.size(0), rels.size(1), 1).float().to(DEVICE)
+        x = torch.cat((word, pos, rels), dim=2)
+        x = pack_padded_sequence(x, sent_lengths)
+        self.hidden = self.init_hidden(batch_size=len(sent_lengths))
+        lstm_out, self.hidden = self.lstm(x, self.hidden)
+        lstm_out, new_batch_size = pad_packed_sequence(lstm_out)
+        assert torch.equal(sent_lengths, new_batch_size.to(DEVICE))
+        y = self.hidden2label(lstm_out.to(DEVICE))
+        return y.to(DEVICE)
+
+
+def bis_pos(words, tags):
+    assert len(words) == len(tags)
+    poses = []
+    for i, tag in enumerate(tags):
+        if tag.split('-')[0] in ['B', 'S']:
+            begin = i
+            temp_type = tag.split('-')[1]
+        if i == len(tags) - 1:
+            poses.append((''.join(words[begin:i + 1]), temp_type))
+        elif tags[i + 1].split('-')[0] != 'I' or tags[i + 1].split('-')[1
+            ] != temp_type:
+            poses.append((''.join(words[begin:i + 1]), temp_type))
+            begin = i + 1
+            temp_type = tags[i + 1].split('-')[1]
+    return poses
+
+
+def get_free_tcp_port():
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(('', 0))
+    addr, port = tcp.getsockname()
+    tcp.close()
+    return port
 
 
 def light_tokenize(sequence: str):
@@ -476,9 +587,6 @@ class Actions:
     REDUCE_R = 2
     NUM_ACTIONS = 3
     action_to_ix = {'SHIFT': SHIFT, 'REDUCE_L': REDUCE_L, 'REDUCE_R': REDUCE_R}
-
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class ActionChooserNetwork(nn.Module):
@@ -607,312 +715,88 @@ class BiLSTMWordEmbeddingLookup(nn.Module):
         self.hidden = self.init_hidden()
 
 
-def adjust_learning_rate(optimizer, new_lr):
-    """
-    Shrinks learning rate by a specified factor.
-
-    :param optimizer: optimizer whose learning rates must be decayed
-    :param new_lr: new learning rate
-    """
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
+ROOT_TOK = '<ROOT>'
 
 
-DEFAULT_CONFIG = {'save_path': './saves'}
-
-
-class MaLSTM(BaseModel):
+class TextCNN(BaseModel):
 
     def __init__(self, args):
-        super(MaLSTM, self).__init__(args)
-        self.args = args
-        self.hidden_dim = 300
-        self.tag_num = args.tag_num
-        self.batch_size = args.batch_size
-        self.bidirectional = True
-        self.num_layers = args.num_layers
-        self.pad_index = args.pad_index
-        self.dropout = args.dropout
-        self.save_path = args.save_path
-        vocabulary_size = args.vocabulary_size
-        embedding_dimension = args.embedding_dim
-        self.pwd = torch.nn.PairwiseDistance(p=1)
-        self.embedding = nn.Embedding(vocabulary_size, embedding_dimension).to(
-            DEVICE)
+        super(TextCNN, self).__init__(args)
+        self.class_num = args.class_num
+        self.chanel_num = 1
+        self.filter_num = args.filter_num
+        self.filter_sizes = args.filter_sizes
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.embedding = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
         if args.static:
             logger.info('logging word vectors from {}'.format(args.vector_path)
                 )
             vectors = Vectors(args.vector_path).vectors
             self.embedding = self.embedding.from_pretrained(vectors, freeze
                 =not args.non_static).to(DEVICE)
-        self.lstm = nn.LSTM(embedding_dimension, self.hidden_dim // 2,
-            bidirectional=self.bidirectional, num_layers=self.num_layers,
-            dropout=self.dropout).to(DEVICE)
-        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
-
-    def init_hidden(self, batch_size=None):
-        if batch_size is None:
-            batch_size = self.batch_size
-        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
-        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
-        return h0, c0
-
-    def forward(self, left, right):
-        left_vec = self.embedding(left.to(DEVICE)).to(DEVICE)
-        right_vec = self.embedding(right.to(DEVICE)).to(DEVICE)
-        self.hidden = self.init_hidden(batch_size=left.size(1))
-        left_lstm_out, (left_lstm_hidden, _) = self.lstm(left_vec, self.hidden)
-        right_lstm_out, (right_lstm_hidden, _) = self.lstm(right_vec, self.
-            hidden)
-        return self.manhattan_distance(left_lstm_hidden[0],
-            right_lstm_hidden[0])
-
-    def manhattan_distance(self, left, right):
-        return torch.exp(-self.pwd(left, right))
-
-
-class BaseConfig(object):
-
-    def __init__(self):
-        pass
-
-    @staticmethod
-    def load(path=DEFAULT_CONFIG['save_path']):
-        config_path = os.path.join(path, 'config.pkl')
-        with open(config_path, 'rb') as f:
-            config = pickle.load(f)
-        logger.info('loadding config from {}'.format(config_path))
-        config.save_path = path
-        return config
-
-    def save(self, path=None):
-        if not hasattr(self, 'save_path'):
-            raise AttributeError(
-                'config object must init save_path attr in init method!')
-        path = path if path else self.save_path
-        if not os.path.isdir(path):
-            os.mkdir(path)
-        config_path = os.path.join(path, 'config.pkl')
-        with open(os.path.join(path, 'config.pkl'), 'wb') as f:
-            pickle.dump(self, f)
-        logger.info('saved config to {}'.format(config_path))
-
-
-class Config(BaseConfig):
-
-    def __init__(self, word_vocab, **kwargs):
-        super(Config, self).__init__()
-        for name, value in DEFAULT_CONFIG.items():
-            setattr(self, name, value)
-        self.word_vocab = word_vocab
-        self.vocabulary_size = len(self.word_vocab)
-        for name, value in kwargs.items():
-            setattr(self, name, value)
-
-
-def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
-    padded_seq = sequence[:]
-    if len(padded_seq) < seq_length:
-        padded_seq.extend([pad_token for _ in range(len(padded_seq),
-            seq_length)])
-    return padded_seq[:seq_length]
-
-
-def get_free_tcp_port():
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind(('', 0))
-    addr, port = tcp.getsockname()
-    tcp.close()
-    return port
-
-
-class Attention(nn.Module):
-    """
-    several score types like dot,general and concat
-    """
-
-    def __init__(self, method='dot', hidden_size=None):
-        super(Attention, self).__init__()
-        self.method = method
-        if self.method != 'dot':
-            self.hidden_size = hidden_size
-            if self.method == 'general':
-                self.W = nn.Linear(hidden_size, hidden_size)
-            elif self.method == 'concat':
-                self.W = nn.Linear(self.hidden_size * 2, hidden_size)
-                self.v = nn.Parameter(torch.rand(1, hidden_size))
-                nn.init.xavier_normal_(self.v.data)
-
-    def forward(self, query, key, value, mask=None, dropout=0):
-        if self.method == 'general':
-            scores = self.general(query, key)
-        elif self.method == 'concat':
-            scores = self.concat(query, key)
+        if args.multichannel:
+            self.embedding2 = nn.Embedding(self.vocabulary_size, self.
+                embedding_dimension).from_pretrained(args.vectors).to(DEVICE)
+            self.chanel_num += 1
         else:
-            scores = self.dot(query, key)
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1000000000.0)
-        p_attn = F.softmax(scores, dim=-1)
-        if not dropout:
-            p_attn = F.dropout(p_attn, dropout)
-        return torch.matmul(p_attn, value), p_attn
+            self.embedding2 = None
+        self.convs = nn.ModuleList([nn.Conv2d(self.chanel_num, self.
+            filter_num, (size, self.embedding_dimension)) for size in self.
+            filter_sizes]).to(DEVICE)
+        self.dropout = nn.Dropout(args.dropout).to(DEVICE)
+        self.fc = nn.Linear(len(self.filter_sizes) * self.filter_num, self.
+            class_num).to(DEVICE)
 
-    def dot(self, query, key):
-        scores = torch.matmul(query, key.transpose(-2, -1))
-        return scores
-
-    def general(self, query, key):
-        scores = torch.matmul(self.W(query), key.transpose(-2, -1))
-        return scores
-
-    def concat(self, query, key):
-        scores = torch.cat((query.expand(-1, key.size(1), -1), key), dim=2)
-        scores = self.W(scores)
-        scores = F.tanh(scores)
-        scores = torch.matmul(scores, self.v.t()).transpose(-2, -1)
-        return scores
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
-        dropout=0.2, method='dot'):
-        super(Decoder, self).__init__()
-        self.embed_size = embed_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.n_layers = n_layers
-        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
-        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
-        self.attention = Attention(method, hidden_size).to(DEVICE)
-        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
-            dropout=dropout, batch_first=True).to(DEVICE)
-        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
-
-    def forward(self, word, last_hidden, encoder_outputs):
-        embedded = self.embed(word).unsqueeze(1)
-        embedded = self.dropout(embedded)
-        context, attn_weights = self.attention(last_hidden[-1].unsqueeze(1),
-            encoder_outputs, encoder_outputs)
-        context = F.relu(context)
-        rnn_input = torch.cat((embedded, context), 2)
-        output, hidden = self.gru(rnn_input, last_hidden)
-        output = output.squeeze(1)
-        context = context.squeeze(1)
-        output = torch.cat((output, context), 1)
-        output = self.out(output)
-        return output, hidden, attn_weights
+    def forward(self, x):
+        if self.embedding2:
+            x = torch.stack((self.embedding(x), self.embedding2(x)), dim=1).to(
+                DEVICE)
+        else:
+            x = self.embedding(x).to(DEVICE)
+            x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(item, int(item.size(2))).squeeze(2) for item in x]
+        x = torch.cat(x, 1)
+        x = self.dropout(x)
+        logits = self.fc(x)
+        return logits
 
 
-class Encoder(nn.Module):
-    """
-    basic GRU encoder
+def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>',
+    end_e1_token='</e1>', begin_e2_token='<e2>', end_e2_token='</e2>'):
+    assert entity1 in sentence
+    assert entity2 in sentence
+    sentence = sentence.replace(entity1, begin_e1_token + entity1 +
+        end_e1_token)
+    sentence = sentence.replace(entity2, begin_e2_token + entity2 +
+        end_e2_token)
+    sentence = ' '.join(jieba.cut(sentence))
+    sentence = sentence.replace('< e1 >', begin_e1_token)
+    sentence = sentence.replace('< / e1 >', end_e1_token)
+    sentence = sentence.replace('< e2 >', begin_e2_token)
+    sentence = sentence.replace('< / e2 >', end_e2_token)
+    return sentence.split()
+
+
+class REDataset(Dataset):
+    """Defines a Dataset of relation extraction format.
+    eg:
+    钱钟书	辛笛	同门	与辛笛京沪唱和聽钱钟书与钱钟书是清华校友，钱钟书高辛笛两班。
+    元武	元华	unknown	于师傅在一次京剧表演中，选了元龙（洪金宝）、元楼（元奎）、元彪、成龙、元华、元武、元泰7人担任七小福的主角。
     """
 
-    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
-        dropout=0.5):
-        super(Encoder, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.embed_size = embed_size
-        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
-        self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
-            True, dropout=dropout, bidirectional=True).to(DEVICE)
-
-    def forward(self, sentences, lengths, hidden=None):
-        embedded = self.embed(sentences)
-        packed = pack_padded_sequence(embedded, lengths, batch_first=True)
-        outputs, hidden = self.gru(packed, hidden)
-        outputs, _ = pad_packed_sequence(outputs, batch_first=True)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
-        return outputs, hidden
-
-
-class Seq2Seq(nn.Module):
-
-    def __init__(self, encoder, decoder):
-        super(Seq2Seq, self).__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def forward(self, src, src_lens, trg, teacher_forcing_ratio=0.5):
-        batch_size = trg.size(0)
-        max_len = trg.size(1)
-        trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
-        encoder_output, hidden = self.encoder(src, src_lens)
-        hidden = hidden[:self.decoder.n_layers]
-        decoder_input = trg.data[:, (0)]
-        for t in range(1, max_len):
-            output, hidden, attn_weights = self.decoder(decoder_input,
-                hidden, encoder_output)
-            outputs[t] = output
-            teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.data.max(1)[1]
-            if teacher_force:
-                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
-            else:
-                decoder_input = top1.to(DEVICE)
-        return outputs
-
-    def predict(self, src, src_lens, sos, max_len):
-        batch_size = src.size(0)
-        trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
-        encoder_output, hidden = self.encoder(src, src_lens)
-        hidden = hidden[:self.decoder.n_layers]
-        decoder_input = sos
-        for t in range(1, max_len):
-            output, hidden, attn_weights = self.decoder(decoder_input,
-                hidden, encoder_output)
-            outputs[t] = output
-            top1 = output.data.max(1)[1]
-            decoder_input = top1.to(DEVICE)
-        return outputs
-
-
-class CBConfig(BaseConfig):
-
-    def __init__(self, word_vocab, vector_path, **kwargs):
-        super(CBConfig, self).__init__()
-        for name, value in DEFAULT_CONFIG.items():
-            setattr(self, name, value)
-        self.word_vocab = word_vocab
-        self.vocabulary_size = len(self.word_vocab)
-        self.vector_path = vector_path
-        for name, value in kwargs.items():
-            setattr(self, name, value)
-
-
-class CBSeq2Seq(BaseModel):
-
-    def __init__(self, args):
-        super(CBSeq2Seq, self).__init__(args)
-        self.args = args
-        self.hidden_dim = args.embedding_dim
-        self.vocabulary_size = args.vocabulary_size
-        self.batch_size = args.batch_size
-        self.save_path = args.save_path
-        self.num_layers = args.num_layers
-        self.dropout = args.dropout
-        self.teacher_forcing_ratio = args.teacher_forcing_ratio
-        vocabulary_size = args.vocabulary_size
-        embedding_dimension = args.embedding_dim
-        encoder = Encoder(vocabulary_size, embedding_dimension, self.
-            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
-        decoder = Decoder(self.hidden_dim, embedding_dimension,
-            vocabulary_size, self.num_layers, self.dropout, args.method).to(
-            DEVICE)
-        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
-
-    def forward(self, src, trg, teacher_forcing_ratio=0.5):
-        return self.seq2seq(src, trg, teacher_forcing_ratio)
-
-    def predict(self, src, src_lens, sos, max_len):
-        return self.seq2seq.predict(src, src_lens, sos, max_len)
+    def __init__(self, path, fields, encoding='utf-8', **kwargs):
+        examples = []
+        with open(path, 'r', encoding=encoding) as f:
+            for line in f:
+                chunks = line.split()
+                entity_1, entity_2, relation, sentence = tuple(chunks)
+                sentence_list = handle_line(entity_1, entity_2, sentence)
+                examples.append(Example.fromlist((sentence_list, relation),
+                    fields))
+        super(REDataset, self).__init__(examples, fields, **kwargs)
 
 
 class Attention(nn.Module):
@@ -1207,45 +1091,154 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-class TSSeq2Seq(BaseModel):
+def eng_tokenize(text):
+    return nltk.word_tokenize(text)
 
-    def __init__(self, args):
-        super(TSSeq2Seq, self).__init__(args)
-        self.args = args
-        self.hidden_dim = args.embedding_dim
-        self.vocabulary_size = args.vocabulary_size
-        self.batch_size = args.batch_size
-        self.save_path = args.save_path
-        self.num_layers = args.num_layers
-        self.dropout = args.dropout
-        self.teacher_forcing_ratio = args.teacher_forcing_ratio
-        vocabulary_size = args.vocabulary_size
-        embedding_dimension = args.embedding_dim
-        encoder = Encoder(vocabulary_size, embedding_dimension, self.
-            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
-        decoder = Decoder(self.hidden_dim, embedding_dimension,
-            vocabulary_size, self.num_layers, self.dropout, args.method).to(
-            DEVICE)
-        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
 
-    def forward(self, src, trg, teacher_forcing_ratio=0.5):
-        return self.seq2seq(src, trg, teacher_forcing_ratio)
+class Attention(nn.Module):
+    """
+    several score types like dot,general and concat
+    """
+
+    def __init__(self, method='dot', hidden_size=None):
+        super(Attention, self).__init__()
+        self.method = method
+        if self.method != 'dot':
+            self.hidden_size = hidden_size
+            if self.method == 'general':
+                self.W = nn.Linear(hidden_size, hidden_size)
+            elif self.method == 'concat':
+                self.W = nn.Linear(self.hidden_size * 2, hidden_size)
+                self.v = nn.Parameter(torch.rand(1, hidden_size))
+                nn.init.xavier_normal_(self.v.data)
+
+    def forward(self, query, key, value, mask=None, dropout=0):
+        if self.method == 'general':
+            scores = self.general(query, key)
+        elif self.method == 'concat':
+            scores = self.concat(query, key)
+        else:
+            scores = self.dot(query, key)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1000000000.0)
+        p_attn = F.softmax(scores, dim=-1)
+        if not dropout:
+            p_attn = F.dropout(p_attn, dropout)
+        return torch.matmul(p_attn, value), p_attn
+
+    def dot(self, query, key):
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        return scores
+
+    def general(self, query, key):
+        scores = torch.matmul(self.W(query), key.transpose(-2, -1))
+        return scores
+
+    def concat(self, query, key):
+        scores = torch.cat((query.expand(-1, key.size(1), -1), key), dim=2)
+        scores = self.W(scores)
+        scores = F.tanh(scores)
+        scores = torch.matmul(scores, self.v.t()).transpose(-2, -1)
+        return scores
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
+        dropout=0.2, method='dot'):
+        super(Decoder, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
+        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
+        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
+            dropout=dropout, batch_first=True).to(DEVICE)
+        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+
+    def forward(self, word, last_hidden, encoder_outputs):
+        embedded = self.embed(word).unsqueeze(1)
+        embedded = self.dropout(embedded)
+        context, attn_weights = self.attention(last_hidden[-1].unsqueeze(1),
+            encoder_outputs, encoder_outputs)
+        context = F.relu(context)
+        rnn_input = torch.cat((embedded, context), 2)
+        output, hidden = self.gru(rnn_input, last_hidden)
+        output = output.squeeze(1)
+        context = context.squeeze(1)
+        output = torch.cat((output, context), 1)
+        output = self.out(output)
+        return output, hidden, attn_weights
+
+
+class Encoder(nn.Module):
+    """
+    basic GRU encoder
+    """
+
+    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
+        dropout=0.5):
+        super(Encoder, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
+            True, dropout=dropout, bidirectional=True).to(DEVICE)
+
+    def forward(self, sentences, lengths, hidden=None):
+        embedded = self.embed(sentences)
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True)
+        outputs, hidden = self.gru(packed, hidden)
+        outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
+            hidden_size:]
+        return outputs, hidden
+
+
+class Seq2Seq(nn.Module):
+
+    def __init__(self, encoder, decoder):
+        super(Seq2Seq, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, src, src_lens, trg, teacher_forcing_ratio=0.5):
+        batch_size = trg.size(0)
+        max_len = trg.size(1)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = trg.data[:, (0)]
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            teacher_force = random.random() < teacher_forcing_ratio
+            top1 = output.data.max(1)[1]
+            if teacher_force:
+                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+            else:
+                decoder_input = top1.to(DEVICE)
+        return outputs
 
     def predict(self, src, src_lens, sos, max_len):
-        return self.seq2seq.predict(src, src_lens, sos, max_len)
-
-
-class TSConfig(BaseConfig):
-
-    def __init__(self, word_vocab, vector_path, **kwargs):
-        super(TSConfig, self).__init__()
-        for name, value in DEFAULT_CONFIG.items():
-            setattr(self, name, value)
-        self.word_vocab = word_vocab
-        self.vocabulary_size = len(self.word_vocab)
-        self.vector_path = vector_path
-        for name, value in kwargs.items():
-            setattr(self, name, value)
+        batch_size = src.size(0)
+        trg_vocab_size = self.decoder.output_size
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        encoder_output, hidden = self.encoder(src, src_lens)
+        hidden = hidden[:self.decoder.n_layers]
+        decoder_input = sos
+        for t in range(1, max_len):
+            output, hidden, attn_weights = self.decoder(decoder_input,
+                hidden, encoder_output)
+            outputs[t] = output
+            top1 = output.data.max(1)[1]
+            decoder_input = top1.to(DEVICE)
+        return outputs
 
 
 class CBOWBase(BaseModel):
@@ -1292,27 +1285,7 @@ class CBOWDataset(Dataset):
         super(CBOWDataset, self).__init__(examples, fields, **kwargs)
 
 
-class SkipGramBase(BaseModel):
-
-    def __init__(self, args):
-        super(SkipGramBase, self).__init__(args)
-        self.vocabulary_size = args.vocabulary_size
-        self.embedding_dimension = args.embedding_dim
-        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
-        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
-            ).to(DEVICE)
-
-    def forward(self, target):
-        target_embedding = self.word_embeddings(target)
-        context_embedding = self.linear(target_embedding).squeeze()
-        return context_embedding
-
-    def loss(self, target, context):
-        target_embedding = self.word_embeddings(target)
-        context_embedding = self.linear(target_embedding).reshape(
-            target_embedding.size(0), -1)
-        return F.cross_entropy(context_embedding, context.view(-1))
+ROOT = '<ROOT>'
 
 
 class SkipGramDataset(Dataset):
@@ -1373,11 +1346,11 @@ class Test_smilelight_lightNLP(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Attention(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -1389,5 +1362,5 @@ class Test_smilelight_lightNLP(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(Attention(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

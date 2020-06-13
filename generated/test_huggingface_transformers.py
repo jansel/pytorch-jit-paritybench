@@ -691,16 +691,16 @@ class BertAttention(nn.Module):
         return outputs
 
 
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
 def gelu_new(x):
     """ Implementation of the gelu activation function currently in Google Bert repo (identical to OpenAI GPT).
         Also see https://arxiv.org/abs/1606.08415
     """
     return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 
         0.044715 * torch.pow(x, 3.0))))
+
+
+def swish(x):
+    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu_new, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -821,6 +821,118 @@ class BertPooler(nn.Module):
         return pooled_output
 
 
+class MagnitudeBinarizer(object):
+    """
+    Magnitude Binarizer.
+    Computes a binary mask M from a real value matrix S such that `M_{i,j} = 1` if and only if `S_{i,j}`
+    is among the k% highest values of |S| (absolute value).
+
+    Implementation is inspired from https://github.com/NervanaSystems/distiller/blob/2291fdcc2ea642a98d4e20629acb5a9e2e04b4e6/distiller/pruning/automated_gradual_pruner.py#L24
+    """
+
+    @staticmethod
+    def apply(inputs: torch.tensor, threshold: float):
+        """
+        Args:
+            inputs (`torch.FloatTensor`)
+                The input matrix from which the binarizer computes the binary mask.
+                This input marix is typically the weight matrix.
+            threshold (`float`)
+                The percentage of weights to keep (the rest is pruned).
+                `threshold` is a float between 0 and 1.
+        Returns:
+            mask (`torch.FloatTensor`)
+                Binary matrix of the same size as `inputs` acting as a mask (1 - the associated weight is
+                retained, 0 - the associated weight is pruned).
+        """
+        mask = inputs.clone()
+        _, idx = inputs.abs().flatten().sort(descending=True)
+        j = int(threshold * inputs.numel())
+        flat_out = mask.flatten()
+        flat_out[idx[j:]] = 0
+        flat_out[idx[:j]] = 1
+        return mask
+
+
+def add_start_docstrings_to_callable(*docstr):
+
+    def docstring_decorator(fn):
+        class_name = ':class:`~transformers.{}`'.format(fn.__qualname__.
+            split('.')[0])
+        intro = (
+            '   The {} forward method, overrides the :func:`__call__` special method.'
+            .format(class_name))
+        note = """
+
+    .. note::
+        Although the recipe for forward pass needs to be defined within
+        this function, one should call the :class:`Module` instance afterwards
+        instead of this since the former takes care of running the
+        pre and post processing steps while the latter silently ignores them.
+        """
+        fn.__doc__ = intro + note + ''.join(docstr) + (fn.__doc__ if fn.
+            __doc__ is not None else '')
+        return fn
+    return docstring_decorator
+
+
+def add_start_docstrings(*docstr):
+
+    def docstring_decorator(fn):
+        fn.__doc__ = ''.join(docstr) + (fn.__doc__ if fn.__doc__ is not
+            None else '')
+        return fn
+    return docstring_decorator
+
+
+BERT_INPUTS_DOCSTRING = """
+    Args:
+        input_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`):
+            Indices of input sequence tokens in the vocabulary.
+
+            Indices can be obtained using :class:`transformers.BertTokenizer`.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.encode_plus` for details.
+
+            `What are input IDs? <../glossary.html#input-ids>`__
+        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+
+            `What are attention masks? <../glossary.html#attention-mask>`__
+        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Segment token indices to indicate first and second portions of the inputs.
+            Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
+            corresponds to a `sentence B` token
+
+            `What are token type IDs? <../glossary.html#token-type-ids>`_
+        position_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Indices of positions of each input sequence tokens in the position embeddings.
+            Selected in the range ``[0, config.max_position_embeddings - 1]``.
+
+            `What are position IDs? <../glossary.html#position-ids>`_
+        head_mask (:obj:`torch.FloatTensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            :obj:`1` indicates the head is **not masked**, :obj:`0` indicates the head is **masked**.
+        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
+            Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+        encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
+            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention
+            if the model is configured as a decoder.
+        encoder_attention_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
+            is used in the cross-attention if the model is configured as a decoder.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
+            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
+"""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -892,39 +1004,6 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
 def is_remote_url(url_or_filename):
     parsed = urlparse(url_or_filename)
     return parsed.scheme in ('http', 'https')
-
-
-S3_BUCKET_PREFIX = 'https://s3.amazonaws.com/models.huggingface.co/bert'
-
-
-CLOUDFRONT_DISTRIB_PREFIX = 'https://cdn.huggingface.co'
-
-
-def hf_bucket_url(model_id: str, filename: str, use_cdn=True) ->str:
-    """
-    Resolve a model identifier, and a file name, to a HF-hosted url
-    on either S3 or Cloudfront (a Content Delivery Network, or CDN).
-
-    Cloudfront is replicated over the globe so downloads are way faster
-    for the end user (and it also lowers our bandwidth costs). However, it
-    is more aggressively cached by default, so may not always reflect the
-    latest changes to the underlying file (default TTL is 24 hours).
-
-    In terms of client-side caching from this library, even though
-    Cloudfront relays the ETags from S3, using one or the other
-    (or switching from one to the other) will affect caching: cached files
-    are not shared between the two because the cached file's name contains
-    a hash of the url.
-    """
-    endpoint = CLOUDFRONT_DISTRIB_PREFIX if use_cdn else S3_BUCKET_PREFIX
-    legacy_format = '/' not in model_id
-    if legacy_format:
-        return f'{endpoint}/{model_id}-{filename}'
-    else:
-        return f'{endpoint}/{model_id}/{filename}'
-
-
-CONFIG_NAME = 'config.json'
 
 
 class DecoderState(object):
@@ -1408,10 +1487,23 @@ class ClassificationHead(torch.nn.Module):
         return logits
 
 
-EPSILON = 1e-10
+LARGE_INTEGER = int(1e+20)
 
 
-VOCAB_FILES_NAMES = {'vocab_file': 'spiece.model'}
+VERY_LARGE_INTEGER = int(1e+30)
+
+
+def is_tf_available():
+    return _tf_available
+
+
+def is_torch_available():
+    return _torch_available
+
+
+UNEVEN_SEQUENCES_FOR_BATCH_MSG = (
+    "The sequences building the batch are not of the same size, no tensor can be built. Set `pad_to_max_length=True` to pad the smaller sequencesup to the larger sequence's length."
+    )
 
 
 def find_pruneable_heads_and_indices(heads: List, n_heads: int, head_size:
@@ -3121,6 +3213,53 @@ class ModalEmbeddings(nn.Module):
         return embeddings
 
 
+MMBT_INPUTS_DOCSTRING = """    Inputs:
+        **input_modal**: ``torch.FloatTensor`` of shape ``(batch_size, ***)``:
+            The other modality data. It will be the shape that the encoder for that type expects.
+            e.g. With an Image Encoder, the shape would be (batch_size, channels, height, width)
+        **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of input sequence tokens in the vocabulary.
+            It does not expect [CLS] token to be added as it's appended to the end of other modality embeddings.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
+        **modal_start_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
+            Optional start token to be added to Other Modality Embedding. [CLS] Most commonly used for Classification tasks.
+        **modal_end_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
+            Optional end token to be added to Other Modality Embedding. [SEP] Most commonly used.
+        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        **token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Segment token indices to indicate different portions of the inputs.
+        **modal_token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
+            Segment token indices to indicate different portions of the non-text modality.
+            The embeddings from these tokens will be summed with the respective token embeddings for the non-text modality.
+        **position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of positions of each input sequence tokens in the position embeddings.
+        **modal_position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
+            Indices of positions of each input sequence tokens in the position embeddings for the non-text modality.
+        **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
+        **inputs_embeds**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, embedding_dim)``:
+            Optionally, instead of passing ``input_ids`` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+        **encoder_hidden_states**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, hidden_size)``:
+            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention if the model
+            is configured as a decoder.
+        **encoder_attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
+            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
+            is used in the cross-attention if the model is configured as a decoder.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
+            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
+"""
+
+
 MMBT_START_DOCSTRING = """    MMBT model was proposed in
     `Supervised Multimodal Bitransformers for Classifying Images and Text`_
     by Douwe Kiela, Suvrat Bhooshan, Hamed Firooz, Davide Testuggine.
@@ -3328,62 +3467,6 @@ class ModuleUtilsMixin:
             ) == 5, f'head_mask.dim != 5, instead {head_mask.dim()}'
         head_mask = head_mask.to(dtype=self.dtype)
         return head_mask
-
-
-def add_start_docstrings(*docstr):
-
-    def docstring_decorator(fn):
-        fn.__doc__ = ''.join(docstr) + (fn.__doc__ if fn.__doc__ is not
-            None else '')
-        return fn
-    return docstring_decorator
-
-
-MMBT_INPUTS_DOCSTRING = """    Inputs:
-        **input_modal**: ``torch.FloatTensor`` of shape ``(batch_size, ***)``:
-            The other modality data. It will be the shape that the encoder for that type expects.
-            e.g. With an Image Encoder, the shape would be (batch_size, channels, height, width)
-        **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Indices of input sequence tokens in the vocabulary.
-            It does not expect [CLS] token to be added as it's appended to the end of other modality embeddings.
-            See :func:`transformers.PreTrainedTokenizer.encode` and
-            :func:`transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
-        **modal_start_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
-            Optional start token to be added to Other Modality Embedding. [CLS] Most commonly used for Classification tasks.
-        **modal_end_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
-            Optional end token to be added to Other Modality Embedding. [SEP] Most commonly used.
-        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
-            Mask to avoid performing attention on padding token indices.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-        **token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Segment token indices to indicate different portions of the inputs.
-        **modal_token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
-            Segment token indices to indicate different portions of the non-text modality.
-            The embeddings from these tokens will be summed with the respective token embeddings for the non-text modality.
-        **position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Indices of positions of each input sequence tokens in the position embeddings.
-        **modal_position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
-            Indices of positions of each input sequence tokens in the position embeddings for the non-text modality.
-        **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
-            Mask to nullify selected heads of the self-attention modules.
-            Mask values selected in ``[0, 1]``:
-            ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
-        **inputs_embeds**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, embedding_dim)``:
-            Optionally, instead of passing ``input_ids`` you can choose to directly pass an embedded representation.
-            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
-            than the model's internal embedding lookup matrix.
-        **encoder_hidden_states**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, hidden_size)``:
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention if the model
-            is configured as a decoder.
-        **encoder_attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
-            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
-            is used in the cross-attention if the model is configured as a decoder.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
-            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
-"""
 
 
 @add_start_docstrings(
@@ -3802,51 +3885,6 @@ class ReformerEmbeddings(nn.Module):
         return embeddings
 
 
-class ReverseSort(Function):
-    """
-        After chunked attention is applied which sorted clusters,
-        original ordering has to be restored.
-        Since customized backward function is used for Reformer,
-        the gradients of the output vectors have to be explicitely
-        sorted here.
-    """
-
-    @staticmethod
-    def forward(ctx, out_vectors, logits, sorted_bucket_idx,
-        undo_sorted_bucket_idx, num_hashes):
-        with torch.no_grad():
-            ctx.sorted_bucket_idx = sorted_bucket_idx
-            ctx.num_hashes = num_hashes
-            expanded_undo_sort_indices = undo_sorted_bucket_idx.unsqueeze(-1
-                ).expand(out_vectors.shape)
-            out_vectors = torch.gather(out_vectors, 2,
-                expanded_undo_sort_indices)
-            logits = torch.gather(logits, 2, undo_sorted_bucket_idx)
-        return out_vectors, logits
-
-    @staticmethod
-    def backward(ctx, grad_out_vectors, grad_logits):
-        sorted_bucket_idx = ctx.sorted_bucket_idx
-        num_hashes = ctx.num_hashes
-        grad_logits_shape = grad_logits.shape
-        grad_out_vectors_shape = grad_out_vectors.shape
-        grad_logits = grad_logits.view(grad_logits_shape[:2] + (num_hashes, -1)
-            )
-        grad_out_vectors = grad_out_vectors.view(grad_out_vectors_shape[:2] +
-            (num_hashes, -1) + grad_out_vectors_shape[-1:])
-        sorted_bucket_idx = torch.reshape(sorted_bucket_idx, 
-            sorted_bucket_idx.shape[:2] + (num_hashes, -1))
-        expanded_sort_indices = sorted_bucket_idx.unsqueeze(-1).expand(
-            grad_out_vectors.shape)
-        grad_out_vectors = torch.gather(grad_out_vectors, 3,
-            expanded_sort_indices)
-        grad_logits = torch.gather(grad_logits, 3, sorted_bucket_idx)
-        grad_logits = torch.reshape(grad_logits, grad_logits_shape)
-        grad_out_vectors = torch.reshape(grad_out_vectors,
-            grad_out_vectors_shape)
-        return grad_out_vectors, grad_logits, None, None, None
-
-
 class EfficientAttentionMixin:
     """
     A few utilities for nn.Modules in Reformer, to be used as a mixin.
@@ -3911,6 +3949,51 @@ class EfficientAttentionMixin:
 
 LSHSelfAttentionOutput = namedtuple('LSHSelfAttentionOutput', [
     'hidden_states', 'attention_probs', 'buckets'])
+
+
+class ReverseSort(Function):
+    """
+        After chunked attention is applied which sorted clusters,
+        original ordering has to be restored.
+        Since customized backward function is used for Reformer,
+        the gradients of the output vectors have to be explicitely
+        sorted here.
+    """
+
+    @staticmethod
+    def forward(ctx, out_vectors, logits, sorted_bucket_idx,
+        undo_sorted_bucket_idx, num_hashes):
+        with torch.no_grad():
+            ctx.sorted_bucket_idx = sorted_bucket_idx
+            ctx.num_hashes = num_hashes
+            expanded_undo_sort_indices = undo_sorted_bucket_idx.unsqueeze(-1
+                ).expand(out_vectors.shape)
+            out_vectors = torch.gather(out_vectors, 2,
+                expanded_undo_sort_indices)
+            logits = torch.gather(logits, 2, undo_sorted_bucket_idx)
+        return out_vectors, logits
+
+    @staticmethod
+    def backward(ctx, grad_out_vectors, grad_logits):
+        sorted_bucket_idx = ctx.sorted_bucket_idx
+        num_hashes = ctx.num_hashes
+        grad_logits_shape = grad_logits.shape
+        grad_out_vectors_shape = grad_out_vectors.shape
+        grad_logits = grad_logits.view(grad_logits_shape[:2] + (num_hashes, -1)
+            )
+        grad_out_vectors = grad_out_vectors.view(grad_out_vectors_shape[:2] +
+            (num_hashes, -1) + grad_out_vectors_shape[-1:])
+        sorted_bucket_idx = torch.reshape(sorted_bucket_idx, 
+            sorted_bucket_idx.shape[:2] + (num_hashes, -1))
+        expanded_sort_indices = sorted_bucket_idx.unsqueeze(-1).expand(
+            grad_out_vectors.shape)
+        grad_out_vectors = torch.gather(grad_out_vectors, 3,
+            expanded_sort_indices)
+        grad_logits = torch.gather(grad_logits, 3, sorted_bucket_idx)
+        grad_logits = torch.reshape(grad_logits, grad_logits_shape)
+        grad_out_vectors = torch.reshape(grad_out_vectors,
+            grad_out_vectors_shape)
+        return grad_out_vectors, grad_logits, None, None, None
 
 
 class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
@@ -4507,12 +4590,12 @@ class ChunkReformerFeedForward(nn.Module):
         return self.output(hidden_states)
 
 
-ReformerBackwardOutput = namedtuple('ReformerBackwardOutput', [
-    'attn_output', 'hidden_states', 'grad_attn_output', 'grad_hidden_states'])
-
-
 ReformerOutput = namedtuple('ReformerOutput', ['hidden_states',
     'attn_output', 'attention_probs', 'buckets'])
+
+
+ReformerBackwardOutput = namedtuple('ReformerBackwardOutput', [
+    'attn_output', 'hidden_states', 'grad_attn_output', 'grad_hidden_states'])
 
 
 class ReformerLayer(nn.Module):
@@ -5347,6 +5430,74 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
+WEIGHTS_NAME = 'pytorch_model.bin'
+
+
+TF2_WEIGHTS_NAME = 'tf_model.h5'
+
+
+def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0,
+    filter_value: float=-float('Inf'), min_tokens_to_keep: int=1) ->Tensor:
+    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+        Args:
+            logits: logits distribution shape (batch size, vocabulary size)
+            if top_k > 0: keep only top k tokens with highest probability (top-k filtering).
+            if top_p < 1.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+                Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
+            Make sure we keep at least min_tokens_to_keep per batch example in the output
+        From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
+    """
+    if top_k > 0:
+        top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None
+            ]
+        logits[indices_to_remove] = filter_value
+    if top_p < 1.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1),
+            dim=-1)
+        sorted_indices_to_remove = cumulative_probs > top_p
+        if min_tokens_to_keep > 1:
+            sorted_indices_to_remove[(...), :min_tokens_to_keep] = 0
+        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...
+            ), :-1].clone()
+        sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = sorted_indices_to_remove.scatter(1,
+            sorted_indices, sorted_indices_to_remove)
+        logits[indices_to_remove] = filter_value
+    return logits
+
+
+def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids:
+    Iterable[int]) ->Iterable[int]:
+    banned_tokens = []
+
+    def _tokens_match(prev_tokens, tokens):
+        if len(tokens) == 0:
+            return True
+        if len(tokens) > len(prev_input_ids):
+            return False
+        if prev_tokens[-len(tokens):] == tokens:
+            return True
+        else:
+            return False
+    for prev_input_ids_slice in prev_input_ids:
+        banned_tokens_slice = []
+        for banned_token_seq in bad_words_ids:
+            assert len(banned_token_seq
+                ) > 0, 'Banned words token sequences {} cannot have an empty list'.format(
+                bad_words_ids)
+            if _tokens_match(prev_input_ids_slice.tolist(),
+                banned_token_seq[:-1]) is False:
+                continue
+            banned_tokens_slice.append(banned_token_seq[-1])
+        banned_tokens.append(banned_tokens_slice)
+    return banned_tokens
+
+
+DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
+
+
 class BeamHypotheses(object):
 
     def __init__(self, num_beams, max_length, length_penalty, early_stopping):
@@ -5398,71 +5549,6 @@ class BeamHypotheses(object):
             return ret
 
 
-TF_WEIGHTS_NAME = 'model.ckpt'
-
-
-def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids:
-    Iterable[int]) ->Iterable[int]:
-    banned_tokens = []
-
-    def _tokens_match(prev_tokens, tokens):
-        if len(tokens) == 0:
-            return True
-        if len(tokens) > len(prev_input_ids):
-            return False
-        if prev_tokens[-len(tokens):] == tokens:
-            return True
-        else:
-            return False
-    for prev_input_ids_slice in prev_input_ids:
-        banned_tokens_slice = []
-        for banned_token_seq in bad_words_ids:
-            assert len(banned_token_seq
-                ) > 0, 'Banned words token sequences {} cannot have an empty list'.format(
-                bad_words_ids)
-            if _tokens_match(prev_input_ids_slice.tolist(),
-                banned_token_seq[:-1]) is False:
-                continue
-            banned_tokens_slice.append(banned_token_seq[-1])
-        banned_tokens.append(banned_tokens_slice)
-    return banned_tokens
-
-
-def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0,
-    filter_value: float=-float('Inf'), min_tokens_to_keep: int=1) ->Tensor:
-    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
-        Args:
-            logits: logits distribution shape (batch size, vocabulary size)
-            if top_k > 0: keep only top k tokens with highest probability (top-k filtering).
-            if top_p < 1.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
-                Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
-            Make sure we keep at least min_tokens_to_keep per batch example in the output
-        From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
-    """
-    if top_k > 0:
-        top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))
-        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None
-            ]
-        logits[indices_to_remove] = filter_value
-    if top_p < 1.0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1),
-            dim=-1)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        if min_tokens_to_keep > 1:
-            sorted_indices_to_remove[(...), :min_tokens_to_keep] = 0
-        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...
-            ), :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = sorted_indices_to_remove.scatter(1,
-            sorted_indices, sorted_indices_to_remove)
-        logits[indices_to_remove] = filter_value
-    return logits
-
-
-DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
-
-
 def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int,
     no_repeat_ngram_size: int, cur_len: int) ->None:
     """Copied from fairseq for no_repeat_ngram in beam_search"""
@@ -5488,10 +5574,37 @@ def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int,
     return banned_tokens
 
 
-TF2_WEIGHTS_NAME = 'tf_model.h5'
+CLOUDFRONT_DISTRIB_PREFIX = 'https://cdn.huggingface.co'
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+S3_BUCKET_PREFIX = 'https://s3.amazonaws.com/models.huggingface.co/bert'
+
+
+def hf_bucket_url(model_id: str, filename: str, use_cdn=True) ->str:
+    """
+    Resolve a model identifier, and a file name, to a HF-hosted url
+    on either S3 or Cloudfront (a Content Delivery Network, or CDN).
+
+    Cloudfront is replicated over the globe so downloads are way faster
+    for the end user (and it also lowers our bandwidth costs). However, it
+    is more aggressively cached by default, so may not always reflect the
+    latest changes to the underlying file (default TTL is 24 hours).
+
+    In terms of client-side caching from this library, even though
+    Cloudfront relays the ETags from S3, using one or the other
+    (or switching from one to the other) will affect caching: cached files
+    are not shared between the two because the cached file's name contains
+    a hash of the url.
+    """
+    endpoint = CLOUDFRONT_DISTRIB_PREFIX if use_cdn else S3_BUCKET_PREFIX
+    legacy_format = '/' not in model_id
+    if legacy_format:
+        return f'{endpoint}/{model_id}-{filename}'
+    else:
+        return f'{endpoint}/{model_id}/{filename}'
+
+
+TF_WEIGHTS_NAME = 'model.ckpt'
 
 
 class Conv1D(nn.Module):
@@ -6108,116 +6221,116 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_huggingface_transformers(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AlbertSOPHead(*[], **{'config': _mock_config(classifier_dropout_prob=0.5, hidden_size=4, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BartClassificationHead(*[], **{'input_dim': 4, 'inner_dim': 4, 'num_classes': 4, 'pooler_dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(MultiHeadedAttention(*[], **{'head_count': 4, 'model_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_005(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(ClassificationHead(*[], **{'class_size': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(AlbertSOPHead(*[], **{'config': _mock_config(classifier_dropout_prob=0.5, hidden_size=4, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(SelfAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(BartClassificationHead(*[], **{'input_dim': 4, 'inner_dim': 4, 'num_classes': 4, 'pooler_dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(LearnedPositionalEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'padding_idx': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(SinusoidalPositionalEmbedding(*[], **{'num_positions': 4, 'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_014(self):
-        self._check(ElectraGeneratorPredictions(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
         self._check(ElectraClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_009(self):
+        self._check(ElectraGeneratorPredictions(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(LSHSelfAttention(*[], **{'config': _mock_config(lsh_attn_chunk_length=4, num_hashes=4, num_buckets=4, lsh_num_chunks_before=4, lsh_num_chunks_after=4, hash_seed=4, is_decoder=4, max_position_embeddings=4, lsh_attention_probs_dropout_prob=0.5, num_attention_heads=4, attention_head_size=4, hidden_size=4)}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(LearnedPositionalEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'padding_idx': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(LongformerClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
         self._check(LongformerSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, attention_window=[4, 4]), 'layer_id': 1}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
-        self._check(LongformerClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+    def test_014(self):
+        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    def test_018(self):
+    @_fails_compile()
+    def test_015(self):
+        self._check(MultiHeadedAttention(*[], **{'head_count': 4, 'model_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
         self._check(PositionEmbeddings(*[], **{'config': _mock_config(hidden_dropout_prob=0.5, max_position_embeddings=4, hidden_size=4)}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
+    def test_018(self):
+        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_019(self):
-        self._check(LSHSelfAttention(*[], **{'config': _mock_config(lsh_attn_chunk_length=4, num_hashes=4, num_buckets=4, lsh_num_chunks_before=4, lsh_num_chunks_after=4, hash_seed=4, is_decoder=4, max_position_embeddings=4, lsh_attention_probs_dropout_prob=0.5, num_attention_heads=4, attention_head_size=4, hidden_size=4)}), [torch.rand([4, 4])], {})
+        self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_020(self):
-        self._check(ReformerSelfOutput(*[], **{'config': _mock_config(num_attention_heads=4, attention_head_size=4, hidden_dropout_prob=0.5, hidden_size=4)}), [torch.rand([16, 16])], {})
+        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
         self._check(ReformerFeedForwardOutput(*[], **{'config': _mock_config(hidden_dropout_prob=0.5, feed_forward_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_022(self):
-        self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReformerSelfOutput(*[], **{'config': _mock_config(num_attention_heads=4, attention_head_size=4, hidden_dropout_prob=0.5, hidden_size=4)}), [torch.rand([16, 16])], {})
 
     @_fails_compile()
     def test_023(self):
         self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_024(self):
-        self._check(T5LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_025(self):
+        self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(SelfAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_027(self):
+        self._check(SinusoidalPositionalEmbedding(*[], **{'num_positions': 4, 'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
         self._check(T5DenseReluDense(*[], **{'config': _mock_config(d_model=4, d_ff=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_029(self):
         self._check(T5LayerFF(*[], **{'config': _mock_config(d_model=4, d_ff=4, dropout_rate=0.5, layer_norm_epsilon=1)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
-        self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_028(self):
-        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_029(self):
-        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_030(self):
-        self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
+        self._check(T5LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_031(self):
         self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}), [torch.rand([4, 4, 4, 4])], {})

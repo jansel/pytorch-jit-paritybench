@@ -1390,47 +1390,47 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_cyoon1729_Reinforcement_learning(_paritybench_base):
     pass
     def test_000(self):
-        self._check(TwoHeadNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Actor(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ValueNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(PolicyNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Critic(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(DuelingDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DDQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(NoisyDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(NoisyLinear(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DuelingDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(FactorizedNoisyLinear(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(DQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(Critic(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(Actor(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(SoftQNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
-
-    def test_011(self):
         self._check(GaussianPolicy(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_008(self):
+        self._check(NoisyDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(NoisyLinear(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(PolicyNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SoftQNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+
     def test_012(self):
-        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TwoHeadNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(DDQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ValueNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -497,9 +497,9 @@ class Test_pemami4911_neural_combinatorial_rl_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Decoder(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'max_length': 4, 'tanh_exploration': 4, 'terminating_symbol': 4, 'use_tanh': 4, 'decode_type': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CriticNetwork(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'n_process_block_iters': 1, 'tanh_exploration': 4, 'use_tanh': 4, 'use_cuda': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(CriticNetwork(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'n_process_block_iters': 1, 'tanh_exploration': 4, 'use_tanh': 4, 'use_cuda': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(Decoder(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'max_length': 4, 'tanh_exploration': 4, 'terminating_symbol': 4, 'use_tanh': 4, 'decode_type': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

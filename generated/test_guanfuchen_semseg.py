@@ -1334,11 +1334,6 @@ def drn_a_n(pretrained=False, depth_n=18, **kwargs):
     return model
 
 
-def drn_a_asymmetric_n(pretrained=False, depth_n=18, **kwargs):
-    model = DRN_A(BasicBlock_asymmetric, [2 + depth_n - 18, 2, 2, 2], **kwargs)
-    return model
-
-
 def fill_up_weights(up):
     w = up.weight.data
     f = math.ceil(w.size(2) / 2)
@@ -1349,6 +1344,11 @@ def fill_up_weights(up):
                 f - c))
     for c in range(1, w.size(0)):
         w[(c), (0), :, :] = w[(0), (0), :, :]
+
+
+def drn_a_asymmetric_n(pretrained=False, depth_n=18, **kwargs):
+    model = DRN_A(BasicBlock_asymmetric, [2 + depth_n - 18, 2, 2, 2], **kwargs)
+    return model
 
 
 class DRNSeg(nn.Module):
@@ -2450,17 +2450,6 @@ class Decoder(nn.Module):
         return output
 
 
-DECODER_PARAMS = [{'input_channels': 128, 'output_channels': 128,
-    'upsample': False, 'pooling_module': None}, {'input_channels': 128,
-    'output_channels': 64, 'upsample': True, 'pooling_module': None}, {
-    'input_channels': 64, 'output_channels': 64, 'upsample': False,
-    'pooling_module': None}, {'input_channels': 64, 'output_channels': 64,
-    'upsample': False, 'pooling_module': None}, {'input_channels': 64,
-    'output_channels': 16, 'upsample': True, 'pooling_module': None}, {
-    'input_channels': 16, 'output_channels': 16, 'upsample': False,
-    'pooling_module': None}]
-
-
 ENCODER_PARAMS = [{'internal_scale': 4, 'use_relu': True, 'asymmetric': 
     False, 'dilated': False, 'input_channels': 16, 'output_channels': 64,
     'downsample': True, 'dropout_prob': 0.01}, {'internal_scale': 4,
@@ -2519,6 +2508,17 @@ ENCODER_PARAMS = [{'internal_scale': 4, 'use_relu': True, 'asymmetric':
     False, 'dropout_prob': 0.1}, {'internal_scale': 4, 'use_relu': True,
     'asymmetric': False, 'dilated': False, 'input_channels': 128,
     'output_channels': 128, 'downsample': False, 'dropout_prob': 0.1}]
+
+
+DECODER_PARAMS = [{'input_channels': 128, 'output_channels': 128,
+    'upsample': False, 'pooling_module': None}, {'input_channels': 128,
+    'output_channels': 64, 'upsample': True, 'pooling_module': None}, {
+    'input_channels': 64, 'output_channels': 64, 'upsample': False,
+    'pooling_module': None}, {'input_channels': 64, 'output_channels': 64,
+    'upsample': False, 'pooling_module': None}, {'input_channels': 64,
+    'output_channels': 16, 'upsample': True, 'pooling_module': None}, {
+    'input_channels': 16, 'output_channels': 16, 'upsample': False,
+    'pooling_module': None}]
 
 
 class ENet(nn.Module):

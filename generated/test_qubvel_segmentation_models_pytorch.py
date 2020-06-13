@@ -839,49 +839,49 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_qubvel_segmentation_models_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(SegmentationHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ClassificationHead(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Conv2dReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(SCSEModule(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(ASPPSeparableConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
         self._check(ASPP(*[], **{'in_channels': 4, 'out_channels': 4, 'atrous_rates': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
-        self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(ASPPSeparableConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ClassificationHead(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Conv2dReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_006(self):
         self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_007(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_012(self):
+    def test_008(self):
         self._check(GAUBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_009(self):
         self._check(PSPBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_010(self):
         self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SCSEModule(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_012(self):
+        self._check(SegmentationHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

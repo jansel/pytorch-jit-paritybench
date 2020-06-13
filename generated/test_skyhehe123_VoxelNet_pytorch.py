@@ -232,16 +232,16 @@ class RPN(nn.Module):
         return self.score_head(x), self.reg_head(x)
 
 
-_global_config['W'] = 4
-
-
-_global_config['D'] = 4
-
-
 _global_config['H'] = 4
 
 
 _global_config['N'] = 4
+
+
+_global_config['W'] = 4
+
+
+_global_config['D'] = 4
 
 
 class VoxelNet(nn.Module):
@@ -281,10 +281,10 @@ class Test_skyhehe123_VoxelNet_pytorch(_paritybench_base):
     def test_002(self):
         self._check(FCN(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(VFE(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    def test_004(self):
         self._check(RPN(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(VFE(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

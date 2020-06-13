@@ -242,13 +242,13 @@ class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
         self._check(Attention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(NewAttention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(SimpleClassifier(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NewAttention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_003(self):
-        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SimpleClassifier(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(WordEmbedding(*[], **{'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})

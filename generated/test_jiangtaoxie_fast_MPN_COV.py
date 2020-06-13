@@ -902,40 +902,6 @@ class GAvP(nn.Module):
         return x
 
 
-class Covpool(Function):
-
-    @staticmethod
-    def forward(ctx, input):
-        x = input
-        batchSize = x.data.shape[0]
-        dim = x.data.shape[1]
-        h = x.data.shape[2]
-        w = x.data.shape[3]
-        M = h * w
-        x = x.reshape(batchSize, dim, M)
-        I_hat = -1.0 / M / M * torch.ones(M, M, device=x.device
-            ) + 1.0 / M * torch.eye(M, M, device=x.device)
-        I_hat = I_hat.view(1, M, M).repeat(batchSize, 1, 1).type(x.dtype)
-        y = x.bmm(I_hat).bmm(x.transpose(1, 2))
-        ctx.save_for_backward(input, I_hat)
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, I_hat = ctx.saved_tensors
-        x = input
-        batchSize = x.data.shape[0]
-        dim = x.data.shape[1]
-        h = x.data.shape[2]
-        w = x.data.shape[3]
-        M = h * w
-        x = x.reshape(batchSize, dim, M)
-        grad_input = grad_output + grad_output.transpose(1, 2)
-        grad_input = grad_input.bmm(x).bmm(I_hat)
-        grad_input = grad_input.reshape(batchSize, dim, h, w)
-        return grad_input
-
-
 class Sqrtm(Function):
 
     @staticmethod
@@ -1010,6 +976,40 @@ class Sqrtm(Function):
                 normA[i] * normA[i])) * torch.ones(dim, device=x.device).diag(
                 ).type(dtype)
         return grad_input, None
+
+
+class Covpool(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        x = input
+        batchSize = x.data.shape[0]
+        dim = x.data.shape[1]
+        h = x.data.shape[2]
+        w = x.data.shape[3]
+        M = h * w
+        x = x.reshape(batchSize, dim, M)
+        I_hat = -1.0 / M / M * torch.ones(M, M, device=x.device
+            ) + 1.0 / M * torch.eye(M, M, device=x.device)
+        I_hat = I_hat.view(1, M, M).repeat(batchSize, 1, 1).type(x.dtype)
+        y = x.bmm(I_hat).bmm(x.transpose(1, 2))
+        ctx.save_for_backward(input, I_hat)
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, I_hat = ctx.saved_tensors
+        x = input
+        batchSize = x.data.shape[0]
+        dim = x.data.shape[1]
+        h = x.data.shape[2]
+        w = x.data.shape[3]
+        M = h * w
+        x = x.reshape(batchSize, dim, M)
+        grad_input = grad_output + grad_output.transpose(1, 2)
+        grad_input = grad_input.bmm(x).bmm(I_hat)
+        grad_input = grad_input.reshape(batchSize, dim, h, w)
+        return grad_input
 
 
 class Triuvec(Function):
@@ -1115,48 +1115,48 @@ class Test_jiangtaoxie_fast_MPN_COV(_paritybench_base):
         self._check(BCNN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Custom(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(GAvP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MPNCOV(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Custom(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
         self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_008(self):
+    def test_005(self):
+        self._check(GAvP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_007(self):
         self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_008(self):
         self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_009(self):
         self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_010(self):
         self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_011(self):
+        self._check(MPNCOV(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_013(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

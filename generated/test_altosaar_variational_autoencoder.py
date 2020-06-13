@@ -302,9 +302,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_altosaar_variational_autoencoder(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(InverseAutoregressiveFlow(*[], **{'num_input': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BernoulliLogProb(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -312,29 +311,30 @@ class Test_altosaar_variational_autoencoder(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(MADE(*[], **{'num_input': 4, 'num_output': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InverseAutoregressiveFlow(*[], **{'num_input': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Reverse(*[], **{'num_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MADE(*[], **{'num_input': 4, 'num_output': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(Model(*[], **{'latent_size': 4, 'data_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(VariationalMeanField(*[], **{'latent_size': 4, 'data_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(VariationalFlow(*[], **{'latent_size': 4, 'data_size': 4, 'flow_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(NeuralNetwork(*[], **{'input_size': 4, 'output_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_006(self):
         self._check(NormalLogProb(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_007(self):
+        self._check(Reverse(*[], **{'num_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(VariationalFlow(*[], **{'latent_size': 4, 'data_size': 4, 'flow_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_009(self):
-        self._check(BernoulliLogProb(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(VariationalMeanField(*[], **{'latent_size': 4, 'data_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

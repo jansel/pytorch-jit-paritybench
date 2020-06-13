@@ -103,10 +103,9 @@ class MobileBottleneck(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d,
-    nlin_layer=nn.ReLU):
-    return nn.Sequential(conv_layer(inp, oup, 1, 1, 0, bias=False),
-        norm_layer(oup), nlin_layer(inplace=True))
+def make_divisible(x, divisible_by=8):
+    import numpy as np
+    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
 
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.
@@ -115,9 +114,10 @@ def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.
         norm_layer(oup), nlin_layer(inplace=True))
 
 
-def make_divisible(x, divisible_by=8):
-    import numpy as np
-    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
+def conv_1x1_bn(inp, oup, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d,
+    nlin_layer=nn.ReLU):
+    return nn.Sequential(conv_layer(inp, oup, 1, 1, 0, bias=False),
+        norm_layer(oup), nlin_layer(inplace=True))
 
 
 class MobileNetV3(nn.Module):
@@ -204,17 +204,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_kuan_wang_pytorch_mobilenet_v3(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(SEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(Identity(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
+        self._check(SEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

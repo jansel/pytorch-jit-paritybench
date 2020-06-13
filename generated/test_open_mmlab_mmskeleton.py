@@ -648,16 +648,6 @@ class HRModule(nn.Module):
         return x_fuse
 
 
-url_error_message = """
-
-==================================================
-MMSkeleton fail to load checkpoint from url: 
-    {}
-Please check your network connection. Or manually download checkpoints according to the instructor:
-    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
-"""
-
-
 mmskeleton_model_urls = {'st_gcn/kinetics-skeleton':
     'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.kinetics-6fa43f73.pth'
     , 'st_gcn/ntu-xsub':
@@ -679,6 +669,16 @@ def get_mmskeleton_url(filename):
         model_url = mmskeleton_model_urls[model_name]
         return model_url
     return filename
+
+
+url_error_message = """
+
+==================================================
+MMSkeleton fail to load checkpoint from url: 
+    {}
+Please check your network connection. Or manually download checkpoints according to the instructor:
+    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
+"""
 
 
 def load_checkpoint(model, filename, *args, **kwargs):
@@ -1309,8 +1309,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_open_mmlab_mmskeleton(_paritybench_base):
     pass
     def test_000(self):
-        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 

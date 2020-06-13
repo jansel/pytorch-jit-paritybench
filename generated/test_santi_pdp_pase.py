@@ -3028,15 +3028,6 @@ class SpectrumLM(nn.Module):
             return h0
 
 
-def forward_activation(activation, tensor):
-    if activation == 'glu':
-        z, g = torch.chunk(tensor, 2, dim=1)
-        y = z * torch.sigmoid(g)
-        return y
-    else:
-        return activation(tensor)
-
-
 def build_norm_layer(norm_type, param=None, num_feats=None):
     if norm_type == 'bnorm':
         return nn.BatchNorm1d(num_feats)
@@ -3061,6 +3052,24 @@ def build_norm_layer(norm_type, param=None, num_feats=None):
         raise TypeError('Unrecognized norm type: ', norm_type)
 
 
+def build_activation(activation, params, init=0):
+    if activation == 'prelu' or activation is None:
+        return nn.PReLU(params, init=init)
+    if isinstance(activation, str):
+        return getattr(nn, activation)()
+    else:
+        return activation
+
+
+def forward_activation(activation, tensor):
+    if activation == 'glu':
+        z, g = torch.chunk(tensor, 2, dim=1)
+        y = z * torch.sigmoid(g)
+        return y
+    else:
+        return activation(tensor)
+
+
 def forward_norm(x, norm_layer):
     if norm_layer is not None:
         if isinstance(norm_layer, nn.LayerNorm):
@@ -3071,15 +3080,6 @@ def forward_norm(x, norm_layer):
         return x
     else:
         return x
-
-
-def build_activation(activation, params, init=0):
-    if activation == 'prelu' or activation is None:
-        return nn.PReLU(params, init=init)
-    if isinstance(activation, str):
-        return getattr(nn, activation)()
-    else:
-        return activation
 
 
 class GConv1DBlock(NeuralBlock):
@@ -5986,24 +5986,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_santi_pdp_pase(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(AhoCNNEncoder(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(AhoCNNHourGlassEncoder(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_003(self):
-        self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+    def test_002(self):
+        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
 
-    @_fails_compile()
-    def test_005(self):
-        self._check(UpsampleNetwork(*[], **{'feat_dims': 4}), [torch.rand([4, 4, 64])], {})
+    def test_004(self):
+        self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(StatisticalPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(UpsampleNetwork(*[], **{'feat_dims': 4}), [torch.rand([4, 4, 64])], {})
 

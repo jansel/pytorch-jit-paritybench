@@ -274,13 +274,6 @@ class Recorder(nn.Module):
         return out
 
 
-ENC_PREFIX = 'enc_'
-
-
-def string_begins_with(prefix, str):
-    return bool(re.match(f'^{prefix}', str))
-
-
 def group_dict_by_key(cond, d):
     return_val = [dict(), dict()]
     for key in d.keys():
@@ -290,12 +283,19 @@ def group_dict_by_key(cond, d):
     return *return_val,
 
 
+def string_begins_with(prefix, str):
+    return bool(re.match(f'^{prefix}', str))
+
+
 def group_by_key_prefix_and_remove_prefix(prefix, d):
     kwargs_with_prefix, kwargs = group_dict_by_key(lambda x:
         string_begins_with(prefix, x), d)
     kwargs_without_prefix = dict(map(lambda x: (x[0][len(prefix):], x[1]),
         tuple(kwargs_with_prefix.items())))
     return kwargs_without_prefix, kwargs
+
+
+ENC_PREFIX = 'enc_'
 
 
 DEC_PREFIX = 'dec_'
@@ -415,13 +415,6 @@ class Chunk(nn.Module):
         return torch.cat([self.fn(c, **kwargs) for c in chunks], dim=self.dim)
 
 
-TOKEN_SELF_ATTN_VALUE = -50000.0
-
-
-def max_neg_value(tensor):
-    return -torch.finfo(tensor.dtype).max
-
-
 def default(val, default_val):
     return default_val if val is None else val
 
@@ -449,9 +442,19 @@ def cache_method_decorator(cache_attr, cache_namespace, reexecute=False):
     return inner_fn
 
 
+def max_neg_value(tensor):
+    return -torch.finfo(tensor.dtype).max
+
+
 def batched_index_select(values, indices):
     last_dim = values.shape[-1]
     return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
+
+
+def sort_key_val(t1, t2, dim=-1):
+    values, indices = t1.sort(dim=dim)
+    t2 = t2.expand_as(t1)
+    return values, t2.gather(dim, indices)
 
 
 def chunked_sum(tensor, chunks=1):
@@ -461,10 +464,7 @@ def chunked_sum(tensor, chunks=1):
     return torch.cat(summed_tensors, dim=0).reshape(orig_size)
 
 
-def sort_key_val(t1, t2, dim=-1):
-    values, indices = t1.sort(dim=dim)
-    t2 = t2.expand_as(t1)
-    return values, t2.gather(dim, indices)
+TOKEN_SELF_ATTN_VALUE = -50000.0
 
 
 class LSHAttention(nn.Module):
@@ -672,6 +672,13 @@ class LSHAttention(nn.Module):
         return out, attn, buckets
 
 
+def merge_dims(ind_from, ind_to, tensor):
+    shape = list(tensor.shape)
+    arr_slice = slice(ind_from, ind_to + 1)
+    shape[arr_slice] = [reduce(mul, shape[arr_slice])]
+    return tensor.reshape(*shape)
+
+
 def look_around(x, backward=1, forward=0, pad_value=-1, dim=2):
     t = x.shape[1]
     dims = (len(x.shape) - dim) * (0, 0)
@@ -679,13 +686,6 @@ def look_around(x, backward=1, forward=0, pad_value=-1, dim=2):
     tensors = [padded_x[:, ind:ind + t, (...)] for ind in range(forward +
         backward + 1)]
     return torch.cat(tensors, dim=dim)
-
-
-def merge_dims(ind_from, ind_to, tensor):
-    shape = list(tensor.shape)
-    arr_slice = slice(ind_from, ind_to + 1)
-    shape[arr_slice] = [reduce(mul, shape[arr_slice])]
-    return tensor.reshape(*shape)
 
 
 class LocalAttention(nn.Module):
@@ -1261,19 +1261,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lucidrains_reformer_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ScaleNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(GELU_(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(AbsolutePositionalEmbedding(*[], **{'dim': 4, 'max_seq_len': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_001(self):
+        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(FixedPositionalEmbedding(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(GELU_(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ScaleNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

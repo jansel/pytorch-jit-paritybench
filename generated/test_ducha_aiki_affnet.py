@@ -188,6 +188,12 @@ class HessianResp(nn.Module):
         return torch.abs(gxx * gyy - gxy * gxy) * scale ** 4
 
 
+def abc2A(a, b, c, normalize=False):
+    A1_ell = torch.cat([a.view(-1, 1, 1), b.view(-1, 1, 1)], dim=2)
+    A2_ell = torch.cat([b.view(-1, 1, 1), c.view(-1, 1, 1)], dim=2)
+    return torch.cat([A1_ell, A2_ell], dim=1)
+
+
 def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):
     assert kernlen is not None or sigma is not None
     if kernlen is None:
@@ -223,12 +229,6 @@ def rectifyAffineTransformationUpIsUp(A):
     A2_ell = torch.cat([((A[:, (1), (1)] * A[:, (0), (1)] + A[:, (1), (0)] *
         A[:, (0), (0)]) / (b2a2 * det)).contiguous().view(-1, 1, 1), (det /
         b2a2).contiguous().view(-1, 1, 1)], dim=2)
-    return torch.cat([A1_ell, A2_ell], dim=1)
-
-
-def abc2A(a, b, c, normalize=False):
-    A1_ell = torch.cat([a.view(-1, 1, 1), b.view(-1, 1, 1)], dim=2)
-    A2_ell = torch.cat([b.view(-1, 1, 1), c.view(-1, 1, 1)], dim=2)
     return torch.cat([A1_ell, A2_ell], dim=1)
 
 
@@ -409,17 +409,6 @@ def generate_2dgrid(h, w, centered=True):
     return grid2d
 
 
-def zero_response_at_border(x, b):
-    if b < x.size(3) and b < x.size(2):
-        x[:, :, 0:b, :] = 0
-        x[:, :, x.size(2) - b:, :] = 0
-        x[:, :, :, 0:b] = 0
-        x[:, :, :, x.size(3) - b:] = 0
-    else:
-        return x * 0
-    return x
-
-
 def sc_y_x2LAFs(sc_y_x):
     base_LAF = torch.eye(2).float().unsqueeze(0).expand(sc_y_x.size(0), 2, 2)
     if sc_y_x.is_cuda:
@@ -445,6 +434,17 @@ def generate_3dgrid(d, h, w, centered=True):
     grid3d = torch.cat([z.repeat(w * h, 1).t().contiguous().view(-1, 1),
         grid2d.repeat(dl, 1)], dim=1)
     return grid3d
+
+
+def zero_response_at_border(x, b):
+    if b < x.size(3) and b < x.size(2):
+        x[:, :, 0:b, :] = 0
+        x[:, :, x.size(2) - b:, :] = 0
+        x[:, :, :, 0:b] = 0
+        x[:, :, :, x.size(3) - b:] = 0
+    else:
+        return x * 0
+    return x
 
 
 class NMS3dAndComposeA(nn.Module):
@@ -688,6 +688,27 @@ class HardNet(nn.Module):
         return L2Norm()(x)
 
 
+def denormalizeLAFs(LAFs, w, h):
+    w = float(w)
+    h = float(h)
+    num_lafs = LAFs.size(0)
+    min_size = min(h, w)
+    coef = torch.ones(1, 2, 3).float() * min_size
+    coef[0, 0, 2] = w
+    coef[0, 1, 2] = h
+    if LAFs.is_cuda:
+        coef = coef.cuda()
+    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
+
+
+def angles2A(angles):
+    cos_a = torch.cos(angles).view(-1, 1, 1)
+    sin_a = torch.sin(angles).view(-1, 1, 1)
+    A1_ang = torch.cat([cos_a, sin_a], dim=2)
+    A2_ang = torch.cat([-sin_a, cos_a], dim=2)
+    return torch.cat([A1_ang, A2_ang], dim=1)
+
+
 def LAFs_to_H_frames(aff_pts):
     H3_x = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(0).repeat(aff_pts
         .size(0), 1, 1)
@@ -706,71 +727,6 @@ def checkTouchBoundary(LAFs):
     good_points = 1 - (((out_pts > 1.0) + (out_pts < 0.0)).sum(dim=1).sum(
         dim=1) > 0)
     return good_points
-
-
-def angles2A(angles):
-    cos_a = torch.cos(angles).view(-1, 1, 1)
-    sin_a = torch.sin(angles).view(-1, 1, 1)
-    A1_ang = torch.cat([cos_a, sin_a], dim=2)
-    A2_ang = torch.cat([-sin_a, cos_a], dim=2)
-    return torch.cat([A1_ang, A2_ang], dim=1)
-
-
-def get_LAFs_scales(LAFs):
-    return torch.sqrt(torch.abs(LAFs[:, (0), (0)] * LAFs[:, (1), (1)] - 
-        LAFs[:, (0), (1)] * LAFs[:, (1), (0)]) + 1e-12)
-
-
-def get_pyramid_and_level_index_for_LAFs(dLAFs, sigmas, pix_dists, PS):
-    scales = get_LAFs_scales(dLAFs)
-    needed_sigmas = scales / PS
-    sigmas_full_list = []
-    level_idxs_full = []
-    oct_idxs_full = []
-    for oct_idx in range(len(sigmas)):
-        sigmas_full_list = sigmas_full_list + list(np.array(sigmas[oct_idx]
-            ) * np.array(pix_dists[oct_idx]))
-        oct_idxs_full = oct_idxs_full + [oct_idx] * len(sigmas[oct_idx])
-        level_idxs_full = level_idxs_full + list(range(0, len(sigmas[oct_idx]))
-            )
-    oct_idxs_full = torch.LongTensor(oct_idxs_full)
-    level_idxs_full = torch.LongTensor(level_idxs_full)
-    closest_imgs = cdist(np.array(sigmas_full_list).reshape(-1, 1),
-        needed_sigmas.data.cpu().numpy().reshape(-1, 1)).argmin(axis=0)
-    closest_imgs = torch.from_numpy(closest_imgs)
-    if dLAFs.is_cuda:
-        closest_imgs = closest_imgs.cuda()
-        oct_idxs_full = oct_idxs_full.cuda()
-        level_idxs_full = level_idxs_full.cuda()
-    return Variable(oct_idxs_full[closest_imgs]), Variable(level_idxs_full[
-        closest_imgs])
-
-
-def get_inverted_pyr_index(scale_pyr, pyr_idxs, level_idxs):
-    pyr_inv_idxs = []
-    for i in range(len(scale_pyr)):
-        pyr_inv_idxs.append([])
-        cur_idxs = pyr_idxs == i
-        for j in range(0, len(scale_pyr[i])):
-            cur_lvl_idxs = torch.nonzero(((level_idxs == j) * cur_idxs).data)
-            if len(cur_lvl_idxs.size()) == 0:
-                pyr_inv_idxs[i].append(None)
-            else:
-                pyr_inv_idxs[i].append(cur_lvl_idxs.squeeze())
-    return pyr_inv_idxs
-
-
-def denormalizeLAFs(LAFs, w, h):
-    w = float(w)
-    h = float(h)
-    num_lafs = LAFs.size(0)
-    min_size = min(h, w)
-    coef = torch.ones(1, 2, 3).float() * min_size
-    coef[0, 0, 2] = w
-    coef[0, 1, 2] = h
-    if LAFs.is_cuda:
-        coef = coef.cuda()
-    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
 
 
 def normalizeLAFs(LAFs, w, h):
@@ -827,6 +783,50 @@ def extract_patches_from_pyramid_with_inv_index(scale_pyramid, pyr_inv_idxs,
                 patches[(cur_lvl_idxs), :, :, :] = extract_patches(
                     scale_pyramid[i][j], LAFs[(cur_lvl_idxs), :, :], PS)
     return patches
+
+
+def get_inverted_pyr_index(scale_pyr, pyr_idxs, level_idxs):
+    pyr_inv_idxs = []
+    for i in range(len(scale_pyr)):
+        pyr_inv_idxs.append([])
+        cur_idxs = pyr_idxs == i
+        for j in range(0, len(scale_pyr[i])):
+            cur_lvl_idxs = torch.nonzero(((level_idxs == j) * cur_idxs).data)
+            if len(cur_lvl_idxs.size()) == 0:
+                pyr_inv_idxs[i].append(None)
+            else:
+                pyr_inv_idxs[i].append(cur_lvl_idxs.squeeze())
+    return pyr_inv_idxs
+
+
+def get_LAFs_scales(LAFs):
+    return torch.sqrt(torch.abs(LAFs[:, (0), (0)] * LAFs[:, (1), (1)] - 
+        LAFs[:, (0), (1)] * LAFs[:, (1), (0)]) + 1e-12)
+
+
+def get_pyramid_and_level_index_for_LAFs(dLAFs, sigmas, pix_dists, PS):
+    scales = get_LAFs_scales(dLAFs)
+    needed_sigmas = scales / PS
+    sigmas_full_list = []
+    level_idxs_full = []
+    oct_idxs_full = []
+    for oct_idx in range(len(sigmas)):
+        sigmas_full_list = sigmas_full_list + list(np.array(sigmas[oct_idx]
+            ) * np.array(pix_dists[oct_idx]))
+        oct_idxs_full = oct_idxs_full + [oct_idx] * len(sigmas[oct_idx])
+        level_idxs_full = level_idxs_full + list(range(0, len(sigmas[oct_idx]))
+            )
+    oct_idxs_full = torch.LongTensor(oct_idxs_full)
+    level_idxs_full = torch.LongTensor(level_idxs_full)
+    closest_imgs = cdist(np.array(sigmas_full_list).reshape(-1, 1),
+        needed_sigmas.data.cpu().numpy().reshape(-1, 1)).argmin(axis=0)
+    closest_imgs = torch.from_numpy(closest_imgs)
+    if dLAFs.is_cuda:
+        closest_imgs = closest_imgs.cuda()
+        oct_idxs_full = oct_idxs_full.cuda()
+        level_idxs_full = level_idxs_full.cuda()
+    return Variable(oct_idxs_full[closest_imgs]), Variable(level_idxs_full[
+        closest_imgs])
 
 
 class OnePassSIR(nn.Module):
@@ -973,17 +973,6 @@ class OnePassSIR(nn.Module):
         return denormalizeLAFs(LAFs, x.size(3), x.size(2)), responses
 
 
-def batch_eig2x2(A):
-    trace = A[:, (0), (0)] + A[:, (1), (1)]
-    delta1 = trace * trace - 4 * (A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1
-        ), (0)] * A[:, (0), (1)])
-    mask = delta1 > 0
-    delta = torch.sqrt(torch.abs(delta1))
-    l1 = mask.float() * (trace + delta) / 2.0 + 1000.0 * (1.0 - mask.float())
-    l2 = mask.float() * (trace - delta) / 2.0 + 0.0001 * (1.0 - mask.float())
-    return l1, l2
-
-
 def batched_forward(model, data, batch_size, **kwargs):
     n_patches = len(data)
     if n_patches > batch_size:
@@ -1014,6 +1003,17 @@ def batched_forward(model, data, batch_size, **kwargs):
         return out
     else:
         return model(data, kwargs)
+
+
+def batch_eig2x2(A):
+    trace = A[:, (0), (0)] + A[:, (1), (1)]
+    delta1 = trace * trace - 4 * (A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1
+        ), (0)] * A[:, (0), (1)])
+    mask = delta1 > 0
+    delta = torch.sqrt(torch.abs(delta1))
+    l1 = mask.float() * (trace + delta) / 2.0 + 1000.0 * (1.0 - mask.float())
+    l2 = mask.float() * (trace - delta) / 2.0 + 0.0001 * (1.0 - mask.float())
+    return l1, l2
 
 
 class ScaleSpaceAffinePatchExtractor(nn.Module):
@@ -2113,6 +2113,13 @@ class L2Norm(nn.Module):
         return x
 
 
+def get_bin_weight_kernel_size_and_stride(patch_size, num_spatial_bins):
+    bin_weight_stride = int(round(2.0 * math.floor(patch_size / 2) / float(
+        num_spatial_bins + 1)))
+    bin_weight_kernel_size = int(2 * bin_weight_stride - 1)
+    return bin_weight_kernel_size, bin_weight_stride
+
+
 def getPoolingKernel(kernel_size=25):
     step = 1.0 / float(np.floor(kernel_size / 2.0))
     x_coef = np.arange(step / 2.0, 1.0, step)
@@ -2120,13 +2127,6 @@ def getPoolingKernel(kernel_size=25):
     kernel = np.outer(xc2.T, xc2)
     kernel = np.maximum(0, kernel)
     return kernel
-
-
-def get_bin_weight_kernel_size_and_stride(patch_size, num_spatial_bins):
-    bin_weight_stride = int(round(2.0 * math.floor(patch_size / 2) / float(
-        num_spatial_bins + 1)))
-    bin_weight_kernel_size = int(2 * bin_weight_stride - 1)
-    return bin_weight_kernel_size, bin_weight_stride
 
 
 class SIFTNet(nn.Module):
@@ -2788,84 +2788,84 @@ class Test_ducha_aiki_affnet(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(HardNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(ScalePyramid(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
-
-    def test_002(self):
-        self._check(HessianResp(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(L2Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(L1Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(HardTFeatNet(*[], **{'sm': 4}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(GaussianBlur(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(OriNetFast(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    def test_008(self):
-        self._check(GHH(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(YiNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(AffNetFast4(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_011(self):
         self._check(AffNetFast(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_012(self):
-        self._check(AffNetFast52RotUp(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_013(self):
-        self._check(AffNetFast52Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_014(self):
-        self._check(AffNetFast5Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_015(self):
-        self._check(AffNetFast4Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_016(self):
-        self._check(AffNetFast4RotNosc(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_017(self):
-        self._check(AffNetFastScale(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_018(self):
+    def test_001(self):
         self._check(AffNetFast2Par(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_002(self):
+        self._check(AffNetFast4(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(AffNetFast4Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(AffNetFast4RotNosc(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(AffNetFast52Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(AffNetFast52RotL(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_007(self):
+        self._check(AffNetFast52RotUp(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(AffNetFast5Rot(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(AffNetFastBias(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_010(self):
+        self._check(AffNetFastScale(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_011(self):
+        self._check(GHH(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(GaussianBlur(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(HardNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
         self._check(HardNetNarELU(*[], **{'sm': 4}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_015(self):
+        self._check(HardTFeatNet(*[], **{'sm': 4}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_016(self):
+        self._check(HessianResp(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(L1Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
+        self._check(L2Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(OriNetFast(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(ScalePyramid(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(YiNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

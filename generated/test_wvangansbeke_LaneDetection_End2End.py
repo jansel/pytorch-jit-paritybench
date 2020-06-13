@@ -554,12 +554,12 @@ def ProjectiveGridGenerator(size, theta, no_cuda):
     return grid
 
 
-def return_tensor(x):
-    return x
-
-
 def square_tensor(x):
     return x ** 2
+
+
+def return_tensor(x):
+    return x
 
 
 def activation_layer(activation='square', no_cuda=False):
@@ -1659,29 +1659,29 @@ class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(MSE_Loss(*[], **{'options': _mock_config(no_cuda=4)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Classification(*[], **{'class_type': 4, 'size': [4, 4], 'channels_in': 4, 'resize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_003(self):
-        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(Decoder(*[], **{'num_classes': 4, 'pretrain': False}), [torch.rand([4, 128, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_003(self):
+        self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(MSE_Loss(*[], **{'options': _mock_config(no_cuda=4)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_005(self):
-        self._check(Classification(*[], **{'class_type': 4, 'size': [4, 4], 'channels_in': 4, 'resize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Spatial_transformer_net(*[], **{'size': [4, 4], 'channels_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(simple_net(*[], **{'nclasses': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(Spatial_transformer_net(*[], **{'size': [4, 4], 'channels_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(simple_net(*[], **{'nclasses': 4}), [torch.rand([4, 3, 64, 64])], {})
 

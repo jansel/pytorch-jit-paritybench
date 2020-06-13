@@ -288,9 +288,6 @@ class vgg_decoder(base_network.BaseModel, nn.Module):
         self.load_network(pretrain_path, self.model, 'recon', epoch_label)
 
 
-facelet_path = 'facelet_bank'
-
-
 class opt(object):
 
     def __init__(self, **entries):
@@ -304,6 +301,9 @@ class opt(object):
         d = vars(o)
         self.__dict__.update(d)
         return self
+
+
+facelet_path = 'facelet_bank'
 
 
 class simpleCNNGenerator(nn.Module):

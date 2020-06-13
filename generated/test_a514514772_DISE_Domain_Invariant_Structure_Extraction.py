@@ -852,40 +852,40 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_a514514772_DISE_Domain_Invariant_Structure_Extraction(_paritybench_base):
     pass
     def test_000(self):
-        self._check(PrivateEncoder(*[], **{'input_channels': 4, 'code_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Classifier_Module(*[], **{'inplanes': 4, 'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GaussianNoiseLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(PyramidPooling(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(PrivateEncoder(*[], **{'input_channels': 4, 'code_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(GaussianNoiseLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PyramidPooling(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 
+    @_fails_compile()
     def test_008(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(Classifier_Module(*[], **{'inplanes': 4, 'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

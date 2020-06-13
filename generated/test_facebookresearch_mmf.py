@@ -228,6 +228,17 @@ from collections import defaultdict
 from torch.autograd import Variable
 
 
+def synchronize():
+    if not dist.is_nccl_available():
+        return
+    if not dist.is_initialized():
+        return
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return
+    dist.barrier()
+
+
 class OcrPtrNet(nn.Module):
 
     def __init__(self, hidden_size, query_key_size=None):
@@ -1133,6 +1144,118 @@ def get_mmf_root():
     return mmf_root
 
 
+def get_absolute_path(paths):
+    if isinstance(paths, str):
+        if os.path.isabs(paths):
+            return paths
+        possible_paths = [paths]
+        from mmf.utils.configuration import get_mmf_env
+        user_dir = get_mmf_env(key='user_dir')
+        if user_dir:
+            possible_paths.append(os.path.join(user_dir, paths))
+        mmf_root = get_mmf_root()
+        possible_paths.append(os.path.join(mmf_root, '..', paths))
+        possible_paths.append(os.path.join(mmf_root, paths))
+        for path in possible_paths:
+            if PathManager.exists(path):
+                if path.find('://') == -1:
+                    return os.path.abspath(path)
+                else:
+                    return path
+        return paths
+    elif isinstance(paths, collections.abc.Iterable):
+        return [get_absolute_path(path) for path in paths]
+    else:
+        raise TypeError(
+            'Paths passed to dataset should either be string or list')
+
+
+def load_yaml(f):
+    abs_f = get_absolute_path(f)
+    try:
+        mapping = OmegaConf.load(abs_f)
+        f = abs_f
+    except FileNotFoundError as e:
+        relative = os.path.abspath(os.path.join(get_mmf_root(), f))
+        if not PathManager.isfile(relative):
+            raise e
+        else:
+            f = relative
+            mapping = OmegaConf.load(f)
+    if mapping is None:
+        mapping = OmegaConf.create()
+    includes = mapping.get('includes', [])
+    if not isinstance(includes, collections.abc.Sequence):
+        raise AttributeError('Includes must be a list, {} provided'.format(
+            type(includes)))
+    include_mapping = OmegaConf.create()
+    mmf_root_dir = get_mmf_root()
+    for include in includes:
+        original_include_path = include
+        include = os.path.join(mmf_root_dir, include)
+        if not PathManager.exists(include):
+            include = os.path.join(os.path.dirname(f), original_include_path)
+        current_include_mapping = load_yaml(include)
+        include_mapping = OmegaConf.merge(include_mapping,
+            current_include_mapping)
+    mapping.pop('includes', None)
+    mapping = OmegaConf.merge(include_mapping, mapping)
+    return mapping
+
+
+def get_default_config_path():
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
+
+
+def import_user_module(user_dir: str, no_print: bool=False):
+    """Given a user dir, this function imports it as a module.
+
+    This user_module is expected to have an __init__.py at its root.
+    You can use import_files to import your python files easily in
+    __init__.py
+
+    Args:
+        user_dir (str): directory which has to be imported
+        no_print (bool): This function won't print anything if set to true
+    """
+    if user_dir:
+        user_dir = get_absolute_path(user_dir)
+        module_parent, module_name = os.path.split(user_dir)
+        if module_name not in sys.modules:
+            sys.path.insert(0, module_parent)
+            if not no_print:
+                print(f'Importing user_dir from {user_dir}')
+            importlib.import_module(module_name)
+            sys.path.pop(0)
+
+
+def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
+    try:
+        from torch.hub import _get_torch_home
+        torch_cache_home = _get_torch_home()
+    except ImportError:
+        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
+            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
+    default_cache_path = os.path.join(torch_cache_home, default)
+    cache_path = os.getenv(env_variable, default_cache_path)
+    if not PathManager.exists(cache_path):
+        try:
+            PathManager.mkdirs(cache_path)
+        except PermissionError:
+            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
+            PathManager.mkdirs(cache_path)
+    return cache_path
+
+
+def resolve_dir(env_variable, default='data'):
+    default_dir = os.path.join(resolve_cache_dir(), default)
+    dir_path = os.getenv(env_variable, default_dir)
+    if not PathManager.exists(dir_path):
+        PathManager.mkdirs(dir_path)
+    return dir_path
+
+
 class Registry:
     """Class for registry object which acts as central source of truth
     for MMF
@@ -1470,118 +1593,6 @@ class Registry:
 
 
 registry = Registry()
-
-
-def get_absolute_path(paths):
-    if isinstance(paths, str):
-        if os.path.isabs(paths):
-            return paths
-        possible_paths = [paths]
-        from mmf.utils.configuration import get_mmf_env
-        user_dir = get_mmf_env(key='user_dir')
-        if user_dir:
-            possible_paths.append(os.path.join(user_dir, paths))
-        mmf_root = get_mmf_root()
-        possible_paths.append(os.path.join(mmf_root, '..', paths))
-        possible_paths.append(os.path.join(mmf_root, paths))
-        for path in possible_paths:
-            if PathManager.exists(path):
-                if path.find('://') == -1:
-                    return os.path.abspath(path)
-                else:
-                    return path
-        return paths
-    elif isinstance(paths, collections.abc.Iterable):
-        return [get_absolute_path(path) for path in paths]
-    else:
-        raise TypeError(
-            'Paths passed to dataset should either be string or list')
-
-
-def load_yaml(f):
-    abs_f = get_absolute_path(f)
-    try:
-        mapping = OmegaConf.load(abs_f)
-        f = abs_f
-    except FileNotFoundError as e:
-        relative = os.path.abspath(os.path.join(get_mmf_root(), f))
-        if not PathManager.isfile(relative):
-            raise e
-        else:
-            f = relative
-            mapping = OmegaConf.load(f)
-    if mapping is None:
-        mapping = OmegaConf.create()
-    includes = mapping.get('includes', [])
-    if not isinstance(includes, collections.abc.Sequence):
-        raise AttributeError('Includes must be a list, {} provided'.format(
-            type(includes)))
-    include_mapping = OmegaConf.create()
-    mmf_root_dir = get_mmf_root()
-    for include in includes:
-        original_include_path = include
-        include = os.path.join(mmf_root_dir, include)
-        if not PathManager.exists(include):
-            include = os.path.join(os.path.dirname(f), original_include_path)
-        current_include_mapping = load_yaml(include)
-        include_mapping = OmegaConf.merge(include_mapping,
-            current_include_mapping)
-    mapping.pop('includes', None)
-    mapping = OmegaConf.merge(include_mapping, mapping)
-    return mapping
-
-
-def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
-    try:
-        from torch.hub import _get_torch_home
-        torch_cache_home = _get_torch_home()
-    except ImportError:
-        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
-            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
-    default_cache_path = os.path.join(torch_cache_home, default)
-    cache_path = os.getenv(env_variable, default_cache_path)
-    if not PathManager.exists(cache_path):
-        try:
-            PathManager.mkdirs(cache_path)
-        except PermissionError:
-            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
-            PathManager.mkdirs(cache_path)
-    return cache_path
-
-
-def resolve_dir(env_variable, default='data'):
-    default_dir = os.path.join(resolve_cache_dir(), default)
-    dir_path = os.getenv(env_variable, default_dir)
-    if not PathManager.exists(dir_path):
-        PathManager.mkdirs(dir_path)
-    return dir_path
-
-
-def import_user_module(user_dir: str, no_print: bool=False):
-    """Given a user dir, this function imports it as a module.
-
-    This user_module is expected to have an __init__.py at its root.
-    You can use import_files to import your python files easily in
-    __init__.py
-
-    Args:
-        user_dir (str): directory which has to be imported
-        no_print (bool): This function won't print anything if set to true
-    """
-    if user_dir:
-        user_dir = get_absolute_path(user_dir)
-        module_parent, module_name = os.path.split(user_dir)
-        if module_name not in sys.modules:
-            sys.path.insert(0, module_parent)
-            if not no_print:
-                print(f'Importing user_dir from {user_dir}')
-            importlib.import_module(module_name)
-            sys.path.pop(0)
-
-
-def get_default_config_path():
-    directory = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
 
 
 class Configuration:
@@ -2219,18 +2230,6 @@ class TextEmbedding(nn.Module):
         return self.module(*args, **kwargs)
 
 
-def get_rank():
-    if not dist.is_nccl_available():
-        return 0
-    if not dist.is_initialized():
-        return 0
-    return dist.get_rank()
-
-
-def is_master():
-    return get_rank() == 0
-
-
 class BaseVocab:
     PAD_TOKEN = '<pad>'
     SOS_TOKEN = '<s>'
@@ -2349,67 +2348,6 @@ class BaseVocab:
                 vector_dim, embedding_dim)])
 
 
-def synchronize():
-    if not dist.is_nccl_available():
-        return
-    if not dist.is_initialized():
-        return
-    world_size = dist.get_world_size()
-    if world_size == 1:
-        return
-    dist.barrier()
-
-
-class PretrainedVocab(BaseVocab):
-
-    def __init__(self, embedding_name, *args, **kwargs):
-        """Use this if you want to use pretrained embedding. See description
-        of IntersectedVocab to get a list of the embedding available from
-        torchtext
-
-        Parameters
-        ----------
-        embedding_name : str
-            Name of the pretrained alias for the embedding to used
-        """
-        self.type = 'pretrained'
-        if embedding_name not in vocab.pretrained_aliases:
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = 'Unknown embedding type: %s' % embedding_name, 'error'
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        vector_cache = get_mmf_cache_dir()
-        if is_master():
-            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
-        synchronize()
-        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache
-            )
-        self.UNK_INDEX = 3
-        self.stoi = defaultdict(lambda : self.UNK_INDEX)
-        self.itos = {}
-        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
-        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
-        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
-        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
-        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
-        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
-        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
-        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
-        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(
-            embedding.itos), len(embedding.vectors[0]))
-        for i in range(4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        index = 4
-        for word in embedding.stoi:
-            self.itos[index] = word
-            self.stoi[word] = index
-            actual_index = embedding.stoi[word]
-            self.vectors[index] = embedding.vectors[actual_index]
-            index += 1
-
-
 class CustomVocab(BaseVocab):
 
     def __init__(self, vocab_file, embedding_file, data_dir=None, *args, **
@@ -2455,6 +2393,18 @@ class CustomVocab(BaseVocab):
 
 
 EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
+
+
+def get_rank():
+    if not dist.is_nccl_available():
+        return 0
+    if not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_master():
+    return get_rank() == 0
 
 
 class IntersectedVocab(BaseVocab):
@@ -2517,6 +2467,78 @@ class IntersectedVocab(BaseVocab):
         return self.embedding_dim
 
 
+class PretrainedVocab(BaseVocab):
+
+    def __init__(self, embedding_name, *args, **kwargs):
+        """Use this if you want to use pretrained embedding. See description
+        of IntersectedVocab to get a list of the embedding available from
+        torchtext
+
+        Parameters
+        ----------
+        embedding_name : str
+            Name of the pretrained alias for the embedding to used
+        """
+        self.type = 'pretrained'
+        if embedding_name not in vocab.pretrained_aliases:
+            from mmf.common.registry import registry
+            writer = registry.get('writer')
+            error = 'Unknown embedding type: %s' % embedding_name, 'error'
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        vector_cache = get_mmf_cache_dir()
+        if is_master():
+            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
+        synchronize()
+        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache
+            )
+        self.UNK_INDEX = 3
+        self.stoi = defaultdict(lambda : self.UNK_INDEX)
+        self.itos = {}
+        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
+        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
+        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
+        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
+        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
+        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
+        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
+        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
+        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(
+            embedding.itos), len(embedding.vectors[0]))
+        for i in range(4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        index = 4
+        for word in embedding.stoi:
+            self.itos[index] = word
+            self.stoi[word] = index
+            actual_index = embedding.stoi[word]
+            self.vectors[index] = embedding.vectors[actual_index]
+            index += 1
+
+
+class ExtractedVocab(BaseVocab):
+
+    def __init__(self, base_path, emb_dim, *args, **kwargs):
+        """Special vocab which is not really vocabulary but instead a class
+        which returns embedding pre-extracted from files. Can be used load
+        word embeddings from popular models like ELMo and BERT
+
+
+        Parameters
+        ----------
+        base_path: str
+            path containing saved files with embeddings one file per txt item
+        """
+        super().__init__(*args, **kwargs)
+        self.type = 'extracted'
+        self.emb_dim = emb_dim
+        self.base_path = base_path
+
+    def get_dim(self):
+        return self.emb_dim
+
+
 class WordToVectorDict:
 
     def __init__(self, model):
@@ -2565,28 +2587,6 @@ class ModelVocab(BaseVocab):
 
     def get_embedding_dim(self):
         return self.model.get_dimension()
-
-
-class ExtractedVocab(BaseVocab):
-
-    def __init__(self, base_path, emb_dim, *args, **kwargs):
-        """Special vocab which is not really vocabulary but instead a class
-        which returns embedding pre-extracted from files. Can be used load
-        word embeddings from popular models like ELMo and BERT
-
-
-        Parameters
-        ----------
-        base_path: str
-            path containing saved files with embeddings one file per txt item
-        """
-        super().__init__(*args, **kwargs)
-        self.type = 'extracted'
-        self.emb_dim = emb_dim
-        self.base_path = base_path
-
-    def get_dim(self):
-        return self.emb_dim
 
 
 class Vocab:
@@ -3122,6 +3122,16 @@ class MLP(nn.Module):
         return x
 
 
+def get_chunks(x, sizes):
+    out = []
+    begin = 0
+    for s in sizes:
+        y = x.narrow(1, begin, s)
+        out.append(y)
+        begin += s
+    return out
+
+
 def get_sizes_list(dim, chunks):
     split_size = (dim + chunks - 1) // chunks
     sizes_list = [split_size] * chunks
@@ -3135,16 +3145,6 @@ def get_sizes_list(dim, chunks):
         assert sum(sizes_list) == dim
         assert min(sizes_list) > 0
     return sizes_list
-
-
-def get_chunks(x, sizes):
-    out = []
-    begin = 0
-    for s in sizes:
-        y = x.narrow(1, begin, s)
-        out.append(y)
-        begin += s
-    return out
 
 
 @registry.register_fusion('block')
@@ -4677,68 +4677,68 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_facebookresearch_mmf(_paritybench_base):
     pass
     def test_000(self):
-        self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_005(self):
-        self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
         self._check(ConvNet(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    @_fails_compile()
+    def test_005(self):
+        self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
+
+    def test_006(self):
+        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_008(self):
         self._check(GatedTanh(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
-        self._check(ReLUWithWeightNormFC(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(WeightNormClassifier(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
+    def test_009(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
-        self._check(MfbExpand(*[], **{'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_010(self):
+        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_011(self):
         self._check(LinearTransform(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_012(self):
+        self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(MfbExpand(*[], **{'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
     def test_018(self):
-        self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(ReLUWithWeightNormFC(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
-        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(WeightNormClassifier(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

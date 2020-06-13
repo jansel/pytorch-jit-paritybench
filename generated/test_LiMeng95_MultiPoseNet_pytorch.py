@@ -107,8 +107,38 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
 
 
+class ConstList(list):
+    pass
+
+
 class ScatterList(list):
     pass
+
+
+def pose_gather(outputs, target_device, dim=0):
+    """
+    Gathers variables from different GPUs on a specified device
+      (-1 means the CPU).
+    """
+
+    def gather_map(outputs):
+        if isinstance(outputs, Variable):
+            if target_device == -1:
+                return outputs.cpu()
+            return outputs.cuda(target_device)
+        out = outputs[0]
+        if isinstance(out, Variable):
+            return Gather.apply(target_device, dim, *outputs)
+        if out is None:
+            return None
+        if isinstance(out, str):
+            return out
+        if isinstance(out, ConstList):
+            return out
+        if isinstance(out, ScatterList):
+            return tuple(map(gather_map, itertools.chain(*outputs)))
+        return type(out)(map(gather_map, zip(*outputs)))
+    return gather_map(outputs)
 
 
 def scatter(inputs, target_gpus, dim=0):
@@ -147,36 +177,6 @@ def pose_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
     inputs = tuple(inputs)
     kwargs = tuple(kwargs)
     return inputs, kwargs
-
-
-class ConstList(list):
-    pass
-
-
-def pose_gather(outputs, target_device, dim=0):
-    """
-    Gathers variables from different GPUs on a specified device
-      (-1 means the CPU).
-    """
-
-    def gather_map(outputs):
-        if isinstance(outputs, Variable):
-            if target_device == -1:
-                return outputs.cpu()
-            return outputs.cuda(target_device)
-        out = outputs[0]
-        if isinstance(out, Variable):
-            return Gather.apply(target_device, dim, *outputs)
-        if out is None:
-            return None
-        if isinstance(out, str):
-            return out
-        if isinstance(out, ConstList):
-            return out
-        if isinstance(out, ScatterList):
-            return tuple(map(gather_map, itertools.chain(*outputs)))
-        return type(out)(map(gather_map, zip(*outputs)))
-    return gather_map(outputs)
 
 
 class ListDataParallel(DataParallel):
@@ -589,6 +589,57 @@ class PRN(nn.Module):
         return out
 
 
+def FPN101():
+    return FPN(Bottleneck, [3, 4, 23, 3])
+
+
+def build_names():
+    names = []
+    for j in range(2, 6):
+        names.append('heatmap_loss_k%d' % j)
+        names.append('seg_loss_k%d' % j)
+    names.append('heatmap_loss')
+    names.append('seg_loss')
+    return names
+
+
+def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
+    names = build_names()
+    saved_for_log = OrderedDict()
+    criterion = nn.MSELoss(size_average=True).cuda()
+    total_loss = 0
+    div1 = 1.0
+    for j in range(5):
+        pred1 = saved_for_loss[j][:, :18, :, :] * heat_weight
+        gt1 = heat_weight * heat_temp
+        loss1 = criterion(pred1, gt1) / div1
+        total_loss += loss1
+        saved_for_log[names[j * 2]] = loss1.item()
+    saved_for_log['max_ht'] = torch.max(saved_for_loss[-1].data[:, :18, :, :]
+        ).item()
+    saved_for_log['min_ht'] = torch.min(saved_for_loss[-1].data[:, :18, :, :]
+        ).item()
+    return total_loss, saved_for_log
+
+
+def build_detection_loss(saved_for_loss, anno):
+    """
+    :param saved_for_loss: [classifications, regressions, anchors]
+    :param anno: annotations
+    :return: classification_loss, regression_loss
+    """
+    saved_for_log = OrderedDict()
+    focalLoss = losses.FocalLoss()
+    classification_loss, regression_loss = focalLoss(*saved_for_loss, anno)
+    classification_loss = classification_loss.mean()
+    regression_loss = regression_loss.mean()
+    total_loss = classification_loss + regression_loss
+    saved_for_log['total_loss'] = total_loss.item()
+    saved_for_log['classification_loss'] = classification_loss.item()
+    saved_for_log['regression_loss'] = regression_loss.item()
+    return total_loss, saved_for_log
+
+
 def pth_nms(dets, thresh):
     """
   dets has to be a tensor
@@ -625,32 +676,6 @@ def nms(dets, thresh):
     return pth_nms(dets, thresh)
 
 
-def FPN50():
-    return FPN(Bottleneck, [3, 4, 6, 3])
-
-
-def build_detection_loss(saved_for_loss, anno):
-    """
-    :param saved_for_loss: [classifications, regressions, anchors]
-    :param anno: annotations
-    :return: classification_loss, regression_loss
-    """
-    saved_for_log = OrderedDict()
-    focalLoss = losses.FocalLoss()
-    classification_loss, regression_loss = focalLoss(*saved_for_loss, anno)
-    classification_loss = classification_loss.mean()
-    regression_loss = regression_loss.mean()
-    total_loss = classification_loss + regression_loss
-    saved_for_log['total_loss'] = total_loss.item()
-    saved_for_log['classification_loss'] = classification_loss.item()
-    saved_for_log['regression_loss'] = regression_loss.item()
-    return total_loss, saved_for_log
-
-
-def FPN101():
-    return FPN(Bottleneck, [3, 4, 23, 3])
-
-
 def build_prn_loss(saved_for_loss, label):
     """
     :param saved_for_loss: [out]
@@ -666,33 +691,8 @@ def build_prn_loss(saved_for_loss, label):
     return total_loss, saved_for_log
 
 
-def build_names():
-    names = []
-    for j in range(2, 6):
-        names.append('heatmap_loss_k%d' % j)
-        names.append('seg_loss_k%d' % j)
-    names.append('heatmap_loss')
-    names.append('seg_loss')
-    return names
-
-
-def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
-    names = build_names()
-    saved_for_log = OrderedDict()
-    criterion = nn.MSELoss(size_average=True).cuda()
-    total_loss = 0
-    div1 = 1.0
-    for j in range(5):
-        pred1 = saved_for_loss[j][:, :18, :, :] * heat_weight
-        gt1 = heat_weight * heat_temp
-        loss1 = criterion(pred1, gt1) / div1
-        total_loss += loss1
-        saved_for_log[names[j * 2]] = loss1.item()
-    saved_for_log['max_ht'] = torch.max(saved_for_loss[-1].data[:, :18, :, :]
-        ).item()
-    saved_for_log['min_ht'] = torch.min(saved_for_loss[-1].data[:, :18, :, :]
-        ).item()
-    return total_loss, saved_for_log
+def FPN50():
+    return FPN(Bottleneck, [3, 4, 6, 3])
 
 
 class poseNet(nn.Module):
@@ -924,31 +924,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_LiMeng95_MultiPoseNet_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(Add(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_002(self):
-        self._check(Concat(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(ClassificationModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Add(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Concat(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 

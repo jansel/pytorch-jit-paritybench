@@ -333,17 +333,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_oscarknagg_few_shot(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(GlobalMaxPool1d(*[], **{}), [torch.rand([4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(BidrectionalLSTM(*[], **{'size': 4, 'layers': 1}), [torch.rand([4, 4, 4])], {})
 
-    def test_004(self):
+    def test_001(self):
         self._check(DummyModel(*[], **{'k': 4}), [torch.rand([2, 2])], {})
+
+    def test_002(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(GlobalMaxPool1d(*[], **{}), [torch.rand([4, 4, 4])], {})
 

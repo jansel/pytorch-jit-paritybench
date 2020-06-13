@@ -142,6 +142,37 @@ class PointnetFPModule(nn.Module):
         return new_features.squeeze(-1)
 
 
+class BallQuery(Function):
+
+    @staticmethod
+    def forward(ctx, radius: float, nsample: int, xyz: torch.Tensor,
+        new_xyz: torch.Tensor) ->torch.Tensor:
+        """
+        :param ctx:
+        :param radius: float, radius of the balls
+        :param nsample: int, maximum number of features in the balls
+        :param xyz: (B, N, 3) xyz coordinates of the features
+        :param new_xyz: (B, npoint, 3) centers of the ball query
+        :return:
+            idx: (B, npoint, nsample) tensor with the indicies of the features that form the query balls
+        """
+        assert new_xyz.is_contiguous()
+        assert xyz.is_contiguous()
+        B, N, _ = xyz.size()
+        npoint = new_xyz.size(1)
+        idx = torch.cuda.IntTensor(B, npoint, nsample).zero_()
+        pointnet2.ball_query_wrapper(B, N, npoint, radius, nsample, new_xyz,
+            xyz, idx)
+        return idx
+
+    @staticmethod
+    def backward(ctx, a=None):
+        return None, None, None, None
+
+
+ball_query = BallQuery.apply
+
+
 class GroupingOperation(Function):
 
     @staticmethod
@@ -182,37 +213,6 @@ class GroupingOperation(Function):
 
 
 grouping_operation = GroupingOperation.apply
-
-
-class BallQuery(Function):
-
-    @staticmethod
-    def forward(ctx, radius: float, nsample: int, xyz: torch.Tensor,
-        new_xyz: torch.Tensor) ->torch.Tensor:
-        """
-        :param ctx:
-        :param radius: float, radius of the balls
-        :param nsample: int, maximum number of features in the balls
-        :param xyz: (B, N, 3) xyz coordinates of the features
-        :param new_xyz: (B, npoint, 3) centers of the ball query
-        :return:
-            idx: (B, npoint, nsample) tensor with the indicies of the features that form the query balls
-        """
-        assert new_xyz.is_contiguous()
-        assert xyz.is_contiguous()
-        B, N, _ = xyz.size()
-        npoint = new_xyz.size(1)
-        idx = torch.cuda.IntTensor(B, npoint, nsample).zero_()
-        pointnet2.ball_query_wrapper(B, N, npoint, radius, nsample, new_xyz,
-            xyz, idx)
-        return idx
-
-    @staticmethod
-    def backward(ctx, a=None):
-        return None, None, None, None
-
-
-ball_query = BallQuery.apply
 
 
 class QueryAndGroup(nn.Module):
@@ -360,6 +360,21 @@ class FC(nn.Sequential):
                 self.add_module(name + 'activation', activation)
 
 
+CLS_FC = [128]
+
+
+NSAMPLE = [[16, 32], [16, 32], [16, 32], [16, 32]]
+
+
+FP_MLPS = [[128, 128], [256, 256], [512, 512], [512, 512]]
+
+
+NPOINTS = [4096, 1024, 256, 64]
+
+
+RADIUS = [[0.1, 0.5], [0.5, 1.0], [1.0, 2.0], [2.0, 4.0]]
+
+
 class PointnetSAModuleMSG(_PointnetSAModuleBase):
     """Pointnet set abstraction layer with multiscale grouping"""
 
@@ -395,23 +410,8 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
         self.pool_method = pool_method
 
 
-NSAMPLE = [[16, 32], [16, 32], [16, 32], [16, 32]]
-
-
 MLPS = [[[16, 16, 32], [32, 32, 64]], [[64, 64, 128], [64, 96, 128]], [[128,
     196, 256], [128, 196, 256]], [[256, 256, 512], [256, 384, 512]]]
-
-
-RADIUS = [[0.1, 0.5], [0.5, 1.0], [1.0, 2.0], [2.0, 4.0]]
-
-
-NPOINTS = [4096, 1024, 256, 64]
-
-
-FP_MLPS = [[128, 128], [256, 256], [512, 512], [512, 512]]
-
-
-CLS_FC = [128]
 
 
 class Pointnet2MSG(nn.Module):
@@ -491,16 +491,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sshaoshuai_Pointnet2_PyTorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GroupAll(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BatchNorm1d(*[], **{'in_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BatchNorm1d(*[], **{'in_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GroupAll(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

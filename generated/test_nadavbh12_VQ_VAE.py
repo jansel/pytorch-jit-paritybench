@@ -423,14 +423,14 @@ class Test_nadavbh12_VQ_VAE(_paritybench_base):
     def test_000(self):
         self._check(AbstractAutoEncoder(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(NearestEmbed(*[], **{'num_embeddings': 4, 'embeddings_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(NearestEmbedEMA(*[], **{'n_emb': 4, 'emb_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -731,24 +731,7 @@ class LayerFactory:
         return super().__getattr__(key)
 
 
-Norm = LayerFactory()
-
-
-Dropout = LayerFactory()
-
-
 Act = LayerFactory()
-
-
-def same_padding(kernel_size, dilation=1):
-    """
-    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
-    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
-    """
-    kernel_size = np.atleast_1d(kernel_size)
-    padding = (kernel_size - 1) // 2 + (dilation - 1)
-    padding = tuple(int(p) for p in padding)
-    return tuple(padding) if len(padding) > 1 else padding[0]
 
 
 def split_args(args):
@@ -768,7 +751,24 @@ def split_args(args):
         return name_obj, args
 
 
+Norm = LayerFactory()
+
+
 Conv = LayerFactory()
+
+
+def same_padding(kernel_size, dilation=1):
+    """
+    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
+    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
+    """
+    kernel_size = np.atleast_1d(kernel_size)
+    padding = (kernel_size - 1) // 2 + (dilation - 1)
+    padding = tuple(int(p) for p in padding)
+    return tuple(padding) if len(padding) > 1 else padding[0]
+
+
+Dropout = LayerFactory()
 
 
 class SkipConnection(nn.Module):
@@ -790,6 +790,25 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
+def issequenceiterable(obj):
+    """
+    Determine if the object is an iterable sequence and is not a string
+    """
+    return isinstance(obj, Iterable) and not isinstance(obj, str)
+
+
+def ensure_tuple_rep(tup, dim):
+    """
+    Returns a copy of `tup` with `dim` values by either shortened or duplicated input.
+    """
+    if not issequenceiterable(tup):
+        return (tup,) * dim
+    elif len(tup) == dim:
+        return tuple(tup)
+    raise ValueError(f'sequence must have length {dim}, got length {len(tup)}.'
+        )
+
+
 def gaussian_1d(sigma, truncated=4.0):
     """
     one dimensional gaussian kernel.
@@ -809,25 +828,6 @@ def gaussian_1d(sigma, truncated=4.0):
     out = np.exp(-0.5 / sigma2 * x ** 2)
     out /= out.sum()
     return out
-
-
-def issequenceiterable(obj):
-    """
-    Determine if the object is an iterable sequence and is not a string
-    """
-    return isinstance(obj, Iterable) and not isinstance(obj, str)
-
-
-def ensure_tuple_rep(tup, dim):
-    """
-    Returns a copy of `tup` with `dim` values by either shortened or duplicated input.
-    """
-    if not issequenceiterable(tup):
-        return (tup,) * dim
-    elif len(tup) == dim:
-        return tuple(tup)
-    raise ValueError(f'sequence must have length {dim}, got length {len(tup)}.'
-        )
 
 
 class GaussianFilter(nn.Module):
@@ -991,12 +991,12 @@ class DenseNet(nn.Module):
         return x
 
 
+SUPPORTED_ACTI = {'relu': nn.ReLU, 'prelu': nn.PReLU, 'relu6': nn.ReLU6}
+
+
 SUPPORTED_NORM = {'batch': lambda spatial_dims: Norm[Norm.BATCH,
     spatial_dims], 'instance': lambda spatial_dims: Norm[Norm.INSTANCE,
     spatial_dims]}
-
-
-SUPPORTED_ACTI = {'relu': nn.ReLU, 'prelu': nn.PReLU, 'relu6': nn.ReLU6}
 
 
 class ConvNormActi(nn.Module):
@@ -1156,9 +1156,6 @@ def export(modname):
     return _inner
 
 
-GlobalAliases = {}
-
-
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
@@ -1168,14 +1165,14 @@ class Test_Project_MONAI_MONAI(_paritybench_base):
     def test_000(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(TverskyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TverskyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

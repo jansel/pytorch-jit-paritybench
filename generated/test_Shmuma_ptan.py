@@ -645,27 +645,27 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Shmuma_ptan(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvNet(*[], **{'input_shape': [4, 4], 'output_size': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_001(self):
         self._check(Model(*[], **{'n_actions': 4, 'input_len': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(ConvNet(*[], **{'input_shape': [4, 4], 'output_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(PolicyNet(*[], **{'input_size': 4, 'actions_n': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(PolicyNet(*[], **{'input_size': 4, 'actions_n': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(ValueNet(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_006(self):
-        self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

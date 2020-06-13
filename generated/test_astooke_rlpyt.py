@@ -379,24 +379,6 @@ class DistributionalHeadModel(torch.nn.Module):
         return self.mlp(input).view(-1, self._output_size, self._n_atoms)
 
 
-def restore_leading_dims(tensors, lead_dim, T=1, B=1):
-    """Reshapes ``tensors`` (one or `tuple`, `list`) to to have ``lead_dim``
-    leading dimensions, which will become [], [B], or [T,B].  Assumes input
-    tensors already have a leading Batch dimension, which might need to be
-    removed. (Typically the last layer of model will compute with leading
-    batch dimension.)  For use in model ``forward()`` method, so that output
-    dimensions match input dimensions, and the same model can be used for any
-    such case.  Use with outputs from ``infer_leading_dims()``."""
-    is_seq = isinstance(tensors, (tuple, list))
-    tensors = tensors if is_seq else (tensors,)
-    if lead_dim == 2:
-        tensors = tuple(t.view((T, B) + t.shape[1:]) for t in tensors)
-    if lead_dim == 0:
-        assert B == 1
-        tensors = tuple(t.squeeze(0) for t in tensors)
-    return tensors if is_seq else tensors[0]
-
-
 def infer_leading_dims(array, dim):
     """Determine any leading dimensions of ``array``, which can have up to two
     leading dimensions more than the number of data dimensions, ``dim``.  Used
@@ -415,6 +397,24 @@ def infer_leading_dims(array, dim):
         B = array.shape[0]
         has_B = True
     return T, B, shape, has_T, has_B
+
+
+def restore_leading_dims(tensors, lead_dim, T=1, B=1):
+    """Reshapes ``tensors`` (one or `tuple`, `list`) to to have ``lead_dim``
+    leading dimensions, which will become [], [B], or [T,B].  Assumes input
+    tensors already have a leading Batch dimension, which might need to be
+    removed. (Typically the last layer of model will compute with leading
+    batch dimension.)  For use in model ``forward()`` method, so that output
+    dimensions match input dimensions, and the same model can be used for any
+    such case.  Use with outputs from ``infer_leading_dims()``."""
+    is_seq = isinstance(tensors, (tuple, list))
+    tensors = tensors if is_seq else (tensors,)
+    if lead_dim == 2:
+        tensors = tuple(t.view((T, B) + t.shape[1:]) for t in tensors)
+    if lead_dim == 0:
+        assert B == 1
+        tensors = tuple(t.squeeze(0) for t in tensors)
+    return tensors if is_seq else tensors[0]
 
 
 class AtariCatDqnModel(torch.nn.Module):
@@ -495,14 +495,14 @@ class AtariDqnModel(torch.nn.Module):
         return q
 
 
+RESERVED_NAMES = 'get', 'items'
+
+
 def tuple_itemgetter(i):
 
     def _tuple_itemgetter(obj):
         return tuple.__getitem__(obj, i)
     return _tuple_itemgetter
-
-
-RESERVED_NAMES = 'get', 'items'
 
 
 def namedarraytuple(typename, field_names, return_namedtuple_cls=False,
@@ -1107,16 +1107,16 @@ class Test_astooke_rlpyt(_paritybench_base):
     def test_000(self):
         self._check(Conv2dModel(*[], **{'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 64, 64])], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(DistributionalDuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4, 'n_atoms': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(DistributionalHeadModel(*[], **{'input_size': 4, 'layer_sizes': 1, 'output_size': 4, 'n_atoms': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(DuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_003(self):
-        self._check(DistributionalDuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4, 'n_atoms': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(MlpModel(*[], **{'input_size': 4, 'hidden_sizes': 4}), [torch.rand([4, 4, 4, 4])], {})

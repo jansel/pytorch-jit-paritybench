@@ -58,6 +58,23 @@ import torch.utils.data as data
 import math
 
 
+_global_config['gpu_train'] = False
+
+
+GPU = cfg['gpu_train']
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -171,23 +188,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-_global_config['gpu_train'] = False
-
-
-GPU = cfg['gpu_train']
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -424,12 +424,12 @@ class Test_zisianw_FaceBoxes_PyTorch(_paritybench_base):
         self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
-
-    def test_002(self):
         self._check(CRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(FaceBoxes(*[], **{'phase': 4, 'size': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 

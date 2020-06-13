@@ -381,10 +381,10 @@ class RelationalMHDPA(nn.Module):
             'MLP{}_W'.format(layer), 'MLP{}_b'.format(layer)]
 
 
-BATCH_AXIS = 0
-
-
 CHANNEL_AXIS = 1
+
+
+BATCH_AXIS = 0
 
 
 class CircularDND(torch.nn.Module):
@@ -1204,17 +1204,15 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_heronsystems_adeptRL(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MultiHeadSelfAttention(*[], **{'nb_embed': 4, 'nb_qk_chan': 4, 'nb_v_chan': 4, 'nb_head': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(CircularDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1028, 4])], {})
+        self._check(BasicBlockV2(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(PruningDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1024, 4])], {})
+        self._check(CircularDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1028, 4])], {})
 
     @_fails_compile()
     def test_003(self):
@@ -1224,18 +1222,20 @@ class Test_heronsystems_adeptRL(_paritybench_base):
         self._check(GaussianLinear(*[], **{'fan_in': 4, 'nodes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_006(self):
+        self._check(MultiHeadSelfAttention(*[], **{'nb_embed': 4, 'nb_qk_chan': 4, 'nb_v_chan': 4, 'nb_head': 4}), [torch.rand([4, 4, 4])], {})
+
     def test_007(self):
-        self._check(Residual2DPreact(*[], **{'nb_in_chan': 4, 'nb_out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_008(self):
-        self._check(BasicBlock(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PruningDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1024, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(BasicBlockV2(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual2DPreact(*[], **{'nb_in_chan': 4, 'nb_out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 

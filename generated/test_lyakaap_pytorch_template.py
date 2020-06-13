@@ -144,6 +144,31 @@ class FocalLoss(nn.Module):
         return loss.sum()
 
 
+def isnan(x):
+    return x != x
+
+
+def mean(l, ignore_nan=True, empty=0):
+    """
+    nanmean compatible with generators.
+    """
+    l = iter(l)
+    if ignore_nan:
+        l = filterfalse(isnan, l)
+    try:
+        n = 1
+        acc = next(l)
+    except StopIteration:
+        if empty == 'raise':
+            raise ValueError('Empty mean')
+        return empty
+    for n, v in enumerate(l, 2):
+        acc += v
+    if n == 1:
+        return acc
+    return acc / n
+
+
 def lovasz_grad(gt_sorted):
     """
     Computes gradient of the Lovasz extension w.r.t sorted errors
@@ -172,31 +197,6 @@ def flatten_binary_scores(scores, labels, ignore=None):
     vscores = scores[valid]
     vlabels = labels[valid]
     return vscores, vlabels
-
-
-def isnan(x):
-    return x != x
-
-
-def mean(l, ignore_nan=True, empty=0):
-    """
-    nanmean compatible with generators.
-    """
-    l = iter(l)
-    if ignore_nan:
-        l = filterfalse(isnan, l)
-    try:
-        n = 1
-        acc = next(l)
-    except StopIteration:
-        if empty == 'raise':
-            raise ValueError('Empty mean')
-        return empty
-    for n, v in enumerate(l, 2):
-        acc += v
-    if n == 1:
-        return acc
-    return acc / n
 
 
 class LovaszHinge(nn.Module):
@@ -856,14 +856,14 @@ class Test_lyakaap_pytorch_template(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(MixLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ASP_OC_Module(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(BaseOC_Context_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(SoftIoULoss(*[], **{}), [torch.rand([4, 19, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
@@ -872,20 +872,20 @@ class Test_lyakaap_pytorch_template(_paritybench_base):
     def test_004(self):
         self._check(LovaszHinge(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
+        self._check(MixLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(NoOperation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(SelfAttentionBlock(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(BaseOC_Context_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_008(self):
-        self._check(ASP_OC_Module(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+        self._check(SoftIoULoss(*[], **{}), [torch.rand([4, 19, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_009(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4, 'padding': 4, 'batch_norm': 4}), [torch.rand([4, 4, 4, 4])], {})

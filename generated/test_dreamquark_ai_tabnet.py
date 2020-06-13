@@ -597,21 +597,21 @@ class Test_dreamquark_ai_tabnet(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Sparsemax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(Entmax15(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(GBN(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(GLU_Block(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(GLU_Layer(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Sparsemax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -445,34 +445,34 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_kuaikuaikim_DFace(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(PNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+    def test_001(self):
+        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     @_fails_compile()
+    def test_003(self):
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+
+    @_fails_compile()
     def test_004(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+        self._check(PNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -326,9 +326,9 @@ class Test_andreasveit_convnet_aig(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Sequential_ext(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GumbleSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(GumbleSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(Sequential_ext(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

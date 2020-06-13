@@ -849,46 +849,46 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_gmayday1997_SceneChangeDet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(FeatureCorrelation(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BhattacharyyaDistance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(l2normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(l1normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(scale_feature(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Mahalanobis_Distance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(ConstractiveThresholdHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
         self._check(ConstractiveLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(SampleHistogramLoss(*[], **{'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(ConstractiveThresholdHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
-        self._check(BhattacharyyaDistance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    def test_003(self):
+        self._check(FeatureCorrelation(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_004(self):
         self._check(KLCoefficient(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_005(self):
+        self._check(Mahalanobis_Distance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(SampleHistogramLoss(*[], **{'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(SiameseNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
         self._check(deeplab(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_011(self):
+    def test_009(self):
         self._check(deeplab_V2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
+    def test_010(self):
+        self._check(l1normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(l2normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_012(self):
-        self._check(SiameseNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(scale_feature(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

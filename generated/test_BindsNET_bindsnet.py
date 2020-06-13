@@ -443,8 +443,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_BindsNET_bindsnet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Net(*[], **{}), [torch.rand([6400, 6400])], {})
+        self._check(FullyConnectedNetwork(*[], **{}), [torch.rand([784, 784])], {})
 
     def test_001(self):
-        self._check(FullyConnectedNetwork(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(Net(*[], **{}), [torch.rand([6400, 6400])], {})
 

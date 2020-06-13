@@ -168,16 +168,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ctallec_world_models(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_MDRNNBase(*[], **{'latents': 4, 'actions': 4, 'hiddens': 4, 'gaussians': 4}), [], {})
-
-    def test_001(self):
         self._check(Decoder(*[], **{'img_channels': 4, 'latent_size': 4}), [torch.rand([4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(Encoder(*[], **{'img_channels': 4, 'latent_size': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(VAE(*[], **{'img_channels': 4, 'latent_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(_MDRNNBase(*[], **{'latents': 4, 'actions': 4, 'hiddens': 4, 'gaussians': 4}), [], {})
 

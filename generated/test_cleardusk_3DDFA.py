@@ -162,19 +162,6 @@ class MobileNet(nn.Module):
         return x
 
 
-def _tensor_to_cuda(x):
-    if x.is_cuda:
-        return x
-    else:
-        return x.cuda()
-
-
-_numpy_to_cuda = lambda x: _tensor_to_cuda(torch.from_numpy(x))
-
-
-_to_tensor = _numpy_to_cuda
-
-
 d = 'test.configs'
 
 

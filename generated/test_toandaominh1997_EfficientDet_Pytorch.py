@@ -435,6 +435,20 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio'])
@@ -501,12 +515,6 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
-
-
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=1000
     ):
@@ -548,14 +556,6 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
 
 
 url_map = {'efficientnet-b0':
@@ -1057,6 +1057,32 @@ class ConvWS2d(nn.Conv2d):
             padding, self.dilation, self.groups, self.eps)
 
 
+conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d}
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
 norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
     ), 'GN': ('gn', nn.GroupNorm)}
 
@@ -1098,32 +1124,6 @@ def build_norm_layer(cfg, num_features, postfix=''):
     for param in layer.parameters():
         param.requires_grad = requires_grad
     return name, layer
-
-
-conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d}
-
-
-def build_conv_layer(cfg, *args, **kwargs):
-    """ Build convolution layer
-    Args:
-        cfg (None or dict): cfg should contain:
-            type (str): identify conv layer type.
-            layer args: args needed to instantiate a conv layer.
-    Returns:
-        layer (nn.Module): created conv layer
-    """
-    if cfg is None:
-        cfg_ = dict(type='Conv')
-    else:
-        assert isinstance(cfg, dict) and 'type' in cfg
-        cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in conv_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        conv_layer = conv_cfg[layer_type]
-    layer = conv_layer(*args, **kwargs, **cfg_)
-    return layer
 
 
 class ConvModule(nn.Module):
@@ -1216,16 +1216,16 @@ def multi_apply(func, *args, **kwargs):
     return tuple(map(list, zip(*map_results)))
 
 
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
 def bias_init_with_prob(prior_prob):
     """ initialize conv/fc bias value according to giving probablity"""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
     return bias_init
+
+
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 class RetinaHead(nn.Module):
@@ -1420,44 +1420,44 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_toandaominh1997_EfficientDet_Pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(ClassificationModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_003(self):
+        self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(ConvWS2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
         self._check(ConvModule(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_006(self):
+        self._check(ConvWS2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(RetinaHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RetinaHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     def test_011(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

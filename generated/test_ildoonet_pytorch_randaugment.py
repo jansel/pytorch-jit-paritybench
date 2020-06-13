@@ -792,29 +792,29 @@ class Test_ildoonet_pytorch_randaugment(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(ShakeBottleNeck(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4, 'cardinary': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    @_fails_compile()
+    def test_003(self):
+        self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(ShakeResNeXt(*[], **{'depth': 1, 'w_base': 4, 'cardinary': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_006(self):
         self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
-        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_008(self):
+    def test_007(self):
         self._check(SmoothCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

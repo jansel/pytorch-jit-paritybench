@@ -387,11 +387,11 @@ class Test_VainF_pytorch_msssim(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Decoder(*[], **{}), [torch.rand([4, 32, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{}), [torch.rand([4, 32, 4, 4])], {})
+        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):

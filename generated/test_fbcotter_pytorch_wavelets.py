@@ -258,6 +258,25 @@ class DTCWTInverse2(nn.Module):
         return y
 
 
+def mode_to_int(mode):
+    if mode == 'zero':
+        return 0
+    elif mode == 'symmetric':
+        return 1
+    elif mode == 'per' or mode == 'periodization':
+        return 2
+    elif mode == 'constant':
+        return 3
+    elif mode == 'reflect':
+        return 4
+    elif mode == 'replicate':
+        return 5
+    elif mode == 'periodic':
+        return 6
+    else:
+        raise ValueError('Unkown pad type: {}'.format(mode))
+
+
 def _as_col_vector(v):
     """Return *v* as a column vector with shape (N,1).
     """
@@ -280,6 +299,33 @@ def prep_filt(h, c, transpose=False):
     return torch.tensor(h, dtype=torch.get_default_dtype())
 
 
+def colfilter(X, h, mode='symmetric'):
+    if X is None or X.shape == torch.Size([]):
+        return torch.zeros(1, 1, 1, 1, device=X.device)
+    b, ch, row, col = X.shape
+    m = h.shape[2] // 2
+    if mode == 'symmetric':
+        xe = symm_pad(row, m)
+        X = F.conv2d(X[:, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
+    else:
+        X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(m, 0))
+    return X
+
+
+def rowfilter(X, h, mode='symmetric'):
+    if X is None or X.shape == torch.Size([]):
+        return torch.zeros(1, 1, 1, 1, device=X.device)
+    b, ch, row, col = X.shape
+    m = h.shape[2] // 2
+    h = h.transpose(2, 3).contiguous()
+    if mode == 'symmetric':
+        xe = symm_pad(col, m)
+        X = F.conv2d(X[:, :, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
+    else:
+        X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(0, m))
+    return X
+
+
 def q2c(y, dim=-1):
     """
     Convert from quads in y to complex numbers in z.
@@ -299,6 +345,180 @@ def highs_to_orientations(lh, hl, hh, o_dim):
     imags = torch.stack([deg15i, deg45i, deg75i, deg105i, deg135i, deg165i],
         dim=o_dim)
     return reals, imags
+
+
+def fwd_j1(x, h0, h1, skip_hps, o_dim, mode):
+    """ Level 1 forward dtcwt.
+
+    Have it as a separate function as can be used by
+    the forward pass of the forward transform and the backward pass of the
+    inverse transform.
+    """
+    if not skip_hps:
+        lo = rowfilter(x, h0, mode)
+        hi = rowfilter(x, h1, mode)
+        ll = colfilter(lo, h0, mode)
+        lh = colfilter(lo, h1, mode)
+        del lo
+        hl = colfilter(hi, h0, mode)
+        hh = colfilter(hi, h1, mode)
+        del hi
+        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
+    else:
+        ll = rowfilter(x, h0, mode)
+        ll = colfilter(ll, h0, mode)
+        highr = x.new_zeros([])
+        highi = x.new_zeros([])
+    return ll, highr, highi
+
+
+def c2q(w1, w2):
+    """
+    Scale by gain and convert from complex w(:,:,1:2) to real quad-numbers
+    in z.
+
+    Arrange pixels from the real and imag parts of the 2 highpasses
+    into 4 separate subimages .
+     A----B     Re   Im of w(:,:,1)
+     |    |
+     |    |
+     C----D     Re   Im of w(:,:,2)
+
+    """
+    w1r, w1i = w1
+    w2r, w2i = w2
+    x1 = w1r + w2r
+    x2 = w1i + w2i
+    x3 = w1i - w2i
+    x4 = -w1r + w2r
+    b, ch, r, c = w1r.shape
+    y = w1r.new_zeros((b, ch, r * 2, c * 2), requires_grad=w1r.requires_grad)
+    y[:, :, ::2, ::2] = x1
+    y[:, :, ::2, 1::2] = x2
+    y[:, :, 1::2, ::2] = x3
+    y[:, :, 1::2, 1::2] = x4
+    y /= np.sqrt(2)
+    return y
+
+
+def orientations_to_highs(reals, imags, o_dim):
+    dev = reals.device
+    horiz = torch.index_select(reals, o_dim, tensor([0, 5], device=dev))
+    diag = torch.index_select(reals, o_dim, tensor([1, 4], device=dev))
+    vertic = torch.index_select(reals, o_dim, tensor([2, 3], device=dev))
+    deg15r, deg165r = torch.unbind(horiz, dim=o_dim)
+    deg45r, deg135r = torch.unbind(diag, dim=o_dim)
+    deg75r, deg105r = torch.unbind(vertic, dim=o_dim)
+    dev = imags.device
+    horiz = torch.index_select(imags, o_dim, tensor([0, 5], device=dev))
+    diag = torch.index_select(imags, o_dim, tensor([1, 4], device=dev))
+    vertic = torch.index_select(imags, o_dim, tensor([2, 3], device=dev))
+    deg15i, deg165i = torch.unbind(horiz, dim=o_dim)
+    deg45i, deg135i = torch.unbind(diag, dim=o_dim)
+    deg75i, deg105i = torch.unbind(vertic, dim=o_dim)
+    lh = c2q((deg15r, deg15i), (deg165r, deg165i))
+    hl = c2q((deg75r, deg75i), (deg105r, deg105i))
+    hh = c2q((deg45r, deg45i), (deg135r, deg135i))
+    return lh, hl, hh
+
+
+def inv_j1(ll, highr, highi, g0, g1, o_dim, h_dim, w_dim, mode):
+    """ Level1 inverse dtcwt.
+
+    Have it as a separate function as can be used by the forward pass of the
+    inverse transform and the backward pass of the forward transform.
+    """
+    if highr is None or highr.shape == torch.Size([]):
+        y = rowfilter(colfilter(ll, g0), g0)
+    else:
+        lh, hl, hh = orientations_to_highs(highr, highi, o_dim)
+        if ll is None or ll.shape == torch.Size([]):
+            hi = colfilter(hh, g1, mode) + colfilter(hl, g0, mode)
+            lo = colfilter(lh, g1, mode)
+            del lh, hh, hl
+        else:
+            r, c = ll.shape[2:]
+            r1, c1 = highr.shape[h_dim], highr.shape[w_dim]
+            if r != r1 * 2:
+                ll = ll[:, :, 1:-1]
+            if c != c1 * 2:
+                ll = ll[:, :, :, 1:-1]
+            hi = colfilter(hh, g1, mode) + colfilter(hl, g0, mode)
+            lo = colfilter(lh, g1, mode) + colfilter(ll, g0, mode)
+            del lh, hl, hh
+        y = rowfilter(hi, g1, mode) + rowfilter(lo, g0, mode)
+    return y
+
+
+def int_to_mode(mode):
+    if mode == 0:
+        return 'zero'
+    elif mode == 1:
+        return 'symmetric'
+    elif mode == 2:
+        return 'periodization'
+    elif mode == 3:
+        return 'constant'
+    elif mode == 4:
+        return 'reflect'
+    elif mode == 5:
+        return 'replicate'
+    elif mode == 6:
+        return 'periodic'
+    else:
+        raise ValueError('Unkown pad type: {}'.format(mode))
+
+
+def get_dimensions5(o_dim, ri_dim):
+    """ Get the orientation, height and width dimensions after the real and
+    imaginary parts have been popped off (5 dimensional tensor)."""
+    o_dim = o_dim % 6
+    ri_dim = ri_dim % 6
+    if ri_dim < o_dim:
+        o_dim -= 1
+    if o_dim == 4:
+        h_dim = 2
+        w_dim = 3
+    elif o_dim == 3:
+        h_dim = 2
+        w_dim = 4
+    else:
+        h_dim = 3
+        w_dim = 4
+    return o_dim, ri_dim, h_dim, w_dim
+
+
+class FWD_J1(Function):
+    """ Differentiable function doing 1 level forward DTCWT """
+
+    @staticmethod
+    def forward(ctx, x, h0, h1, skip_hps, o_dim, ri_dim, mode):
+        mode = int_to_mode(mode)
+        ctx.mode = mode
+        ctx.save_for_backward(h0, h1)
+        ctx.dims = get_dimensions5(o_dim, ri_dim)
+        o_dim, ri_dim = ctx.dims[0], ctx.dims[1]
+        ll, highr, highi = fwd_j1(x, h0, h1, skip_hps, o_dim, mode)
+        if not skip_hps:
+            highs = torch.stack((highr, highi), dim=ri_dim)
+        else:
+            highs = ll.new_zeros([])
+        return ll, highs
+
+    @staticmethod
+    def backward(ctx, dl, dh):
+        h0, h1 = ctx.saved_tensors
+        mode = ctx.mode
+        dx = None
+        if ctx.needs_input_grad[0]:
+            o_dim, ri_dim, h_dim, w_dim = ctx.dims
+            if dh is not None and dh.shape != torch.Size([]):
+                dhr, dhi = torch.unbind(dh, dim=ri_dim)
+            else:
+                dhr = dl.new_zeros([])
+                dhi = dl.new_zeros([])
+            dx = inv_j1(dl, dhr, dhi, h0, h1, o_dim, h_dim, w_dim, mode)
+        return dx, None, None, None, None, None, None
 
 
 def coldfilt(X, ha, hb, highpass=False, mode='symmetric'):
@@ -372,73 +592,49 @@ def fwd_j2plus(x, h0a, h1a, h0b, h1b, skip_hps, o_dim, mode):
     return ll, highr, highi
 
 
-def get_dimensions5(o_dim, ri_dim):
-    """ Get the orientation, height and width dimensions after the real and
-    imaginary parts have been popped off (5 dimensional tensor)."""
-    o_dim = o_dim % 6
-    ri_dim = ri_dim % 6
-    if ri_dim < o_dim:
-        o_dim -= 1
-    if o_dim == 4:
-        h_dim = 2
-        w_dim = 3
-    elif o_dim == 3:
-        h_dim = 2
-        w_dim = 4
+def rowifilt(X, ha, hb, highpass=False, mode='symmetric'):
+    if X is None or X.shape == torch.Size([]):
+        return torch.zeros(1, 1, 1, 1, device=X.device)
+    m = ha.shape[2]
+    m2 = m // 2
+    hao = ha[:, :, 1::2]
+    hae = ha[:, :, ::2]
+    hbo = hb[:, :, 1::2]
+    hbe = hb[:, :, ::2]
+    batch, ch, r, c = X.shape
+    if c % 2 != 0:
+        raise ValueError('No. of cols in X must be a multiple of 2.\n' +
+            'X was {}'.format(X.shape))
+    xe = symm_pad(c, m2)
+    if m2 % 2 == 0:
+        h1 = hae
+        h2 = hbe
+        h3 = hao
+        h4 = hbo
+        if highpass:
+            X = torch.cat((X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[:-2:2])
+                ], X[:, :, :, (xe[3::2])], X[:, :, :, (xe[2::2])]), dim=1)
+        else:
+            X = torch.cat((X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[1:-2:2])
+                ], X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
     else:
-        h_dim = 3
-        w_dim = 4
-    return o_dim, ri_dim, h_dim, w_dim
-
-
-def c2q(w1, w2):
-    """
-    Scale by gain and convert from complex w(:,:,1:2) to real quad-numbers
-    in z.
-
-    Arrange pixels from the real and imag parts of the 2 highpasses
-    into 4 separate subimages .
-     A----B     Re   Im of w(:,:,1)
-     |    |
-     |    |
-     C----D     Re   Im of w(:,:,2)
-
-    """
-    w1r, w1i = w1
-    w2r, w2i = w2
-    x1 = w1r + w2r
-    x2 = w1i + w2i
-    x3 = w1i - w2i
-    x4 = -w1r + w2r
-    b, ch, r, c = w1r.shape
-    y = w1r.new_zeros((b, ch, r * 2, c * 2), requires_grad=w1r.requires_grad)
-    y[:, :, ::2, ::2] = x1
-    y[:, :, ::2, 1::2] = x2
-    y[:, :, 1::2, ::2] = x3
-    y[:, :, 1::2, 1::2] = x4
-    y /= np.sqrt(2)
-    return y
-
-
-def orientations_to_highs(reals, imags, o_dim):
-    dev = reals.device
-    horiz = torch.index_select(reals, o_dim, tensor([0, 5], device=dev))
-    diag = torch.index_select(reals, o_dim, tensor([1, 4], device=dev))
-    vertic = torch.index_select(reals, o_dim, tensor([2, 3], device=dev))
-    deg15r, deg165r = torch.unbind(horiz, dim=o_dim)
-    deg45r, deg135r = torch.unbind(diag, dim=o_dim)
-    deg75r, deg105r = torch.unbind(vertic, dim=o_dim)
-    dev = imags.device
-    horiz = torch.index_select(imags, o_dim, tensor([0, 5], device=dev))
-    diag = torch.index_select(imags, o_dim, tensor([1, 4], device=dev))
-    vertic = torch.index_select(imags, o_dim, tensor([2, 3], device=dev))
-    deg15i, deg165i = torch.unbind(horiz, dim=o_dim)
-    deg45i, deg135i = torch.unbind(diag, dim=o_dim)
-    deg75i, deg105i = torch.unbind(vertic, dim=o_dim)
-    lh = c2q((deg15r, deg15i), (deg165r, deg165i))
-    hl = c2q((deg75r, deg75i), (deg105r, deg105i))
-    hh = c2q((deg45r, deg45i), (deg135r, deg135i))
-    return lh, hl, hh
+        h1 = hao
+        h2 = hbo
+        h3 = hae
+        h4 = hbe
+        if highpass:
+            X = torch.cat((X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2]
+                )], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])]), dim=1)
+        else:
+            X = torch.cat((X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2]
+                )], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])]), dim=1)
+    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.
+        repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0).reshape(4 * ch,
+        1, 1, m2)
+    X = F.conv2d(X, h, groups=4 * ch)
+    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 
+        3 * ch:]], dim=4).view(batch, ch, r, c * 2)
+    return X
 
 
 def colifilt(X, ha, hb, highpass=False, mode='symmetric'):
@@ -482,51 +678,6 @@ def colifilt(X, ha, hb, highpass=False, mode='symmetric'):
     X = F.conv2d(X, h, groups=4 * ch)
     X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 
         3 * ch:]], dim=3).view(batch, ch, r * 2, c)
-    return X
-
-
-def rowifilt(X, ha, hb, highpass=False, mode='symmetric'):
-    if X is None or X.shape == torch.Size([]):
-        return torch.zeros(1, 1, 1, 1, device=X.device)
-    m = ha.shape[2]
-    m2 = m // 2
-    hao = ha[:, :, 1::2]
-    hae = ha[:, :, ::2]
-    hbo = hb[:, :, 1::2]
-    hbe = hb[:, :, ::2]
-    batch, ch, r, c = X.shape
-    if c % 2 != 0:
-        raise ValueError('No. of cols in X must be a multiple of 2.\n' +
-            'X was {}'.format(X.shape))
-    xe = symm_pad(c, m2)
-    if m2 % 2 == 0:
-        h1 = hae
-        h2 = hbe
-        h3 = hao
-        h4 = hbo
-        if highpass:
-            X = torch.cat((X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[:-2:2])
-                ], X[:, :, :, (xe[3::2])], X[:, :, :, (xe[2::2])]), dim=1)
-        else:
-            X = torch.cat((X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[1:-2:2])
-                ], X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
-    else:
-        h1 = hao
-        h2 = hbo
-        h3 = hae
-        h4 = hbe
-        if highpass:
-            X = torch.cat((X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2]
-                )], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])]), dim=1)
-        else:
-            X = torch.cat((X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2]
-                )], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])]), dim=1)
-    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.
-        repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0).reshape(4 * ch,
-        1, 1, m2)
-    X = F.conv2d(X, h, groups=4 * ch)
-    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 
-        3 * ch:]], dim=4).view(batch, ch, r, c * 2)
     return X
 
 
@@ -593,157 +744,6 @@ class FWD_J2PLUS(Function):
             dx = inv_j2plus(dl, dhr, dhi, h0a, h1a, h0b, h1b, o_dim, h_dim,
                 w_dim, mode)
         return dx, None, None, None, None, None, None, None, None
-
-
-def colfilter(X, h, mode='symmetric'):
-    if X is None or X.shape == torch.Size([]):
-        return torch.zeros(1, 1, 1, 1, device=X.device)
-    b, ch, row, col = X.shape
-    m = h.shape[2] // 2
-    if mode == 'symmetric':
-        xe = symm_pad(row, m)
-        X = F.conv2d(X[:, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
-    else:
-        X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(m, 0))
-    return X
-
-
-def rowfilter(X, h, mode='symmetric'):
-    if X is None or X.shape == torch.Size([]):
-        return torch.zeros(1, 1, 1, 1, device=X.device)
-    b, ch, row, col = X.shape
-    m = h.shape[2] // 2
-    h = h.transpose(2, 3).contiguous()
-    if mode == 'symmetric':
-        xe = symm_pad(col, m)
-        X = F.conv2d(X[:, :, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
-    else:
-        X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(0, m))
-    return X
-
-
-def inv_j1(ll, highr, highi, g0, g1, o_dim, h_dim, w_dim, mode):
-    """ Level1 inverse dtcwt.
-
-    Have it as a separate function as can be used by the forward pass of the
-    inverse transform and the backward pass of the forward transform.
-    """
-    if highr is None or highr.shape == torch.Size([]):
-        y = rowfilter(colfilter(ll, g0), g0)
-    else:
-        lh, hl, hh = orientations_to_highs(highr, highi, o_dim)
-        if ll is None or ll.shape == torch.Size([]):
-            hi = colfilter(hh, g1, mode) + colfilter(hl, g0, mode)
-            lo = colfilter(lh, g1, mode)
-            del lh, hh, hl
-        else:
-            r, c = ll.shape[2:]
-            r1, c1 = highr.shape[h_dim], highr.shape[w_dim]
-            if r != r1 * 2:
-                ll = ll[:, :, 1:-1]
-            if c != c1 * 2:
-                ll = ll[:, :, :, 1:-1]
-            hi = colfilter(hh, g1, mode) + colfilter(hl, g0, mode)
-            lo = colfilter(lh, g1, mode) + colfilter(ll, g0, mode)
-            del lh, hl, hh
-        y = rowfilter(hi, g1, mode) + rowfilter(lo, g0, mode)
-    return y
-
-
-def fwd_j1(x, h0, h1, skip_hps, o_dim, mode):
-    """ Level 1 forward dtcwt.
-
-    Have it as a separate function as can be used by
-    the forward pass of the forward transform and the backward pass of the
-    inverse transform.
-    """
-    if not skip_hps:
-        lo = rowfilter(x, h0, mode)
-        hi = rowfilter(x, h1, mode)
-        ll = colfilter(lo, h0, mode)
-        lh = colfilter(lo, h1, mode)
-        del lo
-        hl = colfilter(hi, h0, mode)
-        hh = colfilter(hi, h1, mode)
-        del hi
-        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
-    else:
-        ll = rowfilter(x, h0, mode)
-        ll = colfilter(ll, h0, mode)
-        highr = x.new_zeros([])
-        highi = x.new_zeros([])
-    return ll, highr, highi
-
-
-def int_to_mode(mode):
-    if mode == 0:
-        return 'zero'
-    elif mode == 1:
-        return 'symmetric'
-    elif mode == 2:
-        return 'periodization'
-    elif mode == 3:
-        return 'constant'
-    elif mode == 4:
-        return 'reflect'
-    elif mode == 5:
-        return 'replicate'
-    elif mode == 6:
-        return 'periodic'
-    else:
-        raise ValueError('Unkown pad type: {}'.format(mode))
-
-
-class FWD_J1(Function):
-    """ Differentiable function doing 1 level forward DTCWT """
-
-    @staticmethod
-    def forward(ctx, x, h0, h1, skip_hps, o_dim, ri_dim, mode):
-        mode = int_to_mode(mode)
-        ctx.mode = mode
-        ctx.save_for_backward(h0, h1)
-        ctx.dims = get_dimensions5(o_dim, ri_dim)
-        o_dim, ri_dim = ctx.dims[0], ctx.dims[1]
-        ll, highr, highi = fwd_j1(x, h0, h1, skip_hps, o_dim, mode)
-        if not skip_hps:
-            highs = torch.stack((highr, highi), dim=ri_dim)
-        else:
-            highs = ll.new_zeros([])
-        return ll, highs
-
-    @staticmethod
-    def backward(ctx, dl, dh):
-        h0, h1 = ctx.saved_tensors
-        mode = ctx.mode
-        dx = None
-        if ctx.needs_input_grad[0]:
-            o_dim, ri_dim, h_dim, w_dim = ctx.dims
-            if dh is not None and dh.shape != torch.Size([]):
-                dhr, dhi = torch.unbind(dh, dim=ri_dim)
-            else:
-                dhr = dl.new_zeros([])
-                dhi = dl.new_zeros([])
-            dx = inv_j1(dl, dhr, dhi, h0, h1, o_dim, h_dim, w_dim, mode)
-        return dx, None, None, None, None, None, None
-
-
-def mode_to_int(mode):
-    if mode == 'zero':
-        return 0
-    elif mode == 'symmetric':
-        return 1
-    elif mode == 'per' or mode == 'periodization':
-        return 2
-    elif mode == 'constant':
-        return 3
-    elif mode == 'reflect':
-        return 4
-    elif mode == 'replicate':
-        return 5
-    elif mode == 'periodic':
-        return 6
-    else:
-        raise ValueError('Unkown pad type: {}'.format(mode))
 
 
 class DTCWTForward(nn.Module):
@@ -865,28 +865,6 @@ class DTCWTForward(nn.Module):
             return low, highs
 
 
-def get_dimensions6(o_dim, ri_dim):
-    """ Get the orientation, real/imag, height and width dimensions
-    for the full tensor (6 dimensions)."""
-    o_dim = o_dim % 6
-    ri_dim = ri_dim % 6
-    if ri_dim < o_dim:
-        o_dim -= 1
-    if o_dim >= 3 and ri_dim >= 3:
-        h_dim = 2
-    elif o_dim >= 4 or ri_dim >= 4:
-        h_dim = 3
-    else:
-        h_dim = 4
-    if o_dim >= 4 and ri_dim >= 4:
-        w_dim = 3
-    elif o_dim >= 4 or ri_dim >= 4:
-        w_dim = 4
-    else:
-        w_dim = 5
-    return o_dim, ri_dim, h_dim, w_dim
-
-
 class INV_J1(Function):
     """ Differentiable function doing 1 level inverse DTCWT """
 
@@ -921,6 +899,28 @@ class INV_J1(Function):
             dl, dhr, dhi = fwd_j1(dy, g0, g1, False, o_dim, mode)
             dh = torch.stack((dhr, dhi), dim=ri_dim)
         return dl, dh, None, None, None, None, None
+
+
+def get_dimensions6(o_dim, ri_dim):
+    """ Get the orientation, real/imag, height and width dimensions
+    for the full tensor (6 dimensions)."""
+    o_dim = o_dim % 6
+    ri_dim = ri_dim % 6
+    if ri_dim < o_dim:
+        o_dim -= 1
+    if o_dim >= 3 and ri_dim >= 3:
+        h_dim = 2
+    elif o_dim >= 4 or ri_dim >= 4:
+        h_dim = 3
+    else:
+        h_dim = 4
+    if o_dim >= 4 and ri_dim >= 4:
+        w_dim = 3
+    elif o_dim >= 4 or ri_dim >= 4:
+        w_dim = 4
+    else:
+        w_dim = 5
+    return o_dim, ri_dim, h_dim, w_dim
 
 
 class INV_J2PLUS(Function):
@@ -1382,6 +1382,31 @@ class ScatLayerj1_f(torch.autograd.Function):
         return (dX,) + (None,) * 5
 
 
+def fwd_j1_rot(x, h0, h1, h2, skip_hps, o_dim, mode):
+    """ Level 1 forward dtcwt.
+
+    Have it as a separate function as can be used by
+    the forward pass of the forward transform and the backward pass of the
+    inverse transform.
+    """
+    if not skip_hps:
+        lo = rowfilter(x, h0, mode)
+        hi = rowfilter(x, h1, mode)
+        ba = rowfilter(x, h2, mode)
+        lh = colfilter(lo, h1, mode)
+        hl = colfilter(hi, h0, mode)
+        hh = colfilter(ba, h2, mode)
+        ll = colfilter(lo, h0, mode)
+        del lo, hi, ba
+        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
+    else:
+        ll = rowfilter(x, h0, mode)
+        ll = colfilter(ll, h0, mode)
+        highr = x.new_zeros([])
+        highi = x.new_zeros([])
+    return ll, highr, highi
+
+
 def inv_j1_rot(ll, highr, highi, g0, g1, g2, o_dim, h_dim, w_dim, mode):
     """ Level1 inverse dtcwt.
 
@@ -1411,31 +1436,6 @@ def inv_j1_rot(ll, highr, highi, g0, g1, g2, o_dim, h_dim, w_dim, mode):
         y = rowfilter(hi, g1, mode) + rowfilter(lo, g0, mode) + rowfilter(ba,
             g2, mode)
     return y
-
-
-def fwd_j1_rot(x, h0, h1, h2, skip_hps, o_dim, mode):
-    """ Level 1 forward dtcwt.
-
-    Have it as a separate function as can be used by
-    the forward pass of the forward transform and the backward pass of the
-    inverse transform.
-    """
-    if not skip_hps:
-        lo = rowfilter(x, h0, mode)
-        hi = rowfilter(x, h1, mode)
-        ba = rowfilter(x, h2, mode)
-        lh = colfilter(lo, h1, mode)
-        hl = colfilter(hi, h0, mode)
-        hh = colfilter(ba, h2, mode)
-        ll = colfilter(lo, h0, mode)
-        del lo, hi, ba
-        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
-    else:
-        ll = rowfilter(x, h0, mode)
-        ll = colfilter(ll, h0, mode)
-        highr = x.new_zeros([])
-        highi = x.new_zeros([])
-    return ll, highr, highi
 
 
 class ScatLayerj1_rot_f(torch.autograd.Function):
@@ -1556,29 +1556,160 @@ class ScatLayer(nn.Module):
             mode_str, self.magbias)
 
 
-def fwd_j2plus_rot(x, h0a, h1a, h0b, h1b, h2a, h2b, skip_hps, o_dim, mode):
-    """ Level 2 plus forward dtcwt.
+class ScatLayerj2_f(torch.autograd.Function):
+    """ Function to do forward and backward passes of a single scattering
+    layer with the DTCWT biorthogonal filters. """
 
-    Have it as a separate function as can be used by
-    the forward pass of the forward transform and the backward pass of the
-    inverse transform.
-    """
-    if not skip_hps:
-        lo = rowdfilt(x, h0b, h0a, False, mode)
-        hi = rowdfilt(x, h1b, h1a, True, mode)
-        ba = rowdfilt(x, h2b, h2a, True, mode)
-        lh = coldfilt(lo, h1b, h1a, True, mode)
-        hl = coldfilt(hi, h0b, h0a, False, mode)
-        hh = coldfilt(ba, h2b, h2a, True, mode)
-        ll = coldfilt(lo, h0b, h0a, False, mode)
-        del lo, hi, ba
-        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
-    else:
-        ll = rowdfilt(x, h0b, h0a, False, mode)
-        ll = coldfilt(ll, h0b, h0a, False, mode)
-        highr = None
-        highi = None
-    return ll, highr, highi
+    @staticmethod
+    def forward(ctx, x, h0o, h1o, h0a, h0b, h1a, h1b, mode, bias,
+        combine_colour):
+        ctx.in_shape = x.shape
+        batch, ch, r, c = x.shape
+        assert r % 8 == c % 8 == 0
+        mode = int_to_mode(mode)
+        ctx.mode = mode
+        ctx.combine_colour = combine_colour
+        s0, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
+        if combine_colour:
+            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
+                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
+                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s1_j1 = s1_j1[:, :, (None)]
+            if x.requires_grad:
+                dsdx1 = reals / s1_j1
+                dsdy1 = imags / s1_j1
+            s1_j1 = s1_j1 - bias
+            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
+                mode)
+            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
+                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
+                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s1_j2 = s1_j2[:, :, (None)]
+            if x.requires_grad:
+                dsdx2 = reals / s1_j2
+                dsdy2 = imags / s1_j2
+            s1_j2 = s1_j2 - bias
+            s0 = F.avg_pool2d(s0, 2)
+            s1_j1 = s1_j1[:, :, (0)]
+            s1_j1, reals, imags = fwd_j1(s1_j1, h0o, h1o, False, 1, mode)
+            s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
+            if x.requires_grad:
+                dsdx2_1 = reals / s2_j1
+                dsdy2_1 = imags / s2_j1
+            q = s2_j1.shape
+            s2_j1 = s2_j1.view(q[0], 36, q[3], q[4])
+            s2_j1 = s2_j1 - bias
+            s1_j1 = F.avg_pool2d(s1_j1, 2)
+            if x.requires_grad:
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
+                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+            else:
+                z = x.new_zeros(1)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
+                    z, z, z)
+            del reals, imags
+            Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
+        else:
+            s1_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
+            if x.requires_grad:
+                dsdx1 = reals / s1_j1
+                dsdy1 = imags / s1_j1
+            s1_j1 = s1_j1 - bias
+            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
+                mode)
+            s1_j2 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
+            if x.requires_grad:
+                dsdx2 = reals / s1_j2
+                dsdy2 = imags / s1_j2
+            s1_j2 = s1_j2 - bias
+            s0 = F.avg_pool2d(s0, 2)
+            p = s1_j1.shape
+            s1_j1 = s1_j1.view(p[0], 6 * p[2], p[3], p[4])
+            s1_j1, reals, imags = fwd_j1(s1_j1, h0o, h1o, False, 1, mode)
+            s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
+            if x.requires_grad:
+                dsdx2_1 = reals / s2_j1
+                dsdy2_1 = imags / s2_j1
+            q = s2_j1.shape
+            s2_j1 = s2_j1.view(q[0], 36, q[2] // 6, q[3], q[4])
+            s2_j1 = s2_j1 - bias
+            s1_j1 = F.avg_pool2d(s1_j1, 2)
+            s1_j1 = s1_j1.view(p[0], 6, p[2], p[3] // 2, p[4] // 2)
+            if x.requires_grad:
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
+                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+            else:
+                z = x.new_zeros(1)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
+                    z, z, z)
+            del reals, imags
+            Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
+        return Z
+
+    @staticmethod
+    def backward(ctx, dZ):
+        dX = None
+        mode = ctx.mode
+        if ctx.needs_input_grad[0]:
+            o_dim = 1
+            h_dim = 3
+            w_dim = 4
+            (h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2,
+                dsdx2_1, dsdy2_1) = ctx.saved_tensors
+            h0o_t = h0o
+            h1o_t = h1o
+            h0a_t = h0b
+            h0b_t = h0a
+            h1a_t = h1b
+            h1b_t = h1a
+            if ctx.combine_colour:
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15
+                    ], dZ[:, 15:]
+                ds1_j2 = ds1_j2[:, :, (None)]
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
+                    ='nearest')
+                q = ds2_j1.shape
+                ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
+                reals = ds2_j1 * dsdx2_1
+                imags = ds2_j1 * dsdy2_1
+                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
+                    h_dim, w_dim, mode)
+                ds1_j1 = ds1_j1[:, :, (None)]
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
+                    )
+                reals = ds1_j2 * dsdx2
+                imags = ds1_j2 * dsdy2
+                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
+                    h1b_t, o_dim, h_dim, w_dim, mode)
+                reals = ds1_j1 * dsdx1
+                imags = ds1_j1 * dsdy1
+                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
+                    w_dim, mode)
+            else:
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:,
+                    7:13], dZ[:, 13:]
+                p = ds1_j1.shape
+                ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
+                    ='nearest')
+                q = ds2_j1.shape
+                ds2_j1 = ds2_j1.view(q[0], 6, q[2] * 6, q[3], q[4])
+                reals = ds2_j1 * dsdx2_1
+                imags = ds2_j1 * dsdy2_1
+                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
+                    h_dim, w_dim, mode)
+                ds1_j1 = ds1_j1.view(p[0], 6, p[2], p[3] * 2, p[4] * 2)
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
+                    )
+                reals = ds1_j2 * dsdx2
+                imags = ds1_j2 * dsdy2
+                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
+                    h1b_t, o_dim, h_dim, w_dim, mode)
+                reals = ds1_j1 * dsdx1
+                imags = ds1_j1 * dsdy1
+                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
+                    w_dim, mode)
+        return (dX,) + (None,) * 9
 
 
 def inv_j2plus_rot(ll, highr, highi, g0a, g1a, g0b, g1b, g2a, g2b, o_dim,
@@ -1607,6 +1738,31 @@ def inv_j2plus_rot(ll, highr, highi, g0a, g1a, g0b, g1b, g2a, g2b, o_dim,
         y = rowifilt(hi, g1b, g1a, True, mode) + rowifilt(lo, g0b, g0a, 
             False, mode) + rowifilt(ba, g2b, g2a, True, mode)
     return y
+
+
+def fwd_j2plus_rot(x, h0a, h1a, h0b, h1b, h2a, h2b, skip_hps, o_dim, mode):
+    """ Level 2 plus forward dtcwt.
+
+    Have it as a separate function as can be used by
+    the forward pass of the forward transform and the backward pass of the
+    inverse transform.
+    """
+    if not skip_hps:
+        lo = rowdfilt(x, h0b, h0a, False, mode)
+        hi = rowdfilt(x, h1b, h1a, True, mode)
+        ba = rowdfilt(x, h2b, h2a, True, mode)
+        lh = coldfilt(lo, h1b, h1a, True, mode)
+        hl = coldfilt(hi, h0b, h0a, False, mode)
+        hh = coldfilt(ba, h2b, h2a, True, mode)
+        ll = coldfilt(lo, h0b, h0a, False, mode)
+        del lo, hi, ba
+        highr, highi = highs_to_orientations(lh, hl, hh, o_dim)
+    else:
+        ll = rowdfilt(x, h0b, h0a, False, mode)
+        ll = coldfilt(ll, h0b, h0a, False, mode)
+        highr = None
+        highi = None
+    return ll, highr, highi
 
 
 class ScatLayerj2_rot_f(torch.autograd.Function):
@@ -1768,162 +1924,6 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
                 dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t,
                     o_dim, h_dim, w_dim, mode)
         return (dX,) + (None,) * 12
-
-
-class ScatLayerj2_f(torch.autograd.Function):
-    """ Function to do forward and backward passes of a single scattering
-    layer with the DTCWT biorthogonal filters. """
-
-    @staticmethod
-    def forward(ctx, x, h0o, h1o, h0a, h0b, h1a, h1b, mode, bias,
-        combine_colour):
-        ctx.in_shape = x.shape
-        batch, ch, r, c = x.shape
-        assert r % 8 == c % 8 == 0
-        mode = int_to_mode(mode)
-        ctx.mode = mode
-        ctx.combine_colour = combine_colour
-        s0, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
-        if combine_colour:
-            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j1 = s1_j1[:, :, (None)]
-            if x.requires_grad:
-                dsdx1 = reals / s1_j1
-                dsdy1 = imags / s1_j1
-            s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
-                mode)
-            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j2 = s1_j2[:, :, (None)]
-            if x.requires_grad:
-                dsdx2 = reals / s1_j2
-                dsdy2 = imags / s1_j2
-            s1_j2 = s1_j2 - bias
-            s0 = F.avg_pool2d(s0, 2)
-            s1_j1 = s1_j1[:, :, (0)]
-            s1_j1, reals, imags = fwd_j1(s1_j1, h0o, h1o, False, 1, mode)
-            s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
-            if x.requires_grad:
-                dsdx2_1 = reals / s2_j1
-                dsdy2_1 = imags / s2_j1
-            q = s2_j1.shape
-            s2_j1 = s2_j1.view(q[0], 36, q[3], q[4])
-            s2_j1 = s2_j1 - bias
-            s1_j1 = F.avg_pool2d(s1_j1, 2)
-            if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
-                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
-            else:
-                z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
-                    z, z, z)
-            del reals, imags
-            Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
-        else:
-            s1_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
-            if x.requires_grad:
-                dsdx1 = reals / s1_j1
-                dsdy1 = imags / s1_j1
-            s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
-                mode)
-            s1_j2 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
-            if x.requires_grad:
-                dsdx2 = reals / s1_j2
-                dsdy2 = imags / s1_j2
-            s1_j2 = s1_j2 - bias
-            s0 = F.avg_pool2d(s0, 2)
-            p = s1_j1.shape
-            s1_j1 = s1_j1.view(p[0], 6 * p[2], p[3], p[4])
-            s1_j1, reals, imags = fwd_j1(s1_j1, h0o, h1o, False, 1, mode)
-            s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
-            if x.requires_grad:
-                dsdx2_1 = reals / s2_j1
-                dsdy2_1 = imags / s2_j1
-            q = s2_j1.shape
-            s2_j1 = s2_j1.view(q[0], 36, q[2] // 6, q[3], q[4])
-            s2_j1 = s2_j1 - bias
-            s1_j1 = F.avg_pool2d(s1_j1, 2)
-            s1_j1 = s1_j1.view(p[0], 6, p[2], p[3] // 2, p[4] // 2)
-            if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
-                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
-            else:
-                z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
-                    z, z, z)
-            del reals, imags
-            Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
-        return Z
-
-    @staticmethod
-    def backward(ctx, dZ):
-        dX = None
-        mode = ctx.mode
-        if ctx.needs_input_grad[0]:
-            o_dim = 1
-            h_dim = 3
-            w_dim = 4
-            (h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2,
-                dsdx2_1, dsdy2_1) = ctx.saved_tensors
-            h0o_t = h0o
-            h1o_t = h1o
-            h0a_t = h0b
-            h0b_t = h0a
-            h1a_t = h1b
-            h1b_t = h1a
-            if ctx.combine_colour:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15
-                    ], dZ[:, 15:]
-                ds1_j2 = ds1_j2[:, :, (None)]
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
-                q = ds2_j1.shape
-                ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
-                reals = ds2_j1 * dsdx2_1
-                imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
-                    h_dim, w_dim, mode)
-                ds1_j1 = ds1_j1[:, :, (None)]
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
-                reals = ds1_j2 * dsdx2
-                imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, o_dim, h_dim, w_dim, mode)
-                reals = ds1_j1 * dsdx1
-                imags = ds1_j1 * dsdy1
-                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
-                    w_dim, mode)
-            else:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:,
-                    7:13], dZ[:, 13:]
-                p = ds1_j1.shape
-                ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
-                q = ds2_j1.shape
-                ds2_j1 = ds2_j1.view(q[0], 6, q[2] * 6, q[3], q[4])
-                reals = ds2_j1 * dsdx2_1
-                imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
-                    h_dim, w_dim, mode)
-                ds1_j1 = ds1_j1.view(p[0], 6, p[2], p[3] * 2, p[4] * 2)
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
-                reals = ds1_j2 * dsdx2
-                imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, o_dim, h_dim, w_dim, mode)
-                reals = ds1_j1 * dsdx1
-                imags = ds1_j1 * dsdy1
-                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
-                    w_dim, mode)
-        return (dX,) + (None,) * 9
 
 
 class ScatLayerj2(nn.Module):

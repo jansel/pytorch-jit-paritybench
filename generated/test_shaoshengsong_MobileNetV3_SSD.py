@@ -219,16 +219,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
-    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
-    if use_batch_norm:
-        return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-            BatchNorm2d(oup), ReLU(inplace=True))
-    else:
-        return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), ReLU
-            (inplace=True))
-
-
 def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
     ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
     if use_batch_norm:
@@ -237,6 +227,16 @@ def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
     else:
         return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
             ReLU(inplace=True))
+
+
+def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
+    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
+    if use_batch_norm:
+        return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+            BatchNorm2d(oup), ReLU(inplace=True))
+    else:
+        return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), ReLU
+            (inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -373,15 +373,6 @@ class MobileBlock(nn.Module):
             return out
 
 
-def _make_divisible(v, divisor=8, min_value=None):
-    if min_value is None:
-        min_value = divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
-
-
 def _weights_init(m):
     if isinstance(m, nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
@@ -394,6 +385,15 @@ def _weights_init(m):
         n = m.weight.size(1)
         m.weight.data.normal_(0, 0.01)
         m.bias.data.zero_()
+
+
+def _make_divisible(v, divisor=8, min_value=None):
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 
 
 class MobileNetV3(nn.Module):
@@ -855,31 +855,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_shaoshengsong_MobileNetV3_SSD(_paritybench_base):
     pass
     def test_000(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
+    def test_003(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
     @_fails_compile()
-    def test_006(self):
+    def test_004(self):
         self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_005(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_006(self):
+        self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_008(self):
-        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

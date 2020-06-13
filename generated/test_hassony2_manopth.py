@@ -43,6 +43,15 @@ import torch
 from torch.nn import Module
 
 
+def th_with_zeros(tensor):
+    batch_size = tensor.shape[0]
+    padding = tensor.new([0.0, 0.0, 0.0, 1.0])
+    padding.requires_grad = False
+    concat_list = [tensor, padding.view(1, 1, 4).repeat(batch_size, 1, 1)]
+    cat_res = torch.cat(concat_list, 1)
+    return cat_res
+
+
 def subtract_flat_id(rot_mats):
     rot_nb = int(rot_mats.shape[1] / 9)
     id_flat = torch.eye(3, dtype=rot_mats.dtype, device=rot_mats.device).view(
@@ -58,15 +67,6 @@ def th_posemap_axisang(pose_vectors):
     rot_mats = rot_mats.view(pose_vectors.shape[0], rot_nb * 9)
     pose_maps = subtract_flat_id(rot_mats)
     return pose_maps, rot_mats
-
-
-def th_with_zeros(tensor):
-    batch_size = tensor.shape[0]
-    padding = tensor.new([0.0, 0.0, 0.0, 1.0])
-    padding.requires_grad = False
-    concat_list = [tensor, padding.view(1, 1, 4).repeat(batch_size, 1, 1)]
-    cat_res = torch.cat(concat_list, 1)
-    return cat_res
 
 
 import torch

@@ -86,6 +86,15 @@ class LayerNorm(torch.nn.Module):
         return self.g * x + self.b
 
 
+class TupleSeq:
+
+    def __init__(self, s):
+        self.s = s
+
+    def item(self):
+        return self.s
+
+
 class DimVar:
     decls = {}
     parse_regexp = '(\\w+)(?:\\((\\w+)\\))?(?::(\\d+))?'
@@ -278,55 +287,6 @@ class DimExpr:
         return s
 
 
-def resolve_to_int_tuple(s):
-    """
-    resolve non-int elements by casting to int or looking up their DimVar values
-    """
-    res = []
-    for d in s:
-        try:
-            d = int(d)
-            res.append(d)
-        except:
-            if isinstance(d, DimExpr):
-                e = d.exp
-            else:
-                e = d
-            r = DimVar.eval(e)
-            try:
-                r = int(r)
-                res.append(r)
-            except:
-                raise ValueError(f'Unable to resolve {d}')
-    return tuple(res)
-
-
-class TupleSeq:
-
-    def __init__(self, s):
-        self.s = s
-
-    def item(self):
-        return self.s
-
-
-seq_re = '\\((.+)\\)\\*'
-
-
-def tsn_to_str_list(ss: str):
-    ss = re.sub('\\s+', '', ss)
-    is_seq = False
-    m = re.search(seq_re, ss)
-    if m is not None:
-        ss = m.groups()[0]
-        is_seq = True
-    if ',' in ss:
-        exprs = ss.strip().split(',')
-    else:
-        exprs = list(ss)
-    return exprs, is_seq
-
-
 def dim_var(name, exists_ok=False, cache=True):
     """
     Declare a single dimension variable
@@ -381,6 +341,23 @@ def _sexprs_to_ts(exprs, strict=False, num_to_sym=False):
     return tuple(res)
 
 
+seq_re = '\\((.+)\\)\\*'
+
+
+def tsn_to_str_list(ss: str):
+    ss = re.sub('\\s+', '', ss)
+    is_seq = False
+    m = re.search(seq_re, ss)
+    if m is not None:
+        ss = m.groups()[0]
+        is_seq = True
+    if ',' in ss:
+        exprs = ss.strip().split(',')
+    else:
+        exprs = list(ss)
+    return exprs, is_seq
+
+
 def tsn_to_tuple(ss, num_to_sym=False):
     """
     :ss is shape string, e.g., 'btd' or 'b,t,d*2' or '(btd)*'
@@ -406,38 +383,43 @@ def tsn_to_tuple(ss, num_to_sym=False):
         raise ValueError('Unknown type of ss')
 
 
-def check_int_tuple(s):
-    for d in s:
-        try:
-            d = int(d)
-        except:
-            raise ValueError(f'Unable to resolve expression {d}')
+def _join_transform(tlist, src, to):
+    """
+    src: Union[str, TupleSeq]
+    to: Union[str, tuple]
+    src: (b,c,d)* , to: '^, b, c, d'    OR
+    src: (b,c,d)* , to: 'b, 3*c, d'
+
+    returns the dims shorthand for joining (backend independent)
+
+    """
+    lhs = tsn_to_tuple(src)
+    rhs = tsn_to_tuple(to)
+    assert isinstance(lhs, TupleSeq)
+    assert isinstance(rhs, tuple)
+    lhs = lhs.item()
+    int1 = Integer(1)
+    sub_map = [(d.exp, int1) for d in lhs]
+    dims = tuple([t.exp.subs(sub_map) for t in rhs])
+    if len(rhs) == len(lhs):
+        dims = ','.join(map(lambda x: '' if x == int1 else '*', dims))
+    elif len(rhs) == len(lhs) + 1:
+        dims = ','.join(map(lambda x: '' if x == int1 else '^', dims))
+    else:
+        raise ValueError(f'Unable to join from {src} to {to}')
+    return dims
 
 
-def _view_transform(src, to, in_shape, checkin=False):
+def expand_dims_transform(x, tfm):
     """
-    View Transform
-    src, to: Union[str, Tuple]
-    :src is the current view of the tensor
-    :to is the target view, may contain expressions over named dim variables
-    :in_shape is the shape (list/tuple) of the source tensor 
-    :returns the new size of the tensor after view transformation (backend independent)
+    x: (backend) tensor, e.g., shape 'd,d'
+    tfm: expand tsn: '^,,^,'
+    returns tensor of shape '1,d,1,d'
     """
-    if checkin:
-        check_int_tuple(in_shape)
-    src = tsn_to_tuple(src)
-    if len(src) != len(in_shape):
-        print(f'{src}, {in_shape}')
-        raise ValueError("Source DimExpr does not match input tensor's shape")
-    to = tsn_to_tuple(to)
-    assert isinstance(in_shape, (list, tuple))
-    assert isinstance(src, tuple)
-    assert isinstance(to, tuple)
-    sub_map = [(d.exp, in_shape[i]) for i, d in enumerate(src)]
-    out_shape = tuple([(t.exp.subs(sub_map) if isinstance(t, DimExpr) else
-        int(t)) for t in to])
-    out_shape = resolve_to_int_tuple(out_shape)
-    return out_shape
+    colon = slice(None)
+    expand_tup = tuple(None if c == '^' else colon for c in tfm.split(','))
+    res = x[expand_tup]
+    return res
 
 
 def align_transform(src, to, tile=False):
@@ -473,18 +455,6 @@ def align_transform(src, to, tile=False):
             )
         raise ValueError
     return ','.join(expand_dims), expand_ratio
-
-
-def expand_dims_transform(x, tfm):
-    """
-    x: (backend) tensor, e.g., shape 'd,d'
-    tfm: expand tsn: '^,,^,'
-    returns tensor of shape '1,d,1,d'
-    """
-    colon = slice(None)
-    expand_tup = tuple(None if c == '^' else colon for c in tfm.split(','))
-    res = x[expand_tup]
-    return res
 
 
 def alignto(x, ys, tile=False):
@@ -524,16 +494,6 @@ def _permute_transform(src, to):
     perm_indices = tuple([t.exp.subs(sub_map) for t in rhs])
     perm_indices = tuple([int(str(s)) for s in perm_indices])
     return perm_indices
-
-
-becache = {}
-
-
-def from_cache(C):
-    s = str(C)
-    if s not in becache:
-        becache[s] = C()
-    return becache[s]
 
 
 class ABackend:
@@ -596,15 +556,6 @@ class PyTorch(ABackend):
         return self.torch.einsum(eqn, args)
 
 
-def int_shape(*s):
-    if len(s) == 1:
-        assert isinstance(s, (tuple, list))
-        s = s[0]
-    else:
-        s = tuple(s)
-    return tuple([int(d) for d in s])
-
-
 def get_tf_shape(tf, tensor):
     """Returns a list of the shape of tensor, preferring static dimensions.
   (inspired by get_shape_list in BERT code)
@@ -627,6 +578,15 @@ def get_tf_shape(tf, tensor):
     for index in non_static_indexes:
         shape[index] = dyn_shape[index]
     return shape
+
+
+def int_shape(*s):
+    if len(s) == 1:
+        assert isinstance(s, (tuple, list))
+        s = s[0]
+    else:
+        s = tuple(s)
+    return tuple([int(d) for d in s])
 
 
 class TF(ABackend):
@@ -716,6 +676,16 @@ def get_tensor_lib(x):
     else:
         ret = None
     return ret
+
+
+becache = {}
+
+
+def from_cache(C):
+    s = str(C)
+    if s not in becache:
+        becache[s] = C()
+    return becache[s]
 
 
 def get_backend_for_tensor(x):
@@ -837,31 +807,61 @@ def tfm_seq_decompose(tfms, tfm_names):
     return tfm_list
 
 
-def _join_transform(tlist, src, to):
+def resolve_to_int_tuple(s):
     """
-    src: Union[str, TupleSeq]
-    to: Union[str, tuple]
-    src: (b,c,d)* , to: '^, b, c, d'    OR
-    src: (b,c,d)* , to: 'b, 3*c, d'
-
-    returns the dims shorthand for joining (backend independent)
-
+    resolve non-int elements by casting to int or looking up their DimVar values
     """
-    lhs = tsn_to_tuple(src)
-    rhs = tsn_to_tuple(to)
-    assert isinstance(lhs, TupleSeq)
-    assert isinstance(rhs, tuple)
-    lhs = lhs.item()
-    int1 = Integer(1)
-    sub_map = [(d.exp, int1) for d in lhs]
-    dims = tuple([t.exp.subs(sub_map) for t in rhs])
-    if len(rhs) == len(lhs):
-        dims = ','.join(map(lambda x: '' if x == int1 else '*', dims))
-    elif len(rhs) == len(lhs) + 1:
-        dims = ','.join(map(lambda x: '' if x == int1 else '^', dims))
-    else:
-        raise ValueError(f'Unable to join from {src} to {to}')
-    return dims
+    res = []
+    for d in s:
+        try:
+            d = int(d)
+            res.append(d)
+        except:
+            if isinstance(d, DimExpr):
+                e = d.exp
+            else:
+                e = d
+            r = DimVar.eval(e)
+            try:
+                r = int(r)
+                res.append(r)
+            except:
+                raise ValueError(f'Unable to resolve {d}')
+    return tuple(res)
+
+
+def check_int_tuple(s):
+    for d in s:
+        try:
+            d = int(d)
+        except:
+            raise ValueError(f'Unable to resolve expression {d}')
+
+
+def _view_transform(src, to, in_shape, checkin=False):
+    """
+    View Transform
+    src, to: Union[str, Tuple]
+    :src is the current view of the tensor
+    :to is the target view, may contain expressions over named dim variables
+    :in_shape is the shape (list/tuple) of the source tensor 
+    :returns the new size of the tensor after view transformation (backend independent)
+    """
+    if checkin:
+        check_int_tuple(in_shape)
+    src = tsn_to_tuple(src)
+    if len(src) != len(in_shape):
+        print(f'{src}, {in_shape}')
+        raise ValueError("Source DimExpr does not match input tensor's shape")
+    to = tsn_to_tuple(to)
+    assert isinstance(in_shape, (list, tuple))
+    assert isinstance(src, tuple)
+    assert isinstance(to, tuple)
+    sub_map = [(d.exp, in_shape[i]) for i, d in enumerate(src)]
+    out_shape = tuple([(t.exp.subs(sub_map) if isinstance(t, DimExpr) else
+        int(t)) for t in to])
+    out_shape = resolve_to_int_tuple(out_shape)
+    return out_shape
 
 
 def warp(x, tfms, tfm_names, backend=None, debug=False):
@@ -899,13 +899,13 @@ def warp(x, tfms, tfm_names, backend=None, debug=False):
     return ret
 
 
-def swish(x: torch.Tensor) ->torch.Tensor:
-    return x * torch.sigmoid(x)
-
-
 def gelu(x: torch.Tensor) ->torch.Tensor:
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
         torch.pow(x, 3))))
+
+
+def swish(x: torch.Tensor) ->torch.Tensor:
+    return x * torch.sigmoid(x)
 
 
 _ACTIVATION_FUNCTIONS = {'relu': torch.nn.ReLU, 'swish': swish, 'gelu': gelu}

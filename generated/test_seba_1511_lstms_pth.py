@@ -337,11 +337,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_seba_1511_lstms_pth(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(BaLayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(BradburyLayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BaLayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
 

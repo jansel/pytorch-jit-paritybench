@@ -622,21 +622,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_BayesWatch_pytorch_prunes(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Zero(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(ZeroMake(*[], **{'channels': 4, 'spatial': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(MaskBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(BottleBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
         self._check(Bottleneck(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(MaskBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -644,11 +646,9 @@ class Test_BayesWatch_pytorch_prunes(_paritybench_base):
     def test_006(self):
         self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Zero(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_008(self):
-        self._check(BottleBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ZeroMake(*[], **{'channels': 4, 'spatial': 4}), [torch.rand([4, 4, 4, 4])], {})
 

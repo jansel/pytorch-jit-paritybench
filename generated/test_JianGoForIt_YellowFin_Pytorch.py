@@ -98,19 +98,17 @@ class RNN_LSTM(nn.Module):
         return model_name, model_log
 
 
-def batch_matmul_bias(seq, weight, bias, nonlinearity=''):
+def batch_matmul(seq, weight, nonlinearity=''):
     s = None
-    bias_dim = bias.size()
     for i in range(seq.size(0)):
         _s = torch.mm(seq[i], weight)
-        _s_bias = _s + bias.expand(bias_dim[0], _s.size()[0]).transpose(0, 1)
         if nonlinearity == 'tanh':
-            _s_bias = torch.tanh(_s_bias)
-        _s_bias = _s_bias.unsqueeze(0)
+            _s = torch.tanh(_s)
+        _s = _s.unsqueeze(0)
         if s is None:
-            s = _s_bias
+            s = _s
         else:
-            s = torch.cat((s, _s_bias), 0)
+            s = torch.cat((s, _s), 0)
     return s.squeeze()
 
 
@@ -128,17 +126,19 @@ def attention_mul(rnn_outputs, att_weights):
     return torch.sum(attn_vectors, 0)
 
 
-def batch_matmul(seq, weight, nonlinearity=''):
+def batch_matmul_bias(seq, weight, bias, nonlinearity=''):
     s = None
+    bias_dim = bias.size()
     for i in range(seq.size(0)):
         _s = torch.mm(seq[i], weight)
+        _s_bias = _s + bias.expand(bias_dim[0], _s.size()[0]).transpose(0, 1)
         if nonlinearity == 'tanh':
-            _s = torch.tanh(_s)
-        _s = _s.unsqueeze(0)
+            _s_bias = torch.tanh(_s_bias)
+        _s_bias = _s_bias.unsqueeze(0)
         if s is None:
-            s = _s
+            s = _s_bias
         else:
-            s = torch.cat((s, _s), 0)
+            s = torch.cat((s, _s_bias), 0)
     return s.squeeze()
 
 
@@ -461,8 +461,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_JianGoForIt_YellowFin_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MixtureSoftmax(*[], **{'batch_size': 4, 'word_gru_hidden': 4, 'feature_dim': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MixtureSoftmax(*[], **{'batch_size': 4, 'word_gru_hidden': 4, 'feature_dim': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

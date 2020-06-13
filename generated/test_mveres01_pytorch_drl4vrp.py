@@ -272,11 +272,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mveres01_pytorch_drl4vrp(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Encoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(StateCritic(*[], **{'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {})
+        self._check(Encoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_002(self):
-        self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([4, 4])], {})
+        self._check(StateCritic(*[], **{'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {})
 

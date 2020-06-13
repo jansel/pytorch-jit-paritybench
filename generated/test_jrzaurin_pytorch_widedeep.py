@@ -576,58 +576,7 @@ class Wide(nn.Module):
         return out
 
 
-class Callback(object):
-    """
-    Abstract base class used to build new callbacks.
-    """
-
-    def __init__(self):
-        pass
-
-    def set_params(self, params):
-        self.params = params
-
-    def set_model(self, model: Any):
-        self.model = model
-
-    def on_epoch_begin(self, epoch: int, logs: Optional[Dict]=None):
-        pass
-
-    def on_epoch_end(self, epoch: int, logs: Optional[Dict]=None):
-        pass
-
-    def on_batch_begin(self, batch: int, logs: Optional[Dict]=None):
-        pass
-
-    def on_batch_end(self, batch: int, logs: Optional[Dict]=None):
-        pass
-
-    def on_train_begin(self, logs: Optional[Dict]=None):
-        pass
-
-    def on_train_end(self, logs: Optional[Dict]=None):
-        pass
-
-
-class History(Callback):
-    """
-    Callback that records events into a `History` object.
-    """
-
-    def on_train_begin(self, logs: Optional[Dict]=None):
-        self.epoch: List[int] = []
-        self._history: Dict[str, List[float]] = {}
-
-    def on_epoch_begin(self, epoch: int, logs: Optional[Dict]=None):
-        logs = deepcopy(logs) or {}
-        for k, v in logs.items():
-            self._history.setdefault(k, []).append(v)
-
-    def on_epoch_end(self, epoch: int, logs: Optional[Dict]=None):
-        logs = logs or {}
-        self.epoch.append(epoch)
-        for k, v in logs.items():
-            self._history.setdefault(k, []).append(v)
+LRScheduler = _LRScheduler
 
 
 class TestDeepText(nn.Module):
@@ -664,11 +613,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_jrzaurin_pytorch_widedeep(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Wide(*[], **{'wide_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TestDeepImage(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(TestDeepText(*[], **{}), [torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(TestDeepImage(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Wide(*[], **{'wide_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -91,6 +91,13 @@ class GraphConvolution(nn.Module):
             ) + ' -> ' + str(self.out_features) + ')'
 
 
+def gen_adj(A):
+    D = torch.pow(A.sum(1).float(), -0.5)
+    D = torch.diag(D)
+    adj = torch.matmul(torch.matmul(A, D).t(), D)
+    return adj
+
+
 def gen_A(num_classes, t, adj_file):
     import pickle
     result = pickle.load(open(adj_file, 'rb'))
@@ -103,13 +110,6 @@ def gen_A(num_classes, t, adj_file):
     _adj = _adj * 0.25 / (_adj.sum(0, keepdims=True) + 1e-06)
     _adj = _adj + np.identity(num_classes, np.int)
     return _adj
-
-
-def gen_adj(A):
-    D = torch.pow(A.sum(1).float(), -0.5)
-    D = torch.diag(D)
-    adj = torch.matmul(torch.matmul(A, D).t(), D)
-    return adj
 
 
 class GCNResnet(nn.Module):

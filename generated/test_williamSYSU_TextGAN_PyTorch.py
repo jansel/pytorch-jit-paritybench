@@ -89,6 +89,12 @@ import logging
 import copy
 
 
+dis_num_filters = [200, 200, 200, 200]
+
+
+goal_out_size = sum(dis_num_filters)
+
+
 def truncated_normal_(tensor, mean=0, std=1):
     """
     Implemented by @ruotianluo
@@ -103,19 +109,13 @@ def truncated_normal_(tensor, mean=0, std=1):
     return tensor
 
 
-dis_num_filters = [200, 200, 200, 200]
-
-
-goal_out_size = sum(dis_num_filters)
+_global_config['gen_init'] = 4
 
 
 _global_config['start_letter'] = 4
 
 
 _global_config['batch_size'] = 4
-
-
-_global_config['gen_init'] = 4
 
 
 class LeakGAN_G(nn.Module):

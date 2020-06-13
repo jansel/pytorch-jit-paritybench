@@ -526,23 +526,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_jalola_improved_wgan_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MyConvo2d(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(ConvMeanPool(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(MeanPoolConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
+    def test_001(self):
         self._check(DepthToSpace(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(FCGenerator(*[], **{}), [torch.rand([128, 128])], {})
+
+    def test_003(self):
+        self._check(MeanPoolConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(UpSampleConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MyConvo2d(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(ReLULayer(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(FCGenerator(*[], **{}), [torch.rand([128, 128])], {})
+        self._check(UpSampleConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

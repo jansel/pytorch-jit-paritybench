@@ -228,24 +228,6 @@ from itertools import chain
 from itertools import combinations
 
 
-def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
-    None, dim=None):
-    if weights is not None:
-        weighted_tensor = tensor * weights
-        if dim is not None:
-            sum_weights = torch.sum(weights, dim)
-            sum_weighted_tensor = torch.sum(weighted_tensor, dim)
-        else:
-            sum_weights = weights.sum()
-            sum_weighted_tensor = weighted_tensor.sum()
-        sum_weights = torch.max(torch.ones_like(sum_weights), sum_weights)
-        return sum_weighted_tensor / sum_weights
-    elif dim is not None:
-        return torch.mean(tensor, dim=dim)
-    else:
-        return tensor.mean()
-
-
 class NBEATSBlock(nn.Module):
 
     def __init__(self, units, thetas_dim, num_block_layers=4,
@@ -272,23 +254,6 @@ class NBEATSBlock(nn.Module):
         return self.fc(x)
 
 
-class NBEATSGenericBlock(NBEATSBlock):
-
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5):
-        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length)
-        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
-        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
-
-    def forward(self, x):
-        x = super().forward(x)
-        theta_b = F.relu(self.theta_b_fc(x))
-        theta_f = F.relu(self.theta_f_fc(x))
-        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
-
-
 def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
     np.ndarray]:
     lin_space = np.linspace(-backcast_length, forecast_length, 
@@ -296,6 +261,28 @@ def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
     b_ls = lin_space[:backcast_length]
     f_ls = lin_space[backcast_length:]
     return b_ls, f_ls
+
+
+class NBEATSTrendBlock(NBEATSBlock):
+
+    def __init__(self, units, thetas_dim, num_block_layers=4,
+        backcast_length=10, forecast_length=5, nb_harmonics=None):
+        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=
+            thetas_dim, num_block_layers=num_block_layers, backcast_length=
+            backcast_length, forecast_length=forecast_length, share_thetas=True
+            )
+        backcast_linspace, forecast_linspace = linspace(backcast_length,
+            forecast_length)
+        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace **
+            i) for i in range(thetas_dim)]).float())
+        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace **
+            i) for i in range(thetas_dim)]).float())
+
+    def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
+        x = super().forward(x)
+        backcast = self.theta_b_fc(x).mm(self.T_backcast)
+        forecast = self.theta_f_fc(x).mm(self.T_forecast)
+        return backcast, forecast
 
 
 class NBEATSSeasonalBlock(NBEATSBlock):
@@ -333,26 +320,21 @@ class NBEATSSeasonalBlock(NBEATSBlock):
         return backcast, forecast
 
 
-class NBEATSTrendBlock(NBEATSBlock):
+class NBEATSGenericBlock(NBEATSBlock):
 
     def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5, nb_harmonics=None):
-        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=
+        backcast_length=10, forecast_length=5):
+        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=
             thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length, share_thetas=True
-            )
-        backcast_linspace, forecast_linspace = linspace(backcast_length,
-            forecast_length)
-        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace **
-            i) for i in range(thetas_dim)]).float())
-        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace **
-            i) for i in range(thetas_dim)]).float())
+            backcast_length, forecast_length=forecast_length)
+        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
+        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
 
-    def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x):
         x = super().forward(x)
-        backcast = self.theta_b_fc(x).mm(self.T_backcast)
-        forecast = self.theta_f_fc(x).mm(self.T_forecast)
-        return backcast, forecast
+        theta_b = F.relu(self.theta_b_fc(x))
+        theta_f = F.relu(self.theta_f_fc(x))
+        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
 class NBEATSNetwork(nn.Module):
@@ -834,37 +816,37 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zalandoresearch_pytorch_ts(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(NBEATSBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(NBEATSGenericBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(NBEATSSeasonalBlock(*[], **{'units': 4}), [torch.rand([10, 10])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(NBEATSTrendBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(NBEATSNetwork(*[], **{'prediction_length': 4, 'context_length': 4, 'num_stacks': 4, 'widths': [4, 4, 4, 4], 'num_blocks': [4, 4, 4, 4], 'num_block_layers': [4, 4, 4, 4], 'expansion_coefficient_lengths': [4, 4, 4, 4], 'sharing': 4, 'stack_types': [4, 4, 4, 4]}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(FeatureEmbedder(*[], **{'cardinalities': [4, 4], 'embedding_dims': [4, 4]}), [torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_006(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
         self._check(BatchNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_001(self):
+        self._check(FeatureEmbedder(*[], **{'cardinalities': [4, 4], 'embedding_dims': [4, 4]}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_002(self):
+        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(MADE(*[], **{'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(NBEATSBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(NBEATSGenericBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(NBEATSNetwork(*[], **{'prediction_length': 4, 'context_length': 4, 'num_stacks': 4, 'widths': [4, 4, 4, 4], 'num_blocks': [4, 4, 4, 4], 'num_block_layers': [4, 4, 4, 4], 'expansion_coefficient_lengths': [4, 4, 4, 4], 'sharing': 4, 'stack_types': [4, 4, 4, 4]}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(NBEATSSeasonalBlock(*[], **{'units': 4}), [torch.rand([10, 10])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(NBEATSTrendBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
 

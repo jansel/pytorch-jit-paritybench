@@ -166,12 +166,12 @@ from torch.nn import init
 from torch.optim import lr_scheduler
 
 
-BatchNorm = nn.BatchNorm2d
-
-
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=padding, bias=False, dilation=dilation)
+
+
+BatchNorm = nn.BatchNorm2d
 
 
 class BasicBlock(nn.Module):
@@ -891,8 +891,9 @@ class SPADE(nn.Module):
         return out
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 def _sum_ft(tensor):
@@ -900,9 +901,8 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
 
 
 class SubMobileSPADE(nn.Module):
@@ -1137,7 +1137,21 @@ class SuperSeparableConv2d(nn.Module):
         return x
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -1163,18 +1177,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -1256,9 +1259,6 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
-
-
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -1464,11 +1464,11 @@ class Test_mit_han_lab_gan_compression(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -215,15 +215,15 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_4uiiurz1_pytorch_nested_unet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(VGGBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BCEDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(NestedUNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
+    def test_002(self):
+        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
     def test_003(self):
-        self._check(BCEDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(VGGBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

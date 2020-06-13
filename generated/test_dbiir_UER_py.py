@@ -1281,51 +1281,51 @@ class Test_dbiir_UER_py(_paritybench_base):
     def test_000(self):
         self._check(AttnEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
+        self._check(AvgSubencoder(*[], **{'args': _mock_config(emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_002(self):
+        self._check(BertEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(BertEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_004(self):
         self._check(BilstmEncoder(*[], **{'args': _mock_config(hidden_size=4, layers_num=1, emb_size=4, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(CnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(GatedcnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_005(self):
-        self._check(GptEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(RcnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
         self._check(CrnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_007(self):
+        self._check(GatedcnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_008(self):
-        self._check(BertEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(GptEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(WordEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LstmSubencoder(*[], **{'args': _mock_config(emb_size=4, sub_layers_num=1, dropout=0.5), 'vocab_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_011(self):
         self._check(PositionwiseFeedForward(*[], **{'hidden_size': 4, 'feedforward_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_012(self):
+        self._check(RcnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
         self._check(TransformerLayer(*[], **{'args': _mock_config(hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
-        self._check(AvgSubencoder(*[], **{'args': _mock_config(emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
-
     def test_014(self):
-        self._check(LstmSubencoder(*[], **{'args': _mock_config(emb_size=4, sub_layers_num=1, dropout=0.5), 'vocab_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(WordEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {})
 

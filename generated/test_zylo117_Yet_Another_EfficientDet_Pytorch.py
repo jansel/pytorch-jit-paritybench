@@ -175,25 +175,6 @@ def calc_iou(a, b):
     return IoU
 
 
-def display(preds, imgs, obj_list, imshow=True, imwrite=False):
-    for i in range(len(imgs)):
-        if len(preds[i]['rois']) == 0:
-            continue
-        for j in range(len(preds[i]['rois'])):
-            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
-            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
-            obj = obj_list[preds[i]['class_ids'][j]]
-            score = float(preds[i]['scores'][j])
-            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 +
-                10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-        if imshow:
-            cv2.imshow('img', imgs[i])
-            cv2.waitKey(0)
-        if imwrite:
-            os.makedirs('test/', exist_ok=True)
-            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
-
-
 def postprocess(x, anchors, regression, classification, regressBoxes,
     clipBoxes, threshold, iou_threshold):
     transformed_anchors = regressBoxes(anchors, regression)
@@ -224,6 +205,25 @@ def postprocess(x, anchors, regression, classification, regressBoxes,
             out.append({'rois': np.array(()), 'class_ids': np.array(()),
                 'scores': np.array(())})
     return out
+
+
+def display(preds, imgs, obj_list, imshow=True, imwrite=False):
+    for i in range(len(imgs)):
+        if len(preds[i]['rois']) == 0:
+            continue
+        for j in range(len(preds[i]['rois'])):
+            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
+            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
+            obj = obj_list[preds[i]['class_ids'][j]]
+            score = float(preds[i]['scores'][j])
+            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 +
+                10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        if imshow:
+            cv2.imshow('img', imgs[i])
+            cv2.waitKey(0)
+        if imwrite:
+            os.makedirs('test/', exist_ok=True)
+            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
 
 
 class FocalLoss(nn.Module):
@@ -914,6 +914,20 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
     'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
     'id_skip', 'stride', 'se_ratio'])
@@ -982,12 +996,6 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
-
-
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=1000
     ):
@@ -1030,14 +1038,6 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
 
 
 url_map = {'efficientnet-b0':
@@ -1385,11 +1385,21 @@ class ModelWithLoss(nn.Module):
         return cls_loss, reg_loss
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class FutureResult(object):
@@ -1415,18 +1425,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -1520,7 +1519,8 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -1727,43 +1727,43 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(SeparableConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(Classifier(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_classes': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     def test_003(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_005(self):
-        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_004(self):
         self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
+    def test_005(self):
         self._check(Conv2dStaticSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_006(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(MaxPool2dStaticSamePadding(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_008(self):
+        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(SeparableConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_011(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

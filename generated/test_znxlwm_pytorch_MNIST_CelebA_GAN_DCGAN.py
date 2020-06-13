@@ -192,8 +192,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_znxlwm_pytorch_MNIST_CelebA_GAN_DCGAN(_paritybench_base):
     pass
     def test_000(self):
-        self._check(generator(*[], **{}), [torch.rand([32, 32])], {})
+        self._check(discriminator(*[], **{}), [torch.rand([32, 32])], {})
 
     def test_001(self):
-        self._check(discriminator(*[], **{}), [torch.rand([32, 32])], {})
+        self._check(generator(*[], **{}), [torch.rand([32, 32])], {})
 

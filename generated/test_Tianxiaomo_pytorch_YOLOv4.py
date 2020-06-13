@@ -667,16 +667,6 @@ def print_cfg(blocks):
             print('unknown type %s' % block['type'])
 
 
-def load_fc(buf, start, fc_model):
-    num_w = fc_model.weight.numel()
-    num_b = fc_model.bias.numel()
-    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
-
-
 def parse_cfg(cfgfile):
     blocks = []
     fp = open(cfgfile, 'r')
@@ -715,6 +705,16 @@ def load_conv(buf, start, conv_model):
     start = start + num_b
     conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
         .reshape(conv_model.weight.data.shape))
+    start = start + num_w
+    return start
+
+
+def load_fc(buf, start, fc_model):
+    num_w = fc_model.weight.numel()
+    num_b = fc_model.bias.numel()
+    fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
     start = start + num_w
     return start
 
@@ -1044,6 +1044,39 @@ class Darknet(nn.Module):
                 None
 
 
+def bbox_iou(box1, box2, x1y1x2y2=True):
+    if x1y1x2y2:
+        mx = min(box1[0], box2[0])
+        Mx = max(box1[2], box2[2])
+        my = min(box1[1], box2[1])
+        My = max(box1[3], box2[3])
+        w1 = box1[2] - box1[0]
+        h1 = box1[3] - box1[1]
+        w2 = box2[2] - box2[0]
+        h2 = box2[3] - box2[1]
+    else:
+        mx = min(box1[0] - box1[2] / 2.0, box2[0] - box2[2] / 2.0)
+        Mx = max(box1[0] + box1[2] / 2.0, box2[0] + box2[2] / 2.0)
+        my = min(box1[1] - box1[3] / 2.0, box2[1] - box2[3] / 2.0)
+        My = max(box1[1] + box1[3] / 2.0, box2[1] + box2[3] / 2.0)
+        w1 = box1[2]
+        h1 = box1[3]
+        w2 = box2[2]
+        h2 = box2[3]
+    uw = Mx - mx
+    uh = My - my
+    cw = w1 + w2 - uw
+    ch = h1 + h2 - uh
+    carea = 0
+    if cw <= 0 or ch <= 0:
+        return 0.0
+    area1 = w1 * h1
+    area2 = w2 * h2
+    carea = cw * ch
+    uarea = area1 + area2 - carea
+    return carea / uarea
+
+
 def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     if x1y1x2y2:
         mx = torch.min(boxes1[0], boxes2[0])
@@ -1076,39 +1109,6 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     area2 = w2 * h2
     carea = cw * ch
     carea[mask] = 0
-    uarea = area1 + area2 - carea
-    return carea / uarea
-
-
-def bbox_iou(box1, box2, x1y1x2y2=True):
-    if x1y1x2y2:
-        mx = min(box1[0], box2[0])
-        Mx = max(box1[2], box2[2])
-        my = min(box1[1], box2[1])
-        My = max(box1[3], box2[3])
-        w1 = box1[2] - box1[0]
-        h1 = box1[3] - box1[1]
-        w2 = box2[2] - box2[0]
-        h2 = box2[3] - box2[1]
-    else:
-        mx = min(box1[0] - box1[2] / 2.0, box2[0] - box2[2] / 2.0)
-        Mx = max(box1[0] + box1[2] / 2.0, box2[0] + box2[2] / 2.0)
-        my = min(box1[1] - box1[3] / 2.0, box2[1] - box2[3] / 2.0)
-        My = max(box1[1] + box1[3] / 2.0, box2[1] + box2[3] / 2.0)
-        w1 = box1[2]
-        h1 = box1[3]
-        w2 = box2[2]
-        h2 = box2[3]
-    uw = Mx - mx
-    uh = My - my
-    cw = w1 + w2 - uw
-    ch = h1 + h2 - uh
-    carea = 0
-    if cw <= 0 or ch <= 0:
-        return 0.0
-    area1 = w1 * h1
-    area2 = w2 * h2
-    carea = cw * ch
     uarea = area1 + area2 - carea
     return carea / uarea
 
@@ -1720,40 +1720,40 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Tianxiaomo_pytorch_YOLOv4(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Conv_Bn_Activation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'activation': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(ResBlock(*[], **{'ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
+    def test_001(self):
         self._check(DownSample1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_005(self):
+    def test_002(self):
         self._check(DownSample2(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_006(self):
+    def test_003(self):
         self._check(DownSample3(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
-    def test_007(self):
+    def test_004(self):
         self._check(DownSample4(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_008(self):
+    def test_005(self):
         self._check(DownSample5(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
 
-    def test_009(self):
-        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+    def test_006(self):
+        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_007(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_008(self):
+        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(ResBlock(*[], **{'ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_011(self):
-        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_012(self):

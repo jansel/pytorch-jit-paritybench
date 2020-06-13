@@ -144,12 +144,12 @@ def init_weights(m):
         m.bias.data.zero_()
 
 
-def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=
-    0, bn=True, relu=True):
+def convt_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding
+    =0, output_padding=0, bn=True, relu=True):
     bias = not bn
     layers = []
-    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size, stride,
-        padding, bias=bias))
+    layers.append(nn.ConvTranspose2d(in_channels, out_channels, kernel_size,
+        stride, padding, output_padding, bias=bias))
     if bn:
         layers.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -160,12 +160,12 @@ def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=
     return layers
 
 
-def convt_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding
-    =0, output_padding=0, bn=True, relu=True):
+def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=
+    0, bn=True, relu=True):
     bias = not bn
     layers = []
-    layers.append(nn.ConvTranspose2d(in_channels, out_channels, kernel_size,
-        stride, padding, output_padding, bias=bias))
+    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size, stride,
+        padding, bias=bias))
     if bn:
         layers.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -269,12 +269,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_fangchangma_self_supervised_depth_completion(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):

@@ -878,37 +878,37 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_PistonY_torch_toolbox(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(n_to_n(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
-        self._check(n_to_one(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
-        self._check(one_to_n(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(AdaptiveSequential(*[], **{}), [], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(CircleLoss(*[], **{'m': 4, 'gamma': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(DeformConv2d(*[], **{'inc': 4, 'outc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_003(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(DeformConv2d(*[], **{'inc': 4, 'outc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
         self._check(L0Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(CircleLoss(*[], **{'m': 4, 'gamma': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    def test_006(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_007(self):
+        self._check(n_to_n(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
+        self._check(n_to_one(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
     def test_009(self):
-        self._check(AdaptiveSequential(*[], **{}), [], {})
+        self._check(one_to_n(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -1170,50 +1170,50 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_wujiyang_Face_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ArcMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(AgentCenterLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
-        self._check(InnerProduct(*[], **{}), [torch.rand([128, 128]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ArcMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_002(self):
-        self._check(MultiMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(AttentionModule_stage3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 14, 14])], {})
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(BottleNeck_IR(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BottleNeck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ResidualBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BottleNeck_IR(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(AttentionModule_stage3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 14, 14])], {})
+        self._check(BottleNeck_IR_SAM(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(CAModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(SAModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(BottleNeck_IR_SAM(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(BottleNeck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
         self._check(ConvBlock(*[], **{'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_010(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(InnerProduct(*[], **{}), [torch.rand([128, 128]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(MultiMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
+
     def test_013(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(Block(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SAModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(AgentCenterLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 

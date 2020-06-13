@@ -69,13 +69,13 @@ from torch.nn.utils import clip_grad_norm_
 import torch.backends.cudnn as cudnn
 
 
-_global_config['v_feat_norm'] = 4
+_global_config['max_answers'] = 4
 
 
 _global_config['output_features'] = 4
 
 
-_global_config['max_answers'] = 4
+_global_config['v_feat_norm'] = 4
 
 
 class Net(nn.Module):
@@ -1301,11 +1301,11 @@ class Test_KaihuaTang_VQA2_0_Recent_Approachs_2018_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Attention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Attention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {})
+        self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -1313,21 +1313,21 @@ class Test_KaihuaTang_VQA2_0_Recent_Approachs_2018_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(PiecewiseLin(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DyIntraModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(Fusion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FCNet(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(PseudoCoord(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(Fusion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(MultiBlock(*[], **{'num_block': 1, 'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_inter_head': 4, 'num_intra_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(InterModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(InterModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(MultiBlock(*[], **{'num_block': 1, 'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_inter_head': 4, 'num_intra_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
@@ -1335,8 +1335,8 @@ class Test_KaihuaTang_VQA2_0_Recent_Approachs_2018_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
-        self._check(DyIntraModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(PiecewiseLin(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(FCNet(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PseudoCoord(*[], **{}), [torch.rand([4, 4, 4])], {})
 

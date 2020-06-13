@@ -329,35 +329,6 @@ class ResNetBase(nn.Module):
 num_classes = 1000
 
 
-class ResNetPart1(ResNetBase):
-    """
-    The first part of ResNet.
-    """
-
-    def __init__(self, device, *args, **kwargs):
-        super(ResNetPart1, self).__init__(Bottleneck, 64, *args,
-            num_classes=num_classes, **kwargs)
-        self.device = device
-        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7,
-            stride=2, padding=3, bias=False), self._norm_layer(self.
-            inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1), self._make_layer(64, 3), self._make_layer
-            (128, 4, stride=2)).to(self.device)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-
-    def forward(self, x_rref):
-        x = x_rref.to_here().to(self.device)
-        with self._lock:
-            out = self.seq(x)
-        return out.cpu()
-
-
 class ResNetPart2(ResNetBase):
     """
     The second part of ResNet.
@@ -396,15 +367,6 @@ def _async_on_rref(method, rref, *args, **kwargs):
         list(args), kwargs=kwargs)
 
 
-def _remote_on_rref(method, rref, *args, **kwargs):
-    """
-    a helper function to run method on the owner of rref and return an RRef
-    of the result.
-    """
-    return rpc.remote(rref.owner(), _call_method, args=[method, rref] +
-        list(args), kwargs=kwargs)
-
-
 def _parameter_rrefs(module):
     """
     Create one RRef for each parameter in the given local module, and return a
@@ -414,6 +376,44 @@ def _parameter_rrefs(module):
     for param in module.parameters():
         param_rrefs.append(RRef(param))
     return param_rrefs
+
+
+class ResNetPart1(ResNetBase):
+    """
+    The first part of ResNet.
+    """
+
+    def __init__(self, device, *args, **kwargs):
+        super(ResNetPart1, self).__init__(Bottleneck, 64, *args,
+            num_classes=num_classes, **kwargs)
+        self.device = device
+        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7,
+            stride=2, padding=3, bias=False), self._norm_layer(self.
+            inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
+            stride=2, padding=1), self._make_layer(64, 3), self._make_layer
+            (128, 4, stride=2)).to(self.device)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x_rref):
+        x = x_rref.to_here().to(self.device)
+        with self._lock:
+            out = self.seq(x)
+        return out.cpu()
+
+
+def _remote_on_rref(method, rref, *args, **kwargs):
+    """
+    a helper function to run method on the owner of rref and return an RRef
+    of the result.
+    """
+    return rpc.remote(rref.owner(), _call_method, args=[method, rref] +
+        list(args), kwargs=kwargs)
 
 
 class DistResNet50(nn.Module):
@@ -1076,31 +1076,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_pytorch_examples(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'ntoken': 4, 'nhid': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(EmbeddingTable(*[], **{'ntoken': 4, 'ninp': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(Decoder(*[], **{'ntoken': 4, 'nhid': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
-    def test_008(self):
+    def test_004(self):
+        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -611,12 +611,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_Blade6570_icface(_paritybench_base):
     pass
     def test_000(self):
+        self._check(Estimate(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_001(self):
         self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
     @_fails_compile()
-    def test_001(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_002(self):
-        self._check(Estimate(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 

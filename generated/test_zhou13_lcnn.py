@@ -206,21 +206,15 @@ class HourglassNet(nn.Module):
         return out[::-1], y
 
 
-def non_maximum_suppression(a):
-    ap = F.max_pool2d(a, 3, stride=1, padding=1)
-    mask = (a == ap).float().clamp(min=0.0)
-    return a * mask
-
-
-def _to_yaml(obj, filename=None, default_flow_style=False, encoding='utf-8',
-    errors='strict', **yaml_kwargs):
+def _to_json(obj, filename=None, encoding='utf-8', errors='strict', **
+    json_kwargs):
+    json_dump = json.dumps(obj, ensure_ascii=False, **json_kwargs)
     if filename:
         with open(filename, 'w', encoding=encoding, errors=errors) as f:
-            yaml.dump(obj, stream=f, default_flow_style=default_flow_style,
-                **yaml_kwargs)
+            f.write(json_dump if sys.version_info >= (3, 0) else json_dump.
+                decode('utf-8'))
     else:
-        return yaml.dump(obj, default_flow_style=default_flow_style, **
-            yaml_kwargs)
+        return json_dump
 
 
 class BoxError(Exception):
@@ -229,21 +223,6 @@ class BoxError(Exception):
 
 class BoxKeyError(BoxError, KeyError, AttributeError):
     """Key does not exist"""
-
-
-BOX_PARAMETERS = ('default_box', 'default_box_attr', 'conversion_box',
-    'frozen_box', 'camel_killer_box', 'box_it_up', 'box_safe_prefix',
-    'box_duplicates', 'ordered_box')
-
-
-yaml_support = True
-
-
-def _safe_key(key):
-    try:
-        return str(key)
-    except UnicodeEncodeError:
-        return key.encode('utf-8', 'ignore')
 
 
 class Bottleneck1D(nn.Module):

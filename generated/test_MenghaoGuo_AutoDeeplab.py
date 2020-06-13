@@ -46,10 +46,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
-    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
-
-
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
     count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
@@ -61,6 +57,10 @@ OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine),
     'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2,
     affine=affine)}
+
+
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
+    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
 
 
 class MixedOp(nn.Module):
@@ -247,28 +247,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_MenghaoGuo_AutoDeeplab(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_001(self):
+        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
+    def test_002(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1532,6 +1532,13 @@ class PreActBottleneck(nn.Module):
         return out
 
 
+def to_one_hot(inp, num_classes):
+    y_onehot = torch.FloatTensor(inp.size(0), num_classes)
+    y_onehot.zero_()
+    y_onehot.scatter_(1, inp.unsqueeze(1).data.cpu(), 1)
+    return y_onehot
+
+
 def mixup_process(out, target_reweighted, lam):
     indices = np.random.permutation(out.size(0))
     out = out * lam + out[indices] * (1 - lam)
@@ -1548,13 +1555,6 @@ def get_lambda(alpha=1.0):
     else:
         lam = 1.0
     return lam
-
-
-def to_one_hot(inp, num_classes):
-    y_onehot = torch.FloatTensor(inp.size(0), num_classes)
-    y_onehot.zero_()
-    y_onehot.scatter_(1, inp.unsqueeze(1).data.cpu(), 1)
-    return y_onehot
 
 
 class PreActResNet(nn.Module):
@@ -2161,51 +2161,51 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vikasverma1077_manifold_mixup(_paritybench_base):
     pass
     def test_000(self):
-        self._check(generator(*[], **{}), [torch.rand([62, 62])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(discriminator(*[], **{'input_width': 4, 'input_height': 4, 'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Discriminator(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
-        self._check(FirstResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiscriminatorWGANGP(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_004(self):
-        self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(FirstResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Discriminator(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
-        self._check(DiscriminatorWGANGP(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_008(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_012(self):
+    def test_007(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_008(self):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_009(self):
+        self._check(ResBlockDiscriminator(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(ResNetBasicblock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(discriminator(*[], **{'input_width': 4, 'input_height': 4, 'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(generator(*[], **{}), [torch.rand([62, 62])], {})
 
     def test_015(self):
         self._check(wide_basic(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})

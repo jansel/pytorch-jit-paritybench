@@ -290,37 +290,37 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_LynnHo_DCGAN_LSGAN_WGAN_GP_DRAGAN_Pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(ConvGenerator(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(ColorTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ConvDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvGenerator(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
         self._check(DepthToSpace(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(ColorTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
-
-    def test_008(self):
         self._check(Discriminator(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_009(self):
+    def test_005(self):
         self._check(DiscriminatorWGANGP(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_006(self):
+        self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
+
+    def test_007(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 

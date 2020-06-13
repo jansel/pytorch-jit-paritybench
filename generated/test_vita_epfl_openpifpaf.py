@@ -523,6 +523,25 @@ class MultiHeadLossAutoTune(torch.nn.Module):
         return total_loss, flat_head_losses
 
 
+def laplace_loss(x1, x2, logb, t1, t2, weight=None):
+    """Loss based on Laplace Distribution.
+
+    Loss for a single two-dimensional vector (x1, x2) with radial
+    spread b and true (t1, t2) vector.
+    """
+    norm = (torch.stack((x1, x2)) - torch.stack((t1, t2))).norm(dim=0)
+    logb = 3.0 * torch.tanh(logb / 3.0)
+    losses = 0.694 + logb + norm * torch.exp(-logb)
+    if weight is not None:
+        losses = losses * weight
+    return torch.sum(losses)
+
+
+def logl1_loss(logx, t, **kwargs):
+    """Swap in replacement for functional.l1_loss."""
+    return torch.nn.functional.l1_loss(logx, torch.log(t), **kwargs)
+
+
 def quadrant(xys):
     q = torch.zeros((xys.shape[1],), dtype=torch.long)
     q[xys[(0), :] < 0.0] += 1
@@ -544,25 +563,6 @@ def quadrant_margin_loss(x1, x2, t1, t2, max_r1, max_r2, max_r3, max_r4):
         norms[qs == 1][m2] - max_r2[qs == 1][m2]) + torch.sum(norms[qs == 2
         ][m3] - max_r3[qs == 2][m3]) + torch.sum(norms[qs == 3][m4] -
         max_r4[qs == 3][m4])
-
-
-def laplace_loss(x1, x2, logb, t1, t2, weight=None):
-    """Loss based on Laplace Distribution.
-
-    Loss for a single two-dimensional vector (x1, x2) with radial
-    spread b and true (t1, t2) vector.
-    """
-    norm = (torch.stack((x1, x2)) - torch.stack((t1, t2))).norm(dim=0)
-    logb = 3.0 * torch.tanh(logb / 3.0)
-    losses = 0.694 + logb + norm * torch.exp(-logb)
-    if weight is not None:
-        losses = losses * weight
-    return torch.sum(losses)
-
-
-def logl1_loss(logx, t, **kwargs):
-    """Swap in replacement for functional.l1_loss."""
-    return torch.nn.functional.l1_loss(logx, torch.log(t), **kwargs)
 
 
 class Shell(torch.nn.Module):
@@ -688,11 +688,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_vita_epfl_openpifpaf(_paritybench_base):
     pass
     def test_000(self):
-        self._check(InstanceScorer(*[], **{}), [torch.rand([35, 35])], {})
-
-    def test_001(self):
         self._check(GetPif(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(GetPifC(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(InstanceScorer(*[], **{}), [torch.rand([35, 35])], {})
 

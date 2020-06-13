@@ -71,49 +71,31 @@ from torch.autograd import Function
 from torch.autograd import Variable
 
 
-def _make_layers(in_channels, net_cfg):
-    layers = []
-    if len(net_cfg) > 0 and isinstance(net_cfg[0], list):
-        for sub_cfg in net_cfg:
-            layer, in_channels = _make_layers(in_channels, sub_cfg)
-            layers.append(layer)
-    else:
-        for item in net_cfg:
-            if item == 'M':
-                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
-            else:
-                out_channels, ksize = item
-                layers.append(net_utils.Conv2d_BatchNorm(in_channels,
-                    out_channels, ksize, same_padding=True))
-                in_channels = out_channels
-    return nn.Sequential(*layers), in_channels
-
-
-_global_config['multi_scale_inp_size'] = 1.0
+_global_config['coord_scale'] = 1.0
 
 
 _global_config['iou_thresh'] = 4
 
 
-_global_config['coord_scale'] = 1.0
+_global_config['class_scale'] = 1.0
 
 
 _global_config['multi_scale_out_size'] = 1.0
 
 
-_global_config['class_scale'] = 1.0
+_global_config['multi_scale_inp_size'] = 1.0
 
 
-_global_config['anchors'] = 4
+_global_config['num_classes'] = 4
 
 
 _global_config['object_scale'] = 1.0
 
 
+_global_config['anchors'] = 4
+
+
 _global_config['noobject_scale'] = 1.0
-
-
-_global_config['num_classes'] = 4
 
 
 def _process_batch(data, size_index):
@@ -180,6 +162,24 @@ def _process_batch(data, size_index):
         _class_mask[(cell_ind), (a), :] = cfg.class_scale
         _classes[cell_ind, a, gt_classes[i]] = 1.0
     return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
+
+
+def _make_layers(in_channels, net_cfg):
+    layers = []
+    if len(net_cfg) > 0 and isinstance(net_cfg[0], list):
+        for sub_cfg in net_cfg:
+            layer, in_channels = _make_layers(in_channels, sub_cfg)
+            layers.append(layer)
+    else:
+        for item in net_cfg:
+            if item == 'M':
+                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+            else:
+                out_channels, ksize = item
+                layers.append(net_utils.Conv2d_BatchNorm(in_channels,
+                    out_channels, ksize, same_padding=True))
+                in_channels = out_channels
+    return nn.Sequential(*layers), in_channels
 
 
 _global_config['num_anchors'] = 4

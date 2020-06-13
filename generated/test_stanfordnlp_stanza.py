@@ -313,32 +313,7 @@ class CharacterModel(nn.Module):
         return res
 
 
-UNK_ID = 1
-
-
-def unsort(sorted_list, oidx):
-    """
-    Unsort a sorted list, based on the original idx.
-    """
-    assert len(sorted_list) == len(oidx
-        ), 'Number of list elements must match with original indices.'
-    _, unsorted = [list(t) for t in zip(*sorted(zip(oidx, sorted_list)))]
-    return unsorted
-
-
-SOS = '<SOS>'
-
-
-PAD = '<PAD>'
-
-
-EOS = '<EOS>'
-
-
 UNK = '<UNK>'
-
-
-VOCAB_PREFIX = [PAD, UNK, SOS, EOS]
 
 
 class BaseVocab:
@@ -416,6 +391,18 @@ class BaseVocab:
         return len(self)
 
 
+PAD = '<PAD>'
+
+
+SOS = '<SOS>'
+
+
+EOS = '<EOS>'
+
+
+VOCAB_PREFIX = [PAD, UNK, SOS, EOS]
+
+
 class CharVocab(BaseVocab):
 
     def build_vocab(self):
@@ -430,6 +417,19 @@ class CharVocab(BaseVocab):
         self._id2unit = VOCAB_PREFIX + list(sorted(list(counter.keys()),
             key=lambda k: (counter[k], k), reverse=True))
         self._unit2id = {w: i for i, w in enumerate(self._id2unit)}
+
+
+UNK_ID = 1
+
+
+def unsort(sorted_list, oidx):
+    """
+    Unsort a sorted list, based on the original idx.
+    """
+    assert len(sorted_list) == len(oidx
+        ), 'Number of list elements must match with original indices.'
+    _, unsorted = [list(t) for t in zip(*sorted(zip(oidx, sorted_list)))]
+    return unsorted
 
 
 class CharacterLanguageModel(nn.Module):
@@ -511,12 +511,6 @@ class CharacterLanguageModel(nn.Module):
         return model
 
 
-def set_cuda(var, cuda):
-    if cuda:
-        return var.cuda()
-    return var
-
-
 def log_sum_exp(value, dim=None, keepdim=False):
     """Numerically stable implementation of the operation
     value.exp().sum(dim, keepdim).log()
@@ -535,6 +529,12 @@ def log_sum_exp(value, dim=None, keepdim=False):
             return m + math.log(sum_exp)
         else:
             return m + torch.log(sum_exp)
+
+
+def set_cuda(var, cuda):
+    if cuda:
+        return var.cuda()
+    return var
 
 
 class CRFLoss(nn.Module):
@@ -968,6 +968,9 @@ class LSTMwRecDropout(nn.Module):
         return input, tuple(torch.cat(x, 0) for x in all_states)
 
 
+logger = logging.getLogger('stanza')
+
+
 class Beam(object):
 
     def __init__(self, size, cuda=False):
@@ -1053,9 +1056,6 @@ class Beam(object):
             if cidx >= 0:
                 hyp[i] = -(cidx + 1)
         return hyp
-
-
-logger = logging.getLogger('stanza')
 
 
 class Seq2SeqModel(nn.Module):
@@ -2161,13 +2161,13 @@ class Test_stanfordnlp_stanza(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(LockedDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(SequenceUnitDropout(*[], **{'dropprob': 4, 'replacement_id': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
 

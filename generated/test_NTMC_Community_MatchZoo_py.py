@@ -1041,13 +1041,14 @@ class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(RankHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_002(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GaussianKernel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
@@ -1055,26 +1056,25 @@ class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(DenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(DenseNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(GaussianKernel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RankHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_007(self):
         self._check(SemanticComposite(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(SpatialGRU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):

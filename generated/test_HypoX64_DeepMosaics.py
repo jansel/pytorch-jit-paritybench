@@ -1607,70 +1607,70 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_HypoX64_DeepMosaics(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Spatial_path(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_003(self):
         self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_005(self):
+    def test_003(self):
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_007(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_009(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_008(self):
+        self._check(Spatial_path(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(UNet(*[], **{'n_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+
     def test_010(self):
-        self._check(double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_011(self):
-        self._check(inconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
         self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_012(self):
+        self._check(conv_2d(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(conv_3d(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
     def test_014(self):
-        self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(decoder_2d(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 256, 4, 4])], {})
 
     def test_015(self):
-        self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_016(self):
-        self._check(UNet(*[], **{'n_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_017(self):
         self._check(encoder_2d(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
-        self._check(decoder_2d(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 256, 4, 4])], {})
+        self._check(inconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
-        self._check(conv_3d(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_020(self):
-        self._check(conv_2d(*[], **{'inchannel': 4, 'outchannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 

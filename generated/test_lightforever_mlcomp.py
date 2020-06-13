@@ -1891,14 +1891,6 @@ class Decoder(nn.Module):
                 m.bias.data.zero_()
 
 
-def build_decoder(num_classes, backbone, BatchNorm):
-    return Decoder(num_classes, backbone, BatchNorm)
-
-
-def build_aspp(backbone, output_stride, BatchNorm):
-    return ASPP(backbone, output_stride, BatchNorm)
-
-
 def build_backbone(backbone, output_stride, BatchNorm):
     if backbone == 'resnet':
         return resnet.ResNet101(output_stride, BatchNorm)
@@ -1910,6 +1902,14 @@ def build_backbone(backbone, output_stride, BatchNorm):
         return mobilenet.MobileNetV2(output_stride, BatchNorm)
     else:
         raise NotImplementedError
+
+
+def build_decoder(num_classes, backbone, BatchNorm):
+    return Decoder(num_classes, backbone, BatchNorm)
+
+
+def build_aspp(backbone, output_stride, BatchNorm):
+    return ASPP(backbone, output_stride, BatchNorm)
 
 
 class DeepLab(nn.Module):
@@ -2175,31 +2175,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_lightforever_mlcomp(_paritybench_base):
     pass
     def test_000(self):
-        self._check(FullyConvolutionalLinear(*[], **{'dim_in': 4, 'num_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(AUXModule(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicTransformation(*[], **{'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'groups': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(BasicR2Plus1DTransformation(*[], **{'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'groups': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_002(self):
-        self._check(PostactivatedBottleneckTransformation(*[], **{'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'num_groups': 1, 'dim_inner': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(BasicTransformation(*[], **{'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'groups': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_003(self):
         self._check(Conv2dReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(SCSEModule(*[], **{'ch': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(FullyConvolutionalLinear(*[], **{'dim_in': 4, 'num_classes': 4}), [torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(PyramidStage(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SCSEModule(*[], **{'ch': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_008(self):
-        self._check(AUXModule(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

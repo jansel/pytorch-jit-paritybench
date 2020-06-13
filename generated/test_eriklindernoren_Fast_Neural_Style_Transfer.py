@@ -140,9 +140,9 @@ class Test_eriklindernoren_Fast_Neural_Style_Transfer(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

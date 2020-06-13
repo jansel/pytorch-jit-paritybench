@@ -84,13 +84,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=True), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=True), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
@@ -500,20 +500,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_MTlab_onnx2caffe(_paritybench_base):
     pass
     def test_000(self):
-        self._check(broadcast_add(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-
-    def test_001(self):
-        self._check(broadcast_mul(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-
-    def test_002(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_004(self):
+    def test_001(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(broadcast_add(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
     def test_005(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(broadcast_mul(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 

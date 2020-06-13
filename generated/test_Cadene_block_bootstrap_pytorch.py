@@ -708,6 +708,16 @@ class CompactBilinearPooling(nn.Module):
             .force_cpu_scatter_add)
 
 
+def get_chunks(x, sizes):
+    out = []
+    begin = 0
+    for s in sizes:
+        y = x.narrow(1, begin, s)
+        out.append(y)
+        begin += s
+    return out
+
+
 def get_sizes_list(dim, chunks):
     split_size = (dim + chunks - 1) // chunks
     sizes_list = [split_size] * chunks
@@ -721,16 +731,6 @@ def get_sizes_list(dim, chunks):
         assert sum(sizes_list) == dim
         assert min(sizes_list) > 0
     return sizes_list
-
-
-def get_chunks(x, sizes):
-    out = []
-    begin = 0
-    for s in sizes:
-        y = x.narrow(1, begin, s)
-        out.append(y)
-        begin += s
-    return out
 
 
 class Block(nn.Module):
@@ -1208,17 +1208,6 @@ class MLP(nn.Module):
         return x
 
 
-def factory_text_enc(vocab_words, opt):
-    list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
-    if opt['name'] == 'skipthoughts':
-        st_class = getattr(skipthoughts, opt['type'])
-        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'
-            ], fixed_emb=opt['fixed_emb'])
-    else:
-        raise NotImplementedError
-    return seq2vec
-
-
 def mask_softmax(x, lengths):
     mask = torch.zeros_like(x).to(device=x.device, non_blocking=True)
     t_lengths = lengths[:, :, (None)].expand_as(mask)
@@ -1230,6 +1219,17 @@ def mask_softmax(x, lengths):
     x = x * mask
     x = x / torch.sum(x, dim=1, keepdim=True).expand_as(x)
     return x
+
+
+def factory_text_enc(vocab_words, opt):
+    list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
+    if opt['name'] == 'skipthoughts':
+        st_class = getattr(skipthoughts, opt['type'])
+        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'
+            ], fixed_emb=opt['fixed_emb'])
+    else:
+        raise NotImplementedError
+    return seq2vec
 
 
 class VQANet(nn.Module):
@@ -1374,15 +1374,15 @@ class Test_Cadene_block_bootstrap_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_001(self):
+        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_002(self):
-        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
@@ -1390,5 +1390,5 @@ class Test_Cadene_block_bootstrap_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

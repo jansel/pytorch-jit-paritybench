@@ -792,6 +792,16 @@ class TransformerEmbedding(nn.Module):
         return x, encoder_padding_mask, positions
 
 
+def load_to_gpu(path: str) ->Dict[str, Any]:
+    """
+    Similar to load_to_cpu, but load model to cuda
+    """
+    with PathManager.open(path, 'rb') as f:
+        state = torch.load(f, map_location=lambda s, _: torch.serialization
+            .default_restore_location(s, 'cuda'))
+    return state
+
+
 def load_to_cpu(path: str) ->Dict[str, Any]:
     """
     This is just fairseq's utils.load_checkpoint_to_cpu(), except we don't try
@@ -1794,6 +1804,33 @@ class IterativeRefinementGenerateAndDecode(torch.jit.ScriptModule):
 
 
 @torch.jit.script
+def finalize_hypos_loop_scores(finalized_scores_list: List[Tensor],
+    finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores):
+    for i in range(finalized_idxs.size(0)):
+        cutoff = finalized_scores[i].ne(pad_idx)
+        scores = finalized_scores[i][cutoff]
+        finalized_scores_list[finalized_idxs[i]] = scores
+    return finalized_scores_list
+
+
+@torch.jit.script
+def finalize_hypos_loop_tokens(finalized_tokens_list: List[Tensor],
+    finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores):
+    for i in range(finalized_idxs.size(0)):
+        cutoff = finalized_tokens[i].ne(pad_idx)
+        tokens = finalized_tokens[i][cutoff]
+        finalized_tokens_list[finalized_idxs[i]] = tokens
+    return finalized_tokens_list
+
+
+@torch.jit.script
+def last_step(step: int, max_iter: int, terminated):
+    if step == max_iter:
+        terminated.fill_(1)
+    return terminated
+
+
+@torch.jit.script
 def is_a_loop(pad_idx: int, x, y, s, a):
     b, l_x, l_y = x.size(0), x.size(1), y.size(1)
     if l_x > l_y:
@@ -1807,23 +1844,6 @@ def is_a_loop(pad_idx: int, x, y, s, a):
 
 
 @torch.jit.script
-def finalize_hypos_loop_scores(finalized_scores_list: List[Tensor],
-    finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores):
-    for i in range(finalized_idxs.size(0)):
-        cutoff = finalized_scores[i].ne(pad_idx)
-        scores = finalized_scores[i][cutoff]
-        finalized_scores_list[finalized_idxs[i]] = scores
-    return finalized_scores_list
-
-
-@torch.jit.script
-def last_step(step: int, max_iter: int, terminated):
-    if step == max_iter:
-        terminated.fill_(1)
-    return terminated
-
-
-@torch.jit.script
 def finalize_hypos_loop_attns(finalized_attns_list: List[Tensor],
     finalized_alignments_list: List[Tensor], finalized_idxs, pad_idx: int,
     finalized_tokens, finalized_scores, finalized_attn):
@@ -1834,16 +1854,6 @@ def finalize_hypos_loop_attns(finalized_attns_list: List[Tensor],
         finalized_attns_list[finalized_idxs[i]] = hypo_attn
         finalized_alignments_list[finalized_idxs[i]] = alignment
     return finalized_attns_list, finalized_alignments_list
-
-
-@torch.jit.script
-def finalize_hypos_loop_tokens(finalized_tokens_list: List[Tensor],
-    finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores):
-    for i in range(finalized_idxs.size(0)):
-        cutoff = finalized_tokens[i].ne(pad_idx)
-        tokens = finalized_tokens[i][cutoff]
-        finalized_tokens_list[finalized_idxs[i]] = tokens
-    return finalized_tokens_list
 
 
 class IterativeRefinementGenerator(nn.Module):
@@ -1981,6 +1991,27 @@ class MultiDecoderCombinationStrategy(nn.Module):
         raise NotImplementedError()
 
 
+def split_heads(X, nheads):
+    """
+    Split heads:
+    1) Split (reshape) last dimension (size d_model) into nheads, d_head
+    2) Transpose X from (batch size, sequence length, nheads, d_head) to
+        (batch size, nheads, sequence length, d_head)
+
+    Inputs:
+      X : [batch size, sequence length, nheads * d_head]
+      nheads : integer
+    Outputs:
+      [batch size,  nheads, sequence length, d_head]
+
+    """
+    last_dim = X.shape[-1]
+    assert last_dim % nheads == 0
+    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads]
+        )
+    return X_last_dim_split.transpose(1, 2)
+
+
 def create_src_lengths_mask(batch_size, src_lengths):
     max_srclen = src_lengths.max()
     src_indices = torch.arange(0, max_srclen).unsqueeze(0).type_as(src_lengths)
@@ -2052,27 +2083,6 @@ def combine_heads(X):
     X = X.transpose(1, 2)
     nheads, d_head = X.shape[-2:]
     return X.contiguous().view(list(X.shape[:-2]) + [nheads * d_head])
-
-
-def split_heads(X, nheads):
-    """
-    Split heads:
-    1) Split (reshape) last dimension (size d_model) into nheads, d_head
-    2) Transpose X from (batch size, sequence length, nheads, d_head) to
-        (batch size, nheads, sequence length, d_head)
-
-    Inputs:
-      X : [batch size, sequence length, nheads * d_head]
-      nheads : integer
-    Outputs:
-      [batch size,  nheads, sequence length, d_head]
-
-    """
-    last_dim = X.shape[-1]
-    assert last_dim % nheads == 0
-    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads]
-        )
-    return X_last_dim_split.transpose(1, 2)
 
 
 class MultiheadAttention(nn.Module):
@@ -3078,16 +3088,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_pytorch_translate(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(HighwayLayer(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(ContextEmbedding(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_001(self):
         self._check(FeedForwardNetwork(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(HighwayLayer(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

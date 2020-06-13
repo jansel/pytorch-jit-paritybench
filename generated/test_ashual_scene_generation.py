@@ -80,31 +80,6 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 
-def get_activation(name):
-    kwargs = {}
-    if name.lower().startswith('leakyrelu'):
-        if '-' in name:
-            slope = float(name.split('-')[1])
-            kwargs = {'negative_slope': slope}
-    name = 'leakyrelu'
-    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
-    if name.lower() not in activations:
-        raise ValueError('Invalid activation "%s"' % name)
-    return activations[name.lower()](**kwargs)
-
-
-def get_normalization_2d(channels, normalization):
-    if normalization == 'instance':
-        return nn.InstanceNorm2d(channels)
-    elif normalization == 'batch':
-        return nn.BatchNorm2d(channels)
-    elif normalization == 'none':
-        return None
-    else:
-        raise ValueError('Unrecognized normalization type "%s"' % normalization
-            )
-
-
 def _init_conv(layer, method):
     if not isinstance(layer, nn.Conv2d):
         return
@@ -123,6 +98,31 @@ def _get_padding(K, mode):
     elif mode == 'same':
         assert K % 2 == 1, 'Invalid kernel size %d for "same" padding' % K
         return (K - 1) // 2
+
+
+def get_normalization_2d(channels, normalization):
+    if normalization == 'instance':
+        return nn.InstanceNorm2d(channels)
+    elif normalization == 'batch':
+        return nn.BatchNorm2d(channels)
+    elif normalization == 'none':
+        return None
+    else:
+        raise ValueError('Unrecognized normalization type "%s"' % normalization
+            )
+
+
+def get_activation(name):
+    kwargs = {}
+    if name.lower().startswith('leakyrelu'):
+        if '-' in name:
+            slope = float(name.split('-')[1])
+            kwargs = {'negative_slope': slope}
+    name = 'leakyrelu'
+    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
+    if name.lower() not in activations:
+        raise ValueError('Invalid activation "%s"' % name)
+    return activations[name.lower()](**kwargs)
 
 
 def build_cnn(arch, normalization='batch', activation='relu', padding=
@@ -233,6 +233,13 @@ class AcDiscriminator(nn.Module):
         return real_scores, ac_loss
 
 
+def _invperm(p):
+    N = p.size(0)
+    eye = torch.arange(0, N).type_as(p)
+    pp = (eye[:, (None)] == p).nonzero()[:, (1)]
+    return pp
+
+
 def bilinear_sample(feats, X, Y):
     """
     Perform bilinear sampling on the features in feats using the sampling grid
@@ -332,13 +339,6 @@ def crop_bbox(feats, bbox, HH, WW=None, backend='cudnn'):
     elif backend == 'cudnn':
         grid = torch.stack([X, Y], dim=3)
         return F.grid_sample(feats, grid)
-
-
-def _invperm(p):
-    N = p.size(0)
-    eye = torch.arange(0, N).type_as(p)
-    pp = (eye[:, (None)] == p).nonzero()[:, (1)]
-    return pp
 
 
 def crop_bbox_batch_cudnn(feats, bbox, bbox_to_feats, HH, WW=None):
@@ -953,38 +953,6 @@ class VGGLoss(nn.Module):
         return loss
 
 
-class VectorPool:
-
-    def __init__(self, pool_size):
-        self.pool_size = pool_size
-        self.vectors = {}
-
-    def query(self, objs, vectors):
-        if self.pool_size == 0:
-            return vectors
-        return_vectors = []
-        for obj, vector in zip(objs, vectors):
-            obj = obj.item()
-            vector = vector.cpu().clone().detach()
-            if obj not in self.vectors:
-                self.vectors[obj] = []
-            obj_pool_size = len(self.vectors[obj])
-            if obj_pool_size == 0:
-                return_vectors.append(vector)
-                self.vectors[obj].append(vector)
-            elif obj_pool_size < self.pool_size:
-                random_id = random.randint(0, obj_pool_size - 1)
-                self.vectors[obj].append(vector)
-                return_vectors.append(self.vectors[obj][random_id])
-            else:
-                random_id = random.randint(0, obj_pool_size - 1)
-                tmp = self.vectors[obj][random_id]
-                self.vectors[obj][random_id] = vector
-                return_vectors.append(tmp)
-        return_vectors = torch.stack(return_vectors).to(vectors.device)
-        return return_vectors
-
-
 def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
     """
     Input:
@@ -1092,21 +1060,6 @@ def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling=
     return out
 
 
-def mask_net(dim, mask_size):
-    output_dim = 1
-    layers, cur_size = [], 1
-    while cur_size < mask_size:
-        layers.append(Interpolate(scale_factor=2, mode='nearest'))
-        layers.append(nn.Conv2d(dim, dim, kernel_size=3, padding=1))
-        layers.append(nn.BatchNorm2d(dim))
-        layers.append(nn.ReLU())
-        cur_size *= 2
-    if cur_size != mask_size:
-        raise ValueError('Mask size must be a power of 2')
-    layers.append(nn.Conv2d(dim, output_dim, kernel_size=1))
-    return nn.Sequential(*layers)
-
-
 def get_norm_layer(norm_type='instance'):
     if norm_type == 'batch':
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
@@ -1138,6 +1091,53 @@ def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
     netG.cuda()
     netG.apply(weights_init)
     return netG
+
+
+class VectorPool:
+
+    def __init__(self, pool_size):
+        self.pool_size = pool_size
+        self.vectors = {}
+
+    def query(self, objs, vectors):
+        if self.pool_size == 0:
+            return vectors
+        return_vectors = []
+        for obj, vector in zip(objs, vectors):
+            obj = obj.item()
+            vector = vector.cpu().clone().detach()
+            if obj not in self.vectors:
+                self.vectors[obj] = []
+            obj_pool_size = len(self.vectors[obj])
+            if obj_pool_size == 0:
+                return_vectors.append(vector)
+                self.vectors[obj].append(vector)
+            elif obj_pool_size < self.pool_size:
+                random_id = random.randint(0, obj_pool_size - 1)
+                self.vectors[obj].append(vector)
+                return_vectors.append(self.vectors[obj][random_id])
+            else:
+                random_id = random.randint(0, obj_pool_size - 1)
+                tmp = self.vectors[obj][random_id]
+                self.vectors[obj][random_id] = vector
+                return_vectors.append(tmp)
+        return_vectors = torch.stack(return_vectors).to(vectors.device)
+        return return_vectors
+
+
+def mask_net(dim, mask_size):
+    output_dim = 1
+    layers, cur_size = [], 1
+    while cur_size < mask_size:
+        layers.append(Interpolate(scale_factor=2, mode='nearest'))
+        layers.append(nn.Conv2d(dim, dim, kernel_size=3, padding=1))
+        layers.append(nn.BatchNorm2d(dim))
+        layers.append(nn.ReLU())
+        cur_size *= 2
+    if cur_size != mask_size:
+        raise ValueError('Mask size must be a power of 2')
+    layers.append(nn.Conv2d(dim, output_dim, kernel_size=1))
+    return nn.Sequential(*layers)
 
 
 class Model(nn.Module):
@@ -1411,19 +1411,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ashual_scene_generation(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_003(self):
-        self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})

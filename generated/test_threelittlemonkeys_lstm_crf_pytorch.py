@@ -38,25 +38,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-CUDA = torch.cuda.is_available()
-
-
-zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
-
-
-Tensor = torch.cuda.FloatTensor if CUDA else torch.FloatTensor
-
-
 EMBED = {'lookup': 300}
+
+
+EMBED_SIZE = sum(EMBED.values())
 
 
 DROPOUT = 0.5
 
 
+CUDA = torch.cuda.is_available()
+
+
+Tensor = torch.cuda.FloatTensor if CUDA else torch.FloatTensor
+
+
 PAD_IDX = 0
 
 
-EMBED_SIZE = sum(EMBED.values())
+zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
 
 
 class embed(nn.Module):
@@ -287,16 +287,16 @@ class rnn_crf(nn.Module):
         return self.crf.decode(h, mask)
 
 
-HIDDEN_SIZE = 1000
-
-
-RNN_TYPE = 'LSTM'
+NUM_LAYERS = 2
 
 
 NUM_DIRS = 2
 
 
-NUM_LAYERS = 2
+HIDDEN_SIZE = 1000
+
+
+RNN_TYPE = 'LSTM'
 
 
 class rnn(nn.Module):
@@ -333,21 +333,21 @@ class rnn(nn.Module):
         return h
 
 
-SOS_IDX = 1
-
-
-LongTensor = torch.cuda.LongTensor if CUDA else torch.LongTensor
-
-
-EOS_IDX = 2
-
-
 randn = lambda *x: torch.randn(*x).cuda() if CUDA else torch.randn
 
 
 def log_sum_exp(x):
     m = torch.max(x, -1)[0]
     return m + torch.log(torch.sum(torch.exp(x - m.unsqueeze(-1)), -1))
+
+
+EOS_IDX = 2
+
+
+LongTensor = torch.cuda.LongTensor if CUDA else torch.LongTensor
+
+
+SOS_IDX = 1
 
 
 class crf(nn.Module):

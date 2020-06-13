@@ -1593,13 +1593,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_DSE_MSU_DeepRobust(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GGCL_F(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
@@ -1607,13 +1605,15 @@ class Test_DSE_MSU_DeepRobust(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(GGCL_F(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(GaussianConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
+    @_fails_compile()
     def test_005(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
@@ -1623,5 +1623,5 @@ class Test_DSE_MSU_DeepRobust(_paritybench_base):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

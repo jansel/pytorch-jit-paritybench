@@ -223,14 +223,14 @@ class Test_abhiskk_fast_neural_style(_paritybench_base):
         self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(InstanceNormalization(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_003(self):
-        self._check(InstanceNormalization(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
         self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})

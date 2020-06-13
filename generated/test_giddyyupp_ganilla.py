@@ -797,23 +797,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_giddyyupp_ganilla(_paritybench_base):
     pass
     def test_000(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(BasicBlock_Ganilla(*[], **{'in_planes': 4, 'planes': 4, 'use_dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_002(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
         self._check(BasicBlock_orj(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(Discriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_003(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
     def test_004(self):
-        self._check(BasicBlock_Ganilla(*[], **{'in_planes': 4, 'planes': 4, 'use_dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(ResidualBlock(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Discriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

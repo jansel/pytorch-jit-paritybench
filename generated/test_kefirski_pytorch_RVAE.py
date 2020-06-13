@@ -51,16 +51,16 @@ from torch.autograd import Variable
 from torch.nn import Parameter
 
 
-def f_or(x, y):
-    return x or y
-
-
 def f_and(x, y):
     return x and y
 
 
 def fold(f, l, a):
     return a if len(l) == 0 else fold(f, l[1:], f(a, l[0]))
+
+
+def f_or(x, y):
+    return x or y
 
 
 def parameters_allocation_check(module):

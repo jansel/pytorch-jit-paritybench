@@ -776,13 +776,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
@@ -839,14 +839,6 @@ class MobileNetV2(nn.Module):
                 m.bias.data.zero_()
 
 
-def PSNR(img1, img2):
-    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
-    if mse == 0:
-        return 100
-    PIXEL_MAX = 1
-    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
-
-
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
         sigma ** 2)) for x in range(window_size)])
@@ -885,6 +877,14 @@ def SSIM(img1, img2):
     ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
         C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean()
+
+
+def PSNR(img1, img2):
+    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
+    if mse == 0:
+        return 100
+    PIXEL_MAX = 1
+    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
 
 
 class DeblurModel(nn.Module):
@@ -1430,42 +1430,42 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_TAMU_VITA_DeblurGANv2(_paritybench_base):
     pass
     def test_000(self):
-        self._check(FPNSegHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(FPNHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
-
-    def test_003(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
-        self._check(DicsriminatorTail(*[], **{'nf_mult': 4, 'n_layers': 1}), [torch.rand([4, 256, 64, 64])], {})
-
-    def test_006(self):
-        self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_007(self):
-        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_008(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
         self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_010(self):
-        self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_011(self):
+    def test_001(self):
         self._check(DecoderBlockV(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_002(self):
         self._check(DecoderCenter(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(DicsriminatorTail(*[], **{'nf_mult': 4, 'n_layers': 1}), [torch.rand([4, 256, 64, 64])], {})
+
+    def test_004(self):
+        self._check(FPNHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(FPNSegHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
+
+    def test_007(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_009(self):
+        self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_010(self):
+        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_011(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

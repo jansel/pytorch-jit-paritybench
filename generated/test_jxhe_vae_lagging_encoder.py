@@ -1054,24 +1054,24 @@ class Test_jxhe_vae_lagging_encoder(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(PixelCNNBlock(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 2, 2])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(MaskABlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'masked_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_002(self):
+        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(PixelCNNBlock(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 2, 2])], {})
+
     def test_004(self):
-        self._check(ResidualBlock(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNet(*[], **{'inplanes': 4, 'planes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
         self._check(ResNetBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(ResNet(*[], **{'inplanes': 4, 'planes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualBlock(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

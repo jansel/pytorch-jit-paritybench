@@ -130,6 +130,23 @@ class IDModule(nn.Module):
         return x.view(-1, getFeatireSize(x))
 
 
+def extractIndexedLayers(sequence, x, indexes, detach):
+    index = 0
+    output = []
+    indexes.sort()
+    for iSeq, layer in enumerate(sequence):
+        if index >= len(indexes):
+            break
+        x = layer(x)
+        if iSeq == indexes[index]:
+            if detach:
+                output.append(x.view(x.size(0), x.size(1), -1).detach())
+            else:
+                output.append(x.view(x.size(0), x.size(1), -1))
+            index += 1
+    return output
+
+
 def extractRelUIndexes(sequence, layers):
     layers.sort()
     index = 0
@@ -165,23 +182,6 @@ def loadmodule(package, name, prefix='..'):
     strCmd = 'from ' + prefix + package + ' import ' + name + ' as module'
     exec(strCmd)
     return eval('module')
-
-
-def extractIndexedLayers(sequence, x, indexes, detach):
-    index = 0
-    output = []
-    indexes.sort()
-    for iSeq, layer in enumerate(sequence):
-        if index >= len(indexes):
-            break
-        x = layer(x)
-        if iSeq == indexes[index]:
-            if detach:
-                output.append(x.view(x.size(0), x.size(1), -1).detach())
-            else:
-                output.append(x.view(x.size(0), x.size(1), -1))
-            index += 1
-    return output
 
 
 class LossTexture(torch.nn.Module):
@@ -444,6 +444,23 @@ class ConstrainedLayer(nn.Module):
         return x
 
 
+class EqualizedConv2d(ConstrainedLayer):
+
+    def __init__(self, nChannelsPrevious, nChannels, kernelSize, padding=0,
+        bias=True, **kwargs):
+        """
+        A nn.Conv2d module with specific constraints
+        Args:
+            nChannelsPrevious (int): number of channels in the previous layer
+            nChannels (int): number of channels of the current layer
+            kernelSize (int): size of the convolutional kernel
+            padding (int): convolution's padding
+            bias (bool): with bias ?
+        """
+        ConstrainedLayer.__init__(self, nn.Conv2d(nChannelsPrevious,
+            nChannels, kernelSize, padding=padding, bias=bias), **kwargs)
+
+
 class EqualizedLinear(ConstrainedLayer):
 
     def __init__(self, nChannelsPrevious, nChannels, bias=True, **kwargs):
@@ -475,23 +492,6 @@ def num_flat_features(x):
     for s in size:
         num_features *= s
     return num_features
-
-
-class EqualizedConv2d(ConstrainedLayer):
-
-    def __init__(self, nChannelsPrevious, nChannels, kernelSize, padding=0,
-        bias=True, **kwargs):
-        """
-        A nn.Conv2d module with specific constraints
-        Args:
-            nChannelsPrevious (int): number of channels in the previous layer
-            nChannels (int): number of channels of the current layer
-            kernelSize (int): size of the convolutional kernel
-            padding (int): convolution's padding
-            bias (bool): with bias ?
-        """
-        ConstrainedLayer.__init__(self, nn.Conv2d(nChannelsPrevious,
-            nChannels, kernelSize, padding=padding, bias=bias), **kwargs)
 
 
 class GNet(nn.Module):
@@ -934,33 +934,33 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_facebookresearch_pytorch_GAN_zoo(_paritybench_base):
     pass
     def test_000(self):
-        self._check(IDModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AdaIN(*[], **{'dimIn': 4, 'dimOut': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(ConstantNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(MeanStd(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(FeatureTransform(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(NormalizationLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(EqualizedLinear(*[], **{'nChannelsPrevious': 4, 'nChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
         self._check(EqualizedConv2d(*[], **{'nChannelsPrevious': 4, 'nChannels': 4, 'kernelSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(EqualizedLinear(*[], **{'nChannelsPrevious': 4, 'nChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(FeatureTransform(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_005(self):
+        self._check(IDModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(MappingLayer(*[], **{'dimIn': 4, 'dimLatent': 4, 'nLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
-        self._check(AdaIN(*[], **{'dimIn': 4, 'dimOut': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(MeanStd(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
         self._check(NoiseMultiplier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(MappingLayer(*[], **{'dimIn': 4, 'dimLatent': 4, 'nLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NormalizationLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -85,11 +85,6 @@ class Encoder(nn.Module):
         return x
 
 
-def deconv2d_block(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=1, padding=1), nn
-        .BatchNorm2d(out_c), nn.ReLU())
-
-
 def pixel_bias(outViewN, outW, outH, renderDepth):
     X, Y = torch.meshgrid([torch.arange(outH), torch.arange(outW)])
     X, Y = X.float(), Y.float()
@@ -97,6 +92,11 @@ def pixel_bias(outViewN, outW, outH, renderDepth):
         1]), torch.ones([outViewN, outH, outW]).float() * renderDepth,
         torch.zeros([outViewN, outH, outW]).float()], dim=0)
     return initTile.unsqueeze_(dim=0)
+
+
+def deconv2d_block(in_c, out_c):
+    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=1, padding=1), nn
+        .BatchNorm2d(out_c), nn.ReLU())
 
 
 class Decoder(nn.Module):

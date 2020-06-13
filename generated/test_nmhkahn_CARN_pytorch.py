@@ -306,23 +306,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_nmhkahn_CARN_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(MeanShift(*[], **{'mean_rgb': [4, 4, 4], 'sub': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_003(self):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_002(self):
+        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(MeanShift(*[], **{'mean_rgb': [4, 4, 4], 'sub': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
     def test_004(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):

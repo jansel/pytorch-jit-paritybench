@@ -521,23 +521,23 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_gengshan_y_high_res_stereo(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(sepConv3dBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(conv2DBatchNorm(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(projfeat3d(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': [4, 4]}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(conv2DBatchNormRelu(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(disparityregression(*[], **{'maxdisp': 4, 'divisor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(conv2DBatchNorm(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(projfeat3d(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': [4, 4]}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(conv2DBatchNormRelu(*[], **{'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
         self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(sepConv3dBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 

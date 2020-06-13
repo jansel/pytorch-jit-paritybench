@@ -163,8 +163,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_bai_shang_crnn_seq2seq_ocr_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CNN(*[], **{'channel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(BidirectionalLSTM(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BidirectionalLSTM(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(CNN(*[], **{'channel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
 

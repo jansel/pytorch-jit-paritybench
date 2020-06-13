@@ -571,18 +571,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_KinglittleQ_GST_Tacotron(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MultiHeadAttention(*[], **{'query_dim': 4, 'key_dim': 4, 'num_units': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(BatchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
         self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(Highway(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(Conv1dBank(*[], **{'K': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(Highway(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(BatchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'query_dim': 4, 'key_dim': 4, 'num_units': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

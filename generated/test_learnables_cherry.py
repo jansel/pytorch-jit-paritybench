@@ -1513,47 +1513,47 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_learnables_cherry(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(NatureActor(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(NatureCritic(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(LinearValue(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
-
-    def test_004(self):
-        self._check(StateValueFunction(*[], **{'state_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_005(self):
+    def test_000(self):
         self._check(ActionValueFunction(*[], **{'state_size': 4, 'action_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_006(self):
-        self._check(EpsilonGreedy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_001(self):
         self._check(Actor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_002(self):
+        self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 
     @_fails_compile()
-    def test_009(self):
-        self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+    def test_004(self):
+        self._check(EpsilonGreedy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_005(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(LinearValue(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+
+    def test_007(self):
         self._check(MLP(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_008(self):
+        self._check(NatureActor(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(NatureCritic(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(PolicyNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_011(self):
         self._check(SoftActor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+
+    def test_012(self):
+        self._check(StateValueFunction(*[], **{'state_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

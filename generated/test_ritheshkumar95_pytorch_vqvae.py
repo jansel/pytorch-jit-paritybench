@@ -293,21 +293,21 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ritheshkumar95_pytorch_vqvae(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(VAE(*[], **{'input_dim': 4, 'dim': 4, 'z_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(GatedActivation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(VQEmbedding(*[], **{'K': 4, 'D': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(VectorQuantizedVAE(*[], **{'input_dim': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(VAE(*[], **{'input_dim': 4, 'dim': 4, 'z_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
+    @_fails_compile()
+    def test_003(self):
+        self._check(VQEmbedding(*[], **{'K': 4, 'D': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_004(self):
-        self._check(GatedActivation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(VectorQuantizedVAE(*[], **{'input_dim': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

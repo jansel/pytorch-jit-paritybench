@@ -823,18 +823,18 @@ class Test_pytorch_ignite(_paritybench_base):
         self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DummyModel(*[], **{}), [torch.rand([1, 1])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DummyPretrainedModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(DummyModel(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(DummyPretrainedModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

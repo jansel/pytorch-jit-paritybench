@@ -317,14 +317,6 @@ class ExtractSumm(nn.Module):
         self._sent_enc.set_embedding(embedding)
 
 
-def prob_normalize(score, mask):
-    """ [(...), T]
-    user should handle mask shape"""
-    score = score.masked_fill(mask == 0, -1e+18)
-    norm_score = F.softmax(score, dim=-1)
-    return norm_score
-
-
 def len_mask(lens, device):
     """ users are resposible for shaping
     Return: tensor_type [B, T]
@@ -629,6 +621,14 @@ class StackedLSTMCells(nn.Module):
 def dot_attention_score(key, query):
     """[B, Tk, D], [(Bs), B, Tq, D] -> [(Bs), B, Tq, Tk]"""
     return query.matmul(key.transpose(1, 2))
+
+
+def prob_normalize(score, mask):
+    """ [(...), T]
+    user should handle mask shape"""
+    score = score.masked_fill(mask == 0, -1e+18)
+    norm_score = F.softmax(score, dim=-1)
+    return norm_score
 
 
 def attention_aggregate(value, score):

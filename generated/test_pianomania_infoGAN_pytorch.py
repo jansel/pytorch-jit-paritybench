@@ -107,14 +107,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_pianomania_infoGAN_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(FrontEnd(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    def test_001(self):
         self._check(D(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
+    def test_001(self):
+        self._check(FrontEnd(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
     def test_002(self):
-        self._check(Q(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(G(*[], **{}), [torch.rand([4, 74, 4, 4])], {})
 
     def test_003(self):
-        self._check(G(*[], **{}), [torch.rand([4, 74, 4, 4])], {})
+        self._check(Q(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 

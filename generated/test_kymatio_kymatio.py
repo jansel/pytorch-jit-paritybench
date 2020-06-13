@@ -438,15 +438,15 @@ class Test_kymatio_kymatio(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(Generator(*[], **{'num_input_channels': 4, 'num_hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(Scattering2dCNN(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(View(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_004(self):
-        self._check(Generator(*[], **{'num_input_channels': 4, 'num_hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(View(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

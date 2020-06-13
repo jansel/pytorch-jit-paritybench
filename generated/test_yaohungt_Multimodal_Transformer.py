@@ -604,18 +604,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_yaohungt_Multimodal_Transformer(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CTCModule(*[], **{'in_dim': 4, 'out_seq_len': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(SinusoidalPositionalEmbedding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(TransformerEncoderLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(SinusoidalPositionalEmbedding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(CTCModule(*[], **{'in_dim': 4, 'out_seq_len': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(TransformerEncoderLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
 

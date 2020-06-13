@@ -50,11 +50,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def Conv_1x1(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
-
-
 def Conv_3x3(inp, oup, stride):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
@@ -64,6 +59,11 @@ def SepConv_3x3(inp, oup):
     return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=
         False), nn.BatchNorm2d(inp), nn.ReLU6(inplace=True), nn.Conv2d(inp,
         oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+
+
+def Conv_1x1(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MnasNet(nn.Module):

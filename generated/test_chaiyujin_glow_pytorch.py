@@ -684,29 +684,29 @@ class Test_chaiyujin_glow_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(_ActNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(ActNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_001(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_002(self):
         self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_003(self):
+        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_005(self):
         self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(_ActNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

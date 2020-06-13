@@ -1512,10 +1512,10 @@ class ResNet(nn.Module):
 DEPTH = 4
 
 
-BASEWIDTH = 64
-
-
 CARDINALITY = 32
+
+
+BASEWIDTH = 64
 
 
 class ResNextBottleNeckC(nn.Module):

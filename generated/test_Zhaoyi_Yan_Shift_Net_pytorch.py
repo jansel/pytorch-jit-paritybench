@@ -1948,31 +1948,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Zhaoyi_Yan_Shift_Net_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_004(self):
-        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
         self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_002(self):
         self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_003(self):
+        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -176,17 +176,17 @@ class SiamRPN(nn.Module):
         return fused_cls_prediction, fused_regression_prediction
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, groups=groups, bias=False)
-
-
 def conv3x3_with_dilation(in_planes, out_planes, stride=1, padding=2,
     dilation_ratio=2, groups=1):
     """3x3 convolution with padding and dilation"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=padding, dilation=dilation_ratio, groups=groups, bias=False)
+
+
+def conv3x3(in_planes, out_planes, stride=1, groups=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, groups=groups, bias=False)
 
 
 def conv1x1(in_planes, out_planes, stride=1):

@@ -126,24 +126,6 @@ class SinThetaByTheta(torch.nn.Module):
         return SinThetaByTheta_Function.apply(x)
 
 
-def one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001):
-    """Computes :math:`\\frac{1 - cos \\theta}{\\theta^2}`. 
-
-    Args:
-        theta (torch.Tensor): Angle (magnitude of axis-angle vector).
-        eps (float): Threshold (exclusive) below which an angle is
-            considered 'small'.
-
-    """
-    result = torch.zeros_like(theta)
-    s, l = get_small_and_large_angle_inds(theta, eps)
-    theta_sq = theta ** 2
-    result[s] = 1 / 2 * (1 - theta_sq[s] / 12 * (1 - theta_sq[s] / 30 * (1 -
-        theta_sq[s] / 56)))
-    result[l] = (1 - cos(theta[l])) / theta_sq[l]
-    return result
-
-
 def grad_one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001
     ):
     """Computes :math:`\\frac{\\partial}{\\partial \\theta}\\frac{1 - cos \\theta}{\\theta^2}`.
@@ -161,6 +143,24 @@ def grad_one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001
         ] / 56 * (1 / 2 - theta_sq[s] / 135)))
     result[l] = sin(theta[l]) / theta_sq[l] - 2 * (1 - cos(theta[l])) / (
         theta_sq[l] * theta[l])
+    return result
+
+
+def one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001):
+    """Computes :math:`\\frac{1 - cos \\theta}{\\theta^2}`. 
+
+    Args:
+        theta (torch.Tensor): Angle (magnitude of axis-angle vector).
+        eps (float): Threshold (exclusive) below which an angle is
+            considered 'small'.
+
+    """
+    result = torch.zeros_like(theta)
+    s, l = get_small_and_large_angle_inds(theta, eps)
+    theta_sq = theta ** 2
+    result[s] = 1 / 2 * (1 - theta_sq[s] / 12 * (1 - theta_sq[s] / 30 * (1 -
+        theta_sq[s] / 56)))
+    result[l] = (1 - cos(theta[l])) / theta_sq[l]
     return result
 
 
@@ -216,24 +216,6 @@ class OneMinusCosThetaByThetaSq(torch.nn.Module):
         return OneMinusCosThetaByThetaSq_Function.apply(x)
 
 
-def theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps: float=0.001):
-    """Computes :math:`\\frac{\\theta - sin \\theta}{\\theta^3}`. 
-
-    Args:
-        theta (torch.Tensor): Angle (magnitude of axis-angle vector).
-        eps (float): Threshold (exclusive) below which an angle is
-            considered 'small'.
-
-    """
-    result = torch.zeros_like(theta)
-    s, l = get_small_and_large_angle_inds(theta, eps)
-    theta_sq = theta[s] ** 2
-    result[s] = 1 / 6 * (1 - theta_sq / 20 * (1 - theta_sq / 42 * (1 - 
-        theta_sq / 72)))
-    result[l] = (theta[l] - sin(theta[l])) / theta[l] ** 3
-    return result
-
-
 def grad_theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps:
     float=0.001):
     """Computes :math:`\\frac{\\partial}{\\partial \\theta}\\frac{\\theta - sin \\theta}{\\theta^3}`.
@@ -251,6 +233,24 @@ def grad_theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps:
         (1 / 2 - theta_sq / 165)))
     result[l] = (3 * sin(theta[l]) - theta[l] * (cos(theta[l]) + 2)) / theta[l
         ] ** 4
+    return result
+
+
+def theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps: float=0.001):
+    """Computes :math:`\\frac{\\theta - sin \\theta}{\\theta^3}`. 
+
+    Args:
+        theta (torch.Tensor): Angle (magnitude of axis-angle vector).
+        eps (float): Threshold (exclusive) below which an angle is
+            considered 'small'.
+
+    """
+    result = torch.zeros_like(theta)
+    s, l = get_small_and_large_angle_inds(theta, eps)
+    theta_sq = theta[s] ** 2
+    result[s] = 1 / 6 * (1 - theta_sq / 20 * (1 - theta_sq / 42 * (1 - 
+        theta_sq / 72)))
+    result[l] = (theta[l] - sin(theta[l])) / theta[l] ** 3
     return result
 
 
@@ -515,15 +515,15 @@ class Test_krrish94_nerf_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(SinThetaByTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(OneMinusCosThetaByThetaSq(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(ThetaBySinTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SinThetaByTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(OneMinusCosThetaByThetaSq(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ThetaBySinTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

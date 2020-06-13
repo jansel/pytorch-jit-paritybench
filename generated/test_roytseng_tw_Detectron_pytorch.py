@@ -626,19 +626,19 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-sources = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-with_cuda = False
+defines = []
 
 
 headers = []
 
 
-defines = []
+with_cuda = False
+
+
+sources = []
+
+
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 class RoIPoolFunction(Function):
@@ -916,15 +916,6 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     return anchors
 
 
-def _scale_enum(anchor, scales):
-    """Enumerate a set of anchors for each scale wrt an anchor."""
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
 def _ratio_enum(anchor, ratios):
     """Enumerate a set of anchors for each aspect ratio wrt an anchor."""
     w, h, x_ctr, y_ctr = _whctrs(anchor)
@@ -932,6 +923,15 @@ def _ratio_enum(anchor, ratios):
     size_ratios = size / ratios
     ws = np.round(np.sqrt(size_ratios))
     hs = np.round(ws * ratios)
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _scale_enum(anchor, scales):
+    """Enumerate a set of anchors for each scale wrt an anchor."""
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
     anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
     return anchors
 
@@ -1048,7 +1048,44 @@ class fpn_rpn_outputs(nn.Module):
         return return_dict
 
 
+def freeze_params(m):
+    """Freeze all the weights by setting requires_grad to False
+    """
+    for p in m.parameters():
+        p.requires_grad = False
+
+
 _global_config['RESNETS'] = 4
+
+
+def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
+    """Return a residual block module, including residual connection, """
+    if stride != 1 or inplanes != outplanes:
+        shortcut_func = globals()[cfg.RESNETS.SHORTCUT_FUNC]
+        downsample = shortcut_func(inplanes, outplanes, stride)
+    else:
+        downsample = None
+    trans_func = globals()[cfg.RESNETS.TRANS_FUNC]
+    res_block = trans_func(inplanes, outplanes, innerplanes, stride,
+        dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
+    return res_block
+
+
+def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
+    stride_init=2):
+    """Make a stage consist of `nblocks` residual blocks.
+    Returns:
+        - stage module: an nn.Sequentail module of residual blocks
+        - final output dimension
+    """
+    res_blocks = []
+    stride = stride_init
+    for _ in range(nblocks):
+        res_blocks.append(add_residual_block(inplanes, outplanes,
+            innerplanes, dilation, stride))
+        inplanes = outplanes
+        stride = 1
+    return nn.Sequential(*res_blocks), outplanes
 
 
 def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
@@ -1084,43 +1121,6 @@ def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
             mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
                 '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
     return mapping_to_detectron, orphan_in_detectron
-
-
-def freeze_params(m):
-    """Freeze all the weights by setting requires_grad to False
-    """
-    for p in m.parameters():
-        p.requires_grad = False
-
-
-def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
-    """Return a residual block module, including residual connection, """
-    if stride != 1 or inplanes != outplanes:
-        shortcut_func = globals()[cfg.RESNETS.SHORTCUT_FUNC]
-        downsample = shortcut_func(inplanes, outplanes, stride)
-    else:
-        downsample = None
-    trans_func = globals()[cfg.RESNETS.TRANS_FUNC]
-    res_block = trans_func(inplanes, outplanes, innerplanes, stride,
-        dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
-    return res_block
-
-
-def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
-    stride_init=2):
-    """Make a stage consist of `nblocks` residual blocks.
-    Returns:
-        - stage module: an nn.Sequentail module of residual blocks
-        - final output dimension
-    """
-    res_blocks = []
-    stride = stride_init
-    for _ in range(nblocks):
-        res_blocks.append(add_residual_block(inplanes, outplanes,
-            innerplanes, dilation, stride))
-        inplanes = outplanes
-        stride = 1
-    return nn.Sequential(*res_blocks), outplanes
 
 
 class ResNet_convX_body(nn.Module):
@@ -1304,6 +1304,22 @@ class bottleneck_gn_transformation(nn.Module):
         return out
 
 
+def collect(inputs, is_training):
+    cfg_key = 'TRAIN' if is_training else 'TEST'
+    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.
+        RPN_COLLECT_SCALE + 0.5)
+    k_max = cfg.FPN.RPN_MAX_LEVEL
+    k_min = cfg.FPN.RPN_MIN_LEVEL
+    num_lvls = k_max - k_min + 1
+    roi_inputs = inputs[:num_lvls]
+    score_inputs = inputs[num_lvls:]
+    rois = np.concatenate(roi_inputs)
+    scores = np.concatenate(score_inputs).squeeze()
+    inds = np.argsort(-scores)[:post_nms_topN]
+    rois = rois[(inds), :]
+    return rois
+
+
 def distribute(rois, label_blobs):
     """To understand the output blob order see return value of
     roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
@@ -1324,22 +1340,6 @@ def distribute(rois, label_blobs):
     rois_idx_restore = np.argsort(rois_idx_order)
     outputs[-1] = rois_idx_restore.astype(np.int32)
     return dict(zip(output_blob_names, outputs))
-
-
-def collect(inputs, is_training):
-    cfg_key = 'TRAIN' if is_training else 'TEST'
-    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.
-        RPN_COLLECT_SCALE + 0.5)
-    k_max = cfg.FPN.RPN_MAX_LEVEL
-    k_min = cfg.FPN.RPN_MIN_LEVEL
-    num_lvls = k_max - k_min + 1
-    roi_inputs = inputs[:num_lvls]
-    score_inputs = inputs[num_lvls:]
-    rois = np.concatenate(roi_inputs)
-    scores = np.concatenate(score_inputs).squeeze()
-    inds = np.argsort(-scores)[:post_nms_topN]
-    rois = rois[(inds), :]
-    return rois
 
 
 class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
@@ -2075,6 +2075,15 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         return x
 
 
+def compare_state_dict(sa, sb):
+    if sa.keys() != sb.keys():
+        return False
+    for k, va in sa.items():
+        if not torch.equal(va, sb[k]):
+            return False
+    return True
+
+
 def setup_logging(name):
     FORMAT = '%(levelname)s %(filename)s:%(lineno)4d: %(message)s'
     logging.root.handlers = []
@@ -2125,19 +2134,10 @@ def check_inference(net_func):
     return wrapper
 
 
-def compare_state_dict(sa, sb):
-    if sa.keys() != sb.keys():
-        return False
-    for k, va in sa.items():
-        if not torch.equal(va, sb[k]):
-            return False
-    return True
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 _global_config['TRAIN'] = 4
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -2832,14 +2832,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_roytseng_tw_Detectron_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

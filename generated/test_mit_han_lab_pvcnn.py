@@ -1091,8 +1091,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_mit_han_lab_pvcnn(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Transformer(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(SharedMLP(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_001(self):
-        self._check(SharedMLP(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(Transformer(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
 

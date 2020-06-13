@@ -105,15 +105,6 @@ class MobileBlock(nn.Module):
             return out
 
 
-def _make_divisible(v, divisor=8, min_value=None):
-    if min_value is None:
-        min_value = divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
-
-
 def _weights_init(m):
     if isinstance(m, nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
@@ -126,6 +117,15 @@ def _weights_init(m):
         n = m.weight.size(1)
         m.weight.data.normal_(0, 0.01)
         m.bias.data.zero_()
+
+
+def _make_divisible(v, divisor=8, min_value=None):
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 
 
 class MobileNetV3(nn.Module):
@@ -219,18 +219,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_leaderj1001_MobileNetV3_Pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
+        self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

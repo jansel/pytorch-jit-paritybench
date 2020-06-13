@@ -445,38 +445,63 @@ class InterpolateModule(nn.Module):
         return F.interpolate(x, *self.args, **self.kwdargs)
 
 
-def intersect(box_a, box_b):
-    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
-    min_xy = np.maximum(box_a[:, :2], box_b[:2])
-    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
-
-
-def jaccard(box_a, box_b, iscrowd: bool=False):
-    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
-    is simply the intersection over union of two boxes.  Here we operate on
-    ground truth boxes and default boxes. If iscrowd=True, put the crowd in box_b.
-    E.g.:
-        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-    Return:
-        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
+@torch.jit.script
+def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0, cast:
+    bool=True):
     """
-    use_batch = True
-    if box_a.dim() == 2:
-        use_batch = False
-        box_a = box_a[None, ...]
-        box_b = box_b[None, ...]
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
-        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
-    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
-        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
+    Also converts from relative to absolute coordinates and casts the results to long tensors.
+
+    If cast is false, the result won't be cast to longs.
+    Warning: this does things in-place behind the scenes so copy if necessary.
+    """
+    _x1 = _x1 * img_size
+    _x2 = _x2 * img_size
+    if cast:
+        _x1 = _x1.long()
+        _x2 = _x2.long()
+    x1 = torch.min(_x1, _x2)
+    x2 = torch.max(_x1, _x2)
+    x1 = torch.clamp(x1 - padding, min=0)
+    x2 = torch.clamp(x2 + padding, max=img_size)
+    return x1, x2
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
+
+
+def elemwise_box_iou(box_a, box_b):
+    """ Does the same as above but instead of pairwise, elementwise along the inner dimension. """
+    max_xy = torch.min(box_a[:, 2:], box_b[:, 2:])
+    min_xy = torch.max(box_a[:, :2], box_b[:, :2])
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    inter = inter[:, (0)] * inter[:, (1)]
+    area_a = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+    area_b = (box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
     union = area_a + area_b - inter
-    out = inter / area_a if iscrowd else inter / union
-    return out if use_batch else out.squeeze(0)
+    union = torch.clamp(union, min=0.1)
+    return torch.clamp(inter / union, max=1)
+
+
+@torch.jit.script
+def center_size(boxes):
+    """ Convert prior_boxes to (cx, cy, w, h)
+    representation for comparison to center-size form ground truth data.
+    Args:
+        boxes: (tensor) point_form boxes
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
+        boxes[:, :2]), 1)
 
 
 def change(gt, priors):
@@ -557,17 +582,38 @@ def decode(loc, priors, use_yolo_regressors: bool=False):
     return boxes
 
 
-@torch.jit.script
-def center_size(boxes):
-    """ Convert prior_boxes to (cx, cy, w, h)
-    representation for comparison to center-size form ground truth data.
+def intersect(box_a, box_b):
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
+
+
+def jaccard(box_a, box_b, iscrowd: bool=False):
+    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
+    is simply the intersection over union of two boxes.  Here we operate on
+    ground truth boxes and default boxes. If iscrowd=True, put the crowd in box_b.
+    E.g.:
+        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
     Args:
-        boxes: (tensor) point_form boxes
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
     Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
-    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]), 1)
+    use_batch = True
+    if box_a.dim() == 2:
+        use_batch = False
+        box_a = box_a[None, ...]
+        box_b = box_b[None, ...]
+    inter = intersect(box_a, box_b)
+    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
+        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
+    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
+        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    union = area_a + area_b - inter
+    out = inter / area_a if iscrowd else inter / union
+    return out if use_batch else out.squeeze(0)
 
 
 @torch.jit.script
@@ -656,68 +702,6 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     idx_t[idx] = best_truth_idx
 
 
-@torch.jit.script
-def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0, cast:
-    bool=True):
-    """
-    Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
-    Also converts from relative to absolute coordinates and casts the results to long tensors.
-
-    If cast is false, the result won't be cast to longs.
-    Warning: this does things in-place behind the scenes so copy if necessary.
-    """
-    _x1 = _x1 * img_size
-    _x2 = _x2 * img_size
-    if cast:
-        _x1 = _x1.long()
-        _x2 = _x2.long()
-    x1 = torch.min(_x1, _x2)
-    x2 = torch.max(_x1, _x2)
-    x1 = torch.clamp(x1 - padding, min=0)
-    x2 = torch.clamp(x2 + padding, max=img_size)
-    return x1, x2
-
-
-@torch.jit.script
-def crop(masks, boxes, padding: int=1):
-    """
-    "Crop" predicted masks by zeroing out everything not in the predicted bbox.
-    Vectorized by Chong (thanks Chong).
-
-    Args:
-        - masks should be a size [h, w, n] tensor of masks
-        - boxes should be a size [n, 4] tensor of bbox coords in relative point form
-    """
-    h, w, n = masks.size()
-    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding,
-        cast=False)
-    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding,
-        cast=False)
-    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
-        ).expand(h, w, n)
-    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
-        ).expand(h, w, n)
-    masks_left = rows >= x1.view(1, 1, -1)
-    masks_right = rows < x2.view(1, 1, -1)
-    masks_up = cols >= y1.view(1, 1, -1)
-    masks_down = cols < y2.view(1, 1, -1)
-    crop_mask = masks_left * masks_right * masks_up * masks_down
-    return masks * crop_mask.float()
-
-
-def elemwise_box_iou(box_a, box_b):
-    """ Does the same as above but instead of pairwise, elementwise along the inner dimension. """
-    max_xy = torch.min(box_a[:, 2:], box_b[:, 2:])
-    min_xy = torch.max(box_a[:, :2], box_b[:, :2])
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    inter = inter[:, (0)] * inter[:, (1)]
-    area_a = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-    area_b = (box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-    union = area_a + area_b - inter
-    union = torch.clamp(union, min=0.1)
-    return torch.clamp(inter / union, max=1)
-
-
 class Config(object):
     """
     Holds the configuration for anything you want it to.
@@ -759,15 +743,31 @@ class Config(object):
 mask_type = Config({'direct': 0, 'lincomb': 1})
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
+@torch.jit.script
+def crop(masks, boxes, padding: int=1):
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
+    "Crop" predicted masks by zeroing out everything not in the predicted bbox.
+    Vectorized by Chong (thanks Chong).
+
+    Args:
+        - masks should be a size [h, w, n] tensor of masks
+        - boxes should be a size [n, 4] tensor of bbox coords in relative point form
+    """
+    h, w, n = masks.size()
+    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding,
+        cast=False)
+    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding,
+        cast=False)
+    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
+        ).expand(h, w, n)
+    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
+        ).expand(h, w, n)
+    masks_left = rows >= x1.view(1, 1, -1)
+    masks_right = rows < x2.view(1, 1, -1)
+    masks_up = cols >= y1.view(1, 1, -1)
+    masks_down = cols < y2.view(1, 1, -1)
+    crop_mask = masks_left * masks_right * masks_up * masks_down
+    return masks * crop_mask.float()
 
 
 activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid,
@@ -775,7 +775,22 @@ activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid,
     x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
 
 
-_global_config['train_boxes'] = False
+_global_config['use_class_balanced_conf'] = 4
+
+
+_global_config['bbox_alpha'] = 4
+
+
+_global_config['mask_proto_mask_activation'] = 4
+
+
+_global_config['mask_dim'] = 4
+
+
+_global_config['use_instance_coeff'] = 4
+
+
+_global_config['class_existence_alpha'] = 4
 
 
 _global_config['semantic_segmentation_alpha'] = 4
@@ -1318,6 +1333,11 @@ class MultiBoxLoss(nn.Module):
         return loss_i * cfg.maskiou_alpha
 
 
+def gradinator(x):
+    x.requires_grad = False
+    return x
+
+
 def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
     """ Ensures that the image is the given size without distorting aspect ratio. """
     with torch.no_grad():
@@ -1343,11 +1363,6 @@ def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
         img = F.pad(img, pad_dims, mode='constant', value=0)
         masks = F.pad(masks, pad_dims, mode='constant', value=0)
         return img, targets, masks, num_crowds
-
-
-def gradinator(x):
-    x.requires_grad = False
-    return x
 
 
 _global_config['batch_size'] = 4
@@ -1416,13 +1431,16 @@ class CustomDataParallel(nn.DataParallel):
         return out
 
 
-_global_config['discard_box_width'] = 4
+STD = 57.38, 57.12, 58.4
+
+
+_global_config['discard_box_height'] = 4
 
 
 _global_config['max_size'] = 4
 
 
-_global_config['discard_box_height'] = 4
+_global_config['discard_box_width'] = 4
 
 
 class Resize(object):
@@ -1466,9 +1484,6 @@ class Resize(object):
         labels['labels'] = labels['labels'][keep]
         labels['num_crowds'] = (labels['labels'] < 0).sum()
         return image, masks, boxes, labels
-
-
-STD = 57.38, 57.12, 58.4
 
 
 MEANS = 103.94, 116.78, 123.68
@@ -1560,58 +1575,52 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['mask_proto_prototypes_as_features'] = 4
-
-
-_global_config['use_prediction_module'] = 4
-
-
-_global_config['extra_layers'] = 1
-
-
-_global_config['num_heads'] = 4
-
-
-_global_config['mask_type'] = 4
-
-
-_global_config['mask_proto_coeff_activation'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['_tmp_img_h'] = 4
-
-
-_global_config['use_instance_coeff'] = 4
-
-
-_global_config['mask_dim'] = 4
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['mask_proto_split_prototypes_by_head'] = 4
+_global_config['mask_proto_coeff_gate'] = 4
 
 
 _global_config['num_instance_coeffs'] = 4
 
 
+_global_config['_tmp_img_h'] = 4
+
+
 _global_config['head_layer_params'] = 1
+
+
+_global_config['mask_proto_split_prototypes_by_head'] = 4
 
 
 _global_config['use_mask_scoring'] = 4
 
 
+_global_config['num_classes'] = 4
+
+
+_global_config['mask_type'] = 4
+
+
 _global_config['extra_head_net'] = 4
 
 
-_global_config['mask_proto_coeff_gate'] = 4
+_global_config['use_prediction_module'] = 4
+
+
+_global_config['mask_proto_coeff_activation'] = 4
+
+
+_global_config['num_heads'] = 4
 
 
 _global_config['eval_mask_branch'] = 4
+
+
+_global_config['extra_layers'] = 1
+
+
+_global_config['mask_proto_prototypes_as_features'] = 4
+
+
+_global_config['_tmp_img_w'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -1803,6 +1812,124 @@ class PredictionModule(nn.Module):
         return self.priors
 
 
+use_jit = torch.cuda.device_count() <= 1
+
+
+ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
+
+
+_global_config['maskiou_net'] = 4
+
+
+class FastMaskIoUNet(ScriptModuleWrapper):
+
+    def __init__(self):
+        super().__init__()
+        input_channels = 1
+        last_layer = [(cfg.num_classes - 1, 1, {})]
+        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net +
+            last_layer, include_last_relu=True)
+
+    def forward(self, x):
+        x = self.maskiou_net(x)
+        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1
+            ).squeeze(-1)
+        return maskiou_p
+
+
+script_method_wrapper = (torch.jit.script_method if use_jit else lambda fn,
+    _rcn=None: fn)
+
+
+_global_config['fpn'] = 4
+
+
+class FPN(ScriptModuleWrapper):
+    """
+    Implements a general version of the FPN introduced in
+    https://arxiv.org/pdf/1612.03144.pdf
+
+    Parameters (in cfg.fpn):
+        - num_features (int): The number of output features in the fpn layers.
+        - interpolation_mode (str): The mode to pass to F.interpolate.
+        - num_downsample (int): The number of downsampled layers to add onto the selected layers.
+                                These extra layers are downsampled from the last selected layer.
+
+    Args:
+        - in_channels (list): For each conv layer you supply in the forward pass,
+                              how many features will it have?
+    """
+    __constants__ = ['interpolation_mode', 'num_downsample',
+        'use_conv_downsample', 'relu_pred_layers', 'lat_layers',
+        'pred_layers', 'downsample_layers', 'relu_downsample_layers']
+
+    def __init__(self, in_channels):
+        super().__init__()
+        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features,
+            kernel_size=1) for x in reversed(in_channels)])
+        padding = 1 if cfg.fpn.pad else 0
+        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features,
+            cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in
+            in_channels])
+        if cfg.fpn.use_conv_downsample:
+            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.
+                num_features, cfg.fpn.num_features, kernel_size=3, padding=
+                1, stride=2) for _ in range(cfg.fpn.num_downsample)])
+        self.interpolation_mode = cfg.fpn.interpolation_mode
+        self.num_downsample = cfg.fpn.num_downsample
+        self.use_conv_downsample = cfg.fpn.use_conv_downsample
+        self.relu_downsample_layers = cfg.fpn.relu_downsample_layers
+        self.relu_pred_layers = cfg.fpn.relu_pred_layers
+
+    @script_method_wrapper
+    def forward(self, convouts: List[torch.Tensor]):
+        """
+        Args:
+            - convouts (list): A list of convouts for the corresponding layers in in_channels.
+        Returns:
+            - A list of FPN convouts in the same order as x with extra downsample layers if requested.
+        """
+        out = []
+        x = torch.zeros(1, device=convouts[0].device)
+        for i in range(len(convouts)):
+            out.append(x)
+        j = len(convouts)
+        for lat_layer in self.lat_layers:
+            j -= 1
+            if j < len(convouts) - 1:
+                _, _, h, w = convouts[j].size()
+                x = F.interpolate(x, size=(h, w), mode=self.
+                    interpolation_mode, align_corners=False)
+            x = x + lat_layer(convouts[j])
+            out[j] = x
+        j = len(convouts)
+        for pred_layer in self.pred_layers:
+            j -= 1
+            out[j] = pred_layer(out[j])
+            if self.relu_pred_layers:
+                F.relu(out[j], inplace=True)
+        cur_idx = len(out)
+        if self.use_conv_downsample:
+            for downsample_layer in self.downsample_layers:
+                out.append(downsample_layer(out[-1]))
+        else:
+            for idx in range(self.num_downsample):
+                out.append(nn.functional.max_pool2d(out[-1], 1, stride=2))
+        if self.relu_downsample_layers:
+            for idx in range(len(out) - cur_idx):
+                out[idx] = F.relu(out[idx + cur_idx], inplace=False)
+        return out
+
+
+def construct_backbone(cfg):
+    """ Constructs a backbone given a backbone config object (see config.py). """
+    backbone = cfg.type(*cfg.args)
+    num_layers = max(cfg.selected_layers) + 1
+    while len(backbone.layers) < num_layers:
+        backbone.add_layer()
+    return backbone
+
+
 _global_config['max_num_detections'] = 4
 
 
@@ -1971,134 +2098,7 @@ class Detect(object):
         return boxes[idx] / cfg.max_size, masks[idx], classes, scores
 
 
-def construct_backbone(cfg):
-    """ Constructs a backbone given a backbone config object (see config.py). """
-    backbone = cfg.type(*cfg.args)
-    num_layers = max(cfg.selected_layers) + 1
-    while len(backbone.layers) < num_layers:
-        backbone.add_layer()
-    return backbone
-
-
-use_jit = torch.cuda.device_count() <= 1
-
-
-ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
-
-
-_global_config['maskiou_net'] = 4
-
-
-class FastMaskIoUNet(ScriptModuleWrapper):
-
-    def __init__(self):
-        super().__init__()
-        input_channels = 1
-        last_layer = [(cfg.num_classes - 1, 1, {})]
-        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net +
-            last_layer, include_last_relu=True)
-
-    def forward(self, x):
-        x = self.maskiou_net(x)
-        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1
-            ).squeeze(-1)
-        return maskiou_p
-
-
-script_method_wrapper = (torch.jit.script_method if use_jit else lambda fn,
-    _rcn=None: fn)
-
-
-_global_config['fpn'] = 4
-
-
-class FPN(ScriptModuleWrapper):
-    """
-    Implements a general version of the FPN introduced in
-    https://arxiv.org/pdf/1612.03144.pdf
-
-    Parameters (in cfg.fpn):
-        - num_features (int): The number of output features in the fpn layers.
-        - interpolation_mode (str): The mode to pass to F.interpolate.
-        - num_downsample (int): The number of downsampled layers to add onto the selected layers.
-                                These extra layers are downsampled from the last selected layer.
-
-    Args:
-        - in_channels (list): For each conv layer you supply in the forward pass,
-                              how many features will it have?
-    """
-    __constants__ = ['interpolation_mode', 'num_downsample',
-        'use_conv_downsample', 'relu_pred_layers', 'lat_layers',
-        'pred_layers', 'downsample_layers', 'relu_downsample_layers']
-
-    def __init__(self, in_channels):
-        super().__init__()
-        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features,
-            kernel_size=1) for x in reversed(in_channels)])
-        padding = 1 if cfg.fpn.pad else 0
-        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features,
-            cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in
-            in_channels])
-        if cfg.fpn.use_conv_downsample:
-            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.
-                num_features, cfg.fpn.num_features, kernel_size=3, padding=
-                1, stride=2) for _ in range(cfg.fpn.num_downsample)])
-        self.interpolation_mode = cfg.fpn.interpolation_mode
-        self.num_downsample = cfg.fpn.num_downsample
-        self.use_conv_downsample = cfg.fpn.use_conv_downsample
-        self.relu_downsample_layers = cfg.fpn.relu_downsample_layers
-        self.relu_pred_layers = cfg.fpn.relu_pred_layers
-
-    @script_method_wrapper
-    def forward(self, convouts: List[torch.Tensor]):
-        """
-        Args:
-            - convouts (list): A list of convouts for the corresponding layers in in_channels.
-        Returns:
-            - A list of FPN convouts in the same order as x with extra downsample layers if requested.
-        """
-        out = []
-        x = torch.zeros(1, device=convouts[0].device)
-        for i in range(len(convouts)):
-            out.append(x)
-        j = len(convouts)
-        for lat_layer in self.lat_layers:
-            j -= 1
-            if j < len(convouts) - 1:
-                _, _, h, w = convouts[j].size()
-                x = F.interpolate(x, size=(h, w), mode=self.
-                    interpolation_mode, align_corners=False)
-            x = x + lat_layer(convouts[j])
-            out[j] = x
-        j = len(convouts)
-        for pred_layer in self.pred_layers:
-            j -= 1
-            out[j] = pred_layer(out[j])
-            if self.relu_pred_layers:
-                F.relu(out[j], inplace=True)
-        cur_idx = len(out)
-        if self.use_conv_downsample:
-            for downsample_layer in self.downsample_layers:
-                out.append(downsample_layer(out[-1]))
-        else:
-            for idx in range(self.num_downsample):
-                out.append(nn.functional.max_pool2d(out[-1], 1, stride=2))
-        if self.relu_downsample_layers:
-            for idx in range(len(out) - cur_idx):
-                out[idx] = F.relu(out[idx + cur_idx], inplace=False)
-        return out
-
-
-_global_config['freeze_bn'] = 4
-
-
-_global_config['mask_proto_prototype_activation'] = 4
-
-
-_global_config['mask_proto_src'] = 4
-
-
-_global_config['mask_proto_net'] = 4
+_global_config['mask_proto_prototypes_as_features_no_grad'] = 4
 
 
 class Yolact(nn.Module):

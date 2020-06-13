@@ -580,18 +580,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_sweetice_Deep_reinforcement_learning_with_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_outputs': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(Actor(*[], **{'state_dim': 4, 'action_dim': 4, 'max_action': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_001(self):
+        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_outputs': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_002(self):
-        self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(ActorNet(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_003(self):
-        self._check(ActorNet(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
 
     def test_004(self):
         self._check(CriticNet(*[], **{}), [torch.rand([3, 3])], {})

@@ -761,20 +761,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_rixwew_pytorch_fm(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(FactorizationMachine(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CrossNetwork(*[], **{'input_dim': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(MultiLayerPerceptron(*[], **{'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(FactorizationMachine(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(InnerProductNetwork(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(CrossNetwork(*[], **{'input_dim': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LNN(*[], **{'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(LNN(*[], **{'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiLayerPerceptron(*[], **{'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 

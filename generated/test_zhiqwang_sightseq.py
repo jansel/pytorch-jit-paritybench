@@ -550,28 +550,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_zhiqwang_sightseq(_paritybench_base):
     pass
     def test_000(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(PositionalEncoding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_006(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_004(self):
-        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     def test_007(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

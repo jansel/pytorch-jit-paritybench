@@ -387,6 +387,66 @@ def Sequential(*args):
     return f
 
 
+def resnet(name, pretrained):
+    if name == 'resnet18':
+        net_class = torchvision.models.resnet18
+    elif name == 'resnet34':
+        net_class = torchvision.models.resnet34
+    elif name == 'resnet50':
+        net_class = torchvision.models.resnet50
+    elif name == 'resnet101':
+        net_class = torchvision.models.resnet101
+    elif name == 'resnet152':
+        net_class = torchvision.models.resnet152
+    imagenet_pretrained = pretrained == 'imagenet'
+    resnet = net_class(pretrained=imagenet_pretrained)
+    layer0 = Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
+    layer0[-1].out_channels = resnet.bn1.num_features
+
+    def get_out_channels_from_resnet_block(layer):
+        block = layer[-1]
+        if isinstance(block, torchvision.models.resnet.BasicBlock):
+            return block.conv2.out_channels
+        elif isinstance(block, torchvision.models.resnet.Bottleneck):
+            return block.conv3.out_channels
+        raise RuntimeError('unknown resnet block: {}'.format(block))
+    resnet.layer1.out_channels = resnet.layer1[-1
+        ].out_channels = get_out_channels_from_resnet_block(resnet.layer1)
+    resnet.layer2.out_channels = resnet.layer2[-1
+        ].out_channels = get_out_channels_from_resnet_block(resnet.layer2)
+    resnet.layer3.out_channels = resnet.layer3[-1
+        ].out_channels = get_out_channels_from_resnet_block(resnet.layer3)
+    resnet.layer4.out_channels = resnet.layer4[-1
+        ].out_channels = get_out_channels_from_resnet_block(resnet.layer4)
+    n_pretrained = 5 if imagenet_pretrained else 0
+    return [layer0, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4
+        ], True, n_pretrained
+
+
+def resnext(name, pretrained):
+    import pretrainedmodels
+    if name in ['resnext101_32x4d', 'resnext101_64x4d']:
+        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
+        resnext = pretrainedmodels.__dict__[name](num_classes=1000,
+            pretrained=imagenet_pretrained)
+    else:
+        return NotImplemented
+    resnext_features = resnext.features
+    layer0 = [resnext_features[i] for i in range(4)]
+    layer0 = nn.Sequential(*layer0)
+    layer0.out_channels = layer0[-1].out_channels = 64
+    layer1 = resnext_features[4]
+    layer1.out_channels = layer1[-1].out_channels = 256
+    layer2 = resnext_features[5]
+    layer2.out_channels = layer2[-1].out_channels = 512
+    layer3 = resnext_features[6]
+    layer3.out_channels = layer3[-1].out_channels = 1024
+    layer4 = resnext_features[7]
+    layer4.out_channels = layer4[-1].out_channels = 2048
+    n_pretrained = 5 if imagenet_pretrained else 0
+    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
+
+
 def ConvRelu(*args, **kwargs):
     return Sequential(nn.Conv2d(*args, **kwargs), nn.ReLU(inplace=True))
 
@@ -446,42 +506,6 @@ def vgg(name, pretrained):
     return layers, bn, n_pretrained
 
 
-def resnet(name, pretrained):
-    if name == 'resnet18':
-        net_class = torchvision.models.resnet18
-    elif name == 'resnet34':
-        net_class = torchvision.models.resnet34
-    elif name == 'resnet50':
-        net_class = torchvision.models.resnet50
-    elif name == 'resnet101':
-        net_class = torchvision.models.resnet101
-    elif name == 'resnet152':
-        net_class = torchvision.models.resnet152
-    imagenet_pretrained = pretrained == 'imagenet'
-    resnet = net_class(pretrained=imagenet_pretrained)
-    layer0 = Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
-    layer0[-1].out_channels = resnet.bn1.num_features
-
-    def get_out_channels_from_resnet_block(layer):
-        block = layer[-1]
-        if isinstance(block, torchvision.models.resnet.BasicBlock):
-            return block.conv2.out_channels
-        elif isinstance(block, torchvision.models.resnet.Bottleneck):
-            return block.conv3.out_channels
-        raise RuntimeError('unknown resnet block: {}'.format(block))
-    resnet.layer1.out_channels = resnet.layer1[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer1)
-    resnet.layer2.out_channels = resnet.layer2[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer2)
-    resnet.layer3.out_channels = resnet.layer3[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer3)
-    resnet.layer4.out_channels = resnet.layer4[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer4)
-    n_pretrained = 5 if imagenet_pretrained else 0
-    return [layer0, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4
-        ], True, n_pretrained
-
-
 MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
 
 
@@ -507,30 +531,6 @@ def darknet(pretrained):
         net.load_state_dict(state_dict)
     n_pretrained = 3 if pretrained else 0
     return [net.model0, net.model1, net.model2], True, n_pretrained
-
-
-def resnext(name, pretrained):
-    import pretrainedmodels
-    if name in ['resnext101_32x4d', 'resnext101_64x4d']:
-        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
-        resnext = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=imagenet_pretrained)
-    else:
-        return NotImplemented
-    resnext_features = resnext.features
-    layer0 = [resnext_features[i] for i in range(4)]
-    layer0 = nn.Sequential(*layer0)
-    layer0.out_channels = layer0[-1].out_channels = 64
-    layer1 = resnext_features[4]
-    layer1.out_channels = layer1[-1].out_channels = 256
-    layer2 = resnext_features[5]
-    layer2.out_channels = layer2[-1].out_channels = 512
-    layer3 = resnext_features[6]
-    layer3.out_channels = layer3[-1].out_channels = 1024
-    layer4 = resnext_features[7]
-    layer4.out_channels = layer4[-1].out_channels = 2048
-    n_pretrained = 5 if imagenet_pretrained else 0
-    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
 
 
 def create_basenet(name, pretrained):
@@ -684,19 +684,19 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_tugstugi_pytorch_saltnet(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_002(self):
+    def test_000(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
+        self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(ConcatPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_004(self):
-        self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

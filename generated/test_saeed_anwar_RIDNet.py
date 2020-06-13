@@ -755,33 +755,33 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_saeed_anwar_RIDNet(_paritybench_base):
     pass
     def test_000(self):
-        self._check(MeanShift(*[], **{'mean_rgb': [4, 4, 4], 'sub': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_001(self):
         self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(Merge_Run(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Merge_Run_dual(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
+    def test_001(self):
         self._check(BasicBlockSig(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_002(self):
+        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_006(self):
+    def test_003(self):
         self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+    def test_004(self):
+        self._check(MeanShift(*[], **{'mean_rgb': [4, 4, 4], 'sub': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
+        self._check(Merge_Run(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(Merge_Run_dual(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_007(self):
+        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}), [torch.rand([4, 4, 4, 4]), 0], {})
 
-    def test_008(self):
-        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_009(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

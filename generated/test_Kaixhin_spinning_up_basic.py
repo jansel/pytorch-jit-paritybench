@@ -174,16 +174,16 @@ class Test_Kaixhin_spinning_up_basic(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(SoftActor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 
     @_fails_compile()
     def test_002(self):
         self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
-
-    def test_004(self):
         self._check(DQN(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(SoftActor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
 

@@ -255,8 +255,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_ugent_korea_pytorch_unet_segmentation(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Conv_down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_001(self):
-        self._check(Conv_down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
 

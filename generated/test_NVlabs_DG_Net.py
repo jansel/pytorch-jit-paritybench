@@ -1204,6 +1204,83 @@ def load_network(network, name):
     return network
 
 
+def get_scheduler(optimizer, hyperparameters, iterations=-1):
+    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
+        ] == 'constant':
+        scheduler = None
+    elif hyperparameters['lr_policy'] == 'step':
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=
+            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
+            last_epoch=iterations)
+    elif hyperparameters['lr_policy'] == 'multistep':
+        step = hyperparameters['step_size']
+        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[step, 
+            step + step // 2, step + step // 2 + step // 4], gamma=
+            hyperparameters['gamma'], last_epoch=iterations)
+    else:
+        return NotImplementedError(
+            'learning rate policy [%s] is not implemented', hyperparameters
+            ['lr_policy'])
+    return scheduler
+
+
+def scale2(x):
+    if x.size(2) > 128:
+        return x
+    x = torch.nn.functional.upsample(x, scale_factor=2, mode='nearest')
+    return x
+
+
+class RandomErasing(object):
+    """ Randomly selects a rectangle region in an image and erases its pixels.
+        'Random Erasing Data Augmentation' by Zhong et al.
+        See https://arxiv.org/pdf/1708.04896.pdf
+    Args:
+         probability: The probability that the Random Erasing operation will be performed.
+         sl: Minimum proportion of erased area against input image.
+         sh: Maximum proportion of erased area against input image.
+         r1: Minimum aspect ratio of erased area.
+         mean: Erasing value. 
+    """
+
+    def __init__(self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[
+        0.4914, 0.4822, 0.4465]):
+        self.probability = probability
+        self.mean = mean
+        self.sl = sl
+        self.sh = sh
+        self.r1 = r1
+        random.seed(7)
+
+    def __call__(self, img):
+        if random.uniform(0, 1) > self.probability:
+            return img
+        for attempt in range(100):
+            area = img.size()[1] * img.size()[2]
+            target_area = random.uniform(self.sl, self.sh) * area
+            aspect_ratio = random.uniform(self.r1, 1 / self.r1)
+            h = int(round(math.sqrt(target_area * aspect_ratio)))
+            w = int(round(math.sqrt(target_area / aspect_ratio)))
+            if w < img.size()[2] and h < img.size()[1]:
+                x1 = random.randint(0, img.size()[1] - h)
+                y1 = random.randint(0, img.size()[2] - w)
+                if img.size()[0] == 3:
+                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
+                    img[(1), x1:x1 + h, y1:y1 + w] = self.mean[1]
+                    img[(2), x1:x1 + h, y1:y1 + w] = self.mean[2]
+                else:
+                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
+                return img.detach()
+        return img.detach()
+
+
+def load_config(name):
+    config_path = os.path.join('./models', name, 'opts.yaml')
+    with open(config_path, 'r') as stream:
+        config = yaml.load(stream)
+    return config
+
+
 parser = argparse.ArgumentParser()
 
 
@@ -1285,11 +1362,33 @@ def predict_label(teacher_models, inputs, num_class, alabel, slabel,
     return outputs_t
 
 
-def scale2(x):
-    if x.size(2) > 128:
+def load_vgg16(model_dir):
+    """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
+        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
+            os.system(
+                'wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O '
+                 + os.path.join(model_dir, 'vgg16.t7'))
+        vgglua = load_lua(os.path.join(model_dir, 'vgg16.t7'))
+        vgg = Vgg16()
+        for src, dst in zip(vgglua.parameters()[0], vgg.parameters()):
+            dst.data[:] = src
+        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
+    vgg = Vgg16()
+    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
+    return vgg
+
+
+def to_gray(half=False):
+
+    def forward(x):
+        x = torch.mean(x, dim=1, keepdim=True)
+        if half:
+            x = x.half()
         return x
-    x = torch.nn.functional.upsample(x, scale_factor=2, mode='nearest')
-    return x
+    return forward
 
 
 def train_bn(m):
@@ -1324,103 +1423,16 @@ def to_edge(x):
     return out.cuda()
 
 
-def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
-        ] == 'constant':
-        scheduler = None
-    elif hyperparameters['lr_policy'] == 'step':
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=
-            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
-            last_epoch=iterations)
-    elif hyperparameters['lr_policy'] == 'multistep':
-        step = hyperparameters['step_size']
-        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[step, 
-            step + step // 2, step + step // 2 + step // 4], gamma=
-            hyperparameters['gamma'], last_epoch=iterations)
-    else:
-        return NotImplementedError(
-            'learning rate policy [%s] is not implemented', hyperparameters
-            ['lr_policy'])
-    return scheduler
-
-
-def load_vgg16(model_dir):
-    """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
-        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
-            os.system(
-                'wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O '
-                 + os.path.join(model_dir, 'vgg16.t7'))
-        vgglua = load_lua(os.path.join(model_dir, 'vgg16.t7'))
-        vgg = Vgg16()
-        for src, dst in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
-    vgg = Vgg16()
-    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
-    return vgg
-
-
-def load_config(name):
-    config_path = os.path.join('./models', name, 'opts.yaml')
-    with open(config_path, 'r') as stream:
-        config = yaml.load(stream)
-    return config
-
-
-class RandomErasing(object):
-    """ Randomly selects a rectangle region in an image and erases its pixels.
-        'Random Erasing Data Augmentation' by Zhong et al.
-        See https://arxiv.org/pdf/1708.04896.pdf
-    Args:
-         probability: The probability that the Random Erasing operation will be performed.
-         sl: Minimum proportion of erased area against input image.
-         sh: Maximum proportion of erased area against input image.
-         r1: Minimum aspect ratio of erased area.
-         mean: Erasing value. 
-    """
-
-    def __init__(self, probability=0.5, sl=0.02, sh=0.4, r1=0.3, mean=[
-        0.4914, 0.4822, 0.4465]):
-        self.probability = probability
-        self.mean = mean
-        self.sl = sl
-        self.sh = sh
-        self.r1 = r1
-        random.seed(7)
-
-    def __call__(self, img):
-        if random.uniform(0, 1) > self.probability:
-            return img
-        for attempt in range(100):
-            area = img.size()[1] * img.size()[2]
-            target_area = random.uniform(self.sl, self.sh) * area
-            aspect_ratio = random.uniform(self.r1, 1 / self.r1)
-            h = int(round(math.sqrt(target_area * aspect_ratio)))
-            w = int(round(math.sqrt(target_area / aspect_ratio)))
-            if w < img.size()[2] and h < img.size()[1]:
-                x1 = random.randint(0, img.size()[1] - h)
-                y1 = random.randint(0, img.size()[2] - w)
-                if img.size()[0] == 3:
-                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
-                    img[(1), x1:x1 + h, y1:y1 + w] = self.mean[1]
-                    img[(2), x1:x1 + h, y1:y1 + w] = self.mean[2]
-                else:
-                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
-                return img.detach()
-        return img.detach()
-
-
-def to_gray(half=False):
-
-    def forward(x):
-        x = torch.mean(x, dim=1, keepdim=True)
-        if half:
-            x = x.half()
-        return x
-    return forward
+def get_model_list(dirname, key):
+    if os.path.exists(dirname) is False:
+        return None
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
+        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    if gen_models is None:
+        return None
+    gen_models.sort()
+    last_model_name = gen_models[-1]
+    return last_model_name
 
 
 def vgg_preprocess(batch):
@@ -1434,18 +1446,6 @@ def vgg_preprocess(batch):
     mean[:, (2), :, :] = 123.68
     batch = batch.sub(Variable(mean))
     return batch
-
-
-def get_model_list(dirname, key):
-    if os.path.exists(dirname) is False:
-        return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
-    if gen_models is None:
-        return None
-    gen_models.sort()
-    last_model_name = gen_models[-1]
-    return last_model_name
 
 
 class DGNet_Trainer(nn.Module):
@@ -1922,37 +1922,37 @@ class Test_NVlabs_DG_Net(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPP(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4, 'n_blk': 4}), [torch.rand([4, 4])], {})
-
     def test_002(self):
-        self._check(Deconv(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(NonlocalBlock(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Deconv(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(ASPP(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4, 'n_blk': 4}), [torch.rand([4, 4])], {})
 
     def test_007(self):
-        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(NonlocalBlock(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4}), [torch.rand([4, 4])], {})
+        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

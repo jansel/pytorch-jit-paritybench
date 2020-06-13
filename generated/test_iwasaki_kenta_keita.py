@@ -684,38 +684,38 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_iwasaki_kenta_keita(_paritybench_base):
     pass
-    def test_000(self):
-        self._check(GatedActivation(*[], **{'num_channels': 4}), [torch.rand([4, 4, 64])], {})
-
     @_fails_compile()
-    def test_001(self):
+    def test_000(self):
         self._check(BahdanauAttention(*[], **{'hidden_size': 4}), [], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(LuongAttention(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
+    def test_001(self):
         self._check(CausalConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_005(self):
-        self._check(MixtureDensityNetwork(*[], **{}), [torch.rand([1, 1])], {})
+    def test_002(self):
+        self._check(GatedActivation(*[], **{'num_channels': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_006(self):
-        self._check(MixtureDensityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
+    def test_003(self):
         self._check(HierarchialNetwork1D(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
+    def test_004(self):
+        self._check(LuongAttention(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(MixtureDensityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(MixtureDensityNetwork(*[], **{}), [torch.rand([1, 1])], {})
+
+    def test_007(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_008(self):
-        self._check(TemporalDenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(TCML(*[], **{'feature_dim': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(TCML(*[], **{'feature_dim': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(TemporalDenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64])], {})
 
