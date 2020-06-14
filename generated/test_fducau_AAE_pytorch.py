@@ -43,10 +43,10 @@ import torch.optim as optim
 import itertools
 
 
-X_dim = 784
-
-
 N = 1000
+
+
+X_dim = 784
 
 
 z_dim = 2

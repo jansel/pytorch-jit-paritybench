@@ -194,6 +194,19 @@ def abc2A(a, b, c, normalize=False):
     return torch.cat([A1_ell, A2_ell], dim=1)
 
 
+def rectifyAffineTransformationUpIsUp(A):
+    det = torch.sqrt(torch.abs(A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1),
+        (0)] * A[:, (0), (1)] + 1e-10))
+    b2a2 = torch.sqrt(A[:, (0), (1)] * A[:, (0), (1)] + A[:, (0), (0)] * A[
+        :, (0), (0)])
+    A1_ell = torch.cat([(b2a2 / det).contiguous().view(-1, 1, 1), 0 * det.
+        view(-1, 1, 1)], dim=2)
+    A2_ell = torch.cat([((A[:, (1), (1)] * A[:, (0), (1)] + A[:, (1), (0)] *
+        A[:, (0), (0)]) / (b2a2 * det)).contiguous().view(-1, 1, 1), (det /
+        b2a2).contiguous().view(-1, 1, 1)], dim=2)
+    return torch.cat([A1_ell, A2_ell], dim=1)
+
+
 def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):
     assert kernlen is not None or sigma is not None
     if kernlen is None:
@@ -217,19 +230,6 @@ def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):
     if norm:
         kernel /= np.sum(kernel)
     return kernel
-
-
-def rectifyAffineTransformationUpIsUp(A):
-    det = torch.sqrt(torch.abs(A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1),
-        (0)] * A[:, (0), (1)] + 1e-10))
-    b2a2 = torch.sqrt(A[:, (0), (1)] * A[:, (0), (1)] + A[:, (0), (0)] * A[
-        :, (0), (0)])
-    A1_ell = torch.cat([(b2a2 / det).contiguous().view(-1, 1, 1), 0 * det.
-        view(-1, 1, 1)], dim=2)
-    A2_ell = torch.cat([((A[:, (1), (1)] * A[:, (0), (1)] + A[:, (1), (0)] *
-        A[:, (0), (0)]) / (b2a2 * det)).contiguous().view(-1, 1, 1), (det /
-        b2a2).contiguous().view(-1, 1, 1)], dim=2)
-    return torch.cat([A1_ell, A2_ell], dim=1)
 
 
 class AffineShapeEstimator(nn.Module):
@@ -409,17 +409,6 @@ def generate_2dgrid(h, w, centered=True):
     return grid2d
 
 
-def sc_y_x2LAFs(sc_y_x):
-    base_LAF = torch.eye(2).float().unsqueeze(0).expand(sc_y_x.size(0), 2, 2)
-    if sc_y_x.is_cuda:
-        base_LAF = base_LAF.cuda()
-    base_A = Variable(base_LAF, requires_grad=False)
-    A = sc_y_x[:, :1].unsqueeze(1).expand_as(base_A) * base_A
-    LAFs = torch.cat([A, torch.cat([sc_y_x[:, 2:].unsqueeze(-1), sc_y_x[:, 
-        1:2].unsqueeze(-1)], dim=1)], dim=2)
-    return LAFs
-
-
 def generate_3dgrid(d, h, w, centered=True):
     if type(d) is not list:
         if centered:
@@ -445,6 +434,17 @@ def zero_response_at_border(x, b):
     else:
         return x * 0
     return x
+
+
+def sc_y_x2LAFs(sc_y_x):
+    base_LAF = torch.eye(2).float().unsqueeze(0).expand(sc_y_x.size(0), 2, 2)
+    if sc_y_x.is_cuda:
+        base_LAF = base_LAF.cuda()
+    base_A = Variable(base_LAF, requires_grad=False)
+    A = sc_y_x[:, :1].unsqueeze(1).expand_as(base_A) * base_A
+    LAFs = torch.cat([A, torch.cat([sc_y_x[:, 2:].unsqueeze(-1), sc_y_x[:, 
+        1:2].unsqueeze(-1)], dim=1)], dim=2)
+    return LAFs
 
 
 class NMS3dAndComposeA(nn.Module):
@@ -688,60 +688,6 @@ class HardNet(nn.Module):
         return L2Norm()(x)
 
 
-def denormalizeLAFs(LAFs, w, h):
-    w = float(w)
-    h = float(h)
-    num_lafs = LAFs.size(0)
-    min_size = min(h, w)
-    coef = torch.ones(1, 2, 3).float() * min_size
-    coef[0, 0, 2] = w
-    coef[0, 1, 2] = h
-    if LAFs.is_cuda:
-        coef = coef.cuda()
-    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
-
-
-def angles2A(angles):
-    cos_a = torch.cos(angles).view(-1, 1, 1)
-    sin_a = torch.sin(angles).view(-1, 1, 1)
-    A1_ang = torch.cat([cos_a, sin_a], dim=2)
-    A2_ang = torch.cat([-sin_a, cos_a], dim=2)
-    return torch.cat([A1_ang, A2_ang], dim=1)
-
-
-def LAFs_to_H_frames(aff_pts):
-    H3_x = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(0).repeat(aff_pts
-        .size(0), 1, 1)
-    if aff_pts.is_cuda:
-        H3_x = H3_x.cuda()
-    return torch.cat([aff_pts, H3_x], dim=1)
-
-
-def checkTouchBoundary(LAFs):
-    pts = torch.FloatTensor([[-1, -1, 1, 1], [-1, 1, -1, 1], [1, 1, 1, 1]]
-        ).unsqueeze(0)
-    if LAFs.is_cuda:
-        pts = pts.cuda()
-    out_pts = torch.bmm(LAFs_to_H_frames(LAFs), pts.expand(LAFs.size(0), 3, 4)
-        )[:, :2, :]
-    good_points = 1 - (((out_pts > 1.0) + (out_pts < 0.0)).sum(dim=1).sum(
-        dim=1) > 0)
-    return good_points
-
-
-def normalizeLAFs(LAFs, w, h):
-    w = float(w)
-    h = float(h)
-    num_lafs = LAFs.size(0)
-    min_size = min(h, w)
-    coef = torch.ones(1, 2, 3).float() / min_size
-    coef[0, 0, 2] = 1.0 / w
-    coef[0, 1, 2] = 1.0 / h
-    if LAFs.is_cuda:
-        coef = coef.cuda()
-    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
-
-
 def generate_patch_grid_from_normalized_LAFs(LAFs, w, h, PS):
     num_lafs = LAFs.size(0)
     min_size = min(h, w)
@@ -785,18 +731,58 @@ def extract_patches_from_pyramid_with_inv_index(scale_pyramid, pyr_inv_idxs,
     return patches
 
 
-def get_inverted_pyr_index(scale_pyr, pyr_idxs, level_idxs):
-    pyr_inv_idxs = []
-    for i in range(len(scale_pyr)):
-        pyr_inv_idxs.append([])
-        cur_idxs = pyr_idxs == i
-        for j in range(0, len(scale_pyr[i])):
-            cur_lvl_idxs = torch.nonzero(((level_idxs == j) * cur_idxs).data)
-            if len(cur_lvl_idxs.size()) == 0:
-                pyr_inv_idxs[i].append(None)
-            else:
-                pyr_inv_idxs[i].append(cur_lvl_idxs.squeeze())
-    return pyr_inv_idxs
+def LAFs_to_H_frames(aff_pts):
+    H3_x = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(0).repeat(aff_pts
+        .size(0), 1, 1)
+    if aff_pts.is_cuda:
+        H3_x = H3_x.cuda()
+    return torch.cat([aff_pts, H3_x], dim=1)
+
+
+def checkTouchBoundary(LAFs):
+    pts = torch.FloatTensor([[-1, -1, 1, 1], [-1, 1, -1, 1], [1, 1, 1, 1]]
+        ).unsqueeze(0)
+    if LAFs.is_cuda:
+        pts = pts.cuda()
+    out_pts = torch.bmm(LAFs_to_H_frames(LAFs), pts.expand(LAFs.size(0), 3, 4)
+        )[:, :2, :]
+    good_points = 1 - (((out_pts > 1.0) + (out_pts < 0.0)).sum(dim=1).sum(
+        dim=1) > 0)
+    return good_points
+
+
+def normalizeLAFs(LAFs, w, h):
+    w = float(w)
+    h = float(h)
+    num_lafs = LAFs.size(0)
+    min_size = min(h, w)
+    coef = torch.ones(1, 2, 3).float() / min_size
+    coef[0, 0, 2] = 1.0 / w
+    coef[0, 1, 2] = 1.0 / h
+    if LAFs.is_cuda:
+        coef = coef.cuda()
+    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
+
+
+def denormalizeLAFs(LAFs, w, h):
+    w = float(w)
+    h = float(h)
+    num_lafs = LAFs.size(0)
+    min_size = min(h, w)
+    coef = torch.ones(1, 2, 3).float() * min_size
+    coef[0, 0, 2] = w
+    coef[0, 1, 2] = h
+    if LAFs.is_cuda:
+        coef = coef.cuda()
+    return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
+
+
+def angles2A(angles):
+    cos_a = torch.cos(angles).view(-1, 1, 1)
+    sin_a = torch.sin(angles).view(-1, 1, 1)
+    A1_ang = torch.cat([cos_a, sin_a], dim=2)
+    A2_ang = torch.cat([-sin_a, cos_a], dim=2)
+    return torch.cat([A1_ang, A2_ang], dim=1)
 
 
 def get_LAFs_scales(LAFs):
@@ -827,6 +813,20 @@ def get_pyramid_and_level_index_for_LAFs(dLAFs, sigmas, pix_dists, PS):
         level_idxs_full = level_idxs_full.cuda()
     return Variable(oct_idxs_full[closest_imgs]), Variable(level_idxs_full[
         closest_imgs])
+
+
+def get_inverted_pyr_index(scale_pyr, pyr_idxs, level_idxs):
+    pyr_inv_idxs = []
+    for i in range(len(scale_pyr)):
+        pyr_inv_idxs.append([])
+        cur_idxs = pyr_idxs == i
+        for j in range(0, len(scale_pyr[i])):
+            cur_lvl_idxs = torch.nonzero(((level_idxs == j) * cur_idxs).data)
+            if len(cur_lvl_idxs.size()) == 0:
+                pyr_inv_idxs[i].append(None)
+            else:
+                pyr_inv_idxs[i].append(cur_lvl_idxs.squeeze())
+    return pyr_inv_idxs
 
 
 class OnePassSIR(nn.Module):
@@ -973,6 +973,17 @@ class OnePassSIR(nn.Module):
         return denormalizeLAFs(LAFs, x.size(3), x.size(2)), responses
 
 
+def batch_eig2x2(A):
+    trace = A[:, (0), (0)] + A[:, (1), (1)]
+    delta1 = trace * trace - 4 * (A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1
+        ), (0)] * A[:, (0), (1)])
+    mask = delta1 > 0
+    delta = torch.sqrt(torch.abs(delta1))
+    l1 = mask.float() * (trace + delta) / 2.0 + 1000.0 * (1.0 - mask.float())
+    l2 = mask.float() * (trace - delta) / 2.0 + 0.0001 * (1.0 - mask.float())
+    return l1, l2
+
+
 def batched_forward(model, data, batch_size, **kwargs):
     n_patches = len(data)
     if n_patches > batch_size:
@@ -1003,17 +1014,6 @@ def batched_forward(model, data, batch_size, **kwargs):
         return out
     else:
         return model(data, kwargs)
-
-
-def batch_eig2x2(A):
-    trace = A[:, (0), (0)] + A[:, (1), (1)]
-    delta1 = trace * trace - 4 * (A[:, (0), (0)] * A[:, (1), (1)] - A[:, (1
-        ), (0)] * A[:, (0), (1)])
-    mask = delta1 > 0
-    delta = torch.sqrt(torch.abs(delta1))
-    l1 = mask.float() * (trace + delta) / 2.0 + 1000.0 * (1.0 - mask.float())
-    l2 = mask.float() * (trace - delta) / 2.0 + 0.0001 * (1.0 - mask.float())
-    return l1, l2
 
 
 class ScaleSpaceAffinePatchExtractor(nn.Module):
@@ -2113,13 +2113,6 @@ class L2Norm(nn.Module):
         return x
 
 
-def get_bin_weight_kernel_size_and_stride(patch_size, num_spatial_bins):
-    bin_weight_stride = int(round(2.0 * math.floor(patch_size / 2) / float(
-        num_spatial_bins + 1)))
-    bin_weight_kernel_size = int(2 * bin_weight_stride - 1)
-    return bin_weight_kernel_size, bin_weight_stride
-
-
 def getPoolingKernel(kernel_size=25):
     step = 1.0 / float(np.floor(kernel_size / 2.0))
     x_coef = np.arange(step / 2.0, 1.0, step)
@@ -2127,6 +2120,13 @@ def getPoolingKernel(kernel_size=25):
     kernel = np.outer(xc2.T, xc2)
     kernel = np.maximum(0, kernel)
     return kernel
+
+
+def get_bin_weight_kernel_size_and_stride(patch_size, num_spatial_bins):
+    bin_weight_stride = int(round(2.0 * math.floor(patch_size / 2) / float(
+        num_spatial_bins + 1)))
+    bin_weight_kernel_size = int(2 * bin_weight_stride - 1)
+    return bin_weight_kernel_size, bin_weight_stride
 
 
 class SIFTNet(nn.Module):

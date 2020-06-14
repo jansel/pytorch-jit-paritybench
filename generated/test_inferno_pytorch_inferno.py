@@ -368,14 +368,14 @@ class ShapeError(ValueError):
     pass
 
 
+class NotTorchModuleError(TypeError):
+    pass
+
+
 def assert_(condition, message='', exception_type=AssertionError):
     """Like assert, but with arbitrary exception types."""
     if not condition:
         raise exception_type(message)
-
-
-class NotTorchModuleError(TypeError):
-    pass
 
 
 class As2DCriterion(nn.Module):
@@ -429,25 +429,6 @@ class WeightedMSELoss(nn.Module):
         return self.mse(input * sqrt_weights, target * sqrt_weights)
 
 
-def collect_losses(module):
-    """Collect `_losses` dictionaries from module and children
-
-    :param module: a Module to be searched for losses
-    :return: dictionary of loss names to values
-    """
-    losses = {}
-
-    def _collect(m):
-        if hasattr(m, '_losses'):
-            for k, v in m._losses.items():
-                if k in losses:
-                    losses[k] = losses[k] + v
-                else:
-                    losses[k] = v
-    module.apply(_collect)
-    return losses
-
-
 def build_criterion(criterion, *args, **kwargs):
     """Build a criterion
 
@@ -470,6 +451,25 @@ def build_criterion(criterion, *args, **kwargs):
     else:
         raise NotImplementedError
     return criterion_class(*args, **kwargs)
+
+
+def collect_losses(module):
+    """Collect `_losses` dictionaries from module and children
+
+    :param module: a Module to be searched for losses
+    :return: dictionary of loss names to values
+    """
+    losses = {}
+
+    def _collect(m):
+        if hasattr(m, '_losses'):
+            for k, v in m._losses.items():
+                if k in losses:
+                    losses[k] = losses[k] + v
+                else:
+                    losses[k] = v
+    module.apply(_collect)
+    return losses
 
 
 class RegularizedLoss(nn.Module):

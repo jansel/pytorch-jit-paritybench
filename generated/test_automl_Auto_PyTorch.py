@@ -458,30 +458,6 @@ class NoEmbedding(nn.Module):
         return CS.ConfigurationSpace()
 
 
-def shake_get_alpha_beta(is_training, is_cuda):
-    if is_training:
-        result = torch.FloatTensor([0.5]), torch.FloatTensor([0.5])
-        return result if not is_cuda else (result[0].cuda(), result[1].cuda())
-    alpha = torch.rand(1)
-    beta = torch.rand(1)
-    if is_cuda:
-        alpha = alpha.cuda()
-        beta = beta.cuda()
-    return alpha, beta
-
-
-def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
-    is_training, is_cuda):
-    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
-    if not is_training:
-        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
-    if is_training:
-        bl = torch.tensor(pl)
-    if is_cuda:
-        bl = bl.cuda()
-    return bl
-
-
 class ShakeDrop(Function):
 
     @staticmethod
@@ -511,6 +487,30 @@ class ShakeDrop(Function):
 
 
 shake_drop = ShakeDrop.apply
+
+
+def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks,
+    is_training, is_cuda):
+    pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
+    if not is_training:
+        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
+    if is_training:
+        bl = torch.tensor(pl)
+    if is_cuda:
+        bl = bl.cuda()
+    return bl
+
+
+def shake_get_alpha_beta(is_training, is_cuda):
+    if is_training:
+        result = torch.FloatTensor([0.5]), torch.FloatTensor([0.5])
+        return result if not is_cuda else (result[0].cuda(), result[1].cuda())
+    alpha = torch.rand(1)
+    beta = torch.rand(1)
+    if is_cuda:
+        alpha = alpha.cuda()
+        beta = beta.cuda()
+    return alpha, beta
 
 
 class ShakeShakeBlock(Function):
@@ -588,20 +588,6 @@ class ResBlock(nn.Module):
         return x
 
 
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        try:
-            mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
-                bernoulli_(keep_prob))
-        except:
-            mask = Variable(torch.FloatTensor(x.size(0), 1, 1, 1).
-                bernoulli_(keep_prob))
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
     count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
@@ -618,6 +604,20 @@ OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1),
     stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C,
     affine=affine))}
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        try:
+            mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
+                bernoulli_(keep_prob))
+        except:
+            mask = Variable(torch.FloatTensor(x.size(0), 1, 1, 1).
+                bernoulli_(keep_prob))
+        x.div_(keep_prob)
+        x.mul_(mask)
+    return x
 
 
 class Cell(nn.Module):
@@ -1498,46 +1498,6 @@ class InvertedResidual(nn.Module):
         return x
 
 
-def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
-    """Round number of filters based on depth multiplier."""
-    if not multiplier:
-        return channels
-    channels *= multiplier
-    channel_min = channel_min or divisor
-    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
-        channel_min)
-    if new_channels < 0.9 * channels:
-        new_channels += divisor
-    return new_channels
-
-
-def _initialize_weight_default(m):
-    if isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
-
-
-def _initialize_weight_goog(m):
-    if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        n = m.weight.size(0)
-        init_range = 1.0 / math.sqrt(n)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
-
-
 class _BlockBuilder:
     """ Build Trunk Blocks
     This ended up being somewhat of a cross between
@@ -1641,6 +1601,46 @@ class _BlockBuilder:
 
 
 _DEBUG = False
+
+
+def _initialize_weight_default(m):
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
+
+
+def _initialize_weight_goog(m):
+    if isinstance(m, nn.Conv2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        n = m.weight.size(0)
+        init_range = 1.0 / math.sqrt(n)
+        m.weight.data.uniform_(-init_range, init_range)
+        m.bias.data.zero_()
+
+
+def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
+    """Round number of filters based on depth multiplier."""
+    if not multiplier:
+        return channels
+    channels *= multiplier
+    channel_min = channel_min or divisor
+    new_channels = max(int(channels + divisor / 2) // divisor * divisor,
+        channel_min)
+    if new_channels < 0.9 * channels:
+        new_channels += divisor
+    return new_channels
 
 
 class GenEfficientNet(nn.Module):

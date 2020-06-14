@@ -67,27 +67,6 @@ class GCNClassifier(nn.Module):
         return logits, pooling_output
 
 
-def tree_to_adj(sent_len, tree, directed=True, self_loop=False):
-    """
-    Convert a tree object to an (numpy) adjacency matrix.
-    """
-    ret = np.zeros((sent_len, sent_len), dtype=np.float32)
-    queue = [tree]
-    idx = []
-    while len(queue) > 0:
-        t, queue = queue[0], queue[1:]
-        idx += [t.idx]
-        for c in t.children:
-            ret[t.idx, c.idx] = 1
-        queue += t.children
-    if not directed:
-        ret = ret + ret.T
-    if self_loop:
-        for i in idx:
-            ret[i, i] = 1
-    return ret
-
-
 class Tree(object):
     """
     Reused tree object from stanfordnlp/treelstm.
@@ -226,6 +205,27 @@ def pool(h, mask, type='max'):
     else:
         h = h.masked_fill(mask, 0)
         return h.sum(1)
+
+
+def tree_to_adj(sent_len, tree, directed=True, self_loop=False):
+    """
+    Convert a tree object to an (numpy) adjacency matrix.
+    """
+    ret = np.zeros((sent_len, sent_len), dtype=np.float32)
+    queue = [tree]
+    idx = []
+    while len(queue) > 0:
+        t, queue = queue[0], queue[1:]
+        idx += [t.idx]
+        for c in t.children:
+            ret[t.idx, c.idx] = 1
+        queue += t.children
+    if not directed:
+        ret = ret + ret.T
+    if self_loop:
+        for i in idx:
+            ret[i, i] = 1
+    return ret
 
 
 class GCNRelationModel(nn.Module):

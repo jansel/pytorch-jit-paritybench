@@ -825,10 +825,10 @@ class LQRStep(Function):
             return v[t]
 
 
-QuadCost = namedtuple('QuadCost', 'C c')
-
-
 LinDx = namedtuple('LinDx', 'F f')
+
+
+QuadCost = namedtuple('QuadCost', 'C c')
 
 
 class MPC(Module):

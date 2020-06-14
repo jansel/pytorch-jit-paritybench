@@ -1543,13 +1543,13 @@ class InvertedResidual(nn.Module):
         return channel_shuffle(out, 2)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
@@ -2003,13 +2003,6 @@ class A1Conv2d(nn.Conv2d):
             self.dilation, self.groups)
 
 
-def weighted_binary_cross_entropy(pred, label, weight, avg_factor=None):
-    if avg_factor is None:
-        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
-    return F.binary_cross_entropy_with_logits(pred, label.float(), weight.
-        float(), reduction='sum')[None] / avg_factor
-
-
 class AnchorGenerator(object):
 
     def __init__(self, base_size, scales, ratios, scale_major=True, ctr=None):
@@ -2080,56 +2073,41 @@ class AnchorGenerator(object):
         return valid
 
 
-def multi_apply(func, *args, **kwargs):
-    pfunc = partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
+class Registry(object):
+
+    def __init__(self, name):
+        self._name = name
+        self._module_dict = dict()
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def module_dict(self):
+        return self._module_dict
+
+    def _register_module(self, module_class):
+        """Register a module.
+
+        Args:
+            module (:obj:`nn.Module`): Module to be registered.
+        """
+        if not issubclass(module_class, nn.Module):
+            raise TypeError('module must be a child of nn.Module, but got {}'
+                .format(module_class))
+        module_name = module_class.__name__
+        if module_name in self._module_dict:
+            raise KeyError('{} is already registered in {}'.format(
+                module_name, self.name))
+        self._module_dict[module_name] = module_class
+
+    def register_module(self, cls):
+        self._register_module(cls)
+        return cls
 
 
-def unmap(data, count, inds, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 1:
-        ret = data.new_full((count,), fill)
-        ret[inds] = data
-    else:
-        new_size = (count,) + data.size()[1:]
-        ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
-    return ret
-
-
-def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
-
-
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
+HEADS = Registry('head')
 
 
 class SamplingResult(object):
@@ -2236,6 +2214,29 @@ class PseudoSampler(BaseSampler):
         return sampling_result
 
 
+def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
+    ):
+    img_h, img_w = img_shape[:2]
+    if allowed_border >= 0:
+        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
+            ) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:,
+            (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h +
+            allowed_border)
+    else:
+        inside_flags = valid_flags
+    return inside_flags
+
+
+def build_assigner(cfg, **kwargs):
+    if isinstance(cfg, assigners.BaseAssigner):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
 def build_sampler(cfg, **kwargs):
     if isinstance(cfg, samplers.BaseSampler):
         return cfg
@@ -2256,17 +2257,27 @@ def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
     return assign_result, sampling_result
 
 
-def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
-    ):
-    img_h, img_w = img_shape[:2]
-    if allowed_border >= 0:
-        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
-            ) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:,
-            (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h +
-            allowed_border)
-    else:
-        inside_flags = valid_flags
-    return inside_flags
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
 
 
 def expand_binary_labels(labels, label_weights, label_channels):
@@ -2277,6 +2288,19 @@ def expand_binary_labels(labels, label_weights, label_channels):
     bin_label_weights = label_weights.view(-1, 1).expand(label_weights.size
         (0), label_channels)
     return bin_labels, bin_label_weights
+
+
+def unmap(data, count, inds, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 1:
+        ret = data.new_full((count,), fill)
+        ret[inds] = data
+    else:
+        new_size = (count,) + data.size()[1:]
+        ret = data.new_full(new_size, fill)
+        ret[(inds), :] = data
+    return ret
 
 
 def anchor_target_single(flat_anchors, valid_flags, gt_bboxes,
@@ -2347,6 +2371,12 @@ def images_to_levels(target, num_level_anchors):
     return level_targets
 
 
+def multi_apply(func, *args, **kwargs):
+    pfunc = partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
+
+
 def anchor_target(anchor_list, valid_flag_list, gt_bboxes_list, img_metas,
     target_means, target_stds, cfg, gt_bboxes_ignore_list=None,
     gt_labels_list=None, label_channels=1, sampling=True, unmap_outputs=True):
@@ -2391,85 +2421,6 @@ def anchor_target(anchor_list, valid_flag_list, gt_bboxes_list, img_metas,
     bbox_weights_list = images_to_levels(all_bbox_weights, num_level_anchors)
     return (labels_list, label_weights_list, bbox_targets_list,
         bbox_weights_list, num_total_pos, num_total_neg)
-
-
-class Registry(object):
-
-    def __init__(self, name):
-        self._name = name
-        self._module_dict = dict()
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
-
-    def _register_module(self, module_class):
-        """Register a module.
-
-        Args:
-            module (:obj:`nn.Module`): Module to be registered.
-        """
-        if not issubclass(module_class, nn.Module):
-            raise TypeError('module must be a child of nn.Module, but got {}'
-                .format(module_class))
-        module_name = module_class.__name__
-        if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
-        self._module_dict[module_name] = module_class
-
-    def register_module(self, cls):
-        self._register_module(cls)
-        return cls
-
-
-HEADS = Registry('head')
-
-
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
-def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
-    if avg_factor is None:
-        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
-    raw = F.cross_entropy(pred, label, reduction='none')
-    if reduce:
-        return torch.sum(raw * weight)[None] / avg_factor
-    else:
-        return raw * weight / avg_factor
-
-
-def sigmoid_focal_loss(pred, target, weight, gamma=2.0, alpha=0.25,
-    reduction='mean'):
-    pred_sigmoid = pred.sigmoid()
-    target = target.type_as(pred)
-    pt = (1 - pred_sigmoid) * target + pred_sigmoid * (1 - target)
-    weight = (alpha * target + (1 - alpha) * (1 - target)) * weight
-    weight = weight * pt.pow(gamma)
-    loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none'
-        ) * weight
-    reduction_enum = F._Reduction.get_enum(reduction)
-    if reduction_enum == 0:
-        return loss
-    elif reduction_enum == 1:
-        return loss.mean()
-    elif reduction_enum == 2:
-        return loss.sum()
-
-
-def weighted_sigmoid_focal_loss(pred, target, weight, gamma=2.0, alpha=0.25,
-    avg_factor=None, num_classes=80):
-    if avg_factor is None:
-        avg_factor = torch.sum(weight > 0).float().item() / num_classes + 1e-06
-    return sigmoid_focal_loss(pred, target, weight, gamma=gamma, alpha=
-        alpha, reduction='sum')[None] / avg_factor
 
 
 def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
@@ -2553,6 +2504,55 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
         bboxes = multi_bboxes.new_zeros((0, 5))
         labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
     return bboxes, labels
+
+
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
+def weighted_binary_cross_entropy(pred, label, weight, avg_factor=None):
+    if avg_factor is None:
+        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
+    return F.binary_cross_entropy_with_logits(pred, label.float(), weight.
+        float(), reduction='sum')[None] / avg_factor
+
+
+def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
+    if avg_factor is None:
+        avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
+    raw = F.cross_entropy(pred, label, reduction='none')
+    if reduce:
+        return torch.sum(raw * weight)[None] / avg_factor
+    else:
+        return raw * weight / avg_factor
+
+
+def sigmoid_focal_loss(pred, target, weight, gamma=2.0, alpha=0.25,
+    reduction='mean'):
+    pred_sigmoid = pred.sigmoid()
+    target = target.type_as(pred)
+    pt = (1 - pred_sigmoid) * target + pred_sigmoid * (1 - target)
+    weight = (alpha * target + (1 - alpha) * (1 - target)) * weight
+    weight = weight * pt.pow(gamma)
+    loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none'
+        ) * weight
+    reduction_enum = F._Reduction.get_enum(reduction)
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.mean()
+    elif reduction_enum == 2:
+        return loss.sum()
+
+
+def weighted_sigmoid_focal_loss(pred, target, weight, gamma=2.0, alpha=0.25,
+    avg_factor=None, num_classes=80):
+    if avg_factor is None:
+        avg_factor = torch.sum(weight > 0).float().item() / num_classes + 1e-06
+    return sigmoid_focal_loss(pred, target, weight, gamma=gamma, alpha=
+        alpha, reduction='sum')[None] / avg_factor
 
 
 def smooth_l1_loss(pred, target, beta=1.0, reduction='mean'):
@@ -3253,6 +3253,22 @@ class Bottleneck(nn.Module):
         return out
 
 
+BACKBONES = Registry('backbone')
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
     groups=1, base_width=4, style='pytorch', with_cp=False, normalize=dict(
     type='BN'), dcn=None):
@@ -3271,22 +3287,6 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
             groups=groups, base_width=base_width, style=style, with_cp=
             with_cp, normalize=normalize, dcn=dcn))
     return nn.Sequential(*layers)
-
-
-BACKBONES = Registry('backbone')
-
-
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
 
 
 @BACKBONES.register_module
@@ -5676,6 +5676,14 @@ class BaseDetector(nn.Module):
                 class_names, score_thr=score_thr)
 
 
+def mask_cross_entropy(pred, target, label):
+    num_rois = pred.size()[0]
+    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
+    pred_slice = pred[inds, label].squeeze(1)
+    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
+        ='mean')[None]
+
+
 def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
     mask_size = cfg.mask_size
     num_pos = pos_proposals.size(0)
@@ -5706,14 +5714,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
         pos_assigned_gt_inds_list, gt_masks_list, cfg_list)
     mask_targets = torch.cat(list(mask_targets))
     return mask_targets
-
-
-def mask_cross_entropy(pred, target, label):
-    num_rois = pred.size()[0]
-    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
-    pred_slice = pred[inds, label].squeeze(1)
-    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
-        ='mean')[None]
 
 
 @HEADS.register_module
@@ -5847,6 +5847,9 @@ class FCNMaskHead(nn.Module):
         return cls_segms
 
 
+NECKS = Registry('neck')
+
+
 def xavier_init(module, gain=1, bias=0, distribution='normal'):
     assert distribution in ['uniform', 'normal']
     if distribution == 'uniform':
@@ -5855,9 +5858,6 @@ def xavier_init(module, gain=1, bias=0, distribution='normal'):
         nn.init.xavier_normal_(module.weight, gain=gain)
     if hasattr(module, 'bias'):
         nn.init.constant_(module.bias, bias)
-
-
-NECKS = Registry('neck')
 
 
 @NECKS.register_module

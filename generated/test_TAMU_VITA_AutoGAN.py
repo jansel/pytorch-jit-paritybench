@@ -367,10 +367,10 @@ class DisBlock(nn.Module):
         return self.residual(x) + self.shortcut(x)
 
 
-UP_TYPE = {(0): 'bilinear', (1): 'nearest', (2): 'deconv'}
-
-
 NORM_TYPE = {(0): None, (1): 'bn', (2): 'in'}
+
+
+UP_TYPE = {(0): 'bilinear', (1): 'nearest', (2): 'deconv'}
 
 
 class PreGenBlock(nn.Module):
@@ -445,14 +445,14 @@ class PostGenBlock(nn.Module):
         return out
 
 
-def decimal2binary(n):
-    return bin(n).replace('0b', '')
+CONV_TYPE = {(0): 'post', (1): 'pre'}
 
 
 SHORT_CUT_TYPE = {(0): False, (1): True}
 
 
-CONV_TYPE = {(0): 'post', (1): 'pre'}
+def decimal2binary(n):
+    return bin(n).replace('0b', '')
 
 
 class Cell(nn.Module):

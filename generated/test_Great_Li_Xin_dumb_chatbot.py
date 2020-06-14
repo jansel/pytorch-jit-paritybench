@@ -57,6 +57,9 @@ from torch import optim
 from torch.nn.utils import clip_grad_norm_
 
 
+GO_token = 1
+
+
 _global_config['TRAIN'] = 4
 
 

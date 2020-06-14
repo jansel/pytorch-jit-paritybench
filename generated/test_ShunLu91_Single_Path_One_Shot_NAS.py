@@ -131,11 +131,11 @@ class Choice_Block_x(nn.Module):
         return y
 
 
+last_channel = 1024
+
+
 channel = [16, 64, 64, 64, 64, 160, 160, 160, 160, 320, 320, 320, 320, 320,
     320, 320, 320, 640, 640, 640, 640]
-
-
-last_channel = 1024
 
 
 class SinglePath_OneShot(nn.Module):

@@ -1116,13 +1116,6 @@ class MSRResNet0(nn.Module):
         return x
 
 
-def make_layer(block, n_layers):
-    layers = []
-    for _ in range(n_layers):
-        layers.append(block())
-    return nn.Sequential(*layers)
-
-
 def initialize_weights(net_l, scale=1):
     if not isinstance(net_l, list):
         net_l = [net_l]
@@ -1141,6 +1134,13 @@ def initialize_weights(net_l, scale=1):
             elif isinstance(m, nn.BatchNorm2d):
                 init.constant_(m.weight, 1)
                 init.constant_(m.bias.data, 0.0)
+
+
+def make_layer(block, n_layers):
+    layers = []
+    for _ in range(n_layers):
+        layers.append(block())
+    return nn.Sequential(*layers)
 
 
 class MSRResNet1(nn.Module):
@@ -1348,8 +1348,11 @@ class ResUNet(nn.Module):
         return x
 
 
-def csum(x, y):
-    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
+def cdiv(x, y):
+    a, b = x[..., 0], x[..., 1]
+    c, d = y[..., 0], y[..., 1]
+    cd2 = c ** 2 + d ** 2
+    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
 
 
 def cmul(t1, t2):
@@ -1368,11 +1371,8 @@ def cmul(t1, t2):
         imag1 * real2], dim=-1)
 
 
-def cdiv(x, y):
-    a, b = x[..., 0], x[..., 1]
-    c, d = y[..., 0], y[..., 1]
-    cd2 = c ** 2 + d ** 2
-    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
+def csum(x, y):
+    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
 
 
 def splits(a, sf):
@@ -1421,6 +1421,24 @@ class HyPaNet(nn.Module):
         return x
 
 
+def cabs2(x):
+    return x[..., 0] ** 2 + x[..., 1] ** 2
+
+
+def cconj(t, inplace=False):
+    """complex's conjugation
+
+    Args:
+        t: NxCxHxWx2
+
+    Returns:
+        output: NxCxHxWx2
+    """
+    c = t.clone() if not inplace else t
+    c[..., 1] *= -1
+    return c
+
+
 def p2o(psf, shape):
     """
     Convert point-spread function to optical transfer function.
@@ -1447,6 +1465,10 @@ def p2o(psf, shape):
     return otf
 
 
+def r2c(x):
+    return torch.stack([x, torch.zeros_like(x)], -1)
+
+
 def upsample(x, sf=3):
     """s-fold upsampler
 
@@ -1459,28 +1481,6 @@ def upsample(x, sf=3):
         ).type_as(x)
     z[(...), st::sf, st::sf].copy_(x)
     return z
-
-
-def cconj(t, inplace=False):
-    """complex's conjugation
-
-    Args:
-        t: NxCxHxWx2
-
-    Returns:
-        output: NxCxHxWx2
-    """
-    c = t.clone() if not inplace else t
-    c[..., 1] *= -1
-    return c
-
-
-def r2c(x):
-    return torch.stack([x, torch.zeros_like(x)], -1)
-
-
-def cabs2(x):
-    return x[..., 0] ** 2 + x[..., 1] ** 2
 
 
 class USRNet(nn.Module):

@@ -148,11 +148,6 @@ class SeparableConv2d(nn.Module):
         return self.conv(x)
 
 
-def relu_fn(x):
-    """ Swish activation function """
-    return x * torch.sigmoid(x)
-
-
 def drop_connect(inputs, p, training):
     """ Drop connect. """
     if not training:
@@ -165,6 +160,11 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
+
+
+def relu_fn(x):
+    """ Swish activation function """
+    return x * torch.sigmoid(x)
 
 
 class MBConvBlock(nn.Module):
@@ -239,21 +239,42 @@ class MBConvBlock(nn.Module):
         return x
 
 
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
+EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [
+    (256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 
+    256, 3, 1, 0)]]}
 
 
 INDICES = {'efficientnet-b3': [7, 17, 25]}
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate'])
+def add_extras(cfg, i, size=300):
+    layers = []
+    in_channels = i
+    flag = False
+    for k, v in enumerate(cfg):
+        if in_channels != 'S':
+            if v == 'S':
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
+                    1, 3)[flag], stride=2, padding=1)]
+            else:
+                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
+            flag = not flag
+        in_channels = v
+    if size == 512:
+        layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
+        layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
+    return layers
+
+
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
+    return params_dict[model_name]
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
@@ -324,6 +345,12 @@ class BlockDecoder(object):
         return block_strings
 
 
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate'])
+
+
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2):
     """ Creates a efficientnet model. """
@@ -340,17 +367,6 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
     return blocks_args, global_params
 
 
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
-    return params_dict[model_name]
-
-
 def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
@@ -365,18 +381,16 @@ def get_model_params(model_name, override_params):
     return blocks_args, global_params
 
 
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth',
-    'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth',
-    'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth',
-    'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth',
-    'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth',
-    'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
+def get_rank():
+    if not dist.is_available():
+        return 0
+    if not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_main_process():
+    return get_rank() == 0
 
 
 def synchronize():
@@ -392,18 +406,6 @@ def synchronize():
     if world_size == 1:
         return
     dist.barrier()
-
-
-def get_rank():
-    if not dist.is_available():
-        return 0
-    if not dist.is_initialized():
-        return 0
-    return dist.get_rank()
-
-
-def is_main_process():
-    return get_rank() == 0
 
 
 def cache_url(url, model_dir=None, progress=True):
@@ -451,30 +453,25 @@ def load_state_dict_from_url(url, map_location='cpu'):
     return torch.load(cached_file, map_location=map_location)
 
 
+url_map = {'efficientnet-b0':
+    'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth',
+    'efficientnet-b1':
+    'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth',
+    'efficientnet-b2':
+    'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth',
+    'efficientnet-b3':
+    'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth',
+    'efficientnet-b4':
+    'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth',
+    'efficientnet-b5':
+    'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
+
+
 def load_pretrained_weights(model, model_name):
     """ Loads pretrained weights, and downloads if loading for the first time. """
     state_dict = load_state_dict_from_url(url_map[model_name])
     model.load_state_dict(state_dict, strict=False)
     print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def add_extras(cfg, i, size=300):
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    if size == 512:
-        layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
-        layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
-    return layers
 
 
 def round_filters(filters, global_params):
@@ -493,9 +490,12 @@ def round_filters(filters, global_params):
     return int(new_filters)
 
 
-EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [
-    (256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 
-    256, 3, 1, 0)]]}
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
 
 
 class EfficientNet(nn.Module):
@@ -721,10 +721,6 @@ class MobileNetV2(nn.Module):
         return tuple(features)
 
 
-extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
-
-
 def add_vgg(cfg, batch_norm=False):
     layers = []
     in_channels = 3
@@ -746,6 +742,10 @@ def add_vgg(cfg, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
+
+
+extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
 
 
 vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
@@ -789,56 +789,6 @@ class VGG(nn.Module):
             if k % 2 == 1:
                 features.append(x)
         return tuple(features)
-
-
-def nms(boxes, scores, nms_thresh):
-    """ Performs non-maximum suppression, run on GPU or CPU according to
-    boxes's device.
-    Args:
-        boxes(Tensor[N, 4]): boxes in (x1, y1, x2, y2) format, use absolute coordinates(or relative coordinates)
-        scores(Tensor[N]): scores
-        nms_thresh(float): thresh
-    Returns:
-        indices kept.
-    """
-    keep = _nms(boxes, scores, nms_thresh)
-    return keep
-
-
-def batched_nms(boxes, scores, idxs, iou_threshold):
-    """
-    Performs non-maximum suppression in a batched fashion.
-
-    Each index value correspond to a category, and NMS
-    will not be applied between elements of different categories.
-
-    Parameters
-    ----------
-    boxes : Tensor[N, 4]
-        boxes where NMS will be performed. They
-        are expected to be in (x1, y1, x2, y2) format
-    scores : Tensor[N]
-        scores for each one of the boxes
-    idxs : Tensor[N]
-        indices of the categories for each one of the boxes.
-    iou_threshold : float
-        discards all overlapping boxes
-        with IoU < iou_threshold
-
-    Returns
-    -------
-    keep : Tensor
-        int64 tensor with the indices of
-        the elements that have been kept by NMS, sorted
-        in decreasing order of scores
-    """
-    if boxes.numel() == 0:
-        return torch.empty((0,), dtype=torch.int64, device=boxes.device)
-    max_coordinate = boxes.max()
-    offsets = idxs.to(boxes) * (max_coordinate + 1)
-    boxes_for_nms = boxes + offsets[:, (None)]
-    keep = nms(boxes_for_nms, scores, iou_threshold)
-    return keep
 
 
 class Container:
@@ -895,6 +845,56 @@ class Container:
 
     def __repr__(self):
         return self._data_dict.__repr__()
+
+
+def nms(boxes, scores, nms_thresh):
+    """ Performs non-maximum suppression, run on GPU or CPU according to
+    boxes's device.
+    Args:
+        boxes(Tensor[N, 4]): boxes in (x1, y1, x2, y2) format, use absolute coordinates(or relative coordinates)
+        scores(Tensor[N]): scores
+        nms_thresh(float): thresh
+    Returns:
+        indices kept.
+    """
+    keep = _nms(boxes, scores, nms_thresh)
+    return keep
+
+
+def batched_nms(boxes, scores, idxs, iou_threshold):
+    """
+    Performs non-maximum suppression in a batched fashion.
+
+    Each index value correspond to a category, and NMS
+    will not be applied between elements of different categories.
+
+    Parameters
+    ----------
+    boxes : Tensor[N, 4]
+        boxes where NMS will be performed. They
+        are expected to be in (x1, y1, x2, y2) format
+    scores : Tensor[N]
+        scores for each one of the boxes
+    idxs : Tensor[N]
+        indices of the categories for each one of the boxes.
+    iou_threshold : float
+        discards all overlapping boxes
+        with IoU < iou_threshold
+
+    Returns
+    -------
+    keep : Tensor
+        int64 tensor with the indices of
+        the elements that have been kept by NMS, sorted
+        in decreasing order of scores
+    """
+    if boxes.numel() == 0:
+        return torch.empty((0,), dtype=torch.int64, device=boxes.device)
+    max_coordinate = boxes.max()
+    offsets = idxs.to(boxes) * (max_coordinate + 1)
+    boxes_for_nms = boxes + offsets[:, (None)]
+    keep = nms(boxes_for_nms, scores, iou_threshold)
+    return keep
 
 
 class PostProcessor:
@@ -1069,13 +1069,13 @@ class MultiBoxLoss(nn.Module):
         return smooth_l1_loss / num_pos, classification_loss / num_pos
 
 
-def build_box_head(cfg):
-    return registry.BOX_HEADS[cfg.MODEL.BOX_HEAD.NAME](cfg)
-
-
 def build_backbone(cfg):
     return registry.BACKBONES[cfg.MODEL.BACKBONE.NAME](cfg, cfg.MODEL.
         BACKBONE.PRETRAINED)
+
+
+def build_box_head(cfg):
+    return registry.BOX_HEADS[cfg.MODEL.BOX_HEAD.NAME](cfg)
 
 
 class SSDDetector(nn.Module):

@@ -206,6 +206,50 @@ class HourglassNet(nn.Module):
         return out[::-1], y
 
 
+FEATURE_DIM = 8
+
+
+BOX_PARAMETERS = ('default_box', 'default_box_attr', 'conversion_box',
+    'frozen_box', 'camel_killer_box', 'box_it_up', 'box_safe_prefix',
+    'box_duplicates', 'ordered_box')
+
+
+class BoxError(Exception):
+    """Non standard dictionary exceptions"""
+
+
+class BoxKeyError(BoxError, KeyError, AttributeError):
+    """Key does not exist"""
+
+
+def _from_json(json_string=None, filename=None, encoding='utf-8', errors=
+    'strict', multiline=False, **kwargs):
+    if filename:
+        with open(filename, 'r', encoding=encoding, errors=errors) as f:
+            if multiline:
+                data = [json.loads(line.strip(), **kwargs) for line in f if
+                    line.strip() and not line.strip().startswith('#')]
+            else:
+                data = json.load(f, **kwargs)
+    elif json_string:
+        data = json.loads(json_string, **kwargs)
+    else:
+        raise BoxError('from_json requires a string or filename')
+    return data
+
+
+def _from_yaml(yaml_string=None, filename=None, encoding='utf-8', errors=
+    'strict', **kwargs):
+    if filename:
+        with open(filename, 'r', encoding=encoding, errors=errors) as f:
+            data = yaml.load(f, **kwargs)
+    elif yaml_string:
+        data = yaml.load(yaml_string, **kwargs)
+    else:
+        raise BoxError('from_yaml requires a string or filename')
+    return data
+
+
 def _to_json(obj, filename=None, encoding='utf-8', errors='strict', **
     json_kwargs):
     json_dump = json.dumps(obj, ensure_ascii=False, **json_kwargs)
@@ -217,12 +261,18 @@ def _to_json(obj, filename=None, encoding='utf-8', errors='strict', **
         return json_dump
 
 
-class BoxError(Exception):
-    """Non standard dictionary exceptions"""
+def _to_yaml(obj, filename=None, default_flow_style=False, encoding='utf-8',
+    errors='strict', **yaml_kwargs):
+    if filename:
+        with open(filename, 'w', encoding=encoding, errors=errors) as f:
+            yaml.dump(obj, stream=f, default_flow_style=default_flow_style,
+                **yaml_kwargs)
+    else:
+        return yaml.dump(obj, default_flow_style=default_flow_style, **
+            yaml_kwargs)
 
 
-class BoxKeyError(BoxError, KeyError, AttributeError):
-    """Key does not exist"""
+yaml_support = True
 
 
 class Bottleneck1D(nn.Module):
@@ -257,6 +307,11 @@ class MultitaskHead(nn.Module):
         return torch.cat([head(x) for head in self.heads], dim=1)
 
 
+def cross_entropy_loss(logits, positive):
+    nlogp = -F.log_softmax(logits, dim=0)
+    return (positive * nlogp[1] + (1 - positive) * nlogp[0]).mean(2).mean(1)
+
+
 def sigmoid_l1_loss(logits, target, offset=0.0, mask=None):
     logp = torch.sigmoid(logits) + offset
     loss = torch.abs(logp - target)
@@ -265,11 +320,6 @@ def sigmoid_l1_loss(logits, target, offset=0.0, mask=None):
         w[w == 0] = 1
         loss = loss * (mask / w)
     return loss.mean(2).mean(1)
-
-
-def cross_entropy_loss(logits, positive):
-    nlogp = -F.log_softmax(logits, dim=0)
-    return (positive * nlogp[1] + (1 - positive) * nlogp[0]).mean(2).mean(1)
 
 
 class MultitaskLearner(nn.Module):

@@ -234,27 +234,6 @@ class DetectionLayer(nn.Module):
             return output
 
 
-def parse_cfg(cfgfile):
-    file = open(cfgfile, 'r')
-    lines = file.read().split('\n')
-    lines = [x for x in lines if len(x) > 0]
-    lines = [x for x in lines if x[0] != '#']
-    lines = [x.rstrip().lstrip() for x in lines]
-    block = {}
-    blocks = []
-    for line in lines:
-        if line[0] == '[':
-            if len(block) != 0:
-                blocks.append(block)
-                block = {}
-            block['type'] = line[1:-1].rstrip()
-        else:
-            key, value = line.split('=')
-            block[key.rstrip()] = value.lstrip()
-    blocks.append(block)
-    return blocks
-
-
 def create_modules(blocks):
     net_info = blocks[0]
     module_list = nn.ModuleList()
@@ -353,6 +332,27 @@ def create_modules(blocks):
         prev_filters = filters
         output_filters.append(filters)
     return net_info, module_list
+
+
+def parse_cfg(cfgfile):
+    file = open(cfgfile, 'r')
+    lines = file.read().split('\n')
+    lines = [x for x in lines if len(x) > 0]
+    lines = [x for x in lines if x[0] != '#']
+    lines = [x.rstrip().lstrip() for x in lines]
+    block = {}
+    blocks = []
+    for line in lines:
+        if line[0] == '[':
+            if len(block) != 0:
+                blocks.append(block)
+                block = {}
+            block['type'] = line[1:-1].rstrip()
+        else:
+            key, value = line.split('=')
+            block[key.rstrip()] = value.lstrip()
+    blocks.append(block)
+    return blocks
 
 
 class Darknet(nn.Module):

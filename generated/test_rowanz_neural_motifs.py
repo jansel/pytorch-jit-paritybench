@@ -336,54 +336,70 @@ def block_orthogonal(tensor, split_sizes, gain=1.0):
         tensor[block_slice] = tensor_copy[0:sizes[0], 0:sizes[1]]
 
 
-def _nms_single_im(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
-    nms_thresh=0.7):
-    keep = torch.IntTensor(scores.size(0))
-    vs, idx = torch.sort(scores, dim=0, descending=True)
-    if idx.size(0) > pre_nms_topn:
-        idx = idx[:pre_nms_topn]
-    boxes_sorted = boxes[idx].contiguous()
-    num_out = nms.nms_apply(keep, boxes_sorted, nms_thresh)
-    num_out = min(num_out, post_nms_topn)
-    keep = keep[:num_out].long()
-    keep = idx[keep.cuda(scores.get_device())]
-    return keep
-
-
-def apply_nms(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
-    boxes_per_im=None, nms_thresh=0.7):
+def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.
+    autograd.Variable):
     """
-    Note - this function is non-differentiable so everything is assumed to be a tensor, not
-    a variable.
-        """
-    just_inds = boxes_per_im is None
-    if boxes_per_im is None:
-        boxes_per_im = [boxes.size(0)]
-    s = 0
-    keep = []
-    im_per = []
-    for bpi in boxes_per_im:
-        e = s + int(bpi)
-        keep_im = _nms_single_im(scores[s:e], boxes[s:e], pre_nms_topn,
-            post_nms_topn, nms_thresh)
-        keep.append(keep_im + s)
-        im_per.append(keep_im.size(0))
-        s = e
-    inds = torch.cat(keep, 0)
-    if just_inds:
-        return inds
-    return inds, im_per
+    Computes and returns an element-wise dropout mask for a given tensor, where
+    each element in the mask is dropped out with probability dropout_probability.
+    Note that the mask is NOT applied to the tensor - the tensor is passed to retain
+    the correct CUDA tensor type for the mask.
+
+    Parameters
+    ----------
+    dropout_probability : float, required.
+        Probability of dropping a dimension of the input.
+    tensor_for_masking : torch.Variable, required.
 
 
-def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=
-    0.7, pre_nms_topn=12000, post_nms_topn=2000):
-    inds, im_per = apply_nms(class_preds, box_preds, pre_nms_topn=
-        pre_nms_topn, post_nms_topn=post_nms_topn, boxes_per_im=
-        boxes_per_im, nms_thresh=nms_thresh)
-    img_inds = torch.cat([(val * torch.ones(i)) for val, i in enumerate(
-        im_per)], 0).cuda(box_preds.get_device())
-    rois = torch.cat((img_inds[:, (None)], box_preds[inds]), 1)
-    return rois
+    Returns
+    -------
+    A torch.FloatTensor consisting of the binary mask scaled by 1/ (1 - dropout_probability).
+    This scaling ensures expected values and variances of the output of applying this mask
+     and the original tensor are the same.
+    """
+    binary_mask = tensor_for_masking.clone()
+    binary_mask.data.copy_(torch.rand(tensor_for_masking.size()) >
+        dropout_probability)
+    dropout_mask = binary_mask.float().div(1.0 - dropout_probability)
+    return dropout_mask
+
+
+def nms_overlaps(boxes):
+    """ get overlaps for each channel"""
+    assert boxes.dim() == 3
+    N = boxes.size(0)
+    nc = boxes.size(1)
+    max_xy = torch.min(boxes[:, (None), :, 2:].expand(N, N, nc, 2), boxes[(
+        None), :, :, 2:].expand(N, N, nc, 2))
+    min_xy = torch.max(boxes[:, (None), :, :2].expand(N, N, nc, 2), boxes[(
+        None), :, :, :2].expand(N, N, nc, 2))
+    inter = torch.clamp(max_xy - min_xy + 1.0, min=0)
+    inters = inter[:, :, :, (0)] * inter[:, :, :, (1)]
+    boxes_flat = boxes.view(-1, 4)
+    areas_flat = (boxes_flat[:, (2)] - boxes_flat[:, (0)] + 1.0) * (
+        boxes_flat[:, (3)] - boxes_flat[:, (1)] + 1.0)
+    areas = areas_flat.view(boxes.size(0), boxes.size(1))
+    union = -inters + areas[None] + areas[:, (None)]
+    return inters / union
+
+
+class Result(object):
+    """ little container class for holding the detection result
+        od: object detector, rm: rel model"""
+
+    def __init__(self, od_obj_dists=None, rm_obj_dists=None, obj_scores=
+        None, obj_preds=None, obj_fmap=None, od_box_deltas=None,
+        rm_box_deltas=None, od_box_targets=None, rm_box_targets=None,
+        od_box_priors=None, rm_box_priors=None, boxes_assigned=None,
+        boxes_all=None, od_obj_labels=None, rm_obj_labels=None, rpn_scores=
+        None, rpn_box_deltas=None, rel_labels=None, im_inds=None, fmap=None,
+        rel_dists=None, rel_inds=None, rel_rep=None):
+        self.__dict__.update(locals())
+        del self.__dict__['self']
+
+    def is_none(self):
+        return all([(v is None) for k, v in self.__dict__.items() if k !=
+            'self'])
 
 
 def bbox_intersections(box_a, box_b):
@@ -434,179 +450,6 @@ def bbox_overlaps(box_a, box_b):
     return inter / union
 
 
-REL_FG_FRACTION = 0.25
-
-
-def diagonal_inds(tensor):
-    """
-    Returns the indices required to go along first 2 dims of tensor in diag fashion
-    :param tensor: thing
-    :return: 
-    """
-    assert tensor.dim() >= 2
-    assert tensor.size(0) == tensor.size(1)
-    size = tensor.size(0)
-    arange_inds = tensor.new(size).long()
-    torch.arange(0, tensor.size(0), out=arange_inds)
-    return (size + 1) * arange_inds
-
-
-RELS_PER_IMG = 256
-
-
-def to_variable(f):
-    """
-    Decorator that pushes all the outputs to a variable
-    :param f: 
-    :return: 
-    """
-
-    def variable_wrapper(*args, **kwargs):
-        rez = f(*args, **kwargs)
-        if isinstance(rez, tuple):
-            return tuple([Variable(x) for x in rez])
-        return Variable(rez)
-    return variable_wrapper
-
-
-def random_choose(tensor, num):
-    """randomly choose indices"""
-    num_choose = min(tensor.size(0), num)
-    if num_choose == tensor.size(0):
-        return tensor
-    rand_idx = np.random.choice(tensor.size(0), size=num, replace=False)
-    rand_idx = torch.LongTensor(rand_idx).cuda(tensor.get_device())
-    chosen = tensor[rand_idx].contiguous()
-    return chosen
-
-
-def enumerate_by_image(im_inds):
-    im_inds_np = im_inds.cpu().numpy()
-    initial_ind = int(im_inds_np[0])
-    s = 0
-    for i, val in enumerate(im_inds_np):
-        if val != initial_ind:
-            yield initial_ind, s, i
-            initial_ind = int(val)
-            s = i
-    yield initial_ind, s, len(im_inds_np)
-
-
-@to_variable
-def proposal_assignments_gtbox(rois, gt_boxes, gt_classes, gt_rels,
-    image_offset, fg_thresh=0.5):
-    """
-    Assign object detection proposals to ground-truth targets. Produces proposal
-    classification labels and bounding-box regression targets.
-    :param rpn_rois: [img_ind, x1, y1, x2, y2]
-    :param gt_boxes:   [num_boxes, 4] array of x0, y0, x1, y1]. Not needed it seems
-    :param gt_classes: [num_boxes, 2] array of [img_ind, class]
-        Note, the img_inds here start at image_offset
-    :param gt_rels     [num_boxes, 4] array of [img_ind, box_0, box_1, rel type].
-        Note, the img_inds here start at image_offset
-    :param Overlap threshold for a ROI to be considered foreground (if >= FG_THRESH)
-    :return:
-        rois: [num_rois, 5]
-        labels: [num_rois] array of labels
-        bbox_targets [num_rois, 4] array of targets for the labels.
-        rel_labels: [num_rels, 4] (img ind, box0 ind, box1ind, rel type)
-    """
-    im_inds = rois[:, (0)].long()
-    num_im = im_inds[-1] + 1
-    fg_rels = gt_rels.clone()
-    fg_rels[:, (0)] -= image_offset
-    offset = {}
-    for i, s, e in enumerate_by_image(im_inds):
-        offset[i] = s
-    for i, s, e in enumerate_by_image(fg_rels[:, (0)]):
-        fg_rels[s:e, 1:3] += offset[i]
-    is_cand = im_inds[:, (None)] == im_inds[None]
-    is_cand.view(-1)[diagonal_inds(is_cand)] = 0
-    is_cand.view(-1)[fg_rels[:, (1)] * im_inds.size(0) + fg_rels[:, (2)]] = 0
-    is_bgcand = is_cand.nonzero()
-    num_fg = min(fg_rels.size(0), int(RELS_PER_IMG * REL_FG_FRACTION * num_im))
-    if num_fg < fg_rels.size(0):
-        fg_rels = random_choose(fg_rels, num_fg)
-    num_bg = min(is_bgcand.size(0) if is_bgcand.dim() > 0 else 0, int(
-        RELS_PER_IMG * num_im) - num_fg)
-    if num_bg > 0:
-        bg_rels = torch.cat((im_inds[is_bgcand[:, (0)]][:, (None)],
-            is_bgcand, (is_bgcand[:, (0), (None)] < -10).long()), 1)
-        if num_bg < is_bgcand.size(0):
-            bg_rels = random_choose(bg_rels, num_bg)
-        rel_labels = torch.cat((fg_rels, bg_rels), 0)
-    else:
-        rel_labels = fg_rels
-    _, perm = torch.sort(rel_labels[:, (0)] * gt_boxes.size(0) ** 2 + 
-        rel_labels[:, (1)] * gt_boxes.size(0) + rel_labels[:, (2)])
-    rel_labels = rel_labels[perm].contiguous()
-    labels = gt_classes[:, (1)].contiguous()
-    return rois, labels, rel_labels
-
-
-def resnet101(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
-    return model
-
-
-def load_resnet():
-    model = resnet101(pretrained=True)
-    del model.layer4
-    del model.avgpool
-    del model.fc
-    return model
-
-
-def load_vgg(use_dropout=True, use_relu=True, use_linear=True, pretrained=True
-    ):
-    model = vgg16(pretrained=pretrained)
-    del model.features._modules['30']
-    del model.classifier._modules['6']
-    if not use_dropout:
-        del model.classifier._modules['5']
-        if not use_relu:
-            del model.classifier._modules['4']
-            if not use_linear:
-                del model.classifier._modules['3']
-    return model
-
-
-class Result(object):
-    """ little container class for holding the detection result
-        od: object detector, rm: rel model"""
-
-    def __init__(self, od_obj_dists=None, rm_obj_dists=None, obj_scores=
-        None, obj_preds=None, obj_fmap=None, od_box_deltas=None,
-        rm_box_deltas=None, od_box_targets=None, rm_box_targets=None,
-        od_box_priors=None, rm_box_priors=None, boxes_assigned=None,
-        boxes_all=None, od_obj_labels=None, rm_obj_labels=None, rpn_scores=
-        None, rpn_box_deltas=None, rel_labels=None, im_inds=None, fmap=None,
-        rel_dists=None, rel_inds=None, rel_rep=None):
-        self.__dict__.update(locals())
-        del self.__dict__['self']
-
-    def is_none(self):
-        return all([(v is None) for k, v in self.__dict__.items() if k !=
-            'self'])
-
-
-def gather_res(outputs, target_device, dim=0):
-    """
-    Assuming the signatures are the same accross results!
-    """
-    out = outputs[0]
-    args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for
-        o in outputs]) for field, v in out.__dict__.items() if v is not None}
-    return type(out)(**args)
-
-
 def center_size(boxes):
     """ Convert prior_boxes to (cx, cy, w, h)
     representation for comparison to center-size form ground truth data.
@@ -653,6 +496,57 @@ def bbox_preds(boxes, deltas):
     xys = prior_centers[:, :2] + prior_centers[:, 2:] * deltas[:, :2]
     whs = torch.exp(deltas[:, 2:]) * prior_centers[:, 2:]
     return point_form(torch.cat((xys, whs), 1))
+
+
+def enumerate_by_image(im_inds):
+    im_inds_np = im_inds.cpu().numpy()
+    initial_ind = int(im_inds_np[0])
+    s = 0
+    for i, val in enumerate(im_inds_np):
+        if val != initial_ind:
+            yield initial_ind, s, i
+            initial_ind = int(val)
+            s = i
+    yield initial_ind, s, len(im_inds_np)
+
+
+def _nms_single_im(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
+    nms_thresh=0.7):
+    keep = torch.IntTensor(scores.size(0))
+    vs, idx = torch.sort(scores, dim=0, descending=True)
+    if idx.size(0) > pre_nms_topn:
+        idx = idx[:pre_nms_topn]
+    boxes_sorted = boxes[idx].contiguous()
+    num_out = nms.nms_apply(keep, boxes_sorted, nms_thresh)
+    num_out = min(num_out, post_nms_topn)
+    keep = keep[:num_out].long()
+    keep = idx[keep.cuda(scores.get_device())]
+    return keep
+
+
+def apply_nms(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000,
+    boxes_per_im=None, nms_thresh=0.7):
+    """
+    Note - this function is non-differentiable so everything is assumed to be a tensor, not
+    a variable.
+        """
+    just_inds = boxes_per_im is None
+    if boxes_per_im is None:
+        boxes_per_im = [boxes.size(0)]
+    s = 0
+    keep = []
+    im_per = []
+    for bpi in boxes_per_im:
+        e = s + int(bpi)
+        keep_im = _nms_single_im(scores[s:e], boxes[s:e], pre_nms_topn,
+            post_nms_topn, nms_thresh)
+        keep.append(keep_im + s)
+        im_per.append(keep_im.size(0))
+        s = e
+    inds = torch.cat(keep, 0)
+    if just_inds:
+        return inds
+    return inds, im_per
 
 
 def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001,
@@ -704,6 +598,61 @@ def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001,
     return inds_all, scores_all, labels_all
 
 
+def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=
+    0.7, pre_nms_topn=12000, post_nms_topn=2000):
+    inds, im_per = apply_nms(class_preds, box_preds, pre_nms_topn=
+        pre_nms_topn, post_nms_topn=post_nms_topn, boxes_per_im=
+        boxes_per_im, nms_thresh=nms_thresh)
+    img_inds = torch.cat([(val * torch.ones(i)) for val, i in enumerate(
+        im_per)], 0).cuda(box_preds.get_device())
+    rois = torch.cat((img_inds[:, (None)], box_preds[inds]), 1)
+    return rois
+
+
+def gather_res(outputs, target_device, dim=0):
+    """
+    Assuming the signatures are the same accross results!
+    """
+    out = outputs[0]
+    args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for
+        o in outputs]) for field, v in out.__dict__.items() if v is not None}
+    return type(out)(**args)
+
+
+def resnet101(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+def load_resnet():
+    model = resnet101(pretrained=True)
+    del model.layer4
+    del model.avgpool
+    del model.fc
+    return model
+
+
+def load_vgg(use_dropout=True, use_relu=True, use_linear=True, pretrained=True
+    ):
+    model = vgg16(pretrained=pretrained)
+    del model.features._modules['30']
+    del model.classifier._modules['6']
+    if not use_dropout:
+        del model.classifier._modules['5']
+        if not use_relu:
+            del model.classifier._modules['4']
+            if not use_linear:
+                del model.classifier._modules['3']
+    return model
+
+
 FG_FRACTION = 0.25
 
 
@@ -731,6 +680,21 @@ def _sel_inds(max_overlaps, fg_thresh=0.5, fg_rois_per_image=128,
         bg_inds = npr.choice(bg_inds, size=bg_rois_per_this_image, replace=
             False)
     return np.append(fg_inds, bg_inds), fg_rois_per_this_image
+
+
+def to_variable(f):
+    """
+    Decorator that pushes all the outputs to a variable
+    :param f: 
+    :return: 
+    """
+
+    def variable_wrapper(*args, **kwargs):
+        rez = f(*args, **kwargs)
+        if isinstance(rez, tuple):
+            return tuple([Variable(x) for x in rez])
+        return Variable(rez)
+    return variable_wrapper
 
 
 @to_variable
@@ -790,6 +754,89 @@ def proposal_assignments_det(rpn_rois, gt_boxes, gt_classes, image_offset,
     labels = torch.cat(labels, 0)
     bbox_targets = torch.cat(bbox_targets, 0)
     return rois, labels, bbox_targets
+
+
+RELS_PER_IMG = 256
+
+
+REL_FG_FRACTION = 0.25
+
+
+def diagonal_inds(tensor):
+    """
+    Returns the indices required to go along first 2 dims of tensor in diag fashion
+    :param tensor: thing
+    :return: 
+    """
+    assert tensor.dim() >= 2
+    assert tensor.size(0) == tensor.size(1)
+    size = tensor.size(0)
+    arange_inds = tensor.new(size).long()
+    torch.arange(0, tensor.size(0), out=arange_inds)
+    return (size + 1) * arange_inds
+
+
+def random_choose(tensor, num):
+    """randomly choose indices"""
+    num_choose = min(tensor.size(0), num)
+    if num_choose == tensor.size(0):
+        return tensor
+    rand_idx = np.random.choice(tensor.size(0), size=num, replace=False)
+    rand_idx = torch.LongTensor(rand_idx).cuda(tensor.get_device())
+    chosen = tensor[rand_idx].contiguous()
+    return chosen
+
+
+@to_variable
+def proposal_assignments_gtbox(rois, gt_boxes, gt_classes, gt_rels,
+    image_offset, fg_thresh=0.5):
+    """
+    Assign object detection proposals to ground-truth targets. Produces proposal
+    classification labels and bounding-box regression targets.
+    :param rpn_rois: [img_ind, x1, y1, x2, y2]
+    :param gt_boxes:   [num_boxes, 4] array of x0, y0, x1, y1]. Not needed it seems
+    :param gt_classes: [num_boxes, 2] array of [img_ind, class]
+        Note, the img_inds here start at image_offset
+    :param gt_rels     [num_boxes, 4] array of [img_ind, box_0, box_1, rel type].
+        Note, the img_inds here start at image_offset
+    :param Overlap threshold for a ROI to be considered foreground (if >= FG_THRESH)
+    :return:
+        rois: [num_rois, 5]
+        labels: [num_rois] array of labels
+        bbox_targets [num_rois, 4] array of targets for the labels.
+        rel_labels: [num_rels, 4] (img ind, box0 ind, box1ind, rel type)
+    """
+    im_inds = rois[:, (0)].long()
+    num_im = im_inds[-1] + 1
+    fg_rels = gt_rels.clone()
+    fg_rels[:, (0)] -= image_offset
+    offset = {}
+    for i, s, e in enumerate_by_image(im_inds):
+        offset[i] = s
+    for i, s, e in enumerate_by_image(fg_rels[:, (0)]):
+        fg_rels[s:e, 1:3] += offset[i]
+    is_cand = im_inds[:, (None)] == im_inds[None]
+    is_cand.view(-1)[diagonal_inds(is_cand)] = 0
+    is_cand.view(-1)[fg_rels[:, (1)] * im_inds.size(0) + fg_rels[:, (2)]] = 0
+    is_bgcand = is_cand.nonzero()
+    num_fg = min(fg_rels.size(0), int(RELS_PER_IMG * REL_FG_FRACTION * num_im))
+    if num_fg < fg_rels.size(0):
+        fg_rels = random_choose(fg_rels, num_fg)
+    num_bg = min(is_bgcand.size(0) if is_bgcand.dim() > 0 else 0, int(
+        RELS_PER_IMG * num_im) - num_fg)
+    if num_bg > 0:
+        bg_rels = torch.cat((im_inds[is_bgcand[:, (0)]][:, (None)],
+            is_bgcand, (is_bgcand[:, (0), (None)] < -10).long()), 1)
+        if num_bg < is_bgcand.size(0):
+            bg_rels = random_choose(bg_rels, num_bg)
+        rel_labels = torch.cat((fg_rels, bg_rels), 0)
+    else:
+        rel_labels = fg_rels
+    _, perm = torch.sort(rel_labels[:, (0)] * gt_boxes.size(0) ** 2 + 
+        rel_labels[:, (1)] * gt_boxes.size(0) + rel_labels[:, (2)])
+    rel_labels = rel_labels[perm].contiguous()
+    labels = gt_classes[:, (1)].contiguous()
+    return rois, labels, rel_labels
 
 
 class ObjectDetector(nn.Module):
@@ -1117,18 +1164,34 @@ class ObjectDetector(nn.Module):
 ANCHOR_RATIOS = 0.23232838, 0.63365731, 1.28478321, 3.15089189
 
 
-IM_SCALE = 592
+ANCHOR_SCALES = 2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731
 
 
-def _whctrs(anchor):
+ANCHOR_SIZE = 16
+
+
+def gather_nd(x, index):
     """
-  Return width, height, x center, and y center for an anchor (window).
-  """
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
+
+    :param x: n dimensional tensor [x0, x1, x2, ... x{n-1}, dim]
+    :param index: [num, n-1] where each row contains the indices we'll use
+    :return: [num, dim]
+    """
+    nd = x.dim() - 1
+    assert nd > 0
+    assert index.dim() == 2
+    assert index.size(1) == nd
+    dim = x.size(-1)
+    sel_inds = index[:, (nd - 1)].clone()
+    mult_factor = x.size(nd - 1)
+    for col in range(nd - 2, -1, -1):
+        sel_inds += index[:, (col)] * mult_factor
+        mult_factor *= x.size(col)
+    grouped = x.view(-1, dim)[sel_inds]
+    return grouped
+
+
+IM_SCALE = 592
 
 
 def _mkanchors(ws, hs, x_ctr, y_ctr):
@@ -1141,6 +1204,17 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """
+  Return width, height, x center, and y center for an anchor (window).
+  """
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):
@@ -1193,33 +1267,6 @@ def generate_anchors(base_size=16, feat_stride=16, anchor_scales=(8, 16, 32
     shifts = np.stack([shift_x, shift_y, shift_x, shift_y], -1)
     all_anchors = shifts[:, :, (None)] + anchors[None, None]
     return all_anchors
-
-
-ANCHOR_SCALES = 2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731
-
-
-def gather_nd(x, index):
-    """
-
-    :param x: n dimensional tensor [x0, x1, x2, ... x{n-1}, dim]
-    :param index: [num, n-1] where each row contains the indices we'll use
-    :return: [num, dim]
-    """
-    nd = x.dim() - 1
-    assert nd > 0
-    assert index.dim() == 2
-    assert index.size(1) == nd
-    dim = x.size(-1)
-    sel_inds = index[:, (nd - 1)].clone()
-    mult_factor = x.size(nd - 1)
-    for col in range(nd - 2, -1, -1):
-        sel_inds += index[:, (col)] * mult_factor
-        mult_factor *= x.size(col)
-    grouped = x.view(-1, dim)[sel_inds]
-    return grouped
-
-
-ANCHOR_SIZE = 16
 
 
 class RPNHead(nn.Module):
@@ -1327,28 +1374,7 @@ class Flattener(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def arange(base_tensor, n=None):
-    new_size = base_tensor.size(0) if n is None else n
-    new_vec = base_tensor.new(new_size).long()
-    torch.arange(0, new_size, out=new_vec)
-    return new_vec
-
-
-def to_onehot(vec, num_classes, fill=1000):
-    """
-    Creates a [size, num_classes] torch FloatTensor where
-    one_hot[i, vec[i]] = fill
-    
-    :param vec: 1d torch tensor
-    :param num_classes: int
-    :param fill: value that we want + and - things to be.
-    :return: 
-    """
-    onehot_result = vec.new(vec.size(0), num_classes).float().fill_(-fill)
-    arange_inds = vec.new(vec.size(0)).long()
-    torch.arange(0, vec.size(0), out=arange_inds)
-    onehot_result.view(-1)[vec + num_classes * arange_inds] = fill
-    return onehot_result
+MODES = 'sgdet', 'sgcls', 'predcls'
 
 
 def transpose_packed_sequence_inds(lengths):
@@ -1398,7 +1424,28 @@ def _sort_by_score(im_inds, scores):
     return perm, inv_perm, ls_transposed
 
 
-MODES = 'sgdet', 'sgcls', 'predcls'
+def arange(base_tensor, n=None):
+    new_size = base_tensor.size(0) if n is None else n
+    new_vec = base_tensor.new(new_size).long()
+    torch.arange(0, new_size, out=new_vec)
+    return new_vec
+
+
+def to_onehot(vec, num_classes, fill=1000):
+    """
+    Creates a [size, num_classes] torch FloatTensor where
+    one_hot[i, vec[i]] = fill
+    
+    :param vec: 1d torch tensor
+    :param num_classes: int
+    :param fill: value that we want + and - things to be.
+    :return: 
+    """
+    onehot_result = vec.new(vec.size(0), num_classes).float().fill_(-fill)
+    arange_inds = vec.new(vec.size(0)).long()
+    torch.arange(0, vec.size(0), out=arange_inds)
+    onehot_result.view(-1)[vec + num_classes * arange_inds] = fill
+    return onehot_result
 
 
 class LinearizedContext(nn.Module):
@@ -1593,14 +1640,40 @@ class LinearizedContext(nn.Module):
         return obj_dists2, obj_preds, edge_ctx
 
 
-def resnet_l4(relu_end=True):
-    model = resnet101(pretrained=True)
-    l4 = model.layer4
-    if not relu_end:
-        l4[-1].relu_end = False
-    l4[0].conv2.stride = 1, 1
-    l4[0].downsample[0].stride = 1, 1
-    return l4
+def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
+    """
+    Filters detections....
+    :param boxes: [num_box, topk, 4] if bbox regression else [num_box, 4]
+    :param obj_scores: [num_box] probabilities for the scores
+    :param obj_classes: [num_box] class labels for the topk
+    :param rel_inds: [num_rel, 2] TENSOR consisting of (im_ind0, im_ind1)
+    :param pred_scores: [topk, topk, num_rel, num_predicates]
+    :param use_nms: True if use NMS to filter dets.
+    :return: boxes, objs, rels, pred_scores
+
+    """
+    if boxes.dim() != 2:
+        raise ValueError('Boxes needs to be [num_box, 4] but its {}'.format
+            (boxes.size()))
+    num_box = boxes.size(0)
+    assert obj_scores.size(0) == num_box
+    assert obj_classes.size() == obj_scores.size()
+    num_rel = rel_inds.size(0)
+    assert rel_inds.size(1) == 2
+    assert pred_scores.size(0) == num_rel
+    obj_scores0 = obj_scores.data[rel_inds[:, (0)]]
+    obj_scores1 = obj_scores.data[rel_inds[:, (1)]]
+    pred_scores_max, pred_classes_argmax = pred_scores.data[:, 1:].max(1)
+    pred_classes_argmax = pred_classes_argmax + 1
+    rel_scores_argmaxed = pred_scores_max * obj_scores0 * obj_scores1
+    rel_scores_vs, rel_scores_idx = torch.sort(rel_scores_argmaxed.view(-1),
+        dim=0, descending=True)
+    rels = rel_inds[rel_scores_idx].cpu().numpy()
+    pred_scores_sorted = pred_scores[rel_scores_idx].data.cpu().numpy()
+    obj_scores_np = obj_scores.data.cpu().numpy()
+    objs_np = obj_classes.data.cpu().numpy()
+    boxes_out = boxes.data.cpu().numpy()
+    return boxes_out, objs_np, obj_scores_np, rels, pred_scores_sorted
 
 
 @to_variable
@@ -1705,40 +1778,14 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes,
     return rel_labels
 
 
-def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
-    """
-    Filters detections....
-    :param boxes: [num_box, topk, 4] if bbox regression else [num_box, 4]
-    :param obj_scores: [num_box] probabilities for the scores
-    :param obj_classes: [num_box] class labels for the topk
-    :param rel_inds: [num_rel, 2] TENSOR consisting of (im_ind0, im_ind1)
-    :param pred_scores: [topk, topk, num_rel, num_predicates]
-    :param use_nms: True if use NMS to filter dets.
-    :return: boxes, objs, rels, pred_scores
-
-    """
-    if boxes.dim() != 2:
-        raise ValueError('Boxes needs to be [num_box, 4] but its {}'.format
-            (boxes.size()))
-    num_box = boxes.size(0)
-    assert obj_scores.size(0) == num_box
-    assert obj_classes.size() == obj_scores.size()
-    num_rel = rel_inds.size(0)
-    assert rel_inds.size(1) == 2
-    assert pred_scores.size(0) == num_rel
-    obj_scores0 = obj_scores.data[rel_inds[:, (0)]]
-    obj_scores1 = obj_scores.data[rel_inds[:, (1)]]
-    pred_scores_max, pred_classes_argmax = pred_scores.data[:, 1:].max(1)
-    pred_classes_argmax = pred_classes_argmax + 1
-    rel_scores_argmaxed = pred_scores_max * obj_scores0 * obj_scores1
-    rel_scores_vs, rel_scores_idx = torch.sort(rel_scores_argmaxed.view(-1),
-        dim=0, descending=True)
-    rels = rel_inds[rel_scores_idx].cpu().numpy()
-    pred_scores_sorted = pred_scores[rel_scores_idx].data.cpu().numpy()
-    obj_scores_np = obj_scores.data.cpu().numpy()
-    objs_np = obj_classes.data.cpu().numpy()
-    boxes_out = boxes.data.cpu().numpy()
-    return boxes_out, objs_np, obj_scores_np, rels, pred_scores_sorted
+def resnet_l4(relu_end=True):
+    model = resnet101(pretrained=True)
+    l4 = model.layer4
+    if not relu_end:
+        l4[-1].relu_end = False
+    l4[0].conv2.stride = 1, 1
+    l4[0].downsample[0].stride = 1, 1
+    return l4
 
 
 class RelModel(nn.Module):
@@ -2045,6 +2092,9 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+BOX_SCALE = 1024
 
 
 def stanford_path(fn):

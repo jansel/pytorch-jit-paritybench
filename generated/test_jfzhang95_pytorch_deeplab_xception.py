@@ -1530,6 +1530,10 @@ class Decoder(nn.Module):
                 m.bias.data.zero_()
 
 
+def build_aspp(backbone, output_stride, BatchNorm):
+    return ASPP(backbone, output_stride, BatchNorm)
+
+
 def build_backbone(backbone, output_stride, BatchNorm):
     if backbone == 'resnet':
         return resnet.ResNet101(output_stride, BatchNorm)
@@ -1545,10 +1549,6 @@ def build_backbone(backbone, output_stride, BatchNorm):
 
 def build_decoder(num_classes, backbone, BatchNorm):
     return Decoder(num_classes, backbone, BatchNorm)
-
-
-def build_aspp(backbone, output_stride, BatchNorm):
-    return ASPP(backbone, output_stride, BatchNorm)
 
 
 class DeepLab(nn.Module):
@@ -1615,20 +1615,6 @@ class DeepLab(nn.Module):
                             yield p
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1650,6 +1636,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -1728,9 +1728,11 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _sum_ft(tensor):
@@ -1738,11 +1740,9 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
-
-
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

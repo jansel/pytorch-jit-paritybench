@@ -297,6 +297,9 @@ class LocalLossBlockLinear(nn.Module):
         return h_return, loss
 
 
+_global_config['dim_in_decoder'] = 4
+
+
 class LocalLossBlockConv(nn.Module):
     """
     A block containing nn.Conv2d -> nn.BatchNorm2d -> nn.ReLU -> nn.Dropou2d
@@ -524,6 +527,9 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
+_global_config['pre_act'] = 4
+
+
 _global_config['no_detach'] = 4
 
 
@@ -534,9 +540,6 @@ _global_config['weight_decay'] = 4
 
 
 _global_config['optim'] = 4
-
-
-_global_config['pre_act'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -966,10 +969,10 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_layers'] = 1
-
-
 _global_config['num_hidden'] = 4
+
+
+_global_config['num_layers'] = 1
 
 
 class VGGn(nn.Module):

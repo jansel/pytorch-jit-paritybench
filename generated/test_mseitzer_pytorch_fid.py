@@ -35,6 +35,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _inception_v3(*args, **kwargs):
+    """Wraps `torchvision.models.inception_v3`
+
+    Skips default weight inititialization if supported by torchvision version.
+    See https://github.com/mseitzer/pytorch-fid/issues/28.
+    """
+    try:
+        version = tuple(map(int, torchvision.__version__.split('.')[:2]))
+    except ValueError:
+        version = 0,
+    if version >= (0, 6):
+        kwargs['init_weights'] = False
+    return torchvision.models.inception_v3(*args, **kwargs)
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

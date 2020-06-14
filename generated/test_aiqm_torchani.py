@@ -123,18 +123,70 @@ class CustomModule(torch.nn.Module):
         return energies, forces, hessians
 
 
-class SpeciesAEV(NamedTuple):
-    species: Tensor
-    aevs: Tensor
+def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
+    float) ->Tensor:
+    """Compute pairs of atoms that are neighbors (doesn't use PBC)
+
+    This function bypasses the calculation of shifts and duplication
+    of atoms in order to make calculations faster
+
+    Arguments:
+        padding_mask (:class:`torch.Tensor`): boolean tensor of shape
+            (molecules, atoms) for padding mask. 1 == is padding.
+        coordinates (:class:`torch.Tensor`): tensor of shape
+            (molecules * atoms, 3) for atom coordinates.
+        cutoff (float): the cutoff inside which atoms are considered pairs
+    """
+    coordinates = coordinates.detach()
+    current_device = coordinates.device
+    num_atoms = padding_mask.shape[1]
+    num_mols = padding_mask.shape[0]
+    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device
+        )
+    p12_all_flattened = p12_all.view(-1)
+    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(
+        num_mols, 2, -1, 3)
+    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1),
+        (...)]).norm(2, -1)
+    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(
+        num_mols, 2, -1).any(dim=1)
+    distances.masked_fill_(padding_mask, math.inf)
+    in_cutoff = (distances <= cutoff).nonzero()
+    molecule_index, pair_index = in_cutoff.unbind(1)
+    molecule_index *= num_atoms
+    atom_index12 = p12_all[:, (pair_index)] + molecule_index
+    return atom_index12
 
 
-def triu_index(num_species: int) ->Tensor:
-    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
-    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
-    ret = torch.zeros(num_species, num_species, dtype=torch.long)
-    ret[species1, species2] = pair_index
-    ret[species2, species1] = pair_index
-    return ret
+def cutoff_cosine(distances: Tensor, cutoff: float) ->Tensor:
+    return 0.5 * torch.cos(distances * (math.pi / cutoff)) + 0.5
+
+
+def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
+    ShfA: Tensor, vectors12: Tensor) ->Tensor:
+    """Compute the angular subAEV terms of the center atom given neighbor pairs.
+
+    This correspond to equation (4) in the `ANI paper`_. This function just
+    compute the terms. The sum in the equation is not computed.
+    The input tensor have shape (conformations, atoms, N), where N
+    is the number of neighbor atom pairs within the cutoff radius and
+    output tensor should have shape
+    (conformations, atoms, ``self.angular_sublength()``)
+
+    .. _ANI paper:
+        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
+    """
+    vectors12 = vectors12.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(
+        -1)
+    distances12 = vectors12.norm(2, dim=-5)
+    cos_angles = 0.95 * torch.nn.functional.cosine_similarity(vectors12[0],
+        vectors12[1], dim=-5)
+    angles = torch.acos(cos_angles)
+    fcj12 = cutoff_cosine(distances12, Rca)
+    factor1 = ((1 + torch.cos(angles - ShfZ)) / 2) ** Zeta
+    factor2 = torch.exp(-EtaA * (distances12.sum(0) / 2 - ShfA) ** 2)
+    ret = 2 * factor1 * factor2 * fcj12.prod(0)
+    return ret.flatten(start_dim=-4)
 
 
 def cumsum_from_zero(input_: Tensor) ->Tensor:
@@ -175,57 +227,6 @@ def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
     n = atom_index12.shape[1]
     sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
     return central_atom_index, local_index12 % n, sign12
-
-
-def cutoff_cosine(distances: Tensor, cutoff: float) ->Tensor:
-    return 0.5 * torch.cos(distances * (math.pi / cutoff)) + 0.5
-
-
-def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
-    ShfA: Tensor, vectors12: Tensor) ->Tensor:
-    """Compute the angular subAEV terms of the center atom given neighbor pairs.
-
-    This correspond to equation (4) in the `ANI paper`_. This function just
-    compute the terms. The sum in the equation is not computed.
-    The input tensor have shape (conformations, atoms, N), where N
-    is the number of neighbor atom pairs within the cutoff radius and
-    output tensor should have shape
-    (conformations, atoms, ``self.angular_sublength()``)
-
-    .. _ANI paper:
-        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
-    """
-    vectors12 = vectors12.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(
-        -1)
-    distances12 = vectors12.norm(2, dim=-5)
-    cos_angles = 0.95 * torch.nn.functional.cosine_similarity(vectors12[0],
-        vectors12[1], dim=-5)
-    angles = torch.acos(cos_angles)
-    fcj12 = cutoff_cosine(distances12, Rca)
-    factor1 = ((1 + torch.cos(angles - ShfZ)) / 2) ** Zeta
-    factor2 = torch.exp(-EtaA * (distances12.sum(0) / 2 - ShfA) ** 2)
-    ret = 2 * factor1 * factor2 * fcj12.prod(0)
-    return ret.flatten(start_dim=-4)
-
-
-def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
-    ) ->Tensor:
-    """Compute the radial subAEV terms of the center atom given neighbors
-
-    This correspond to equation (3) in the `ANI paper`_. This function just
-    compute the terms. The sum in the equation is not computed.
-    The input tensor have shape (conformations, atoms, N), where ``N``
-    is the number of neighbor atoms within the cutoff radius and output
-    tensor should have shape
-    (conformations, atoms, ``self.radial_sublength()``)
-
-    .. _ANI paper:
-        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
-    """
-    distances = distances.unsqueeze(-1).unsqueeze(-1)
-    fc = cutoff_cosine(distances, Rcr)
-    ret = 0.25 * torch.exp(-EtaR * (distances - ShfR) ** 2) * fc
-    return ret.flatten(start_dim=-2)
 
 
 def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
@@ -274,39 +275,24 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     return molecule_index + atom_index12, shifts
 
 
-def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
-    float) ->Tensor:
-    """Compute pairs of atoms that are neighbors (doesn't use PBC)
+def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
+    ) ->Tensor:
+    """Compute the radial subAEV terms of the center atom given neighbors
 
-    This function bypasses the calculation of shifts and duplication
-    of atoms in order to make calculations faster
+    This correspond to equation (3) in the `ANI paper`_. This function just
+    compute the terms. The sum in the equation is not computed.
+    The input tensor have shape (conformations, atoms, N), where ``N``
+    is the number of neighbor atoms within the cutoff radius and output
+    tensor should have shape
+    (conformations, atoms, ``self.radial_sublength()``)
 
-    Arguments:
-        padding_mask (:class:`torch.Tensor`): boolean tensor of shape
-            (molecules, atoms) for padding mask. 1 == is padding.
-        coordinates (:class:`torch.Tensor`): tensor of shape
-            (molecules * atoms, 3) for atom coordinates.
-        cutoff (float): the cutoff inside which atoms are considered pairs
+    .. _ANI paper:
+        http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
     """
-    coordinates = coordinates.detach()
-    current_device = coordinates.device
-    num_atoms = padding_mask.shape[1]
-    num_mols = padding_mask.shape[0]
-    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device
-        )
-    p12_all_flattened = p12_all.view(-1)
-    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1, 3)
-    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1),
-        (...)]).norm(2, -1)
-    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1).any(dim=1)
-    distances.masked_fill_(padding_mask, math.inf)
-    in_cutoff = (distances <= cutoff).nonzero()
-    molecule_index, pair_index = in_cutoff.unbind(1)
-    molecule_index *= num_atoms
-    atom_index12 = p12_all[:, (pair_index)] + molecule_index
-    return atom_index12
+    distances = distances.unsqueeze(-1).unsqueeze(-1)
+    fc = cutoff_cosine(distances, Rcr)
+    ret = 0.25 * torch.exp(-EtaR * (distances - ShfR) ** 2) * fc
+    return ret.flatten(start_dim=-2)
 
 
 def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
@@ -362,6 +348,20 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
     angular_aev.index_add_(0, index, angular_terms_)
     angular_aev = angular_aev.reshape(num_molecules, num_atoms, angular_length)
     return torch.cat([radial_aev, angular_aev], dim=-1)
+
+
+class SpeciesAEV(NamedTuple):
+    species: Tensor
+    aevs: Tensor
+
+
+def triu_index(num_species: int) ->Tensor:
+    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
+    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
+    ret = torch.zeros(num_species, num_species, dtype=torch.long)
+    ret[species1, species2] = pair_index
+    ret[species2, species1] = pair_index
+    return ret
 
 
 def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
@@ -527,13 +527,16 @@ class SpeciesEnergies(NamedTuple):
     energies: Tensor
 
 
+conv_au_ev = 27.21138505
+
+
+radial_length = 64
+
+
 all_species = ['H', 'C', 'N', 'O']
 
 
 species_indices = {all_species[i]: i for i in range(len(all_species))}
-
-
-conv_au_ev = 27.21138505
 
 
 class ANIModel(torch.nn.ModuleDict):

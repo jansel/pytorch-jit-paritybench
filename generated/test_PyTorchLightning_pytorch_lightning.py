@@ -749,42 +749,6 @@ def collect_init_args(frame, path_args: list, inside: bool=False) ->list:
         return path_args
 
 
-class AttributeDict(dict):
-    """Extended dictionary accesisable with dot notation.
-
-    >>> ad = AttributeDict({'key1': 1, 'key2': 'abc'})
-    >>> ad.key1
-    1
-    >>> ad.update({'my-key': 3.14})
-    >>> ad.update(mew_key=42)
-    >>> ad.key1 = 2
-    >>> ad
-    "key1":    2
-    "key2":    abc
-    "mew_key": 42
-    "my-key":  3.14
-    """
-
-    def __getattr__(self, key):
-        try:
-            return self[key]
-        except KeyError:
-            raise AttributeError(f'Missing attribute "{key}"')
-
-    def __setattr__(self, key, val):
-        self[key] = val
-
-    def __repr__(self):
-        if not len(self):
-            return ''
-        max_key_length = max([len(str(k)) for k in self])
-        tmp_name = '{:' + str(max_key_length + 3) + 's} {}'
-        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.
-            keys())]
-        out = '\n'.join(rows)
-        return out
-
-
 def rank_zero_only(fn):
 
     @wraps(fn)

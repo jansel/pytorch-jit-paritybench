@@ -94,18 +94,35 @@ class L2Norm(nn.Module):
         return out
 
 
-GPU = False
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -150,37 +167,6 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
-
-
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
@@ -214,6 +200,20 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+GPU = False
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):

@@ -2553,7 +2553,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+CONFIG_NAME = 'config.json'
 
 
 class Conv1D(nn.Module):

@@ -361,17 +361,17 @@ class UnetBlock(nn.Module):
             return torch.cat([self.model(x), x], 1)
 
 
-def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=True)
-
-
 def upsampleConv(inplanes, outplanes, kw, padw):
     sequence = []
     sequence += [nn.Upsample(scale_factor=2, mode='nearest')]
     sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=kw, stride=1,
         padding=padw, bias=True)]
     return nn.Sequential(*sequence)
+
+
+def conv3x3(in_planes, out_planes):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
+        padding=1, bias=True)
 
 
 class BasicBlockUp(nn.Module):
@@ -394,18 +394,18 @@ class BasicBlockUp(nn.Module):
         return out
 
 
+def convMeanpool(inplanes, outplanes):
+    sequence = []
+    sequence += [conv3x3(inplanes, outplanes)]
+    sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
+    return nn.Sequential(*sequence)
+
+
 def meanpoolConv(inplanes, outplanes):
     sequence = []
     sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
     sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1,
         padding=0, bias=True)]
-    return nn.Sequential(*sequence)
-
-
-def convMeanpool(inplanes, outplanes):
-    sequence = []
-    sequence += [conv3x3(inplanes, outplanes)]
-    sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
     return nn.Sequential(*sequence)
 
 

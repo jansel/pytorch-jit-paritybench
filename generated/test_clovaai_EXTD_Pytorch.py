@@ -86,49 +86,23 @@ import scipy.io as sio
 import torch.optim as optim
 
 
-def upsample(in_channels, out_channels):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        in_channels, kernel_size=(3, 3), stride=1, padding=1, groups=
-        in_channels, bias=False), nn.Conv2d(in_channels=in_channels,
-        out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias
-        =False), nn.BatchNorm2d(out_channels), nn.ReLU())
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
+def decode(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
     """
-
-    def __init__(self, input_size, feature_maps, cfg):
-        super(PriorBox, self).__init__()
-        self.imh = input_size[0]
-        self.imw = input_size[1]
-        self.variance = cfg.VARIANCE or [0.1]
-        self.min_sizes = cfg.ANCHOR_SIZES
-        self.steps = cfg.STEPS
-        self.clip = cfg.CLIP
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-        self.feature_maps = feature_maps
-
-    def forward(self):
-        mean = []
-        for k in range(len(self.feature_maps)):
-            feath = self.feature_maps[k][0]
-            featw = self.feature_maps[k][1]
-            for i, j in product(range(feath), range(featw)):
-                f_kw = self.imw / self.steps[k]
-                f_kh = self.imh / self.steps[k]
-                cx = (j + 0.5) / f_kw
-                cy = (i + 0.5) / f_kh
-                s_kw = self.min_sizes[k] / self.imw
-                s_kh = self.min_sizes[k] / self.imh
-                mean += [cx, cy, s_kw, s_kh]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
+        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -188,25 +162,6 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
     return keep, count
 
 
-def decode(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-    return boxes
-
-
 class Detect(Function):
     """At test time, Detect is the final layer of SSD.  Decode location preds,
     apply non-maximum suppression to location predictions based on conf
@@ -262,6 +217,51 @@ class Detect(Function):
                 except:
                     print('zero')
         return output
+
+
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, input_size, feature_maps, cfg):
+        super(PriorBox, self).__init__()
+        self.imh = input_size[0]
+        self.imw = input_size[1]
+        self.variance = cfg.VARIANCE or [0.1]
+        self.min_sizes = cfg.ANCHOR_SIZES
+        self.steps = cfg.STEPS
+        self.clip = cfg.CLIP
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+        self.feature_maps = feature_maps
+
+    def forward(self):
+        mean = []
+        for k in range(len(self.feature_maps)):
+            feath = self.feature_maps[k][0]
+            featw = self.feature_maps[k][1]
+            for i, j in product(range(feath), range(featw)):
+                f_kw = self.imw / self.steps[k]
+                f_kh = self.imh / self.steps[k]
+                cx = (j + 0.5) / f_kw
+                cy = (i + 0.5) / f_kh
+                s_kw = self.min_sizes[k] / self.imw
+                s_kh = self.min_sizes[k] / self.imh
+                mean += [cx, cy, s_kw, s_kh]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
+
+
+def upsample(in_channels, out_channels):
+    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
+        in_channels, kernel_size=(3, 3), stride=1, padding=1, groups=
+        in_channels, bias=False), nn.Conv2d(in_channels=in_channels,
+        out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias
+        =False), nn.BatchNorm2d(out_channels), nn.ReLU())
 
 
 class EXTD(nn.Module):
@@ -726,6 +726,36 @@ class L2Norm(nn.Module):
         return out
 
 
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -766,25 +796,6 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def point_form(boxes):
@@ -881,17 +892,6 @@ def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1444,151 +1444,3 @@ class gated_conv1x1(nn.Module):
         g_2 = F.sigmoid(self.gate_2(x_2))
         ret = torch.cat((a_1 * g_1, a_2 * g_2), 1)
         return ret
-
-
-class InvertedResidual_dwc(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual_dwc, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3),
-                stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=
-                (3, 3), stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class Net(nn.Module):
-
-    def __init__(self, embedding_size=128, input_size=224, width_mult=1.0):
-        super(Net, self).__init__()
-        block = InvertedResidual
-        block_dwc = InvertedResidual_dwc
-        input_channel = 64
-        last_channel = 256
-        interverted_residual_setting = [[1, 64, 1, 1], [2, 64, 2, 1], [4, 
-            64, 2, 2], [2, 64, 2, 1], [4, 64, 5, 1], [2, 64, 2, 2], [2, 64,
-            6, 2]]
-        input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 2)]
-        cnt = 0
-        for t, c, n, s in interverted_residual_setting:
-            output_channel = int(c * width_mult)
-            for i in range(n):
-                if cnt > 1:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-                else:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-            cnt += 1
-        self.features.append(gated_conv1x1(input_channel, self.last_channel))
-        self.features_sequential = nn.Sequential(*self.features)
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.features_sequential(x).view(-1, 256 * 4)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_clovaai_EXTD_Pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(InvertedResidual_dwc(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(Max_AvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-

@@ -1416,6 +1416,21 @@ def flatten_probas(probas, labels, ignore=None):
     return vprobas, vlabels
 
 
+def lovasz_grad(gt_sorted):
+    """
+    Computes gradient of the Lovasz extension w.r.t sorted errors
+    See Alg. 1 in paper
+    """
+    p = len(gt_sorted)
+    gts = gt_sorted.sum()
+    intersection = gts - gt_sorted.float().cumsum(0)
+    union = gts + (1 - gt_sorted).float().cumsum(0)
+    jaccard = 1.0 - intersection / union
+    if p > 1:
+        jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
+    return jaccard
+
+
 def isnan(x):
     return x != x
 
@@ -1439,21 +1454,6 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def lovasz_grad(gt_sorted):
-    """
-    Computes gradient of the Lovasz extension w.r.t sorted errors
-    See Alg. 1 in paper
-    """
-    p = len(gt_sorted)
-    gts = gt_sorted.sum()
-    intersection = gts - gt_sorted.float().cumsum(0)
-    union = gts + (1 - gt_sorted).float().cumsum(0)
-    jaccard = 1.0 - intersection / union
-    if p > 1:
-        jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
-    return jaccard
 
 
 def lovasz_softmax_flat(probas, labels, classes='present'):
@@ -1533,23 +1533,6 @@ class StableBCELoss(torch.nn.modules.Module):
         return loss.mean()
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1571,6 +1554,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -1657,9 +1654,11 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _sum_ft(tensor):
@@ -1667,8 +1666,9 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

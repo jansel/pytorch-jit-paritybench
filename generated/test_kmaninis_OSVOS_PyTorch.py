@@ -56,44 +56,6 @@ import torch.nn as nn
 import torch.nn.modules as modules
 
 
-def upsample_filt(size):
-    factor = (size + 1) // 2
-    if size % 2 == 1:
-        center = factor - 1
-    else:
-        center = factor - 0.5
-    og = np.ogrid[:size, :size]
-    return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
-
-
-def interp_surgery(lay):
-    m, k, h, w = lay.weight.data.size()
-    if m != k:
-        print('input + output channels need to be the same')
-        raise ValueError
-    if h != w:
-        print('filters need to be square')
-        raise ValueError
-    filt = upsample_filt(h)
-    for i in range(m):
-        lay.weight[(i), (i), :, :].data.copy_(torch.from_numpy(filt))
-    return lay.weight.data
-
-
-def make_layers_osvos(cfg, in_channels):
-    layers = []
-    for v in cfg:
-        if v == 'M':
-            layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
-                )
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            layers.extend([conv2d, nn.ReLU(inplace=True)])
-            in_channels = v
-    return nn.Sequential(*layers)
-
-
 class PathAbstract(object):
 
     @staticmethod
@@ -124,6 +86,13 @@ class Path(PathAbstract):
         return './models'
 
 
+def center_crop(x, height, width):
+    crop_h = torch.FloatTensor([x.size()[2]]).sub(height).div(-2)
+    crop_w = torch.FloatTensor([x.size()[3]]).sub(width).div(-2)
+    return F.pad(x, [int(crop_w.ceil()[0]), int(crop_w.floor()[0]), int(
+        crop_h.ceil()[0]), int(crop_h.floor()[0])])
+
+
 def find_conv_layers(_vgg):
     inds = []
     for i in range(len(_vgg.features)):
@@ -132,11 +101,29 @@ def find_conv_layers(_vgg):
     return inds
 
 
-def center_crop(x, height, width):
-    crop_h = torch.FloatTensor([x.size()[2]]).sub(height).div(-2)
-    crop_w = torch.FloatTensor([x.size()[3]]).sub(width).div(-2)
-    return F.pad(x, [int(crop_w.ceil()[0]), int(crop_w.floor()[0]), int(
-        crop_h.ceil()[0]), int(crop_h.floor()[0])])
+def upsample_filt(size):
+    factor = (size + 1) // 2
+    if size % 2 == 1:
+        center = factor - 1
+    else:
+        center = factor - 0.5
+    og = np.ogrid[:size, :size]
+    return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
+        factor)
+
+
+def interp_surgery(lay):
+    m, k, h, w = lay.weight.data.size()
+    if m != k:
+        print('input + output channels need to be the same')
+        raise ValueError
+    if h != w:
+        print('filters need to be square')
+        raise ValueError
+    filt = upsample_filt(h)
+    for i in range(m):
+        lay.weight[(i), (i), :, :].data.copy_(torch.from_numpy(filt))
+    return lay.weight.data
 
 
 def make_layers(cfg, batch_norm=False):
@@ -151,6 +138,19 @@ def make_layers(cfg, batch_norm=False):
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
             else:
                 layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
+
+
+def make_layers_osvos(cfg, in_channels):
+    layers = []
+    for v in cfg:
+        if v == 'M':
+            layers.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+                )
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            layers.extend([conv2d, nn.ReLU(inplace=True)])
             in_channels = v
     return nn.Sequential(*layers)
 

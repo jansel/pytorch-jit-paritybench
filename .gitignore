@@ -6,3 +6,6 @@ errors.csv
 *~
 *.swp
 __pycache__
+paritybench_download
+paritybench_download.tar.bz2
+output.log

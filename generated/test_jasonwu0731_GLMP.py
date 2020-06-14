@@ -163,22 +163,22 @@ def masked_cross_entropy(logits, target, length):
     return loss
 
 
-_global_config['unk_mask'] = 4
-
-
 _global_config['dataset'] = torch.rand([4, 4, 4, 4])
 
 
 _global_config['batch'] = 4
 
 
-_global_config['teacher_forcing_ratio'] = 4
-
-
 _global_config['addName'] = 4
 
 
+_global_config['unk_mask'] = 4
+
+
 _global_config['genSample'] = 4
+
+
+_global_config['teacher_forcing_ratio'] = 4
 
 
 class GLMP(nn.Module):

@@ -127,9 +127,6 @@ class ASPP_plus(nn.Module):
         return self.concate_conv(concate)
 
 
-WARNING = lambda x: print('\x1b[1;31;2mWARNING: ' + x + '\x1b[0m')
-
-
 Label = namedtuple('Label', ['name', 'id', 'trainId', 'category',
     'categoryId', 'hasInstances', 'ignoreInEval', 'color'])
 
@@ -168,28 +165,6 @@ labels = [Label('unlabeled', 0, 255, 'void', 0, False, True, (0, 0, 0)),
     'motorcycle', 32, 17, 'vehicle', 7, True, False, (0, 0, 230)), Label(
     'bicycle', 33, 18, 'vehicle', 7, True, False, (119, 11, 32)), Label(
     'license plate', -1, -1, 'vehicle', 7, False, True, (0, 0, 142))]
-
-
-def trainId2color(dataset_root, id_map, name):
-    """
-    Transform trainId map into color map
-    :param dataset_root: the path to dataset root, eg. '/media/ubuntu/disk/cityscapes'
-    :param id_map: torch tensor
-    :param name: name of image, eg. 'gtFine/test/leverkusen/leverkusen_000027_000019_gtFine_labelTrainIds.png'
-    """
-    assert len(id_map.shape
-        ) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
-    h, w = id_map.shape
-    color_map = np.zeros((h, w, 3))
-    id_map = id_map.cpu().numpy()
-    for label in labels:
-        if not label.ignoreInEval:
-            color_map[id_map == label.trainId] = np.array(label.color)
-    color_map = color_map.astype(np.uint8)
-    cv2.imwrite(dataset_root + '/' + name, id_map)
-    name = name.replace('labelTrainIds', 'color')
-    cv2.imwrite(dataset_root + '/' + name, color_map)
-    return color_map
 
 
 def trainId2LabelId(dataset_root, train_id, name):
@@ -242,6 +217,9 @@ class bar(object):
         print('')
 
 
+WARNING = lambda x: print('\x1b[1;31;2mWARNING: ' + x + '\x1b[0m')
+
+
 LOG = lambda x: print('\x1b[0;31;2m' + x + '\x1b[0m')
 
 
@@ -256,6 +234,28 @@ def logits2trainId(logits):
     logits.squeeze_(0)
     logits = torch.argmax(logits, dim=0)
     return logits
+
+
+def trainId2color(dataset_root, id_map, name):
+    """
+    Transform trainId map into color map
+    :param dataset_root: the path to dataset root, eg. '/media/ubuntu/disk/cityscapes'
+    :param id_map: torch tensor
+    :param name: name of image, eg. 'gtFine/test/leverkusen/leverkusen_000027_000019_gtFine_labelTrainIds.png'
+    """
+    assert len(id_map.shape
+        ) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
+    h, w = id_map.shape
+    color_map = np.zeros((h, w, 3))
+    id_map = id_map.cpu().numpy()
+    for label in labels:
+        if not label.ignoreInEval:
+            color_map[id_map == label.trainId] = np.array(label.color)
+    color_map = color_map.astype(np.uint8)
+    cv2.imwrite(dataset_root + '/' + name, id_map)
+    name = name.replace('labelTrainIds', 'color')
+    cv2.imwrite(dataset_root + '/' + name, color_map)
+    return color_map
 
 
 class MobileNetv2_DeepLabv3(nn.Module):

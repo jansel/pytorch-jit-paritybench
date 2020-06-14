@@ -44,14 +44,6 @@ import torch.optim as optim
 import torch.utils.data as data
 
 
-def get_block(in_channels, out_channels, hidden_channels):
-    block = nn.Sequential(Conv2d(in_channels, hidden_channels), nn.ReLU(
-        inplace=False), Conv2d(hidden_channels, hidden_channels,
-        kernel_size=(1, 1)), nn.ReLU(inplace=False), Conv2dZeros(
-        hidden_channels, out_channels))
-    return block
-
-
 class FlowNet(nn.Module):
 
     def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale,
@@ -113,6 +105,22 @@ def gaussian_likelihood(mean, logs, x):
     return torch.sum(p, dim=[1, 2, 3])
 
 
+def gaussian_sample(mean, logs, temperature=1):
+    z = torch.normal(mean, torch.exp(logs) * temperature)
+    return z
+
+
+def split_feature(tensor, type='split'):
+    """
+    type = ["split", "cross"]
+    """
+    C = tensor.size(1)
+    if type == 'split':
+        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
+    elif type == 'cross':
+        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
+
+
 def uniform_binning_correction(x, n_bits=8):
     """Replaces x^i with q^i(x) = U(x, x + 1.0 / 256.0).
 
@@ -129,22 +137,6 @@ def uniform_binning_correction(x, n_bits=8):
     x += torch.zeros_like(x).uniform_(0, 1.0 / n_bins)
     objective = -math.log(n_bins) * chw * torch.ones(b, device=x.device)
     return x, objective
-
-
-def gaussian_sample(mean, logs, temperature=1):
-    z = torch.normal(mean, torch.exp(logs) * temperature)
-    return z
-
-
-def split_feature(tensor, type='split'):
-    """
-    type = ["split", "cross"]
-    """
-    C = tensor.size(1)
-    if type == 'split':
-        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
-    elif type == 'cross':
-        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
 
 
 class Glow(nn.Module):

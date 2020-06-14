@@ -203,18 +203,18 @@ from torch.nn.modules.utils import _pair
 from torch.nn.modules.utils import _quadruple
 
 
+_NO_JIT = False
+
+
+def is_no_jit():
+    return _NO_JIT
+
+
 _SCRIPTABLE = False
 
 
 def is_scriptable():
     return _SCRIPTABLE
-
-
-_EXPORTABLE = False
-
-
-def is_exportable():
-    return _EXPORTABLE
 
 
 class LabelSmoothingCrossEntropy(nn.Module):
@@ -820,33 +820,74 @@ class DPN(nn.Module):
         return out.flatten(1)
 
 
-def drop_path(x, drop_prob: float=0.0, training: bool=False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+def get_condconv_initializer(initializer, num_experts, expert_shape):
 
-    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
-    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
-    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
-    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
-    'survival rate' as the argument.
+    def condconv_initializer(weight):
+        """CondConv initializer function."""
+        num_params = np.prod(expert_shape)
+        if len(weight.shape) != 2 or weight.shape[0
+            ] != num_experts or weight.shape[1] != num_params:
+            raise ValueError(
+                'CondConv variables must have shape [num_experts, num_params]')
+        for i in range(num_experts):
+            initializer(weight[i].view(expert_shape))
+    return condconv_initializer
 
+
+def _init_weight_goog(m, n='', fix_group_fanout=True):
+    """ Weight initialization as per Tensorflow official implementations.
+
+    Args:
+        m (nn.Module): module to init
+        n (str): module name
+        fix_group_fanout (bool): enable correct (matching Tensorflow TPU impl) fanout calculation w/ group convs
+
+    Handles layers in EfficientNet, EfficientNet-CondConv, MixNet, MnasNet, MobileNetV3, etc:
+    * https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mnasnet_model.py
+    * https://github.com/tensorflow/tpu/blob/master/models/official/efficientnet/efficientnet_model.py
     """
-    if drop_prob == 0.0 or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    random_tensor = keep_prob + torch.rand((x.size()[0], 1, 1, 1), dtype=x.
-        dtype, device=x.device)
-    random_tensor.floor_()
-    output = x.div(keep_prob) * random_tensor
-    return output
+    if isinstance(m, CondConv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
+            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
+        init_weight_fn(m.weight)
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.Conv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        fan_out = m.weight.size(0)
+        fan_in = 0
+        if 'routing_fn' in n:
+            fan_in = m.weight.size(1)
+        init_range = 1.0 / math.sqrt(fan_in + fan_out)
+        m.weight.data.uniform_(-init_range, init_range)
+        m.bias.data.zero_()
 
 
-def is_static_pad(kernel_size: int, stride: int=1, dilation: int=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+def efficientnet_init_weights(model: nn.Module, init_fn=None):
+    init_fn = init_fn or _init_weight_goog
+    for n, m in model.named_modules():
+        init_fn(m, n)
 
 
 def get_padding(kernel_size, stride, dilation=1):
     padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
     return padding
+
+
+def is_static_pad(kernel_size: int, stride: int=1, dilation: int=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
 
 
 def get_padding_value(padding, kernel_size, **kwargs) ->Tuple[Tuple, bool]:
@@ -953,6 +994,29 @@ def round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
     return make_divisible(channels, divisor, channel_min)
 
 
+def drop_path(x, drop_prob: float=0.0, training: bool=False):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+
+    """
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    random_tensor = keep_prob + torch.rand((x.size()[0], 1, 1, 1), dtype=x.
+        dtype, device=x.device)
+    random_tensor.floor_()
+    output = x.div(keep_prob) * random_tensor
+    return output
+
+
+_DEBUG = False
+
+
 class FeatureHooks:
 
     def __init__(self, hooks, named_modules):
@@ -979,70 +1043,6 @@ class FeatureHooks:
         output = list(self._feature_outputs[device].values())
         self._feature_outputs[device] = OrderedDict()
         return output
-
-
-_DEBUG = False
-
-
-def get_condconv_initializer(initializer, num_experts, expert_shape):
-
-    def condconv_initializer(weight):
-        """CondConv initializer function."""
-        num_params = np.prod(expert_shape)
-        if len(weight.shape) != 2 or weight.shape[0
-            ] != num_experts or weight.shape[1] != num_params:
-            raise ValueError(
-                'CondConv variables must have shape [num_experts, num_params]')
-        for i in range(num_experts):
-            initializer(weight[i].view(expert_shape))
-    return condconv_initializer
-
-
-def _init_weight_goog(m, n='', fix_group_fanout=True):
-    """ Weight initialization as per Tensorflow official implementations.
-
-    Args:
-        m (nn.Module): module to init
-        n (str): module name
-        fix_group_fanout (bool): enable correct (matching Tensorflow TPU impl) fanout calculation w/ group convs
-
-    Handles layers in EfficientNet, EfficientNet-CondConv, MixNet, MnasNet, MobileNetV3, etc:
-    * https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mnasnet_model.py
-    * https://github.com/tensorflow/tpu/blob/master/models/official/efficientnet/efficientnet_model.py
-    """
-    if isinstance(m, CondConv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
-            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
-        init_weight_fn(m.weight)
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.Conv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        fan_out = m.weight.size(0)
-        fan_in = 0
-        if 'routing_fn' in n:
-            fan_in = m.weight.size(1)
-        init_range = 1.0 / math.sqrt(fan_in + fan_out)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
-
-
-def efficientnet_init_weights(model: nn.Module, init_fn=None):
-    init_fn = init_fn or _init_weight_goog
-    for n, m in model.named_modules():
-        init_fn(m, n)
 
 
 class EfficientNetFeatures(nn.Module):
@@ -1393,15 +1393,15 @@ class EdgeResidual(nn.Module):
         return x
 
 
+_USE_FIXED_PAD = False
+
+
 def _fixed_padding(kernel_size, dilation):
     kernel_size_effective = kernel_size + (kernel_size - 1) * (dilation - 1)
     pad_total = kernel_size_effective - 1
     pad_beg = pad_total // 2
     pad_end = pad_total - pad_beg
     return [pad_beg, pad_end, pad_beg, pad_end]
-
-
-_USE_FIXED_PAD = False
 
 
 def _pytorch_padding(kernel_size, stride=1, dilation=1, **_):
@@ -2939,14 +2939,14 @@ class HardMishJit(nn.Module):
 
 
 @torch.jit.script
-def swish_jit_bwd(x, grad_output):
-    x_sigmoid = torch.sigmoid(x)
-    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+def swish_jit_fwd(x):
+    return x.mul(torch.sigmoid(x))
 
 
 @torch.jit.script
-def swish_jit_fwd(x):
-    return x.mul(torch.sigmoid(x))
+def swish_jit_bwd(x, grad_output):
+    x_sigmoid = torch.sigmoid(x)
+    return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
 
 
 class SwishJitAutoFn(torch.autograd.Function):
@@ -2976,16 +2976,16 @@ class SwishMe(nn.Module):
 
 
 @torch.jit.script
-def mish_jit_fwd(x):
-    return x.mul(torch.tanh(F.softplus(x)))
-
-
-@torch.jit.script
 def mish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     x_tanh_sp = F.softplus(x).tanh()
     return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
         x_tanh_sp))
+
+
+@torch.jit.script
+def mish_jit_fwd(x):
+    return x.mul(torch.tanh(F.softplus(x)))
 
 
 class MishJitAutoFn(torch.autograd.Function):
@@ -3348,18 +3348,6 @@ class LightCbamModule(nn.Module):
         return x
 
 
-def _ntuple(n):
-
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-
-
-tup_pair = _ntuple(2)
-
-
 def get_same_padding(x: int, k: int, s: int, d: int):
     return max((math.ceil(x / s) - 1) * s + (k - 1) * d + 1 - x, 0)
 
@@ -3380,6 +3368,18 @@ def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
     dilation: Tuple[int, int]=(1, 1), groups: int=1):
     x = pad_same(x, weight.shape[-2:], stride, dilation)
     return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
+
+
+def _ntuple(n):
+
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+
+tup_pair = _ntuple(2)
 
 
 class CondConv2d(nn.Module):
@@ -3466,6 +3466,23 @@ class Conv2dSame(nn.Conv2d):
     def forward(self, x):
         return conv2d_same(x, self.weight, self.bias, self.stride, self.
             padding, self.dilation, self.groups)
+
+
+def get_norm_act_layer(layer_class):
+    layer_class = layer_class.replace('_', '').lower()
+    if layer_class.startswith('batchnorm'):
+        layer = BatchNormAct2d
+    elif layer_class.startswith('groupnorm'):
+        layer = GroupNormAct
+    elif layer_class == 'evonormbatch':
+        layer = EvoNormBatch2d
+    elif layer_class == 'evonormsample':
+        layer = EvoNormSample2d
+    elif layer_class == 'iabn' or layer_class == 'inplaceabn':
+        layer = InplaceAbn
+    else:
+        assert False, 'Invalid norm_act layer (%s)' % layer_class
+    return layer
 
 
 def drop_block_2d(x, drop_prob: float=0.1, block_size: int=7, gamma_scale:
@@ -3967,6 +3984,13 @@ class MaxPool2dSame(nn.MaxPool2d):
             padding, self.dilation, self.ceil_mode)
 
 
+_EXPORTABLE = False
+
+
+def is_exportable():
+    return _EXPORTABLE
+
+
 def tanh(x, inplace: bool=False):
     return x.tanh_() if inplace else x.tanh()
 
@@ -3977,39 +4001,32 @@ _ACT_FN_DEFAULT = dict(swish=swish, mish=mish, relu=F.relu, relu6=F.relu6,
     hard_sigmoid, hard_swish=hard_swish, hard_mish=hard_mish)
 
 
-_ACT_FN_JIT = dict(swish=swish_jit, mish=mish_jit, hard_sigmoid=
-    hard_sigmoid_jit, hard_swish=hard_swish_jit, hard_mish=hard_mish_jit)
-
-
-_NO_JIT = False
-
-
-def is_no_jit():
-    return _NO_JIT
-
-
 def mish_me(x, inplace=False):
     return MishJitAutoFn.apply(x)
-
-
-def swish_me(x, inplace=False):
-    return SwishJitAutoFn.apply(x)
-
-
-def hard_swish_me(x, inplace=False):
-    return HardSwishJitAutoFn.apply(x)
 
 
 def hard_sigmoid_me(x, inplace: bool=False):
     return HardSigmoidJitAutoFn.apply(x)
 
 
+def hard_swish_me(x, inplace=False):
+    return HardSwishJitAutoFn.apply(x)
+
+
 def hard_mish_me(x, inplace: bool=False):
     return HardMishJitAutoFn.apply(x)
 
 
+def swish_me(x, inplace=False):
+    return SwishJitAutoFn.apply(x)
+
+
 _ACT_FN_ME = dict(swish=swish_me, mish=mish_me, hard_sigmoid=
     hard_sigmoid_me, hard_swish=hard_swish_me, hard_mish=hard_mish_me)
+
+
+_ACT_FN_JIT = dict(swish=swish_jit, mish=mish_jit, hard_sigmoid=
+    hard_sigmoid_jit, hard_swish=hard_swish_jit, hard_mish=hard_mish_jit)
 
 
 def get_act_fn(name='relu'):
@@ -5520,6 +5537,19 @@ class ClassifierHead(nn.Module):
         return x
 
 
+def generate_regnet(width_slope, width_initial, width_mult, depth, q=8):
+    """Generates per block widths from RegNet parameters."""
+    assert width_slope >= 0 and width_initial > 0 and width_mult > 1 and width_initial % q == 0
+    widths_cont = np.arange(depth) * width_slope + width_initial
+    width_exps = np.round(np.log(widths_cont / width_initial) / np.log(
+        width_mult))
+    widths = width_initial * np.power(width_mult, width_exps)
+    widths = np.round(np.divide(widths, q)) * q
+    num_stages, max_stage = len(np.unique(widths)), width_exps.max() + 1
+    widths, widths_cont = widths.astype(int).tolist(), widths_cont.tolist()
+    return widths, num_stages, max_stage, widths_cont
+
+
 def quantize_float(f, q):
     """Converts a float to closest non-zero int divisible by q."""
     return int(round(f / q) * q)
@@ -5534,19 +5564,6 @@ def adjust_widths_groups_comp(widths, bottle_ratios, groups):
     widths = [int(w_bot / b) for w_bot, b in zip(bottleneck_widths,
         bottle_ratios)]
     return widths, groups
-
-
-def generate_regnet(width_slope, width_initial, width_mult, depth, q=8):
-    """Generates per block widths from RegNet parameters."""
-    assert width_slope >= 0 and width_initial > 0 and width_mult > 1 and width_initial % q == 0
-    widths_cont = np.arange(depth) * width_slope + width_initial
-    width_exps = np.round(np.log(widths_cont / width_initial) / np.log(
-        width_mult))
-    widths = width_initial * np.power(width_mult, width_exps)
-    widths = np.round(np.divide(widths, q)) * q
-    num_stages, max_stage = len(np.unique(widths)), width_exps.max() + 1
-    widths, widths_cont = widths.astype(int).tolist(), widths_cont.tolist()
-    return widths, num_stages, max_stage, widths_cont
 
 
 class RegNet(nn.Module):

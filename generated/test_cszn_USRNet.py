@@ -316,6 +316,18 @@ def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3,
     return sequential(pool, pool_tail)
 
 
+def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
+    stride=2, padding=0, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
+        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
+    kernel_size = int(mode[0])
+    stride = int(mode[0])
+    mode = mode.replace(mode[0], 'C')
+    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
+        bias, mode)
+    return down1
+
+
 def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
     stride=1, padding=0, bias=True, mode='2R'):
     assert len(mode) < 4 and mode[0] in ['2', '3'
@@ -327,18 +339,6 @@ def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
     pool_tail = conv(in_channels, out_channels, kernel_size, stride,
         padding, bias, mode=mode[1:])
     return sequential(pool, pool_tail)
-
-
-def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
-    stride=2, padding=0, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
-    kernel_size = int(mode[0])
-    stride = int(mode[0])
-    mode = mode.replace(mode[0], 'C')
-    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
-        bias, mode)
-    return down1
 
 
 class NonLocalBlock2D(nn.Module):
@@ -458,10 +458,6 @@ class ResUNet(nn.Module):
         return x
 
 
-def csum(x, y):
-    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
-
-
 def cmul(t1, t2):
     """
     complex multiplication
@@ -472,6 +468,10 @@ def cmul(t1, t2):
     real2, imag2 = t2[..., 0], t2[..., 1]
     return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + 
         imag1 * real2], dim=-1)
+
+
+def csum(x, y):
+    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
 
 
 def cdiv(x, y):
@@ -555,6 +555,14 @@ def upsample(x, sf=3, center=False):
     return z
 
 
+def r2c(x):
+    return torch.stack([x, torch.zeros_like(x)], -1)
+
+
+def cabs2(x):
+    return x[..., 0] ** 2 + x[..., 1] ** 2
+
+
 def cconj(t, inplace=False):
     """
     # complex's conjugation
@@ -564,14 +572,6 @@ def cconj(t, inplace=False):
     c = t.clone() if not inplace else t
     c[..., 1] *= -1
     return c
-
-
-def r2c(x):
-    return torch.stack([x, torch.zeros_like(x)], -1)
-
-
-def cabs2(x):
-    return x[..., 0] ** 2 + x[..., 1] ** 2
 
 
 class USRNet(nn.Module):

@@ -94,10 +94,6 @@ class Node_OP(nn.Module):
         return out
 
 
-def save_graph(graph, path):
-    nx.write_yaml(graph, path)
-
-
 def build_graph(Nodes, args):
     if args.graph_model == 'ER':
         return nx.random_graphs.erdos_renyi_graph(Nodes, args.P, args.seed)
@@ -110,6 +106,10 @@ def build_graph(Nodes, args):
 
 def load_graph(path):
     return nx.read_yaml(path)
+
+
+def save_graph(graph, path):
+    nx.write_yaml(graph, path)
 
 
 class CNN(nn.Module):

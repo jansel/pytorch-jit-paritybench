@@ -50,10 +50,10 @@ import random
 import collections
 
 
-learning_rate = 0.0005
-
-
 gamma = 0.98
+
+
+learning_rate = 0.0005
 
 
 class Policy(nn.Module):
@@ -257,10 +257,10 @@ class Qnet(nn.Module):
 K_epoch = 3
 
 
-lmbda = 0.95
-
-
 eps_clip = 0.1
+
+
+lmbda = 0.95
 
 
 class PPO(nn.Module):

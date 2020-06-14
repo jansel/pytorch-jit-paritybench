@@ -298,113 +298,25 @@ def weighted_binary_cross_entropy(pred, label, weight, avg_factor=None):
         float(), reduction='sum')[None] / avg_factor
 
 
-class AnchorGenerator(object):
-
-    def __init__(self, base_size, scales, ratios, scale_major=True, ctr=None):
-        self.base_size = base_size
-        self.scales = torch.Tensor(scales)
-        self.ratios = torch.Tensor(ratios)
-        self.scale_major = scale_major
-        self.ctr = ctr
-        self.base_anchors = self.gen_base_anchors()
-
-    @property
-    def num_base_anchors(self):
-        return self.base_anchors.size(0)
-
-    def gen_base_anchors(self):
-        w = self.base_size
-        h = self.base_size
-        if self.ctr is None:
-            x_ctr = 0.5 * (w - 1)
-            y_ctr = 0.5 * (h - 1)
-        else:
-            x_ctr, y_ctr = self.ctr
-        h_ratios = torch.sqrt(self.ratios)
-        w_ratios = 1 / h_ratios
-        if self.scale_major:
-            ws = (w * w_ratios[:, (None)] * self.scales[(None), :]).view(-1)
-            hs = (h * h_ratios[:, (None)] * self.scales[(None), :]).view(-1)
-        else:
-            ws = (w * self.scales[:, (None)] * w_ratios[(None), :]).view(-1)
-            hs = (h * self.scales[:, (None)] * h_ratios[(None), :]).view(-1)
-        base_anchors = torch.stack([x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (
-            hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)], dim=-1
-            ).round()
-        return base_anchors
-
-    def _meshgrid(self, x, y, row_major=True):
-        xx = x.repeat(len(y))
-        yy = y.view(-1, 1).repeat(1, len(x)).view(-1)
-        if row_major:
-            return xx, yy
-        else:
-            return yy, xx
-
-    def grid_anchors(self, featmap_size, stride=16, device='cuda'):
-        base_anchors = self.base_anchors.to(device)
-        feat_h, feat_w = featmap_size
-        shift_x = torch.arange(0, feat_w, device=device) * stride
-        shift_y = torch.arange(0, feat_h, device=device) * stride
-        shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
-        shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
-        shifts = shifts.type_as(base_anchors)
-        all_anchors = base_anchors[(None), :, :] + shifts[:, (None), :]
-        all_anchors = all_anchors.view(-1, 4)
-        return all_anchors
-
-    def valid_flags(self, featmap_size, valid_size, device='cuda'):
-        feat_h, feat_w = featmap_size
-        valid_h, valid_w = valid_size
-        assert valid_h <= feat_h and valid_w <= feat_w
-        valid_x = torch.zeros(feat_w, dtype=torch.uint8, device=device)
-        valid_y = torch.zeros(feat_h, dtype=torch.uint8, device=device)
-        valid_x[:valid_w] = 1
-        valid_y[:valid_h] = 1
-        valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
-        valid = valid_xx & valid_yy
-        valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors
-            ).contiguous().view(-1)
-        return valid
-
-
 def multi_apply(func, *args, **kwargs):
     pfunc = partial(func, **kwargs) if kwargs else func
     map_results = map(pfunc, *args)
     return tuple(map(list, zip(*map_results)))
 
 
-def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
+def images_to_levels(target, num_level_anchors):
+    """Convert targets by image to targets by feature level.
 
-
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
+    [target_img0, target_img1] -> [target_level0, target_level1, ...]
+    """
+    target = torch.stack(target, 0)
+    level_targets = []
+    start = 0
+    for n in num_level_anchors:
+        end = start + n
+        level_targets.append(target[:, start:end].squeeze(0))
+        start = end
+    return level_targets
 
 
 class SamplingResult(object):
@@ -511,6 +423,39 @@ class PseudoSampler(BaseSampler):
         return sampling_result
 
 
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
+
+
+def build_assigner(cfg, **kwargs):
+    if isinstance(cfg, assigners.BaseAssigner):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
 def build_sampler(cfg, **kwargs):
     if isinstance(cfg, samplers.BaseSampler):
         return cfg
@@ -531,19 +476,6 @@ def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
     return assign_result, sampling_result
 
 
-def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
-    ):
-    img_h, img_w = img_shape[:2]
-    if allowed_border >= 0:
-        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
-            ) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:,
-            (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h +
-            allowed_border)
-    else:
-        inside_flags = valid_flags
-    return inside_flags
-
-
 def unmap(data, count, inds, fill=0):
     """ Unmap a subset of item (data) back to the original set of items (of
     size count) """
@@ -555,6 +487,19 @@ def unmap(data, count, inds, fill=0):
         ret = data.new_full(new_size, fill)
         ret[(inds), :] = data
     return ret
+
+
+def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
+    ):
+    img_h, img_w = img_shape[:2]
+    if allowed_border >= 0:
+        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
+            ) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:,
+            (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h +
+            allowed_border)
+    else:
+        inside_flags = valid_flags
+    return inside_flags
 
 
 def anchor_target_single(flat_anchors, valid_flags, gt_bboxes,
@@ -605,21 +550,6 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes,
         bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
     return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
         neg_inds)
-
-
-def images_to_levels(target, num_level_anchors):
-    """Convert targets by image to targets by feature level.
-
-    [target_img0, target_img1] -> [target_level0, target_level1, ...]
-    """
-    target = torch.stack(target, 0)
-    level_targets = []
-    start = 0
-    for n in num_level_anchors:
-        end = start + n
-        level_targets.append(target[:, start:end].squeeze(0))
-        start = end
-    return level_targets
 
 
 def anchor_target(anchor_list, valid_flag_list, gt_bboxes_list, img_metas,
@@ -705,12 +635,6 @@ class Registry(object):
 HEADS = Registry('head')
 
 
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
 def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
     if avg_factor is None:
         avg_factor = max(torch.sum(weight > 0).float().item(), 1.0)
@@ -719,6 +643,131 @@ def weighted_cross_entropy(pred, label, weight, avg_factor=None, reduce=True):
         return torch.sum(raw * weight)[None] / avg_factor
     else:
         return raw * weight / avg_factor
+
+
+def smooth_l1_loss(pred, target, beta=1.0, reduction='mean'):
+    assert beta > 0
+    assert pred.size() == target.size() and target.numel() > 0
+    diff = torch.abs(pred - target)
+    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta
+        )
+    reduction_enum = F._Reduction.get_enum(reduction)
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.sum() / pred.numel()
+    elif reduction_enum == 2:
+        return loss.sum()
+
+
+def weighted_smoothl1(pred, target, weight, beta=1.0, avg_factor=None):
+    if avg_factor is None:
+        avg_factor = torch.sum(weight > 0).float().item() / 4 + 1e-06
+    loss = smooth_l1_loss(pred, target, beta, reduction='none')
+    return torch.sum(loss * weight)[None] / avg_factor
+
+
+class AnchorGenerator(object):
+
+    def __init__(self, base_size, scales, ratios, scale_major=True, ctr=None):
+        self.base_size = base_size
+        self.scales = torch.Tensor(scales)
+        self.ratios = torch.Tensor(ratios)
+        self.scale_major = scale_major
+        self.ctr = ctr
+        self.base_anchors = self.gen_base_anchors()
+
+    @property
+    def num_base_anchors(self):
+        return self.base_anchors.size(0)
+
+    def gen_base_anchors(self):
+        w = self.base_size
+        h = self.base_size
+        if self.ctr is None:
+            x_ctr = 0.5 * (w - 1)
+            y_ctr = 0.5 * (h - 1)
+        else:
+            x_ctr, y_ctr = self.ctr
+        h_ratios = torch.sqrt(self.ratios)
+        w_ratios = 1 / h_ratios
+        if self.scale_major:
+            ws = (w * w_ratios[:, (None)] * self.scales[(None), :]).view(-1)
+            hs = (h * h_ratios[:, (None)] * self.scales[(None), :]).view(-1)
+        else:
+            ws = (w * self.scales[:, (None)] * w_ratios[(None), :]).view(-1)
+            hs = (h * self.scales[:, (None)] * h_ratios[(None), :]).view(-1)
+        base_anchors = torch.stack([x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (
+            hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)], dim=-1
+            ).round()
+        return base_anchors
+
+    def _meshgrid(self, x, y, row_major=True):
+        xx = x.repeat(len(y))
+        yy = y.view(-1, 1).repeat(1, len(x)).view(-1)
+        if row_major:
+            return xx, yy
+        else:
+            return yy, xx
+
+    def grid_anchors(self, featmap_size, stride=16, device='cuda'):
+        base_anchors = self.base_anchors.to(device)
+        feat_h, feat_w = featmap_size
+        shift_x = torch.arange(0, feat_w, device=device) * stride
+        shift_y = torch.arange(0, feat_h, device=device) * stride
+        shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
+        shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
+        shifts = shifts.type_as(base_anchors)
+        all_anchors = base_anchors[(None), :, :] + shifts[:, (None), :]
+        all_anchors = all_anchors.view(-1, 4)
+        return all_anchors
+
+    def valid_flags(self, featmap_size, valid_size, device='cuda'):
+        feat_h, feat_w = featmap_size
+        valid_h, valid_w = valid_size
+        assert valid_h <= feat_h and valid_w <= feat_w
+        valid_x = torch.zeros(feat_w, dtype=torch.uint8, device=device)
+        valid_y = torch.zeros(feat_h, dtype=torch.uint8, device=device)
+        valid_x[:valid_w] = 1
+        valid_y[:valid_h] = 1
+        valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
+        valid = valid_xx & valid_yy
+        valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors
+            ).contiguous().view(-1)
+        return valid
+
+
+def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
+    max_shape=None, wh_ratio_clip=16 / 1000):
+    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
+    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
+    denorm_deltas = deltas * stds + means
+    dx = denorm_deltas[:, 0::4]
+    dy = denorm_deltas[:, 1::4]
+    dw = denorm_deltas[:, 2::4]
+    dh = denorm_deltas[:, 3::4]
+    max_ratio = np.abs(np.log(wh_ratio_clip))
+    dw = dw.clamp(min=-max_ratio, max=max_ratio)
+    dh = dh.clamp(min=-max_ratio, max=max_ratio)
+    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    gw = pw * dw.exp()
+    gh = ph * dh.exp()
+    gx = torch.addcmul(px, 1, pw, dx)
+    gy = torch.addcmul(py, 1, ph, dy)
+    x1 = gx - gw * 0.5 + 0.5
+    y1 = gy - gh * 0.5 + 0.5
+    x2 = gx + gw * 0.5 - 0.5
+    y2 = gy + gh * 0.5 - 0.5
+    if max_shape is not None:
+        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
+        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
+        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
+        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
+    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
+    return bboxes
 
 
 class SigmoidFocalLossFunction(Function):
@@ -762,39 +811,6 @@ def weighted_sigmoid_focal_loss(pred, target, weight, gamma=2.0, alpha=0.25,
         avg_factor = torch.sum(weight > 0).float().item() / num_classes + 1e-06
     return torch.sum(sigmoid_focal_loss(pred, target, gamma, alpha, 'none') *
         weight.view(-1, 1))[None] / avg_factor
-
-
-def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
-    max_shape=None, wh_ratio_clip=16 / 1000):
-    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
-    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
-    denorm_deltas = deltas * stds + means
-    dx = denorm_deltas[:, 0::4]
-    dy = denorm_deltas[:, 1::4]
-    dw = denorm_deltas[:, 2::4]
-    dh = denorm_deltas[:, 3::4]
-    max_ratio = np.abs(np.log(wh_ratio_clip))
-    dw = dw.clamp(min=-max_ratio, max=max_ratio)
-    dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
-    gw = pw * dw.exp()
-    gh = ph * dh.exp()
-    gx = torch.addcmul(px, 1, pw, dx)
-    gy = torch.addcmul(py, 1, ph, dy)
-    x1 = gx - gw * 0.5 + 0.5
-    y1 = gy - gh * 0.5 + 0.5
-    x2 = gx + gw * 0.5 - 0.5
-    y2 = gy + gh * 0.5 - 0.5
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
-        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
-        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
-        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
-    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
-    return bboxes
 
 
 def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
@@ -852,26 +868,10 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
     return bboxes, labels
 
 
-def smooth_l1_loss(pred, target, beta=1.0, reduction='mean'):
-    assert beta > 0
-    assert pred.size() == target.size() and target.numel() > 0
-    diff = torch.abs(pred - target)
-    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta
-        )
-    reduction_enum = F._Reduction.get_enum(reduction)
-    if reduction_enum == 0:
-        return loss
-    elif reduction_enum == 1:
-        return loss.sum() / pred.numel()
-    elif reduction_enum == 2:
-        return loss.sum()
-
-
-def weighted_smoothl1(pred, target, weight, beta=1.0, avg_factor=None):
-    if avg_factor is None:
-        avg_factor = torch.sum(weight > 0).float().item() / 4 + 1e-06
-    loss = smooth_l1_loss(pred, target, beta, reduction='none')
-    return torch.sum(loss * weight)[None] / avg_factor
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 @HEADS.register_module
@@ -1110,12 +1110,6 @@ def distance2bbox(points, distance, max_shape=None):
 INF = 100000000.0
 
 
-def bias_init_with_prob(prior_prob):
-    """ initialize conv/fc bias value according to giving probablity"""
-    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
-    return bias_init
-
-
 def bbox_overlaps(bboxes1, bboxes2, mode='iou', is_aligned=False):
     """Calculate overlap between two set of bboxes.
 
@@ -1179,6 +1173,12 @@ def iou_loss(pred_bboxes, target_bboxes, reduction='mean'):
         return loss.mean()
     elif reduction_enum == 2:
         return loss.sum()
+
+
+def bias_init_with_prob(prior_prob):
+    """ initialize conv/fc bias value according to giving probablity"""
+    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
+    return bias_init
 
 
 @HEADS.register_module
@@ -2005,6 +2005,14 @@ class BaseDetector(nn.Module):
                 class_names, score_thr=score_thr)
 
 
+def mask_cross_entropy(pred, target, label):
+    num_rois = pred.size()[0]
+    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
+    pred_slice = pred[inds, label].squeeze(1)
+    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
+        ='mean')[None]
+
+
 def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
     mask_size = cfg.mask_size
     num_pos = pos_proposals.size(0)
@@ -2035,14 +2043,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
         pos_assigned_gt_inds_list, gt_masks_list, cfg_list)
     mask_targets = torch.cat(list(mask_targets))
     return mask_targets
-
-
-def mask_cross_entropy(pred, target, label):
-    num_rois = pred.size()[0]
-    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
-    pred_slice = pred[inds, label].squeeze(1)
-    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
-        ='mean')[None]
 
 
 @HEADS.register_module

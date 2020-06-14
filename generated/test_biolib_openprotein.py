@@ -136,16 +136,153 @@ def calc_rmsd(chain_a, chain_b):
     return RMSD
 
 
-BOND_ANGLES = torch.tensor([2.124, 1.941, 2.028], dtype=torch.float32)
+def write_to_pdb(structure, prot_id):
+    out = Bio.PDB.PDBIO()
+    out.set_structure(structure)
+    out.save('output/protein_' + str(prot_id) + '.pdb')
 
 
-BOND_LENGTHS = torch.tensor([145.801, 152.326, 132.868], dtype=torch.float32)
+def compute_cross(tensor_a, tensor_b, dim):
+    result = []
+    x = torch.zeros(1).long()
+    y = torch.ones(1).long()
+    z = torch.ones(1).long() * 2
+    ax = torch.index_select(tensor_a, dim, x).squeeze(dim)
+    ay = torch.index_select(tensor_a, dim, y).squeeze(dim)
+    az = torch.index_select(tensor_a, dim, z).squeeze(dim)
+    bx = torch.index_select(tensor_b, dim, x).squeeze(dim)
+    by = torch.index_select(tensor_b, dim, y).squeeze(dim)
+    bz = torch.index_select(tensor_b, dim, z).squeeze(dim)
+    result.append(ay * bz - az * by)
+    result.append(az * bx - ax * bz)
+    result.append(ax * by - ay * bx)
+    result = torch.stack(result, dim=dim)
+    return result
+
+
+def compute_dihedral_list(atomic_coords):
+    ba = atomic_coords[1:] - atomic_coords[:-1]
+    ba_normalized = ba / ba.norm(dim=1).unsqueeze(1)
+    ba_neg = -1 * ba_normalized
+    n1_vec = compute_cross(ba_normalized[:-2], ba_neg[1:-1], dim=1)
+    n2_vec = compute_cross(ba_neg[1:-1], ba_normalized[2:], dim=1)
+    n1_vec_normalized = n1_vec / n1_vec.norm(dim=1).unsqueeze(1)
+    n2_vec_normalized = n2_vec / n2_vec.norm(dim=1).unsqueeze(1)
+    m1_vec = compute_cross(n1_vec_normalized, ba_neg[1:-1], dim=1)
+    x_value = torch.sum(n1_vec_normalized * n2_vec_normalized, dim=1)
+    y_value = torch.sum(m1_vec * n2_vec_normalized, dim=1)
+    return compute_atan2(y_value, x_value)
+
+
+def calculate_dihedral_angles(atomic_coords, use_gpu):
+    atomic_coords = atomic_coords.contiguous().view(-1, 3)
+    zero_tensor = torch.zeros(1)
+    if use_gpu:
+        zero_tensor = zero_tensor.cuda()
+    angles = torch.cat((zero_tensor, zero_tensor, compute_dihedral_list(
+        atomic_coords), zero_tensor)).view(-1, 3)
+    return angles
+
+
+def calculate_dihedral_angles_over_minibatch(atomic_coords_padded,
+    batch_sizes, use_gpu):
+    angles = []
+    batch_sizes = torch.LongTensor(batch_sizes)
+    atomic_coords = atomic_coords_padded.transpose(0, 1)
+    for idx, coordinate in enumerate(atomic_coords.split(1, dim=0)):
+        angles_from_coords = torch.index_select(coordinate.squeeze(0), 0,
+            torch.arange(int(batch_sizes[idx].item())))
+        angles.append(calculate_dihedral_angles(angles_from_coords, use_gpu))
+    return torch.nn.utils.rnn.pad_sequence(angles), batch_sizes
+
+
+AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 
+    8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 
+    16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
+
+
+def protein_id_to_str(protein_id_list):
+    _aa_dict_inverse = {v: k for k, v in AA_ID_DICT.items()}
+    aa_list = []
+    for protein_id in protein_id_list:
+        aa_symbol = _aa_dict_inverse[protein_id.item()]
+        aa_list.append(aa_symbol)
+    return aa_list
+
+
+def get_structure_from_angles(aa_list_encoded, angles):
+    aa_list = protein_id_to_str(aa_list_encoded)
+    omega_list = angles[1:, (0)]
+    phi_list = angles[1:, (1)]
+    psi_list = angles[:-1, (2)]
+    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(
+        omega_list) + 1
+    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x:
+        math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x),
+        psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
+    return structure
+
+
+def calc_pairwise_distances(chain_a, chain_b, use_gpu):
+    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(
+        torch.float)
+    epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
+    if use_gpu:
+        distance_matrix = distance_matrix.cuda()
+        epsilon = epsilon.cuda()
+    for idx, row in enumerate(chain_a.split(1)):
+        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) **
+            2, 1).view(1, -1)
+    return torch.sqrt(distance_matrix + epsilon)
+
+
+def calc_drmsd(chain_a, chain_b, use_gpu=False):
+    assert len(chain_a) == len(chain_b)
+    distance_matrix_a = calc_pairwise_distances(chain_a, chain_a, use_gpu)
+    distance_matrix_b = calc_pairwise_distances(chain_b, chain_b, use_gpu)
+    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(
+        len(chain_a) * (len(chain_a) - 1))
+
+
+def calc_angular_difference(values_1, values_2):
+    values_1 = values_1.transpose(0, 1).contiguous()
+    values_2 = values_2.transpose(0, 1).contiguous()
+    acc = 0
+    for idx, _ in enumerate(values_1):
+        assert values_1[idx].shape[1] == 3
+        assert values_2[idx].shape[1] == 3
+        a1_element = values_1[idx].view(-1, 1)
+        a2_element = values_2[idx].view(-1, 1)
+        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element -
+            a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) **
+            2))
+    return acc / values_1.shape[0]
+
+
+def write_out(*args, end='\n'):
+    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S'
+        ) + ': ' + str.join(' ', [str(a) for a in args]) + end
+    if globals().get('experiment_id') is not None:
+        with open('output/' + globals().get('experiment_id') + '.txt', 'a+'
+            ) as output_file:
+            output_file.write(output_string)
+            output_file.flush()
+    print(output_string, end='')
+
+
+NUM_FRAGMENTS = torch.tensor(6)
 
 
 NUM_DIMENSIONS = 3
 
 
+BOND_LENGTHS = torch.tensor([145.801, 152.326, 132.868], dtype=torch.float32)
+
+
 NUM_DIHEDRALS = 3
+
+
+BOND_ANGLES = torch.tensor([2.124, 1.941, 2.028], dtype=torch.float32)
 
 
 def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
@@ -173,27 +310,6 @@ def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
     point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS,
         batch_size, NUM_DIMENSIONS)
     return point_final
-
-
-NUM_FRAGMENTS = torch.tensor(6)
-
-
-def compute_cross(tensor_a, tensor_b, dim):
-    result = []
-    x = torch.zeros(1).long()
-    y = torch.ones(1).long()
-    z = torch.ones(1).long() * 2
-    ax = torch.index_select(tensor_a, dim, x).squeeze(dim)
-    ay = torch.index_select(tensor_a, dim, y).squeeze(dim)
-    az = torch.index_select(tensor_a, dim, z).squeeze(dim)
-    bx = torch.index_select(tensor_b, dim, x).squeeze(dim)
-    by = torch.index_select(tensor_b, dim, y).squeeze(dim)
-    bz = torch.index_select(tensor_b, dim, z).squeeze(dim)
-    result.append(ay * bz - az * by)
-    result.append(az * bx - ax * bz)
-    result.append(ax * by - ay * bx)
-    result = torch.stack(result, dim=dim)
-    return result
 
 
 PNERF_INIT_MATRIX = [torch.tensor([-torch.sqrt(torch.tensor([1.0 / 2.0])),
@@ -298,122 +414,6 @@ def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu
         NUM_FRAGMENTS) / 100
     return coordinates.transpose(0, 1).contiguous().view(len(batch_sizes), 
         -1, 9).transpose(0, 1), batch_sizes
-
-
-def write_out(*args, end='\n'):
-    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S'
-        ) + ': ' + str.join(' ', [str(a) for a in args]) + end
-    if globals().get('experiment_id') is not None:
-        with open('output/' + globals().get('experiment_id') + '.txt', 'a+'
-            ) as output_file:
-            output_file.write(output_string)
-            output_file.flush()
-    print(output_string, end='')
-
-
-AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 
-    8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 
-    16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
-
-
-def protein_id_to_str(protein_id_list):
-    _aa_dict_inverse = {v: k for k, v in AA_ID_DICT.items()}
-    aa_list = []
-    for protein_id in protein_id_list:
-        aa_symbol = _aa_dict_inverse[protein_id.item()]
-        aa_list.append(aa_symbol)
-    return aa_list
-
-
-def get_structure_from_angles(aa_list_encoded, angles):
-    aa_list = protein_id_to_str(aa_list_encoded)
-    omega_list = angles[1:, (0)]
-    phi_list = angles[1:, (1)]
-    psi_list = angles[:-1, (2)]
-    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(
-        omega_list) + 1
-    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x:
-        math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x),
-        psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
-    return structure
-
-
-def calc_pairwise_distances(chain_a, chain_b, use_gpu):
-    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(
-        torch.float)
-    epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
-    if use_gpu:
-        distance_matrix = distance_matrix.cuda()
-        epsilon = epsilon.cuda()
-    for idx, row in enumerate(chain_a.split(1)):
-        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) **
-            2, 1).view(1, -1)
-    return torch.sqrt(distance_matrix + epsilon)
-
-
-def calc_drmsd(chain_a, chain_b, use_gpu=False):
-    assert len(chain_a) == len(chain_b)
-    distance_matrix_a = calc_pairwise_distances(chain_a, chain_a, use_gpu)
-    distance_matrix_b = calc_pairwise_distances(chain_b, chain_b, use_gpu)
-    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(
-        len(chain_a) * (len(chain_a) - 1))
-
-
-def compute_dihedral_list(atomic_coords):
-    ba = atomic_coords[1:] - atomic_coords[:-1]
-    ba_normalized = ba / ba.norm(dim=1).unsqueeze(1)
-    ba_neg = -1 * ba_normalized
-    n1_vec = compute_cross(ba_normalized[:-2], ba_neg[1:-1], dim=1)
-    n2_vec = compute_cross(ba_neg[1:-1], ba_normalized[2:], dim=1)
-    n1_vec_normalized = n1_vec / n1_vec.norm(dim=1).unsqueeze(1)
-    n2_vec_normalized = n2_vec / n2_vec.norm(dim=1).unsqueeze(1)
-    m1_vec = compute_cross(n1_vec_normalized, ba_neg[1:-1], dim=1)
-    x_value = torch.sum(n1_vec_normalized * n2_vec_normalized, dim=1)
-    y_value = torch.sum(m1_vec * n2_vec_normalized, dim=1)
-    return compute_atan2(y_value, x_value)
-
-
-def calculate_dihedral_angles(atomic_coords, use_gpu):
-    atomic_coords = atomic_coords.contiguous().view(-1, 3)
-    zero_tensor = torch.zeros(1)
-    if use_gpu:
-        zero_tensor = zero_tensor.cuda()
-    angles = torch.cat((zero_tensor, zero_tensor, compute_dihedral_list(
-        atomic_coords), zero_tensor)).view(-1, 3)
-    return angles
-
-
-def calc_angular_difference(values_1, values_2):
-    values_1 = values_1.transpose(0, 1).contiguous()
-    values_2 = values_2.transpose(0, 1).contiguous()
-    acc = 0
-    for idx, _ in enumerate(values_1):
-        assert values_1[idx].shape[1] == 3
-        assert values_2[idx].shape[1] == 3
-        a1_element = values_1[idx].view(-1, 1)
-        a2_element = values_2[idx].view(-1, 1)
-        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element -
-            a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) **
-            2))
-    return acc / values_1.shape[0]
-
-
-def calculate_dihedral_angles_over_minibatch(atomic_coords_padded,
-    batch_sizes, use_gpu):
-    angles = []
-    batch_sizes = torch.LongTensor(batch_sizes)
-    atomic_coords = atomic_coords_padded.transpose(0, 1)
-    for idx, coordinate in enumerate(atomic_coords.split(1, dim=0)):
-        angles_from_coords = torch.index_select(coordinate.squeeze(0), 0,
-            torch.arange(int(batch_sizes[idx].item())))
-        angles.append(calculate_dihedral_angles(angles_from_coords, use_gpu))
-    return torch.nn.utils.rnn.pad_sequence(angles), batch_sizes
-
-
-def write_to_pdb(structure, prot_id):
-    out = Bio.PDB.PDBIO()
-    out.set_structure(structure)
-    out.save('output/protein_' + str(prot_id) + '.pdb')
 
 
 class BaseModel(nn.Module):

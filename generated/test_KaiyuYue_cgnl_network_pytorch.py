@@ -248,63 +248,29 @@ class SpatialNL(nn.Module):
         return x
 
 
-nl_type = 'cgnlx'
+StageSpec = namedtuple('StageSpec', ['index', 'block_count', 'return_features']
+    )
 
 
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
-    blocks = []
-    stride = first_stride
-    for idx in range(block_count):
-        if idx == 5 and block_count == 6:
-            if nl_type == 'nl':
-                blocks.append(SpatialNL(in_channels, int(in_channels / 2),
-                    use_scale=True))
-            elif nl_type == 'cgnl':
-                blocks.append(SpatialCGNL(in_channels, int(in_channels / 2),
-                    use_scale=False, groups=8))
-            elif nl_type == 'cgnlx':
-                blocks.append(SpatialCGNLx(in_channels, int(in_channels / 2
-                    ), use_scale=False, groups=8, order=3))
-            else:
-                pass
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride))
-        stride = 1
-        in_channels = out_channels
-    return nn.Sequential(*blocks)
+ResNet101FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=
+    r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 23, True), (4, 3, True))
+    )
 
 
-class ResNetHead(nn.Module):
+ResNet50FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=r
+    ) for i, c, r in ((1, 3, True), (2, 4, True), (3, 6, True), (4, 3, True)))
 
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
-        super(ResNetHead, self).__init__()
-        stage2_relative_factor = 2 ** (stages[0].index - 1)
-        stage2_bottleneck_channels = num_groups * width_per_group
-        out_channels = res2_out_channels * stage2_relative_factor
-        in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
-        block_module = _TRANSFORMATION_MODULES[block_module]
-        self.stages = []
-        stride = stride_init
-        for stage in stages:
-            name = 'layer' + str(stage.index)
-            if not stride:
-                stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride)
-            stride = None
-            self.add_module(name, module)
-            self.stages.append(name)
 
-    def forward(self, x):
-        for stage in self.stages:
-            x = getattr(self, stage)(x)
-        return x
+ResNet50StagesTo4 = (StageSpec(index=i, block_count=c, return_features=r) for
+    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, True)))
+
+
+ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for
+    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, False), (4, 3, True)))
+
+
+_STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5,
+    'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
 
 
 class BottleneckWithFixedBatchNorm(nn.Module):

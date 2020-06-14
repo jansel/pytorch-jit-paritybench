@@ -228,17 +228,6 @@ from collections import defaultdict
 from torch.autograd import Variable
 
 
-def synchronize():
-    if not dist.is_nccl_available():
-        return
-    if not dist.is_initialized():
-        return
-    world_size = dist.get_world_size()
-    if world_size == 1:
-        return
-    dist.barrier()
-
-
 class OcrPtrNet(nn.Module):
 
     def __init__(self, hidden_size, query_key_size=None):
@@ -1134,6 +1123,11 @@ class BertImageFeatureEmbeddings(nn.Module):
         return embeddings
 
 
+def get_default_config_path():
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
+
+
 def get_mmf_root():
     from mmf.common.registry import registry
     mmf_root = registry.get('mmf_root', no_warning=True)
@@ -1170,6 +1164,28 @@ def get_absolute_path(paths):
             'Paths passed to dataset should either be string or list')
 
 
+def import_user_module(user_dir: str, no_print: bool=False):
+    """Given a user dir, this function imports it as a module.
+
+    This user_module is expected to have an __init__.py at its root.
+    You can use import_files to import your python files easily in
+    __init__.py
+
+    Args:
+        user_dir (str): directory which has to be imported
+        no_print (bool): This function won't print anything if set to true
+    """
+    if user_dir:
+        user_dir = get_absolute_path(user_dir)
+        module_parent, module_name = os.path.split(user_dir)
+        if module_name not in sys.modules:
+            sys.path.insert(0, module_parent)
+            if not no_print:
+                print(f'Importing user_dir from {user_dir}')
+            importlib.import_module(module_name)
+            sys.path.pop(0)
+
+
 def load_yaml(f):
     abs_f = get_absolute_path(f)
     try:
@@ -1201,59 +1217,6 @@ def load_yaml(f):
     mapping.pop('includes', None)
     mapping = OmegaConf.merge(include_mapping, mapping)
     return mapping
-
-
-def get_default_config_path():
-    directory = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
-
-
-def import_user_module(user_dir: str, no_print: bool=False):
-    """Given a user dir, this function imports it as a module.
-
-    This user_module is expected to have an __init__.py at its root.
-    You can use import_files to import your python files easily in
-    __init__.py
-
-    Args:
-        user_dir (str): directory which has to be imported
-        no_print (bool): This function won't print anything if set to true
-    """
-    if user_dir:
-        user_dir = get_absolute_path(user_dir)
-        module_parent, module_name = os.path.split(user_dir)
-        if module_name not in sys.modules:
-            sys.path.insert(0, module_parent)
-            if not no_print:
-                print(f'Importing user_dir from {user_dir}')
-            importlib.import_module(module_name)
-            sys.path.pop(0)
-
-
-def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
-    try:
-        from torch.hub import _get_torch_home
-        torch_cache_home = _get_torch_home()
-    except ImportError:
-        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
-            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
-    default_cache_path = os.path.join(torch_cache_home, default)
-    cache_path = os.getenv(env_variable, default_cache_path)
-    if not PathManager.exists(cache_path):
-        try:
-            PathManager.mkdirs(cache_path)
-        except PermissionError:
-            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
-            PathManager.mkdirs(cache_path)
-    return cache_path
-
-
-def resolve_dir(env_variable, default='data'):
-    default_dir = os.path.join(resolve_cache_dir(), default)
-    dir_path = os.getenv(env_variable, default_dir)
-    if not PathManager.exists(dir_path):
-        PathManager.mkdirs(dir_path)
-    return dir_path
 
 
 class Registry:
@@ -1593,6 +1556,32 @@ class Registry:
 
 
 registry = Registry()
+
+
+def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
+    try:
+        from torch.hub import _get_torch_home
+        torch_cache_home = _get_torch_home()
+    except ImportError:
+        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
+            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
+    default_cache_path = os.path.join(torch_cache_home, default)
+    cache_path = os.getenv(env_variable, default_cache_path)
+    if not PathManager.exists(cache_path):
+        try:
+            PathManager.mkdirs(cache_path)
+        except PermissionError:
+            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
+            PathManager.mkdirs(cache_path)
+    return cache_path
+
+
+def resolve_dir(env_variable, default='data'):
+    default_dir = os.path.join(resolve_cache_dir(), default)
+    dir_path = os.getenv(env_variable, default_dir)
+    if not PathManager.exists(dir_path):
+        PathManager.mkdirs(dir_path)
+    return dir_path
 
 
 class Configuration:
@@ -2392,6 +2381,28 @@ class CustomVocab(BaseVocab):
             self.vectors[i] = embedding_vectors[i - 4]
 
 
+class ExtractedVocab(BaseVocab):
+
+    def __init__(self, base_path, emb_dim, *args, **kwargs):
+        """Special vocab which is not really vocabulary but instead a class
+        which returns embedding pre-extracted from files. Can be used load
+        word embeddings from popular models like ELMo and BERT
+
+
+        Parameters
+        ----------
+        base_path: str
+            path containing saved files with embeddings one file per txt item
+        """
+        super().__init__(*args, **kwargs)
+        self.type = 'extracted'
+        self.emb_dim = emb_dim
+        self.base_path = base_path
+
+    def get_dim(self):
+        return self.emb_dim
+
+
 EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
 
 
@@ -2405,6 +2416,17 @@ def get_rank():
 
 def is_master():
     return get_rank() == 0
+
+
+def synchronize():
+    if not dist.is_nccl_available():
+        return
+    if not dist.is_initialized():
+        return
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return
+    dist.barrier()
 
 
 class IntersectedVocab(BaseVocab):
@@ -2467,78 +2489,6 @@ class IntersectedVocab(BaseVocab):
         return self.embedding_dim
 
 
-class PretrainedVocab(BaseVocab):
-
-    def __init__(self, embedding_name, *args, **kwargs):
-        """Use this if you want to use pretrained embedding. See description
-        of IntersectedVocab to get a list of the embedding available from
-        torchtext
-
-        Parameters
-        ----------
-        embedding_name : str
-            Name of the pretrained alias for the embedding to used
-        """
-        self.type = 'pretrained'
-        if embedding_name not in vocab.pretrained_aliases:
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = 'Unknown embedding type: %s' % embedding_name, 'error'
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        vector_cache = get_mmf_cache_dir()
-        if is_master():
-            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
-        synchronize()
-        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache
-            )
-        self.UNK_INDEX = 3
-        self.stoi = defaultdict(lambda : self.UNK_INDEX)
-        self.itos = {}
-        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
-        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
-        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
-        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
-        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
-        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
-        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
-        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
-        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(
-            embedding.itos), len(embedding.vectors[0]))
-        for i in range(4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        index = 4
-        for word in embedding.stoi:
-            self.itos[index] = word
-            self.stoi[word] = index
-            actual_index = embedding.stoi[word]
-            self.vectors[index] = embedding.vectors[actual_index]
-            index += 1
-
-
-class ExtractedVocab(BaseVocab):
-
-    def __init__(self, base_path, emb_dim, *args, **kwargs):
-        """Special vocab which is not really vocabulary but instead a class
-        which returns embedding pre-extracted from files. Can be used load
-        word embeddings from popular models like ELMo and BERT
-
-
-        Parameters
-        ----------
-        base_path: str
-            path containing saved files with embeddings one file per txt item
-        """
-        super().__init__(*args, **kwargs)
-        self.type = 'extracted'
-        self.emb_dim = emb_dim
-        self.base_path = base_path
-
-    def get_dim(self):
-        return self.emb_dim
-
-
 class WordToVectorDict:
 
     def __init__(self, model):
@@ -2587,6 +2537,56 @@ class ModelVocab(BaseVocab):
 
     def get_embedding_dim(self):
         return self.model.get_dimension()
+
+
+class PretrainedVocab(BaseVocab):
+
+    def __init__(self, embedding_name, *args, **kwargs):
+        """Use this if you want to use pretrained embedding. See description
+        of IntersectedVocab to get a list of the embedding available from
+        torchtext
+
+        Parameters
+        ----------
+        embedding_name : str
+            Name of the pretrained alias for the embedding to used
+        """
+        self.type = 'pretrained'
+        if embedding_name not in vocab.pretrained_aliases:
+            from mmf.common.registry import registry
+            writer = registry.get('writer')
+            error = 'Unknown embedding type: %s' % embedding_name, 'error'
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        vector_cache = get_mmf_cache_dir()
+        if is_master():
+            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
+        synchronize()
+        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache
+            )
+        self.UNK_INDEX = 3
+        self.stoi = defaultdict(lambda : self.UNK_INDEX)
+        self.itos = {}
+        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
+        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
+        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
+        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
+        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
+        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
+        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
+        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
+        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(
+            embedding.itos), len(embedding.vectors[0]))
+        for i in range(4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        index = 4
+        for word in embedding.stoi:
+            self.itos[index] = word
+            self.stoi[word] = index
+            actual_index = embedding.stoi[word]
+            self.vectors[index] = embedding.vectors[actual_index]
+            index += 1
 
 
 class Vocab:

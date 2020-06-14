@@ -170,6 +170,28 @@ class Seq2SeqEncoder(nn.Module):
         return reordered_outputs
 
 
+def weighted_sum(tensor, weights, mask):
+    """
+    Apply a weighted sum on the vectors along the last dimension of 'tensor',
+    and mask the vectors in the result with 'mask'.
+
+    Args:
+        tensor: A tensor of vectors on which a weighted sum must be applied.
+        weights: The weights to use in the weighted sum.
+        mask: A mask to apply on the result of the weighted sum.
+
+    Returns:
+        A new tensor containing the result of the weighted sum after the mask
+        has been applied on it.
+    """
+    weighted_sum = weights.bmm(tensor)
+    while mask.dim() < weighted_sum.dim():
+        mask = mask.unsqueeze(1)
+    mask = mask.transpose(-1, -2)
+    mask = mask.expand_as(weighted_sum).contiguous().float()
+    return weighted_sum * mask
+
+
 def masked_softmax(tensor, mask):
     """
     Apply a masked softmax on the last dimension of a tensor.
@@ -195,28 +217,6 @@ def masked_softmax(tensor, mask):
     result = result * reshaped_mask
     result = result / (result.sum(dim=-1, keepdim=True) + 1e-13)
     return result.view(*tensor_shape)
-
-
-def weighted_sum(tensor, weights, mask):
-    """
-    Apply a weighted sum on the vectors along the last dimension of 'tensor',
-    and mask the vectors in the result with 'mask'.
-
-    Args:
-        tensor: A tensor of vectors on which a weighted sum must be applied.
-        weights: The weights to use in the weighted sum.
-        mask: A mask to apply on the result of the weighted sum.
-
-    Returns:
-        A new tensor containing the result of the weighted sum after the mask
-        has been applied on it.
-    """
-    weighted_sum = weights.bmm(tensor)
-    while mask.dim() < weighted_sum.dim():
-        mask = mask.unsqueeze(1)
-    mask = mask.transpose(-1, -2)
-    mask = mask.expand_as(weighted_sum).contiguous().float()
-    return weighted_sum * mask
 
 
 class SoftmaxAttention(nn.Module):
@@ -265,26 +265,26 @@ class SoftmaxAttention(nn.Module):
         return attended_premises, attended_hypotheses
 
 
-def get_mask(sequences_batch, sequences_lengths):
+def replace_masked(tensor, mask, value):
     """
-    Get the mask for a batch of padded variable length sequences.
+    Replace the all the values of vectors in 'tensor' that are masked in
+    'masked' by 'value'.
 
     Args:
-        sequences_batch: A batch of padded variable length sequences
-            containing word indices. Must be a 2-dimensional tensor of size
-            (batch, sequence).
-        sequences_lengths: A tensor containing the lengths of the sequences in
-            'sequences_batch'. Must be of size (batch).
+        tensor: The tensor in which the masked vectors must have their values
+            replaced.
+        mask: A mask indicating the vectors which must have their values
+            replaced.
+        value: The value to place in the masked vectors of 'tensor'.
 
     Returns:
-        A mask of size (batch, max_sequence_length), where max_sequence_length
-        is the length of the longest sequence in the batch.
+        A new tensor of the same size as 'tensor' where the values of the
+        vectors masked in 'mask' were replaced by 'value'.
     """
-    batch_size = sequences_batch.size()[0]
-    max_length = torch.max(sequences_lengths)
-    mask = torch.ones(batch_size, max_length, dtype=torch.float)
-    mask[sequences_batch[:, :max_length] == 0] = 0.0
-    return mask
+    mask = mask.unsqueeze(1).transpose(2, 1)
+    reverse_mask = 1.0 - mask
+    values_to_add = value * reverse_mask
+    return tensor * mask + values_to_add
 
 
 def _init_esim_weights(module):
@@ -309,26 +309,26 @@ def _init_esim_weights(module):
             module.bias_hh_l0_reverse.data[hidden_size:2 * hidden_size] = 1.0
 
 
-def replace_masked(tensor, mask, value):
+def get_mask(sequences_batch, sequences_lengths):
     """
-    Replace the all the values of vectors in 'tensor' that are masked in
-    'masked' by 'value'.
+    Get the mask for a batch of padded variable length sequences.
 
     Args:
-        tensor: The tensor in which the masked vectors must have their values
-            replaced.
-        mask: A mask indicating the vectors which must have their values
-            replaced.
-        value: The value to place in the masked vectors of 'tensor'.
+        sequences_batch: A batch of padded variable length sequences
+            containing word indices. Must be a 2-dimensional tensor of size
+            (batch, sequence).
+        sequences_lengths: A tensor containing the lengths of the sequences in
+            'sequences_batch'. Must be of size (batch).
 
     Returns:
-        A new tensor of the same size as 'tensor' where the values of the
-        vectors masked in 'mask' were replaced by 'value'.
+        A mask of size (batch, max_sequence_length), where max_sequence_length
+        is the length of the longest sequence in the batch.
     """
-    mask = mask.unsqueeze(1).transpose(2, 1)
-    reverse_mask = 1.0 - mask
-    values_to_add = value * reverse_mask
-    return tensor * mask + values_to_add
+    batch_size = sequences_batch.size()[0]
+    max_length = torch.max(sequences_lengths)
+    mask = torch.ones(batch_size, max_length, dtype=torch.float)
+    mask[sequences_batch[:, :max_length] == 0] = 0.0
+    return mask
 
 
 class ESIM(nn.Module):

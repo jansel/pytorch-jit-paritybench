@@ -409,10 +409,10 @@ class ResNet18(nn.Module):
 input_size = 1
 
 
-output_size = 1
-
-
 hidden_size = 16
+
+
+output_size = 1
 
 
 class Net(nn.Module):

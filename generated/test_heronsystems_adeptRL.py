@@ -381,10 +381,10 @@ class RelationalMHDPA(nn.Module):
             'MLP{}_W'.format(layer), 'MLP{}_b'.format(layer)]
 
 
-CHANNEL_AXIS = 1
-
-
 BATCH_AXIS = 0
+
+
+CHANNEL_AXIS = 1
 
 
 class CircularDND(torch.nn.Module):

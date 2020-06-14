@@ -252,6 +252,22 @@ class WeightMaskLoss(nn.Module):
         return result
 
 
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
+        sigma ** 2)) for x in range(window_size)])
+    return gauss / gauss.sum()
+
+
+def tile(a, dim, n_tile):
+    init_dim = a.size(dim)
+    repeat_idx = [1] * a.dim()
+    repeat_idx[dim] = n_tile
+    a = a.repeat(*repeat_idx)
+    order_index = torch.LongTensor(np.concatenate([(init_dim * np.arange(
+        n_tile) + i) for i in range(init_dim)]))
+    return torch.index_select(a, dim, order_index)
+
+
 def butterworth(window_size, sigma=1.5, n=2):
     nn = 2 * n
     bw = torch.Tensor([(1 / (1 + ((x - window_size // 2) / sigma) ** nn)) for
@@ -269,22 +285,6 @@ def _fspecial_gauss(window_size, sigma=1.5):
     g = torch.softmax(g, dim=1)
     g = g / g.sum()
     return g
-
-
-def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
-    return gauss / gauss.sum()
-
-
-def tile(a, dim, n_tile):
-    init_dim = a.size(dim)
-    repeat_idx = [1] * a.dim()
-    repeat_idx[dim] = n_tile
-    a = a.repeat(*repeat_idx)
-    order_index = torch.LongTensor(np.concatenate([(init_dim * np.arange(
-        n_tile) + i) for i in range(init_dim)]))
-    return torch.index_select(a, dim, order_index)
 
 
 def create_window(window_size, channel=3, sigma=1.5, gauss='original', n=2):

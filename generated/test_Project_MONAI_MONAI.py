@@ -734,6 +734,26 @@ class LayerFactory:
 Act = LayerFactory()
 
 
+Conv = LayerFactory()
+
+
+Dropout = LayerFactory()
+
+
+Norm = LayerFactory()
+
+
+def same_padding(kernel_size, dilation=1):
+    """
+    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
+    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
+    """
+    kernel_size = np.atleast_1d(kernel_size)
+    padding = (kernel_size - 1) // 2 + (dilation - 1)
+    padding = tuple(int(p) for p in padding)
+    return tuple(padding) if len(padding) > 1 else padding[0]
+
+
 def split_args(args):
     """
     Split arguments in a way to be suitable for using with the factory types. If `args` is a name it's interpreted
@@ -749,26 +769,6 @@ def split_args(args):
                 )
             raise ValueError(msg)
         return name_obj, args
-
-
-Norm = LayerFactory()
-
-
-Conv = LayerFactory()
-
-
-def same_padding(kernel_size, dilation=1):
-    """
-    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
-    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
-    """
-    kernel_size = np.atleast_1d(kernel_size)
-    padding = (kernel_size - 1) // 2 + (dilation - 1)
-    padding = tuple(int(p) for p in padding)
-    return tuple(padding) if len(padding) > 1 else padding[0]
-
-
-Dropout = LayerFactory()
 
 
 class SkipConnection(nn.Module):
@@ -1138,22 +1138,7 @@ class HighResNet(nn.Module):
         return self.blocks(x)
 
 
-def export(modname):
-    """
-    Make the decorated object a member of the named module. This will also add the object under its aliases if it has
-    a `__aliases__` member, thus this decorator should be before the `alias` decorator to pick up those names. Alias
-    names which conflict with package names or existing members will be ignored.
-    """
-
-    def _inner(obj):
-        mod = import_module(modname)
-        if not hasattr(mod, obj.__name__):
-            setattr(mod, obj.__name__, obj)
-            for alias in getattr(obj, '__aliases__', ()):
-                if not hasattr(mod, alias):
-                    setattr(mod, alias, obj)
-        return obj
-    return _inner
+GlobalAliases = {}
 
 
 import torch

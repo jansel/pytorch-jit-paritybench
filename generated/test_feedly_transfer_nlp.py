@@ -109,6 +109,12 @@ from abc import abstractmethod
 from collections import defaultdict
 
 
+TQDM = True
+
+
+logger = logging.getLogger(__name__)
+
+
 REGISTRY = {}
 
 
@@ -127,12 +133,6 @@ def register_plugin(registrable: Any, alias: str=None):
             )
     REGISTRY[alias] = registrable
     return registrable
-
-
-logger = logging.getLogger(__name__)
-
-
-TQDM = True
 
 
 class ElmanRNN(torch.nn.Module):

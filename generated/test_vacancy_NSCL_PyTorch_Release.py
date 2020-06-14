@@ -250,12 +250,12 @@ class ConceptBlock(nn.Module):
         return F.softmax(self.belong, dim=-1)
 
 
+_apply_self_mask = {'relate': True, 'relate_ae': True}
+
+
 def do_apply_self_mask(m):
     self_mask = torch.eye(m.size(-1), dtype=m.dtype, device=m.device)
     return m * (1 - self_mask) + -10 * self_mask
-
-
-_apply_self_mask = {'relate': True, 'relate_ae': True}
 
 
 class ConceptQuantizationContext(nn.Module):

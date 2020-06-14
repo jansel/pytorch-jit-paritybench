@@ -285,6 +285,16 @@ class model(nn.Module):
         return self._test(*xs, **kwargs)
 
 
+def _regr_loss(regr, gt_regr, mask):
+    num = mask.float().sum()
+    mask = mask.unsqueeze(2).expand_as(gt_regr)
+    regr = regr[mask]
+    gt_regr = gt_regr[mask]
+    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, reduction='sum')
+    regr_loss = regr_loss
+    return regr_loss, num
+
+
 def _neg_loss(preds, gt):
     pos_inds = gt.eq(1)
     neg_inds = gt.lt(1)
@@ -305,16 +315,6 @@ def _neg_loss(preds, gt):
         else:
             loss = loss - (pos_loss + neg_loss)
     return loss, num_pos
-
-
-def _regr_loss(regr, gt_regr, mask):
-    num = mask.float().sum()
-    mask = mask.unsqueeze(2).expand_as(gt_regr)
-    regr = regr[mask]
-    gt_regr = gt_regr[mask]
-    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, reduction='sum')
-    regr_loss = regr_loss
-    return regr_loss, num
 
 
 class MatrixNetAnchorsLoss(nn.Module):
@@ -383,11 +383,6 @@ class SubNet(nn.Module):
             x = self.base_activation(layer(x))
         x = self.subnet_output(x)
         return x
-
-
-def _sigmoid(x):
-    x = torch.clamp(x.sigmoid_(), min=0.0001, max=1 - 0.0001)
-    return x
 
 
 model_urls = {'resnet18':

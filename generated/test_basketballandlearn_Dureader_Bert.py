@@ -178,6 +178,10 @@ class BertAttention(nn.Module):
         return attention_output
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -185,10 +189,6 @@ def gelu(x):
         Also see https://arxiv.org/abs/1606.08415
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -348,105 +348,10 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
+CONFIG_NAME = 'bert_config.json'
+
+
 WEIGHTS_NAME = 'pytorch_model.bin'
-
-
-def load_tf_weights_in_bert(model, tf_checkpoint_path):
-    """ Load tf checkpoints in a pytorch model
-    """
-    try:
-        import re
-        import numpy as np
-        import tensorflow as tf
-    except ImportError:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
-        raise
-    tf_path = os.path.abspath(tf_checkpoint_path)
-    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
-    init_vars = tf.train.list_variables(tf_path)
-    names = []
-    arrays = []
-    for name, shape in init_vars:
-        print('Loading TF weight {} with shape {}'.format(name, shape))
-        array = tf.train.load_variable(tf_path, name)
-        names.append(name)
-        arrays.append(array)
-    for name, array in zip(names, arrays):
-        name = name.split('/')
-        if any(n in ['adam_v', 'adam_m'] for n in name):
-            print('Skipping {}'.format('/'.join(name)))
-            continue
-        pointer = model
-        for m_name in name:
-            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
-                l = re.split('_(\\d+)', m_name)
-            else:
-                l = [m_name]
-            if l[0] == 'kernel' or l[0] == 'gamma':
-                pointer = getattr(pointer, 'weight')
-            elif l[0] == 'output_bias' or l[0] == 'beta':
-                pointer = getattr(pointer, 'bias')
-            elif l[0] == 'output_weights':
-                pointer = getattr(pointer, 'weight')
-            else:
-                pointer = getattr(pointer, l[0])
-            if len(l) >= 2:
-                num = int(l[1])
-                pointer = pointer[num]
-        if m_name[-11:] == '_embeddings':
-            pointer = getattr(pointer, 'weight')
-        elif m_name == 'kernel':
-            array = np.transpose(array)
-        try:
-            assert pointer.shape == array.shape
-        except AssertionError as e:
-            e.args += pointer.shape, array.shape
-            raise
-        print('Initialize PyTorch weight {}'.format(name))
-        pointer.data = torch.from_numpy(array)
-    return model
-
-
-def http_get(url, temp_file):
-    req = requests.get(url, stream=True)
-    content_length = req.headers.get('Content-Length')
-    total = int(content_length) if content_length is not None else None
-    progress = tqdm(unit='B', total=total)
-    for chunk in req.iter_content(chunk_size=1024):
-        if chunk:
-            progress.update(len(chunk))
-            temp_file.write(chunk)
-    progress.close()
-
-
-def url_to_filename(url, etag=None):
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
 
 
 def s3_request(func):
@@ -465,6 +370,18 @@ def s3_request(func):
             else:
                 raise
     return wrapper
+
+
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
 
 
 class BertEmbeddings(nn.Module):
@@ -727,6 +644,87 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
+    , 'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
+    , 'bert-base-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
+    }
+
+
+def load_tf_weights_in_bert(model, tf_checkpoint_path):
+    """ Load tf checkpoints in a pytorch model
+    """
+    try:
+        import re
+        import numpy as np
+        import tensorflow as tf
+    except ImportError:
+        print(
+            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
+            )
+        raise
+    tf_path = os.path.abspath(tf_checkpoint_path)
+    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
+    init_vars = tf.train.list_variables(tf_path)
+    names = []
+    arrays = []
+    for name, shape in init_vars:
+        print('Loading TF weight {} with shape {}'.format(name, shape))
+        array = tf.train.load_variable(tf_path, name)
+        names.append(name)
+        arrays.append(array)
+    for name, array in zip(names, arrays):
+        name = name.split('/')
+        if any(n in ['adam_v', 'adam_m'] for n in name):
+            print('Skipping {}'.format('/'.join(name)))
+            continue
+        pointer = model
+        for m_name in name:
+            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
+                l = re.split('_(\\d+)', m_name)
+            else:
+                l = [m_name]
+            if l[0] == 'kernel' or l[0] == 'gamma':
+                pointer = getattr(pointer, 'weight')
+            elif l[0] == 'output_bias' or l[0] == 'beta':
+                pointer = getattr(pointer, 'bias')
+            elif l[0] == 'output_weights':
+                pointer = getattr(pointer, 'weight')
+            else:
+                pointer = getattr(pointer, l[0])
+            if len(l) >= 2:
+                num = int(l[1])
+                pointer = pointer[num]
+        if m_name[-11:] == '_embeddings':
+            pointer = getattr(pointer, 'weight')
+        elif m_name == 'kernel':
+            array = np.transpose(array)
+        try:
+            assert pointer.shape == array.shape
+        except AssertionError as e:
+            e.args += pointer.shape, array.shape
+            raise
+        print('Initialize PyTorch weight {}'.format(name))
+        pointer.data = torch.from_numpy(array)
+    return model
+
+
+logger = logging.getLogger(__name__)
+
+
+TF_WEIGHTS_NAME = 'model.ckpt'
+
+
 class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
@@ -809,32 +807,6 @@ class BertConfig(object):
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
-
-
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
-
-
-TF_WEIGHTS_NAME = 'model.ckpt'
-
-
-CONFIG_NAME = 'bert_config.json'
-
-
-logger = logging.getLogger(__name__)
 
 
 class BertPreTrainedModel(nn.Module):

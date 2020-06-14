@@ -473,22 +473,6 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset
 
 
-class RegistryException(Exception):
-    """Exception class for all registry errors."""
-
-    def __init__(self, message):
-        """
-        Init.
-
-        Args:
-            message: exception message
-        """
-        super().__init__(message)
-
-
-LateAddCallbak = Callable[['Registry'], None]
-
-
 class ABN(nn.Module):
     """Activated Batch Normalization.
 
@@ -1649,6 +1633,21 @@ class BCEIoULoss(nn.Module):
         return loss
 
 
+def _flatten_binary_scores(logits, targets, ignore=None):
+    """
+    Flattens predictions in the batch (binary case).
+    Remove targets equal to "ignore"
+    """
+    logits = logits.reshape(-1)
+    targets = targets.reshape(-1)
+    if ignore is None:
+        return logits, targets
+    valid = targets != ignore
+    logits_ = logits[valid]
+    targets_ = targets[valid]
+    return logits_, targets_
+
+
 def _lovasz_grad(gt_sorted):
     """
     Compute gradient of the Lovasz extension w.r.t sorted errors,
@@ -1682,21 +1681,6 @@ def _lovasz_hinge_flat(logits, targets):
     grad = _lovasz_grad(gt_sorted)
     loss = torch.dot(F.relu(errors_sorted), grad)
     return loss
-
-
-def _flatten_binary_scores(logits, targets, ignore=None):
-    """
-    Flattens predictions in the batch (binary case).
-    Remove targets equal to "ignore"
-    """
-    logits = logits.reshape(-1)
-    targets = targets.reshape(-1)
-    if ignore is None:
-        return logits, targets
-    valid = targets != ignore
-    logits_ = logits[valid]
-    targets_ = targets[valid]
-    return logits_, targets_
 
 
 def isnan(x):
@@ -1920,7 +1904,13 @@ class LovaszLossMultiLabel(_Loss):
         return loss
 
 
-_EPS = 1e-08
+def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
+    ) ->torch.Tensor:
+    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
+        labels.device).reshape(-1)
+    skip_condition = (labels.unsqueeze(-1) == skip_labels).any(-1)
+    skip_mask = ~(skip_condition.unsqueeze(-1) & skip_condition.unsqueeze(0))
+    return skip_mask
 
 
 def euclidean_distance(x: torch.Tensor, y: torch.Tensor=None) ->torch.Tensor:
@@ -1942,13 +1932,7 @@ def _create_margin_mask(labels: torch.Tensor) ->torch.Tensor:
     return marign_mask
 
 
-def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
-    ) ->torch.Tensor:
-    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
-        labels.device).reshape(-1)
-    skip_condition = (labels.unsqueeze(-1) == skip_labels).any(-1)
-    skip_mask = ~(skip_condition.unsqueeze(-1) & skip_condition.unsqueeze(0))
-    return skip_mask
+_EPS = 1e-08
 
 
 def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha:
@@ -2105,21 +2089,6 @@ class TripletLoss(nn.Module):
         return self._batch_hard_triplet_loss(embeddings, targets, self.margin)
 
 
-def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None
-    ) ->torch.Tensor:
-    """Calculate cosine distance between x and z.
-
-    Args:
-        @TODO: Docs. Contribution is welcome.
-    """
-    x = F.normalize(x)
-    if z is not None:
-        z = F.normalize(z)
-    else:
-        z = x.clone()
-    return torch.sub(1, torch.mm(x, z.transpose(0, 1)))
-
-
 def create_negative_mask(labels: torch.Tensor, neg_label: int=-1
     ) ->torch.Tensor:
     """@TODO: Docs. Contribution is welcome."""
@@ -2160,6 +2129,21 @@ def batch_all(labels: torch.Tensor, exclude_negatives: bool=True
     if exclude_negatives:
         mask = mask & create_negative_mask(labels)
     return mask.float()
+
+
+def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None
+    ) ->torch.Tensor:
+    """Calculate cosine distance between x and z.
+
+    Args:
+        @TODO: Docs. Contribution is welcome.
+    """
+    x = F.normalize(x)
+    if z is not None:
+        z = F.normalize(z)
+    else:
+        z = x.clone()
+    return torch.sub(1, torch.mm(x, z.transpose(0, 1)))
 
 
 def triplet_loss(embeddings: torch.Tensor, labels: torch.Tensor, margin:
@@ -3425,19 +3409,19 @@ class ClassifyUnet(nn.Module):
 LOG_SCALE_MIN = -10
 
 
+def normal_sample(mu, sigma):
+    return mu + sigma * torch.randn_like(sigma)
+
+
+LOG_SCALE_MAX = 2
+
+
 def normal_logprob(mu, sigma, z):
     normalization_constant = -sigma.log() - 0.5 * np.log(2 * np.pi)
     square_term = -0.5 * ((z - mu) / sigma) ** 2
     logprob_vec = normalization_constant + square_term
     logprob = logprob_vec.sum(1)
     return logprob
-
-
-LOG_SCALE_MAX = 2
-
-
-def normal_sample(mu, sigma):
-    return mu + sigma * torch.randn_like(sigma)
 
 
 class ClassifyVAE(torch.nn.Module):

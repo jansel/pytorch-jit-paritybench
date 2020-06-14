@@ -189,57 +189,6 @@ class Bottleneck_nop(nn.Module):
         return out
 
 
-class Filter:
-
-    def __init__(self, flag):
-        self.flag = flag
-
-    def filter(self, x):
-        return self.flag
-
-
-def get_format_custom(logger, level):
-    if 'SLURM_PROCID' in os.environ:
-        rank = int(os.environ['SLURM_PROCID'])
-        if level == logging.INFO:
-            logger.addFilter(Filter(rank == 0))
-    else:
-        rank = 0
-    format_str = '[%(asctime)s-rk{}-%(message)s'.format(rank)
-    formatter = logging.Formatter(format_str)
-    return formatter
-
-
-logs = set()
-
-
-def get_format(logger, level):
-    if 'SLURM_PROCID' in os.environ:
-        rank = int(os.environ['SLURM_PROCID'])
-        if level == logging.INFO:
-            logger.addFilter(Filter(rank == 0))
-    else:
-        rank = 0
-    format_str = ('[%(asctime)s-rk{}-%(filename)s#%(lineno)3d] %(message)s'
-        .format(rank))
-    formatter = logging.Formatter(format_str)
-    return formatter
-
-
-def init_log(name, level=logging.INFO, format_func=get_format):
-    if (name, level) in logs:
-        return
-    logs.add((name, level))
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    formatter = format_func(logger, level)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-    return logger
-
-
 class ResDownS(nn.Module):
 
     def __init__(self, inplane, outplane):
@@ -711,19 +660,22 @@ class DepthCorr(nn.Module):
         return out
 
 
-def weight_l1_loss(pred_loc, label_loc, loss_weight):
-    """
-    :param pred_loc: [b, 4k, h, w]
-    :param label_loc: [b, 4k, h, w]
-    :param loss_weight:  [b, k, h, w]
-    :return: loc loss value
-    """
-    b, _, sh, sw = pred_loc.size()
-    pred_loc = pred_loc.view(b, 4, -1, sh, sw)
-    diff = (pred_loc - label_loc).abs()
-    diff = diff.sum(dim=1).view(b, -1, sh, sw)
-    loss = diff * loss_weight
-    return loss.sum().div(b)
+def get_cls_loss(pred, label, select):
+    if len(select.size()) == 0:
+        return 0
+    pred = torch.index_select(pred, 0, select)
+    label = torch.index_select(label, 0, select)
+    return F.nll_loss(pred, label)
+
+
+def select_cross_entropy_loss(pred, label):
+    pred = pred.view(-1, 2)
+    label = label.view(-1)
+    pos = Variable(label.data.eq(1).nonzero().squeeze()).cuda()
+    neg = Variable(label.data.eq(0).nonzero().squeeze()).cuda()
+    loss_pos = get_cls_loss(pred, label, pos)
+    loss_neg = get_cls_loss(pred, label, neg)
+    return loss_pos * 0.5 + loss_neg * 0.5
 
 
 def iou_measure(pred, label):
@@ -756,22 +708,19 @@ def select_mask_logistic_loss(p_m, mask, weight, o_sz=63, g_sz=127):
     return loss, iou_m, iou_5, iou_7
 
 
-def get_cls_loss(pred, label, select):
-    if len(select.size()) == 0:
-        return 0
-    pred = torch.index_select(pred, 0, select)
-    label = torch.index_select(label, 0, select)
-    return F.nll_loss(pred, label)
-
-
-def select_cross_entropy_loss(pred, label):
-    pred = pred.view(-1, 2)
-    label = label.view(-1)
-    pos = Variable(label.data.eq(1).nonzero().squeeze()).cuda()
-    neg = Variable(label.data.eq(0).nonzero().squeeze()).cuda()
-    loss_pos = get_cls_loss(pred, label, pos)
-    loss_neg = get_cls_loss(pred, label, neg)
-    return loss_pos * 0.5 + loss_neg * 0.5
+def weight_l1_loss(pred_loc, label_loc, loss_weight):
+    """
+    :param pred_loc: [b, 4k, h, w]
+    :param label_loc: [b, 4k, h, w]
+    :param loss_weight:  [b, k, h, w]
+    :return: loc loss value
+    """
+    b, _, sh, sw = pred_loc.size()
+    pred_loc = pred_loc.view(b, 4, -1, sh, sw)
+    diff = (pred_loc - label_loc).abs()
+    diff = diff.sum(dim=1).view(b, -1, sh, sw)
+    loss = diff * loss_weight
+    return loss.sum().div(b)
 
 
 class SiamMask(nn.Module):

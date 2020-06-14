@@ -134,24 +134,6 @@ from typing import Sequence
 from typing import Tuple
 
 
-def get_kwarg(kwargs, name, default_value=None, remove=True):
-    """Returns the value for the parameter if it exists in the kwargs otherwise the default value provided"""
-    if remove:
-        value = kwargs.pop(name) if name in kwargs else default_value
-    else:
-        value = kwargs.get(name, default_value)
-    return value
-
-
-def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
-    if isinstance(value, list):
-        assert len(value
-            ) == multiplier, f'{value} is not the correct size {multiplier}'
-    else:
-        value = [value] * multiplier
-    return value
-
-
 Array = Union[np.ndarray, torch.Tensor, int, float]
 
 
@@ -184,10 +166,22 @@ def assert_dims(value: Sequence[Array], dims: List[Optional[int]]) ->Sequence[
     return value
 
 
-def reshape_parent_indices(indices, bs, num_beams):
-    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
-        repeat(1, num_beams).view(-1).long())
-    return indices + parent_indices
+def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
+    if isinstance(value, list):
+        assert len(value
+            ) == multiplier, f'{value} is not the correct size {multiplier}'
+    else:
+        value = [value] * multiplier
+    return value
+
+
+def get_kwarg(kwargs, name, default_value=None, remove=True):
+    """Returns the value for the parameter if it exists in the kwargs otherwise the default value provided"""
+    if remove:
+        value = kwargs.pop(name) if name in kwargs else default_value
+    else:
+        value = kwargs.get(name, default_value)
+    return value
 
 
 def repeat_cell_state(hidden, num_beams):
@@ -200,6 +194,12 @@ def repeat_cell_state(hidden, num_beams):
             state = row.repeat(1, num_beams, 1)
         results.append(state)
     return results
+
+
+def reshape_parent_indices(indices, bs, num_beams):
+    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
+        repeat(1, num_beams).view(-1).long())
+    return indices + parent_indices
 
 
 class MLPAttention(nn.Module):
@@ -286,6 +286,20 @@ class MultiHeadAttention(nn.Module):
         return assert_dims(output, [slq, bs, self.out_dim])
 
 
+def select_hidden_by_index(hidden, indices):
+    if hidden is None:
+        return hidden
+    results = []
+    for row in hidden:
+        if isinstance(row, (list, tuple)):
+            state = torch.index_select(row[0], 1, indices), torch.index_select(
+                row[1], 1, indices)
+        else:
+            state = torch.index_select(row, 1, indices)
+        results.append(state)
+    return results
+
+
 class RandomUniform:
 
     def __init__(self, numbers=1000000):
@@ -300,20 +314,6 @@ class RandomUniform:
         rand = self.array[self.count]
         self.count += 1
         return rand
-
-
-def select_hidden_by_index(hidden, indices):
-    if hidden is None:
-        return hidden
-    results = []
-    for row in hidden:
-        if isinstance(row, (list, tuple)):
-            state = torch.index_select(row[0], 1, indices), torch.index_select(
-                row[1], 1, indices)
-        else:
-            state = torch.index_select(row, 1, indices)
-        results.append(state)
-    return results
 
 
 class Decoder(nn.Module):

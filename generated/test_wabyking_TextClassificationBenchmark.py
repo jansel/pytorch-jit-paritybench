@@ -387,19 +387,6 @@ class LSTMAttention(torch.nn.Module):
         return logits
 
 
-def position_encoding(sentence_size, embedding_dim):
-    encoding = np.ones((embedding_dim, sentence_size), dtype=np.float32)
-    ls = sentence_size + 1
-    le = embedding_dim + 1
-    for i in range(1, le):
-        for j in range(1, ls):
-            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (
-                sentence_size + 1) / 2)
-    encoding = 1 + 4 * encoding / embedding_dim / sentence_size
-    encoding[:, (-1)] = 1.0
-    return np.transpose(encoding)
-
-
 class AttrProxy(object):
     """
     Translates index lookups into attribute lookups.
@@ -413,6 +400,19 @@ class AttrProxy(object):
 
     def __getitem__(self, i):
         return getattr(self.module, self.prefix + str(i))
+
+
+def position_encoding(sentence_size, embedding_dim):
+    encoding = np.ones((embedding_dim, sentence_size), dtype=np.float32)
+    ls = sentence_size + 1
+    le = embedding_dim + 1
+    for i in range(1, le):
+        for j in range(1, ls):
+            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (
+                sentence_size + 1) / 2)
+    encoding = 1 + 4 * encoding / embedding_dim / sentence_size
+    encoding[:, (-1)] = 1.0
+    return np.transpose(encoding)
 
 
 class MemN2N(nn.Module):

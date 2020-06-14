@@ -81,76 +81,6 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 
 
-def get_kernel_and_weight_shape(operation, in_channels, out_channels,
-    kernel_size):
-    if operation == 'convolution1d':
-        if type(kernel_size) is not int:
-            raise ValueError(
-                """An invalid kernel_size was supplied for a 1d convolution. The kernel size
-                must be integer in the case. Found kernel_size = """
-                 + str(kernel_size))
-        else:
-            ks = kernel_size
-            w_shape = (out_channels, in_channels) + tuple((ks,))
-    else:
-        if operation == 'convolution2d' and type(kernel_size) is int:
-            ks = kernel_size, kernel_size
-        elif operation == 'convolution3d' and type(kernel_size) is int:
-            ks = kernel_size, kernel_size, kernel_size
-        elif type(kernel_size) is not int:
-            if operation == 'convolution2d' and len(kernel_size) != 2:
-                raise ValueError(
-                    """An invalid kernel_size was supplied for a 2d convolution. The kernel size
-                    must be either an integer or a tuple of 2. Found kernel_size = """
-                     + str(kernel_size))
-            elif operation == 'convolution3d' and len(kernel_size) != 3:
-                raise ValueError(
-                    """An invalid kernel_size was supplied for a 3d convolution. The kernel size
-                    must be either an integer or a tuple of 3. Found kernel_size = """
-                     + str(kernel_size))
-            else:
-                ks = kernel_size
-        w_shape = (out_channels, in_channels) + (*ks,)
-    return ks, w_shape
-
-
-def random_init(in_features, out_features, rng, kernel_size=None, criterion
-    ='glorot'):
-    if kernel_size is not None:
-        receptive_field = np.prod(kernel_size)
-        fan_in = in_features * receptive_field
-        fan_out = out_features * receptive_field
-    else:
-        fan_in = in_features
-        fan_out = out_features
-    if criterion == 'glorot':
-        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
-    elif criterion == 'he':
-        s = 1.0 / np.sqrt(2 * fan_in)
-    else:
-        raise ValueError('Invalid criterion: ' + criterion)
-    if kernel_size is None:
-        kernel_shape = in_features, out_features
-    elif type(kernel_size) is int:
-        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
-    else:
-        kernel_shape = (out_features, in_features) + (*kernel_size,)
-    number_of_weights = np.prod(kernel_shape)
-    v_r = np.random.uniform(-1.0, 1.0, number_of_weights)
-    v_i = np.random.uniform(-1.0, 1.0, number_of_weights)
-    v_j = np.random.uniform(-1.0, 1.0, number_of_weights)
-    v_k = np.random.uniform(-1.0, 1.0, number_of_weights)
-    v_r = v_r.reshape(kernel_shape)
-    v_i = v_i.reshape(kernel_shape)
-    v_j = v_j.reshape(kernel_shape)
-    v_k = v_k.reshape(kernel_shape)
-    weight_r = v_r
-    weight_i = v_i
-    weight_j = v_j
-    weight_k = v_k
-    return weight_r, weight_i, weight_j, weight_k
-
-
 def unitary_init(in_features, out_features, rng, kernel_size=None,
     criterion='he'):
     if kernel_size is not None:
@@ -215,6 +145,39 @@ def quaternion_transpose_conv(input, r_weight, i_weight, j_weight, k_weight,
         output_padding, groups, dilatation)
 
 
+def get_kernel_and_weight_shape(operation, in_channels, out_channels,
+    kernel_size):
+    if operation == 'convolution1d':
+        if type(kernel_size) is not int:
+            raise ValueError(
+                """An invalid kernel_size was supplied for a 1d convolution. The kernel size
+                must be integer in the case. Found kernel_size = """
+                 + str(kernel_size))
+        else:
+            ks = kernel_size
+            w_shape = (out_channels, in_channels) + tuple((ks,))
+    else:
+        if operation == 'convolution2d' and type(kernel_size) is int:
+            ks = kernel_size, kernel_size
+        elif operation == 'convolution3d' and type(kernel_size) is int:
+            ks = kernel_size, kernel_size, kernel_size
+        elif type(kernel_size) is not int:
+            if operation == 'convolution2d' and len(kernel_size) != 2:
+                raise ValueError(
+                    """An invalid kernel_size was supplied for a 2d convolution. The kernel size
+                    must be either an integer or a tuple of 2. Found kernel_size = """
+                     + str(kernel_size))
+            elif operation == 'convolution3d' and len(kernel_size) != 3:
+                raise ValueError(
+                    """An invalid kernel_size was supplied for a 3d convolution. The kernel size
+                    must be either an integer or a tuple of 3. Found kernel_size = """
+                     + str(kernel_size))
+            else:
+                ks = kernel_size
+        w_shape = (out_channels, in_channels) + (*ks,)
+    return ks, w_shape
+
+
 def affect_init_conv(r_weight, i_weight, j_weight, k_weight, kernel_size,
     init_func, rng, init_criterion):
     if r_weight.size() != i_weight.size() or r_weight.size() != j_weight.size(
@@ -235,6 +198,43 @@ def affect_init_conv(r_weight, i_weight, j_weight, k_weight, kernel_size,
     i_weight.data = i.type_as(i_weight.data)
     j_weight.data = j.type_as(j_weight.data)
     k_weight.data = k.type_as(k_weight.data)
+
+
+def random_init(in_features, out_features, rng, kernel_size=None, criterion
+    ='glorot'):
+    if kernel_size is not None:
+        receptive_field = np.prod(kernel_size)
+        fan_in = in_features * receptive_field
+        fan_out = out_features * receptive_field
+    else:
+        fan_in = in_features
+        fan_out = out_features
+    if criterion == 'glorot':
+        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
+    elif criterion == 'he':
+        s = 1.0 / np.sqrt(2 * fan_in)
+    else:
+        raise ValueError('Invalid criterion: ' + criterion)
+    if kernel_size is None:
+        kernel_shape = in_features, out_features
+    elif type(kernel_size) is int:
+        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
+    else:
+        kernel_shape = (out_features, in_features) + (*kernel_size,)
+    number_of_weights = np.prod(kernel_shape)
+    v_r = np.random.uniform(-1.0, 1.0, number_of_weights)
+    v_i = np.random.uniform(-1.0, 1.0, number_of_weights)
+    v_j = np.random.uniform(-1.0, 1.0, number_of_weights)
+    v_k = np.random.uniform(-1.0, 1.0, number_of_weights)
+    v_r = v_r.reshape(kernel_shape)
+    v_i = v_i.reshape(kernel_shape)
+    v_j = v_j.reshape(kernel_shape)
+    v_k = v_k.reshape(kernel_shape)
+    weight_r = v_r
+    weight_i = v_i
+    weight_j = v_j
+    weight_k = v_k
+    return weight_r, weight_i, weight_j, weight_k
 
 
 def quaternion_init(in_features, out_features, rng, kernel_size=None,
@@ -348,6 +348,35 @@ class QuaternionTransposeConv(Module):
             operation) + ')'
 
 
+def quaternion_conv(input, r_weight, i_weight, j_weight, k_weight, bias,
+    stride, padding, groups, dilatation):
+    """
+    Applies a quaternion convolution to the incoming data:
+    """
+    cat_kernels_4_r = torch.cat([r_weight, -i_weight, -j_weight, -k_weight],
+        dim=1)
+    cat_kernels_4_i = torch.cat([i_weight, r_weight, -k_weight, j_weight],
+        dim=1)
+    cat_kernels_4_j = torch.cat([j_weight, k_weight, r_weight, -i_weight],
+        dim=1)
+    cat_kernels_4_k = torch.cat([k_weight, -j_weight, i_weight, r_weight],
+        dim=1)
+    cat_kernels_4_quaternion = torch.cat([cat_kernels_4_r, cat_kernels_4_i,
+        cat_kernels_4_j, cat_kernels_4_k], dim=0)
+    if input.dim() == 3:
+        convfunc = F.conv1d
+    elif input.dim() == 4:
+        convfunc = F.conv2d
+    elif input.dim() == 5:
+        convfunc = F.conv3d
+    else:
+        raise Exception(
+            'The convolutional input is either 3, 4 or 5 dimensions. input.dim = '
+             + str(input.dim()))
+    return convfunc(input, cat_kernels_4_quaternion, bias, stride, padding,
+        dilatation, groups)
+
+
 def quaternion_conv_rotation(input, zero_kernel, r_weight, i_weight,
     j_weight, k_weight, bias, stride, padding, groups, dilatation,
     quaternion_format, scale=None):
@@ -431,35 +460,6 @@ def quaternion_conv_rotation(input, zero_kernel, r_weight, i_weight,
         dilatation, groups)
 
 
-def quaternion_conv(input, r_weight, i_weight, j_weight, k_weight, bias,
-    stride, padding, groups, dilatation):
-    """
-    Applies a quaternion convolution to the incoming data:
-    """
-    cat_kernels_4_r = torch.cat([r_weight, -i_weight, -j_weight, -k_weight],
-        dim=1)
-    cat_kernels_4_i = torch.cat([i_weight, r_weight, -k_weight, j_weight],
-        dim=1)
-    cat_kernels_4_j = torch.cat([j_weight, k_weight, r_weight, -i_weight],
-        dim=1)
-    cat_kernels_4_k = torch.cat([k_weight, -j_weight, i_weight, r_weight],
-        dim=1)
-    cat_kernels_4_quaternion = torch.cat([cat_kernels_4_r, cat_kernels_4_i,
-        cat_kernels_4_j, cat_kernels_4_k], dim=0)
-    if input.dim() == 3:
-        convfunc = F.conv1d
-    elif input.dim() == 4:
-        convfunc = F.conv2d
-    elif input.dim() == 5:
-        convfunc = F.conv3d
-    else:
-        raise Exception(
-            'The convolutional input is either 3, 4 or 5 dimensions. input.dim = '
-             + str(input.dim()))
-    return convfunc(input, cat_kernels_4_quaternion, bias, stride, padding,
-        dilatation, groups)
-
-
 class QuaternionConv(Module):
     """Applies a Quaternion Convolution to the incoming data.
     """
@@ -535,6 +535,29 @@ class QuaternionConv(Module):
             .seed) + ', rotation=' + str(self.rotation) + ', q_format=' + str(
             self.quaternion_format) + ', operation=' + str(self.operation
             ) + ')'
+
+
+def affect_init(r_weight, i_weight, j_weight, k_weight, init_func, rng,
+    init_criterion):
+    if r_weight.size() != i_weight.size() or r_weight.size() != j_weight.size(
+        ) or r_weight.size() != k_weight.size():
+        raise ValueError(
+            'The real and imaginary weights should have the same size . Found: r:'
+             + str(r_weight.size()) + ' i:' + str(i_weight.size()) + ' j:' +
+            str(j_weight.size()) + ' k:' + str(k_weight.size()))
+    elif r_weight.dim() != 2:
+        raise Exception(
+            'affect_init accepts only matrices. Found dimension = ' + str(
+            r_weight.dim()))
+    kernel_size = None
+    r, i, j, k = init_func(r_weight.size(0), r_weight.size(1), rng,
+        kernel_size, init_criterion)
+    r, i, j, k = torch.from_numpy(r), torch.from_numpy(i), torch.from_numpy(j
+        ), torch.from_numpy(k)
+    r_weight.data = r.type_as(r_weight.data)
+    i_weight.data = i.type_as(i_weight.data)
+    j_weight.data = j.type_as(j_weight.data)
+    k_weight.data = k.type_as(k_weight.data)
 
 
 def quaternion_linear_rotation(input, zero_kernel, r_weight, i_weight,
@@ -616,29 +639,6 @@ def quaternion_linear_rotation(input, zero_kernel, r_weight, i_weight,
             return output + bias
         else:
             return output
-
-
-def affect_init(r_weight, i_weight, j_weight, k_weight, init_func, rng,
-    init_criterion):
-    if r_weight.size() != i_weight.size() or r_weight.size() != j_weight.size(
-        ) or r_weight.size() != k_weight.size():
-        raise ValueError(
-            'The real and imaginary weights should have the same size . Found: r:'
-             + str(r_weight.size()) + ' i:' + str(i_weight.size()) + ' j:' +
-            str(j_weight.size()) + ' k:' + str(k_weight.size()))
-    elif r_weight.dim() != 2:
-        raise Exception(
-            'affect_init accepts only matrices. Found dimension = ' + str(
-            r_weight.dim()))
-    kernel_size = None
-    r, i, j, k = init_func(r_weight.size(0), r_weight.size(1), rng,
-        kernel_size, init_criterion)
-    r, i, j, k = torch.from_numpy(r), torch.from_numpy(i), torch.from_numpy(j
-        ), torch.from_numpy(k)
-    r_weight.data = r.type_as(r_weight.data)
-    i_weight.data = i.type_as(i_weight.data)
-    j_weight.data = j.type_as(j_weight.data)
-    k_weight.data = k.type_as(k_weight.data)
 
 
 def quaternion_linear(input, r_weight, i_weight, j_weight, k_weight, bias=True
@@ -759,33 +759,6 @@ def check_input(input):
             str(nb_hidden))
 
 
-def get_r(input):
-    check_input(input)
-    if input.dim() < 4:
-        nb_hidden = input.size()[-1]
-    else:
-        nb_hidden = input.size()[1]
-    if input.dim() == 2:
-        return input.narrow(1, 0, nb_hidden // 4)
-    if input.dim() == 3:
-        return input.narrow(2, 0, nb_hidden // 4)
-    if input.dim() >= 4:
-        return input.narrow(1, 0, nb_hidden // 4)
-
-
-def get_i(input):
-    if input.dim() < 4:
-        nb_hidden = input.size()[-1]
-    else:
-        nb_hidden = input.size()[1]
-    if input.dim() == 2:
-        return input.narrow(1, nb_hidden // 4, nb_hidden // 4)
-    if input.dim() == 3:
-        return input.narrow(2, nb_hidden // 4, nb_hidden // 4)
-    if input.dim() >= 4:
-        return input.narrow(1, nb_hidden // 4, nb_hidden // 4)
-
-
 def get_j(input):
     check_input(input)
     if input.dim() < 4:
@@ -812,6 +785,33 @@ def get_k(input):
         return input.narrow(2, nb_hidden - nb_hidden // 4, nb_hidden // 4)
     if input.dim() >= 4:
         return input.narrow(1, nb_hidden - nb_hidden // 4, nb_hidden // 4)
+
+
+def get_r(input):
+    check_input(input)
+    if input.dim() < 4:
+        nb_hidden = input.size()[-1]
+    else:
+        nb_hidden = input.size()[1]
+    if input.dim() == 2:
+        return input.narrow(1, 0, nb_hidden // 4)
+    if input.dim() == 3:
+        return input.narrow(2, 0, nb_hidden // 4)
+    if input.dim() >= 4:
+        return input.narrow(1, 0, nb_hidden // 4)
+
+
+def get_i(input):
+    if input.dim() < 4:
+        nb_hidden = input.size()[-1]
+    else:
+        nb_hidden = input.size()[1]
+    if input.dim() == 2:
+        return input.narrow(1, nb_hidden // 4, nb_hidden // 4)
+    if input.dim() == 3:
+        return input.narrow(2, nb_hidden // 4, nb_hidden // 4)
+    if input.dim() >= 4:
+        return input.narrow(1, nb_hidden // 4, nb_hidden // 4)
 
 
 class QuaternionLinearFunction(torch.autograd.Function):

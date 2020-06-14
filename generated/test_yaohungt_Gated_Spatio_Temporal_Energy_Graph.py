@@ -449,6 +449,31 @@ class AsyncTFBase(nn.Module):
             vo_t, sv_t)
 
 
+def gtmat(sizes, target):
+    out = torch.zeros(*sizes)
+    for i, t in enumerate(target):
+        t = t.data[0] if type(t) is torch.Tensor else t
+        if len(sizes) == 3:
+            out[(i), (t), :] = 1
+        else:
+            out[i, t] = 1
+    if type(target) is Variable:
+        return Variable(out.cuda())
+    else:
+        return out.cuda()
+
+
+def winsmooth(mat, kernelsize=1):
+    mat.detach()
+    n = mat.shape[0]
+    out = mat.clone()
+    for m in range(n):
+        a = max(0, m - kernelsize)
+        b = min(n - 1, m + kernelsize)
+        out[(m), :] = mat[a:b + 1, :].mean(0)
+    return out
+
+
 def avg(iterator, weight=1.0):
     item, w = next(iterator)
     total = item.clone() * w
@@ -544,3 +569,186 @@ class MessagePassing(object):
         v_x = v_target.data.cpu()
         self.mset(s_x, o_x, v_x, idtime, self.s_storage_gt, self.
             o_storage_gt, self.v_storage_gt)
+
+
+class AsyncTFCriterion(nn.Module, MessagePassing):
+
+    def __init__(self, args):
+        memory_size = 20
+        w_temporal = 0.1
+        w_spatio = 0.1
+        memory_decay = 1.0
+        sigma = 300
+        MessagePassing.__init__(self, memory_size, w_temporal, w_spatio,
+            memory_decay, sigma, args.s_class, args.o_class, args.v_class)
+        nn.Module.__init__(self)
+        self.msg_n = 5
+        self.cross_loss = nn.CrossEntropyLoss()
+        self.bce_loss = nn.BCEWithLogitsLoss()
+        self.BalanceLabels = BalanceLabels()
+        self.winsmooth = 1
+
+    def forward(self, s, o, v, so, ov, vs, ss, oo, vv, so_t, ov_t, vs_t,
+        os_t, vo_t, sv_t, s_target, o_target, v_target, id_time, n=1,
+        synchronous=False):
+        if o_target.dim() == 1:
+            None
+            o_target = Variable(gtmat(o.shape, o_target.data.long()))
+        if v_target.dim() == 1:
+            None
+            v_target = Variable(gtmat(v.shape, v_target.data.long()))
+        o_target = o_target.float()
+        v_target = v_target.float()
+        idtime = list(zip(id_time['id'], id_time['time']))
+        s_msg, o_msg, v_msg = self.get_msg(idtime, 'past')
+        s_fmsg, o_fmsg, v_fmsg = self.get_msg(idtime, 'future')
+        s_loss = self.cross_loss(s, s_target)
+        _qs = torch.nn.Softmax(dim=1)(s)
+        o_loss = self.bce_loss(o, o_target)
+        _qo = torch.nn.Sigmoid()(o)
+        v_loss = self.bce_loss(v, v_target)
+        _qv = torch.nn.Sigmoid()(v)
+        qs_before_softmax = s.clone()
+        qs_before_softmax += torch.bmm(s_msg.unsqueeze(1), ss).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(ss, s_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(o_msg.unsqueeze(1), os_t).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(so_t, o_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(v_msg.unsqueeze(1), vs_t).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(sv_t, v_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qs_before_softmax += torch.bmm(so, _qo.unsqueeze(2)).squeeze(
+            ) * self.w_spatio
+        qs_before_softmax += torch.bmm(_qv.unsqueeze(1), vs).squeeze(
+            ) * self.w_spatio
+        s_loss += self.cross_loss(qs_before_softmax, s_target)
+        qs = torch.nn.Softmax(dim=1)(qs_before_softmax)
+        qo_before_sigmoid = o.clone()
+        qo_before_sigmoid += torch.bmm(o_msg.unsqueeze(1), oo).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(oo, o_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(v_msg.unsqueeze(1), vo_t).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(ov_t, v_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(s_msg.unsqueeze(1), so_t).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(os_t, s_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qo_before_sigmoid += torch.bmm(_qs.unsqueeze(1), so).squeeze(
+            ) * self.w_spatio
+        qo_before_sigmoid += torch.bmm(ov, _qv.unsqueeze(2)).squeeze(
+            ) * self.w_spatio
+        o_loss += self.bce_loss(qo_before_sigmoid, o_target)
+        qo = torch.nn.Sigmoid()(qo_before_sigmoid)
+        qv_before_sigmoid = v.clone()
+        qv_before_sigmoid += torch.bmm(v_msg.unsqueeze(1), vv).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(vv, v_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(s_msg.unsqueeze(1), sv_t).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(vs_t, s_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(o_msg.unsqueeze(1), ov_t).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(vo_t, o_fmsg.unsqueeze(2)).squeeze(
+            ) * self.w_temporal
+        qv_before_sigmoid += torch.bmm(vs, _qs.unsqueeze(2)).squeeze(
+            ) * self.w_spatio
+        qv_before_sigmoid += torch.bmm(_qo.unsqueeze(1), ov).squeeze(
+            ) * self.w_spatio
+        v_loss += self.bce_loss(qv_before_sigmoid, v_target)
+        qv = torch.nn.Sigmoid()(qv_before_sigmoid)
+        self.set_msg(_qs, _qo, _qv, idtime)
+        loss = s_loss + o_loss + v_loss
+        if not synchronous or n > self.msg_n:
+            s_out, o_out, v_out = qs.clone(), qo.clone(), qv.clone()
+            if synchronous:
+                s_out = winsmooth(s_out, kernelsize=self.winsmooth)
+                o_out = winsmooth(o_out, kernelsize=self.winsmooth)
+                v_out = winsmooth(v_out, kernelsize=self.winsmooth)
+            return s_out, o_out, v_out, loss
+        else:
+            return self.forward(s, o, v, so, ov, vs, ss, oo, vv, so_t, ov_t,
+                vs_t, os_t, vo_t, sv_t, s_target, o_target, v_target,
+                id_time, n=n + 1, synchronous=synchronous)
+
+
+def populate(dict, ind, val=0):
+    if ind not in dict:
+        dict[ind] = val
+
+
+class ScaleGrad(Function):
+
+    @staticmethod
+    def forward(ctx, inputs, weights):
+        ctx.save_for_backward(inputs, weights)
+        return inputs.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        _, weights = ctx.saved_variables
+        return grad_output * weights, None
+
+
+class BalanceLabels(nn.Module):
+
+    def __init__(self):
+        super(BalanceLabels, self).__init__()
+        self.zerocounts = {}
+        self.counts = {}
+        self.total = 0
+
+    def update_counts(self, target):
+        n = target.shape[0]
+        tt = target.sum(0)
+        for j, t in enumerate(tt):
+            populate(self.counts, j)
+            populate(self.zerocounts, j)
+            self.counts[j] += t.item()
+            self.zerocounts[j] += n - t.item()
+        self.total += n
+
+    def get_weights(self, target):
+        weights = torch.zeros(*target.shape)
+        for i in range(target.shape[0]):
+            for j in range(target.shape[1]):
+                if target[i, j].item() == 0:
+                    weights[i, j] = self.zerocounts[j]
+                else:
+                    weights[i, j] = self.counts[j]
+        avg = self.total / 2
+        return Variable(avg / weights)
+
+    def forward(self, inputs, target):
+        self.update_counts(target)
+        weights = self.get_weights(target)
+        return ScaleGrad.apply(inputs, weights)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_yaohungt_Gated_Spatio_Temporal_Energy_Graph(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(AsyncTFBase(*[], **{'dim': 4, 's_classes': 4, 'o_classes': 4, 'v_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(BalanceLabels(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_002(self):
+        self._check(BasicModule(*[], **{'inDim': 4, 'outDim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+

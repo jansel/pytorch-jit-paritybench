@@ -650,43 +650,6 @@ class BaseAttention(nn.Module):
         raise NotImplementedError
 
 
-class FairseqIncrementalState(object):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.init_incremental_state()
-
-    def init_incremental_state(self):
-        self._incremental_state_id = str(uuid.uuid4())
-
-    def _get_full_incremental_state_key(self, key: str) ->str:
-        return '{}.{}'.format(self._incremental_state_id, key)
-
-    def get_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str,
-        Optional[Tensor]]]:
-        """Helper for getting incremental state for an nn.Module."""
-        full_key = self._get_full_incremental_state_key(key)
-        if incremental_state is None or full_key not in incremental_state:
-            return None
-        return incremental_state[full_key]
-
-    def set_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[
-        Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
-        """Helper for setting incremental state for an nn.Module."""
-        if incremental_state is not None:
-            full_key = self._get_full_incremental_state_key(key)
-            incremental_state[full_key] = value
-        return incremental_state
-
-
-def with_incremental_state(cls):
-    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.
-        __bases__ if b != FairseqIncrementalState)
-    return cls
-
-
 def safe_cumprod(tensor, dim: int, eps: float=1e-10):
     """
     An implementation of cumprod to prevent precision issue.
@@ -725,6 +688,43 @@ def exclusive_cumprod(tensor, dim: int, eps: float=1e-10):
     else:
         raise RuntimeError('Cumprod on dimension 3 and more is not implemented'
             )
+
+
+class FairseqIncrementalState(object):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.init_incremental_state()
+
+    def init_incremental_state(self):
+        self._incremental_state_id = str(uuid.uuid4())
+
+    def _get_full_incremental_state_key(self, key: str) ->str:
+        return '{}.{}'.format(self._incremental_state_id, key)
+
+    def get_incremental_state(self, incremental_state: Optional[Dict[str,
+        Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str,
+        Optional[Tensor]]]:
+        """Helper for getting incremental state for an nn.Module."""
+        full_key = self._get_full_incremental_state_key(key)
+        if incremental_state is None or full_key not in incremental_state:
+            return None
+        return incremental_state[full_key]
+
+    def set_incremental_state(self, incremental_state: Optional[Dict[str,
+        Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[
+        Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
+        """Helper for setting incremental state for an nn.Module."""
+        if incremental_state is not None:
+            full_key = self._get_full_incremental_state_key(key)
+            incremental_state[full_key] = value
+        return incremental_state
+
+
+def with_incremental_state(cls):
+    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.
+        __bases__ if b != FairseqIncrementalState)
+    return cls
 
 
 @with_incremental_state
@@ -975,48 +975,16 @@ class MeanPoolGatingNetwork(torch.nn.Module):
         return F.log_softmax(x, dim=-1, dtype=torch.float32).type_as(x)
 
 
-MODEL_REGISTRY = {}
-
-
-def register_model(name):
-    """
-    New model types can be added to fairseq with the :func:`register_model`
-    function decorator.
-
-    For example::
-
-        @register_model('lstm')
-        class LSTM(FairseqEncoderDecoderModel):
-            (...)
-
-    .. note:: All models must implement the :class:`BaseFairseqModel` interface.
-        Typically you will extend :class:`FairseqEncoderDecoderModel` for
-        sequence-to-sequence tasks or :class:`FairseqLanguageModel` for
-        language modeling tasks.
-
-    Args:
-        name (str): the name of the model
-    """
-
-    def register_model_cls(cls):
-        if name in MODEL_REGISTRY:
-            raise ValueError('Cannot register duplicate model ({})'.format(
-                name))
-        if not issubclass(cls, BaseFairseqModel):
-            raise ValueError('Model ({}: {}) must extend BaseFairseqModel'.
-                format(name, cls.__name__))
-        MODEL_REGISTRY[name] = cls
-        return cls
-    return register_model_cls
-
-
-ARCH_MODEL_REGISTRY = {}
+ARCH_CONFIG_REGISTRY = {}
 
 
 ARCH_MODEL_INV_REGISTRY = {}
 
 
-ARCH_CONFIG_REGISTRY = {}
+ARCH_MODEL_REGISTRY = {}
+
+
+MODEL_REGISTRY = {}
 
 
 def register_model_architecture(model_name, arch_name):
@@ -2847,13 +2815,10 @@ class BeamableMM(nn.Module):
         self.beam_size = beam_size
 
 
-SPACE_NORMALIZER = re.compile('\\s+')
+CHAR_EOS_IDX = 257
 
 
-def tokenize_line(line):
-    line = SPACE_NORMALIZER.sub(' ', line)
-    line = line.strip()
-    return line.split()
+CHAR_PAD_IDX = 0
 
 
 class PathManager:
@@ -2930,6 +2895,15 @@ def safe_readline(f):
         except UnicodeDecodeError:
             pos -= 1
             f.seek(pos)
+
+
+SPACE_NORMALIZER = re.compile('\\s+')
+
+
+def tokenize_line(line):
+    line = SPACE_NORMALIZER.sub(' ', line)
+    line = line.strip()
+    return line.split()
 
 
 class Dictionary(object):
@@ -3228,12 +3202,6 @@ class Dictionary(object):
         else:
             merge_result(Dictionary._add_file_to_dictionary_single_worker(
                 filename, tokenize, dict.eos_word))
-
-
-CHAR_PAD_IDX = 0
-
-
-CHAR_EOS_IDX = 257
 
 
 class CharacterTokenEmbedder(torch.nn.Module):
@@ -5844,6 +5812,22 @@ class TransformerDecoderLayer(nn.Module):
                 new_order)
 
 
+def PositionalEmbedding(num_embeddings: int, embedding_dim: int,
+    padding_idx: int, learned: bool=False):
+    if learned:
+        if padding_idx is not None:
+            num_embeddings = num_embeddings + padding_idx + 1
+        m = LearnedPositionalEmbedding(num_embeddings, embedding_dim,
+            padding_idx)
+        nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+        if padding_idx is not None:
+            nn.init.constant_(m.weight[padding_idx], 0)
+    else:
+        m = SinusoidalPositionalEmbedding(embedding_dim, padding_idx,
+            init_size=num_embeddings + padding_idx + 1)
+    return m
+
+
 def init_bert_params(module):
     """
     Initialize the weights specific to the BERT Model.
@@ -5869,22 +5853,6 @@ def init_bert_params(module):
         module.q_proj.weight.data.normal_(mean=0.0, std=0.02)
         module.k_proj.weight.data.normal_(mean=0.0, std=0.02)
         module.v_proj.weight.data.normal_(mean=0.0, std=0.02)
-
-
-def PositionalEmbedding(num_embeddings: int, embedding_dim: int,
-    padding_idx: int, learned: bool=False):
-    if learned:
-        if padding_idx is not None:
-            num_embeddings = num_embeddings + padding_idx + 1
-        m = LearnedPositionalEmbedding(num_embeddings, embedding_dim,
-            padding_idx)
-        nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
-        if padding_idx is not None:
-            nn.init.constant_(m.weight[padding_idx], 0)
-    else:
-        m = SinusoidalPositionalEmbedding(embedding_dim, padding_idx,
-            init_size=num_embeddings + padding_idx + 1)
-    return m
 
 
 class TransformerSentenceEncoder(nn.Module):

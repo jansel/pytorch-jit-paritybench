@@ -162,9 +162,6 @@ class MobileNet(nn.Module):
         return x
 
 
-d = 'test.configs'
-
-
 def _get_suffix(filename):
     """a.jpg -> jpg"""
     pos = filename.rfind('.')
@@ -179,6 +176,9 @@ def _load(fp):
         return np.load(fp)
     elif suffix == 'pkl':
         return pickle.load(open(fp, 'rb'))
+
+
+d = 'test.configs'
 
 
 import torch

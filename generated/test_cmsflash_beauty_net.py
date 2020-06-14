@@ -127,17 +127,17 @@ def default_activation():
     return activation
 
 
+def get_perfect_padding(kernel_size, dilation=1):
+    padding = (kernel_size - 1) * dilation // 2
+    return padding
+
+
 def sequential(*modules):
     """
     Returns an nn.Sequential object using modules with None's filtered
     """
     modules = [module for module in modules if module is not None]
     return nn.Sequential(*modules)
-
-
-def get_perfect_padding(kernel_size, dilation=1):
-    padding = (kernel_size - 1) * dilation // 2
-    return padding
 
 
 def conv(in_channels, out_channels, kernel_size=3, stride=1, padding=None,

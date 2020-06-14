@@ -100,6 +100,25 @@ def log_sum_exp(x):
     return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh + 1e-05) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -140,25 +159,6 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh + 1e-05) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def point_form(boxes):
@@ -312,6 +312,18 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_c
 
 
+def center_size(boxes):
+    """ Convert prior_boxes to (cx, cy, w, h)
+    representation for comparison to center-size form ground truth data.
+    Args:
+        boxes: (tensor) point_form boxes
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
+        boxes[:, :2]], 1)
+
+
 def decode(loc, priors, variances):
     """Decode locations from predictions using priors to undo
     the encoding we did for offset regression at train time.
@@ -329,18 +341,6 @@ def decode(loc, priors, variances):
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
-
-
-def center_size(boxes):
-    """ Convert prior_boxes to (cx, cy, w, h)
-    representation for comparison to center-size form ground truth data.
-    Args:
-        boxes: (tensor) point_form boxes
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
 
 
 def refine_match(threshold, truths, priors, variances, labels, loc_t,
@@ -503,61 +503,6 @@ class RefineDetMultiBoxLoss(nn.Module):
         return loss_l, loss_c
 
 
-voc_refinedet = {'320': {'num_classes': 21, 'lr_steps': (80000, 100000, 
-    120000), 'max_iter': 120000, 'feature_maps': [40, 20, 10, 5], 'min_dim':
-    320, 'steps': [8, 16, 32, 64], 'min_sizes': [32, 64, 128, 256],
-    'max_sizes': [], 'aspect_ratios': [[2], [2], [2], [2]], 'variance': [
-    0.1, 0.2], 'clip': True, 'name': 'RefineDet_VOC_320'}, '512': {
-    'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
-    120000, 'feature_maps': [64, 32, 16, 8], 'min_dim': 512, 'steps': [8, 
-    16, 32, 64], 'min_sizes': [32, 64, 128, 256], 'max_sizes': [],
-    'aspect_ratios': [[2], [2], [2], [2]], 'variance': [0.1, 0.2], 'clip': 
-    True, 'name': 'RefineDet_VOC_320'}}
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    """
-
-    def __init__(self, cfg):
-        super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-
-    def forward(self):
-        mean = []
-        for k, f in enumerate(self.feature_maps):
-            for i, j in product(range(f), repeat=2):
-                f_k = self.image_size / self.steps[k]
-                cx = (j + 0.5) / f_k
-                cy = (i + 0.5) / f_k
-                s_k = self.min_sizes[k] / self.image_size
-                mean += [cx, cy, s_k, s_k]
-                if self.max_sizes:
-                    s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.
-                        image_size))
-                    mean += [cx, cy, s_k_prime, s_k_prime]
-                for ar in self.aspect_ratios[k]:
-                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
-                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
-
-
 def nms(boxes, scores, overlap=0.5, top_k=200):
     """Apply non-maximum suppression at test time to avoid detecting too many
     overlapping bounding boxes for a given object.
@@ -678,12 +623,67 @@ class Detect_RefineDet(Function):
         return output
 
 
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, cfg):
+        super(PriorBox, self).__init__()
+        self.image_size = cfg['min_dim']
+        self.num_priors = len(cfg['aspect_ratios'])
+        self.variance = cfg['variance'] or [0.1]
+        self.feature_maps = cfg['feature_maps']
+        self.min_sizes = cfg['min_sizes']
+        self.max_sizes = cfg['max_sizes']
+        self.steps = cfg['steps']
+        self.aspect_ratios = cfg['aspect_ratios']
+        self.clip = cfg['clip']
+        self.version = cfg['name']
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+
+    def forward(self):
+        mean = []
+        for k, f in enumerate(self.feature_maps):
+            for i, j in product(range(f), repeat=2):
+                f_k = self.image_size / self.steps[k]
+                cx = (j + 0.5) / f_k
+                cy = (i + 0.5) / f_k
+                s_k = self.min_sizes[k] / self.image_size
+                mean += [cx, cy, s_k, s_k]
+                if self.max_sizes:
+                    s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.
+                        image_size))
+                    mean += [cx, cy, s_k_prime, s_k_prime]
+                for ar in self.aspect_ratios[k]:
+                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
+                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
+
+
 coco_refinedet = {'num_classes': 201, 'lr_steps': (280000, 360000, 400000),
     'max_iter': 400000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 
     300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [21, 45, 99, 153,
     207, 261], 'max_sizes': [45, 99, 153, 207, 261, 315], 'aspect_ratios':
     [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip':
     True, 'name': 'COCO'}
+
+
+voc_refinedet = {'320': {'num_classes': 21, 'lr_steps': (80000, 100000, 
+    120000), 'max_iter': 120000, 'feature_maps': [40, 20, 10, 5], 'min_dim':
+    320, 'steps': [8, 16, 32, 64], 'min_sizes': [32, 64, 128, 256],
+    'max_sizes': [], 'aspect_ratios': [[2], [2], [2], [2]], 'variance': [
+    0.1, 0.2], 'clip': True, 'name': 'RefineDet_VOC_320'}, '512': {
+    'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
+    120000, 'feature_maps': [64, 32, 16, 8], 'min_dim': 512, 'steps': [8, 
+    16, 32, 64], 'min_sizes': [32, 64, 128, 256], 'max_sizes': [],
+    'aspect_ratios': [[2], [2], [2], [2]], 'variance': [0.1, 0.2], 'clip': 
+    True, 'name': 'RefineDet_VOC_320'}}
 
 
 class RefineDet(nn.Module):

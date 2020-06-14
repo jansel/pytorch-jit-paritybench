@@ -321,6 +321,31 @@ class LastLevelMaxPool(nn.Module):
         return [F.max_pool2d(x, 1, 2, 0)]
 
 
+StageSpec = namedtuple('StageSpec', ['index', 'block_count', 'return_features']
+    )
+
+
+ResNet101FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=
+    r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 23, True), (4, 3, True))
+    )
+
+
+ResNet50FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=r
+    ) for i, c, r in ((1, 3, True), (2, 4, True), (3, 6, True), (4, 3, True)))
+
+
+ResNet50StagesTo4 = (StageSpec(index=i, block_count=c, return_features=r) for
+    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, True)))
+
+
+ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for
+    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, False), (4, 3, True)))
+
+
+_STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5,
+    'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
+
+
 class BottleneckWithFixedBatchNorm(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -401,6 +426,15 @@ def build_backbone(cfg):
     if cfg.MODEL.BACKBONE.CONV_BODY.endswith('-FPN'):
         return build_resnet_fpn_backbone(cfg)
     return build_resnet_backbone(cfg)
+
+
+def build_roi_box_head(cfg):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg)
 
 
 class Matcher(object):
@@ -490,15 +524,6 @@ def build_roi_mask_head(cfg):
         cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_W))
 
 
-def build_roi_box_head(cfg):
-    """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg)
-
-
 def build_roi_heads(cfg):
     roi_heads = []
     if not cfg.MODEL.RPN_ONLY:
@@ -508,6 +533,13 @@ def build_roi_heads(cfg):
     if roi_heads:
         roi_heads = CombinedROIHeads(cfg, roi_heads)
     return roi_heads
+
+
+def build_rpn(cfg):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    return RPNModule(cfg)
 
 
 class ImageList(object):
@@ -566,13 +598,6 @@ def to_image_list(tensors, size_divisible=0):
     else:
         raise TypeError('Unsupported type for to_image_list: {}'.format(
             type(tensors)))
-
-
-def build_rpn(cfg):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    return RPNModule(cfg)
 
 
 class GeneralizedRCNN(nn.Module):
@@ -809,20 +834,10 @@ class BoxCoder(object):
         return pred_boxes
 
 
-def _cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
+FLIP_LEFT_RIGHT = 0
 
 
 FLIP_TOP_BOTTOM = 1
-
-
-FLIP_LEFT_RIGHT = 0
 
 
 class BoxList(object):
@@ -1085,30 +1100,6 @@ class BoxList(object):
         return s
 
 
-def cat_boxlist(bboxes):
-    """
-    Concatenates a list of BoxList (having the same image size) into a
-    single BoxList
-
-    Arguments:
-        bboxes (list[BoxList])
-    """
-    assert isinstance(bboxes, (list, tuple))
-    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
-    size = bboxes[0].size
-    assert all(bbox.size == size for bbox in bboxes)
-    mode = bboxes[0].mode
-    assert all(bbox.mode == mode for bbox in bboxes)
-    fields = set(bboxes[0].fields())
-    assert all(set(bbox.fields()) == fields for bbox in bboxes)
-    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
-        )
-    for field in fields:
-        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
-        cat_boxes.add_field(field, data)
-    return cat_boxes
-
-
 def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='score'):
     """
     Performs non-maximum suppression on a boxlist, with scores specified
@@ -1132,6 +1123,40 @@ def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='score'):
         keep = keep[:max_proposals]
     boxlist = boxlist[keep]
     return boxlist.convert(mode)
+
+
+def _cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def cat_boxlist(bboxes):
+    """
+    Concatenates a list of BoxList (having the same image size) into a
+    single BoxList
+
+    Arguments:
+        bboxes (list[BoxList])
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+    size = bboxes[0].size
+    assert all(bbox.size == size for bbox in bboxes)
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+    fields = set(bboxes[0].fields())
+    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
+        )
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+    return cat_boxes
 
 
 class PostProcessor(nn.Module):
@@ -1655,16 +1680,16 @@ def check_all_done(seqs):
     return True
 
 
-def num2char(num):
-    chars = '_0123456789abcdefghijklmnopqrstuvwxyz'
-    char = chars[num]
-    return char
+cpu_device = torch.device('cpu')
 
 
 gpu_device = torch.device('cuda')
 
 
-cpu_device = torch.device('cpu')
+def num2char(num):
+    chars = '_0123456789abcdefghijklmnopqrstuvwxyz'
+    char = chars[num]
+    return char
 
 
 def reduce_mul(l):
@@ -1995,15 +2020,6 @@ class BufferList(nn.Module):
         return iter(self._buffers.values())
 
 
-def _whctrs(anchor):
-    """Return width, height, x center, and y center for an anchor (window)."""
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
 def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
@@ -2013,6 +2029,15 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """Return width, height, x center, and y center for an anchor (window)."""
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):

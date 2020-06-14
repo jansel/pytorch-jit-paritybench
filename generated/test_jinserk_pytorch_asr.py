@@ -1646,10 +1646,10 @@ class Bottleneck(nn.Module):
         return out
 
 
-HEIGHT = 129
-
-
 WIDTH = 31
+
+
+HEIGHT = 129
 
 
 class ResNet(nn.Module):

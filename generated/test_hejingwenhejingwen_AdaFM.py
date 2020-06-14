@@ -106,20 +106,6 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
-def pad(pad_type, padding):
-    pad_type = pad_type.lower()
-    if padding == 0:
-        return None
-    if pad_type == 'reflect':
-        layer = nn.ReflectionPad2d(padding)
-    elif pad_type == 'replicate':
-        layer = nn.ReplicationPad2d(padding)
-    else:
-        raise NotImplementedError('padding layer [{:s}] is not implemented'
-            .format(pad_type))
-    return layer
-
-
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
@@ -134,6 +120,20 @@ def sequential(*args):
         elif isinstance(module, nn.Module):
             modules.append(module)
     return nn.Sequential(*modules)
+
+
+def pad(pad_type, padding):
+    pad_type = pad_type.lower()
+    if padding == 0:
+        return None
+    if pad_type == 'reflect':
+        layer = nn.ReflectionPad2d(padding)
+    elif pad_type == 'replicate':
+        layer = nn.ReplicationPad2d(padding)
+    else:
+        raise NotImplementedError('padding layer [{:s}] is not implemented'
+            .format(pad_type))
+    return layer
 
 
 def get_valid_padding(kernel_size, dilation):

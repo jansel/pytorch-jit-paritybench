@@ -69,9 +69,6 @@ from torch.nn.utils.rnn import pad_packed_sequence
 import torch.nn.functional as F
 
 
-FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
-
-
 LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
     'ERROR': 'red', 'CRITICAL': 'red,bg_white'}
 
@@ -110,16 +107,19 @@ class ColoredFormatter(logging.Formatter):
         return message
 
 
-STDOUT_LOG_FMT = (
-    '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+FILE_LOG_FMT = (
+    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
     )
 
 
 STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
-FILE_LOG_FMT = (
-    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+STDOUT_LOG_FMT = (
+    '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
     )
 
 
@@ -169,67 +169,51 @@ class BaseModel(nn.Module):
         logger.info('saved model to {}'.format(model_path))
 
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-def adjust_learning_rate(optimizer, new_lr):
-    """
-    Shrinks learning rate by a specified factor.
-
-    :param optimizer: optimizer whose learning rates must be decayed
-    :param new_lr: new learning rate
-    """
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
-
-
 DEFAULT_CONFIG = {'save_path': './saves'}
 
 
-class TextCNN(BaseModel):
+class BaseConfig(object):
 
-    def __init__(self, args):
-        super(TextCNN, self).__init__(args)
-        self.class_num = args.class_num
-        self.chanel_num = 1
-        self.filter_num = args.filter_num
-        self.filter_sizes = args.filter_sizes
-        self.vocabulary_size = args.vocabulary_size
-        self.embedding_dimension = args.embedding_dim
-        self.embedding = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
-        if args.static:
-            logger.info('logging word vectors from {}'.format(args.vector_path)
-                )
-            vectors = Vectors(args.vector_path).vectors
-            self.embedding = self.embedding.from_pretrained(vectors, freeze
-                =not args.non_static).to(DEVICE)
-        if args.multichannel:
-            self.embedding2 = nn.Embedding(self.vocabulary_size, self.
-                embedding_dimension).from_pretrained(args.vectors).to(DEVICE)
-            self.chanel_num += 1
-        else:
-            self.embedding2 = None
-        self.convs = nn.ModuleList([nn.Conv2d(self.chanel_num, self.
-            filter_num, (size, self.embedding_dimension)) for size in self.
-            filter_sizes]).to(DEVICE)
-        self.dropout = nn.Dropout(args.dropout).to(DEVICE)
-        self.fc = nn.Linear(len(self.filter_sizes) * self.filter_num, self.
-            class_num).to(DEVICE)
+    def __init__(self):
+        pass
 
-    def forward(self, x):
-        if self.embedding2:
-            x = torch.stack((self.embedding(x), self.embedding2(x)), dim=1).to(
-                DEVICE)
-        else:
-            x = self.embedding(x).to(DEVICE)
-            x = x.unsqueeze(1)
-        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
-        x = [F.max_pool1d(item, item.size(2)).squeeze(2) for item in x]
-        x = torch.cat(x, 1)
-        x = self.dropout(x)
-        logits = self.fc(x)
-        return logits
+    @staticmethod
+    def load(path=DEFAULT_CONFIG['save_path']):
+        config = None
+        config_path = os.path.join(path, 'config.pkl')
+        with open(config_path, 'rb') as f:
+            config = pickle.load(f)
+        logger.info('loadding config from {}'.format(config_path))
+        return config
+
+    def save(self, path=None):
+        if not hasattr(self, 'save_path'):
+            raise AttributeError(
+                'config object must init save_path attr in init method!')
+        path = path if path else self.save_path
+        if not os.path.isdir(path):
+            os.mkdir(path)
+        config_path = os.path.join(path, 'config.pkl')
+        with open(os.path.join(path, 'config.pkl'), 'wb') as f:
+            pickle.dump(self, f)
+        logger.info('saved config to {}'.format(config_path))
+
+
+class Config(BaseConfig):
+
+    def __init__(self, entity_vocab, rel_vocab, **kwargs):
+        super(Config, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.entity_vocab = entity_vocab
+        self.rel_vocab = rel_vocab
+        self.entity_num = len(self.entity_vocab)
+        self.rel_num = len(self.rel_vocab)
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def light_tokenize(sequence: str):

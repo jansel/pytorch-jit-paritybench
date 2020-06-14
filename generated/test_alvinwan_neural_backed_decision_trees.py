@@ -68,20 +68,20 @@ import math
 import torch.nn.init as init
 
 
-def fwd():
-    """Get file's working directory"""
-    return Path(__file__).parent.absolute()
+def get_roots(G):
+    for node in G.nodes:
+        if len(G.pred[node]) == 0:
+            yield node
 
 
-def hierarchy_to_path_graph(dataset, hierarchy):
-    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
+def get_root(G):
+    roots = list(get_roots(G))
+    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
+    return roots[0]
 
 
-def dataset_to_default_path_graph(dataset):
-    return hierarchy_to_path_graph(dataset, 'induced')
-
-
-DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
+def synset_to_name(synset):
+    return synset.name().split('.')[0]
 
 
 class FakeSynset:
@@ -107,20 +107,6 @@ class FakeSynset:
         return '(generated)'
 
 
-DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
-    200, 'Imagenet1000': 1000}
-
-
-def dataset_to_dummy_classes(dataset):
-    assert dataset in DATASETS
-    num_classes = DATASET_TO_NUM_CLASSES[dataset]
-    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
-
-
-def synset_to_name(synset):
-    return synset.name().split('.')[0]
-
-
 def wnid_to_synset(wnid):
     from nltk.corpus import wordnet as wn
     offset = int(wnid[1:])
@@ -135,13 +121,15 @@ def wnid_to_name(wnid):
     return synset_to_name(wnid_to_synset(wnid))
 
 
-def read_graph(path):
-    if not os.path.exists(path):
-        parent = Path(fwd()).parent
-        print(f'No such file or directory: {path}. Looking in {str(parent)}')
-        path = parent / path
-    with open(path) as f:
-        return node_link_graph(json.load(f))
+def get_non_leaves(G):
+    for node in G.nodes:
+        if len(G.succ[node]) > 0:
+            yield node
+
+
+def fwd():
+    """Get file's working directory"""
+    return Path(__file__).parent.absolute()
 
 
 def get_wnids(path_wnids):
@@ -156,10 +144,13 @@ def get_wnids(path_wnids):
     return wnids
 
 
-def get_non_leaves(G):
-    for node in G.nodes:
-        if len(G.succ[node]) > 0:
-            yield node
+def read_graph(path):
+    if not os.path.exists(path):
+        parent = Path(fwd()).parent
+        print(f'No such file or directory: {path}. Looking in {str(parent)}')
+        path = parent / path
+    with open(path) as f:
+        return node_link_graph(json.load(f))
 
 
 class Node:
@@ -305,20 +296,29 @@ class Node:
         return sum([node.num_classes for node in nodes])
 
 
+def hierarchy_to_path_graph(dataset, hierarchy):
+    return os.path.join(fwd(), f'hierarchies/{dataset}/graph-{hierarchy}.json')
+
+
+def dataset_to_default_path_graph(dataset):
+    return hierarchy_to_path_graph(dataset, 'induced')
+
+
 def dataset_to_default_path_wnids(dataset):
     return os.path.join(fwd(), f'wnids/{dataset}.txt')
 
 
-def get_roots(G):
-    for node in G.nodes:
-        if len(G.pred[node]) == 0:
-            yield node
+DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
 
 
-def get_root(G):
-    roots = list(get_roots(G))
-    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
-    return roots[0]
+DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
+    200, 'Imagenet1000': 1000}
+
+
+def dataset_to_dummy_classes(dataset):
+    assert dataset in DATASETS
+    num_classes = DATASET_TO_NUM_CLASSES[dataset]
+    return [FakeSynset.create_from_offset(i).wnid for i in range(num_classes)]
 
 
 class EmbeddedDecisionRules(nn.Module):
@@ -370,11 +370,6 @@ class EmbeddedDecisionRules(nn.Module):
         return self.get_all_node_outputs(outputs, self.nodes)
 
 
-model_urls = {('wrn28_10', 'TinyImagenet200'):
-    'https://github.com/alvinwan/neural-backed-decision-trees/releases/download/0.0.1/ckpt-TinyImagenet200-wrn28_10.pth'
-    }
-
-
 def coerce_state_dict(state_dict, reference_state_dict):
     if 'net' in state_dict:
         state_dict = state_dict['net']
@@ -398,6 +393,11 @@ def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=
     return load_state_dict_from_url(model_urls[valid_keys[-1]], Path.home() /
         root, progress=progress, check_hash=False, map_location=torch.
         device(device))
+
+
+model_urls = {('wrn28_10', 'TinyImagenet200'):
+    'https://github.com/alvinwan/neural-backed-decision-trees/releases/download/0.0.1/ckpt-TinyImagenet200-wrn28_10.pth'
+    }
 
 
 class BasicBlock(nn.Module):

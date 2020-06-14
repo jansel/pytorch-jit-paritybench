@@ -400,6 +400,20 @@ class Convolution(nn.Module):
         return self.relu(self.conv(x))
 
 
+def drop_connect(inputs, p, training):
+    """ Drop connect. """
+    if not training:
+        return inputs
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
+        device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    output = inputs / keep_prob * binary_tensor
+    return output
+
+
 def get_width_and_height_from_size(x):
     """ Obtains width and height from a int or tuple """
     if isinstance(x, int):
@@ -423,20 +437,6 @@ def calculate_output_image_size(input_image_size, stride):
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
     return [image_height, image_width]
-
-
-def drop_connect(inputs, p, training):
-    """ Drop connect. """
-    if not training:
-        return inputs
-    batch_size = inputs.shape[0]
-    keep_prob = 1 - p
-    random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
-    binary_tensor = torch.floor(random_tensor)
-    output = inputs / keep_prob * binary_tensor
-    return output
 
 
 def get_same_padding_conv2d(image_size=None):

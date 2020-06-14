@@ -221,10 +221,10 @@ class MultiHeadAttention(nn.Module):
         return out.transpose(1, 2)
 
 
-_global_config['dropout_char'] = 0.5
+_global_config['char_dim'] = 4
 
 
-dropout_char = config.dropout_char
+d_char = config.char_dim
 
 
 _global_config['glove_dim'] = 4
@@ -233,10 +233,10 @@ _global_config['glove_dim'] = 4
 d_word = config.glove_dim
 
 
-_global_config['char_dim'] = 4
+_global_config['dropout_char'] = 0.5
 
 
-d_char = config.char_dim
+dropout_char = config.dropout_char
 
 
 class Embedding(nn.Module):

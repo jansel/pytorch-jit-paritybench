@@ -119,6 +119,17 @@ class ScaledDotProductAttention(nn.Module):
         return output, attn
 
 
+IGNORE_ID = -1
+
+
+def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(pad_idx)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
+
+
 def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
     """padding position is set to 0, either use input_lengths or pad_idx
     """
@@ -142,15 +153,6 @@ def get_attn_pad_mask(padded_input, input_lengths, expand_length):
     return attn_mask
 
 
-def pad_list(xs, pad_value):
-    n_batch = len(xs)
-    max_len = max(x.size(0) for x in xs)
-    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
-    for i in range(n_batch):
-        pad[(i), :xs[i].size(0)] = xs[i]
-    return pad
-
-
 def get_subsequent_mask(seq):
     """ For masking out the subsequent info. """
     sz_b, len_s = seq.size()
@@ -160,15 +162,13 @@ def get_subsequent_mask(seq):
     return subsequent_mask
 
 
-def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(pad_idx)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
-
-
-IGNORE_ID = -1
+def pad_list(xs, pad_value):
+    n_batch = len(xs)
+    max_len = max(x.size(0) for x in xs)
+    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
+    for i in range(n_batch):
+        pad[(i), :xs[i].size(0)] = xs[i]
+    return pad
 
 
 class Decoder(nn.Module):

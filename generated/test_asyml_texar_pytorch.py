@@ -529,18 +529,18 @@ class LabelSmoothingLoss(nn.Module):
             average_across_batch=False, sum_over_timesteps=False)
 
 
+def MultivariateNormalDiag(loc, scale_diag):
+    if loc.dim() < 1:
+        raise ValueError('loc must be at least one-dimensional.')
+    return Independent(Normal(loc, scale_diag), 1)
+
+
 def kl_divergence(means: Tensor, logvars: Tensor) ->Tensor:
     """Compute the KL divergence between Gaussian distribution
     """
     kl_cost = -0.5 * (logvars - means ** 2 - torch.exp(logvars) + 1.0)
     kl_cost = torch.mean(kl_cost, 0)
     return torch.sum(kl_cost)
-
-
-def MultivariateNormalDiag(loc, scale_diag):
-    if loc.dim() < 1:
-        raise ValueError('loc must be at least one-dimensional.')
-    return Independent(Normal(loc, scale_diag), 1)
 
 
 State = TypeVar('State')

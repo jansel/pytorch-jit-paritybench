@@ -507,6 +507,14 @@ class CharRNNModel(nn.Module):
         self.onnx_export_model = True
 
 
+def Linear(in_features, out_features, bias=True):
+    m = nn.Linear(in_features, out_features, bias)
+    nn.init.xavier_uniform_(m.weight)
+    if bias:
+        nn.init.constant_(m.bias, 0.0)
+    return m
+
+
 def NonlinearLayer(in_features, out_features, bias=True, activation_fn=nn.ReLU
     ):
     """Weight-normalized non-linear layer (input: N x T x C)"""
@@ -515,14 +523,6 @@ def NonlinearLayer(in_features, out_features, bias=True, activation_fn=nn.ReLU
     if bias:
         m.bias.data.uniform_(-0.1, 0.1)
     return nn.Sequential(m, activation_fn())
-
-
-def Linear(in_features, out_features, bias=True):
-    m = nn.Linear(in_features, out_features, bias)
-    nn.init.xavier_uniform_(m.weight)
-    if bias:
-        nn.init.constant_(m.bias, 0.0)
-    return m
 
 
 class ContextEmbedding(nn.Module):
@@ -790,28 +790,6 @@ class TransformerEmbedding(nn.Module):
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
         return x, encoder_padding_mask, positions
-
-
-def load_to_gpu(path: str) ->Dict[str, Any]:
-    """
-    Similar to load_to_cpu, but load model to cuda
-    """
-    with PathManager.open(path, 'rb') as f:
-        state = torch.load(f, map_location=lambda s, _: torch.serialization
-            .default_restore_location(s, 'cuda'))
-    return state
-
-
-def load_to_cpu(path: str) ->Dict[str, Any]:
-    """
-    This is just fairseq's utils.load_checkpoint_to_cpu(), except we don't try
-    to upgrade the state dict for backward compatibility - to make cases
-    where we only care about loading the model params easier to unit test.
-    """
-    with PathManager.open(path, 'rb') as f:
-        state = torch.load(f, map_location=lambda s, _: torch.serialization
-            .default_restore_location(s, 'cpu'))
-    return state
 
 
 class DecoderBatchedStepEnsemble(nn.Module):
@@ -1804,6 +1782,19 @@ class IterativeRefinementGenerateAndDecode(torch.jit.ScriptModule):
 
 
 @torch.jit.script
+def finalize_hypos_loop_attns(finalized_attns_list: List[Tensor],
+    finalized_alignments_list: List[Tensor], finalized_idxs, pad_idx: int,
+    finalized_tokens, finalized_scores, finalized_attn):
+    for i in range(finalized_idxs.size(0)):
+        cutoff = finalized_tokens[i].ne(pad_idx)
+        hypo_attn = finalized_attn[i][cutoff]
+        alignment = hypo_attn.max(dim=1)[1]
+        finalized_attns_list[finalized_idxs[i]] = hypo_attn
+        finalized_alignments_list[finalized_idxs[i]] = alignment
+    return finalized_attns_list, finalized_alignments_list
+
+
+@torch.jit.script
 def finalize_hypos_loop_scores(finalized_scores_list: List[Tensor],
     finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores):
     for i in range(finalized_idxs.size(0)):
@@ -1824,13 +1815,6 @@ def finalize_hypos_loop_tokens(finalized_tokens_list: List[Tensor],
 
 
 @torch.jit.script
-def last_step(step: int, max_iter: int, terminated):
-    if step == max_iter:
-        terminated.fill_(1)
-    return terminated
-
-
-@torch.jit.script
 def is_a_loop(pad_idx: int, x, y, s, a):
     b, l_x, l_y = x.size(0), x.size(1), y.size(1)
     if l_x > l_y:
@@ -1844,16 +1828,10 @@ def is_a_loop(pad_idx: int, x, y, s, a):
 
 
 @torch.jit.script
-def finalize_hypos_loop_attns(finalized_attns_list: List[Tensor],
-    finalized_alignments_list: List[Tensor], finalized_idxs, pad_idx: int,
-    finalized_tokens, finalized_scores, finalized_attn):
-    for i in range(finalized_idxs.size(0)):
-        cutoff = finalized_tokens[i].ne(pad_idx)
-        hypo_attn = finalized_attn[i][cutoff]
-        alignment = hypo_attn.max(dim=1)[1]
-        finalized_attns_list[finalized_idxs[i]] = hypo_attn
-        finalized_alignments_list[finalized_idxs[i]] = alignment
-    return finalized_attns_list, finalized_alignments_list
+def last_step(step: int, max_iter: int, terminated):
+    if step == max_iter:
+        terminated.fill_(1)
+    return terminated
 
 
 class IterativeRefinementGenerator(nn.Module):
@@ -1991,25 +1969,25 @@ class MultiDecoderCombinationStrategy(nn.Module):
         raise NotImplementedError()
 
 
-def split_heads(X, nheads):
+def combine_heads(X):
     """
-    Split heads:
-    1) Split (reshape) last dimension (size d_model) into nheads, d_head
-    2) Transpose X from (batch size, sequence length, nheads, d_head) to
-        (batch size, nheads, sequence length, d_head)
+    Combine heads (the inverse of split heads):
+    1) Transpose X from (batch size, nheads, sequence length, d_head) to
+        (batch size, sequence length, nheads, d_head)
+    2) Combine (reshape) last 2 dimensions (nheads, d_head) into 1 (d_model)
 
     Inputs:
-      X : [batch size, sequence length, nheads * d_head]
+      X : [batch size * nheads, sequence length, d_head]
       nheads : integer
+      d_head : integer
+
     Outputs:
-      [batch size,  nheads, sequence length, d_head]
+      [batch_size, seq_len, d_model]
 
     """
-    last_dim = X.shape[-1]
-    assert last_dim % nheads == 0
-    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads]
-        )
-    return X_last_dim_split.transpose(1, 2)
+    X = X.transpose(1, 2)
+    nheads, d_head = X.shape[-2:]
+    return X.contiguous().view(list(X.shape[:-2]) + [nheads * d_head])
 
 
 def create_src_lengths_mask(batch_size, src_lengths):
@@ -2064,25 +2042,25 @@ def scaled_dot_prod_attn(query, key, value, unseen_mask=False, src_lengths=None
     return torch.matmul(p_attn, value), p_attn
 
 
-def combine_heads(X):
+def split_heads(X, nheads):
     """
-    Combine heads (the inverse of split heads):
-    1) Transpose X from (batch size, nheads, sequence length, d_head) to
-        (batch size, sequence length, nheads, d_head)
-    2) Combine (reshape) last 2 dimensions (nheads, d_head) into 1 (d_model)
+    Split heads:
+    1) Split (reshape) last dimension (size d_model) into nheads, d_head
+    2) Transpose X from (batch size, sequence length, nheads, d_head) to
+        (batch size, nheads, sequence length, d_head)
 
     Inputs:
-      X : [batch size * nheads, sequence length, d_head]
+      X : [batch size, sequence length, nheads * d_head]
       nheads : integer
-      d_head : integer
-
     Outputs:
-      [batch_size, seq_len, d_model]
+      [batch size,  nheads, sequence length, d_head]
 
     """
-    X = X.transpose(1, 2)
-    nheads, d_head = X.shape[-2:]
-    return X.contiguous().view(list(X.shape[:-2]) + [nheads * d_head])
+    last_dim = X.shape[-1]
+    assert last_dim % nheads == 0
+    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads]
+        )
+    return X_last_dim_split.transpose(1, 2)
 
 
 class MultiheadAttention(nn.Module):
@@ -2865,6 +2843,9 @@ class FeedForwardNetwork(nn.Module):
             self.dropout)
 
 
+logger = logging.getLogger(__name__)
+
+
 def select_top_candidate_per_word(source_index, target_indices_with_prob,
     counter_per_word, max_translation_candidates_per_word,
     translation_candidates, translation_candidates_set):
@@ -2881,9 +2862,6 @@ def select_top_candidate_per_word(source_index, target_indices_with_prob,
         counter_per_word[source_index] += 1
         translation_candidates_saved += 1
     return translation_candidates_saved
-
-
-logger = logging.getLogger(__name__)
 
 
 def get_translation_candidates(src_dict, dst_dict, lexical_dictionaries,

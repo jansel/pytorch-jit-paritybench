@@ -194,11 +194,6 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-def clones(module, N):
-    """Produce N identical layers."""
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
 def attention(query, key, value, mask=None, dropout=None):
     """
         Compute 'Scaled Dot Product Attention'
@@ -212,6 +207,11 @@ def attention(query, key, value, mask=None, dropout=None):
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
+
+
+def clones(module, N):
+    """Produce N identical layers."""
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class MHPooling(nn.Module):

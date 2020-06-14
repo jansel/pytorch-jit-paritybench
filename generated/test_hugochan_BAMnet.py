@@ -72,6 +72,12 @@ import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
 
 
+def to_cuda(x, use_cuda=True):
+    if use_cuda and torch.cuda.is_available():
+        x = x.cuda()
+    return x
+
+
 class SeqEncoder(object):
     """Question Encoder"""
 
@@ -91,12 +97,6 @@ class SeqEncoder(object):
         else:
             raise RuntimeError('Unknown SeqEncoder type: {}'.format(
                 seq_enc_type))
-
-
-def to_cuda(x, use_cuda=True):
-    if use_cuda and torch.cuda.is_available():
-        x = x.cuda()
-    return x
 
 
 class Entnet(nn.Module):
@@ -311,15 +311,15 @@ class GRUStep(nn.Module):
         return h_state
 
 
-INF = 1e+20
-
-
 def create_mask(x, N, use_cuda=True):
     x = x.data
     mask = np.zeros((x.size(0), N))
     for i in range(x.size(0)):
         mask[(i), :x[i]] = 1
     return to_cuda(torch.Tensor(mask), use_cuda)
+
+
+INF = 1e+20
 
 
 class BAMnet(nn.Module):

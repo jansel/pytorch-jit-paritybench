@@ -62,21 +62,6 @@ import numpy as np
 from torch.autograd import Variable
 
 
-model_urls = {'older':
-    'https://www.dropbox.com/s/8irg2hguatwdm6v/older.pth?dl=1', 'younger':
-    'https://www.dropbox.com/s/drsx7slvmjdpwuq/younger.pth?dl=1',
-    'facehair':
-    'https://www.dropbox.com/s/xjd2xh53vw82ces/facehair.pth?dl=1',
-    'masculinization':
-    'https://www.dropbox.com/s/20q30jnn02qn7n0/masculinization.pth?dl=1',
-    'feminization':
-    'https://www.dropbox.com/s/5timkh7fuclwk9m/feminization.pth?dl=1',
-    'vgg19g':
-    'https://www.dropbox.com/s/4lbt58k10o84l5h/vgg19g-4aff041b.pth?dl=1',
-    'vgg_decoder_res':
-    'https://www.dropbox.com/s/t8vsobxz8avsmj0/decoder_res-9d1e0fe5.pth?dl=1'}
-
-
 class BaseModel(object):
 
     def name(self):
@@ -140,6 +125,21 @@ class BaseModel(object):
             scheduler.step()
         lr = self.optimizers[0].param_groups[0]['lr']
         print('learning rate = %.7f' % lr)
+
+
+model_urls = {'older':
+    'https://www.dropbox.com/s/8irg2hguatwdm6v/older.pth?dl=1', 'younger':
+    'https://www.dropbox.com/s/drsx7slvmjdpwuq/younger.pth?dl=1',
+    'facehair':
+    'https://www.dropbox.com/s/xjd2xh53vw82ces/facehair.pth?dl=1',
+    'masculinization':
+    'https://www.dropbox.com/s/20q30jnn02qn7n0/masculinization.pth?dl=1',
+    'feminization':
+    'https://www.dropbox.com/s/5timkh7fuclwk9m/feminization.pth?dl=1',
+    'vgg19g':
+    'https://www.dropbox.com/s/4lbt58k10o84l5h/vgg19g-4aff041b.pth?dl=1',
+    'vgg_decoder_res':
+    'https://www.dropbox.com/s/t8vsobxz8avsmj0/decoder_res-9d1e0fe5.pth?dl=1'}
 
 
 class VGG(nn.Module, BaseModel):
@@ -288,6 +288,9 @@ class vgg_decoder(base_network.BaseModel, nn.Module):
         self.load_network(pretrain_path, self.model, 'recon', epoch_label)
 
 
+facelet_path = 'facelet_bank'
+
+
 class opt(object):
 
     def __init__(self, **entries):
@@ -301,9 +304,6 @@ class opt(object):
         d = vars(o)
         self.__dict__.update(d)
         return self
-
-
-facelet_path = 'facelet_bank'
 
 
 class simpleCNNGenerator(nn.Module):

@@ -115,13 +115,10 @@ class cross_entropy2d(nn.Module):
         return loss, Variable(torch.FloatTensor([total_valid_pixel]))
 
 
-mom_bn = 0.01
+dilation = {'16': 1, '8': 2}
 
 
 checkpoint = 'pretrained/SUNets'
-
-
-dilation = {'16': 1, '8': 2}
 
 
 class UNetConv(nn.Sequential):
@@ -346,14 +343,9 @@ class Stackedunet_imagenet(nn.Module):
         return out
 
 
-def stackedunet128(output_stride='32'):
+def stackedunet64(output_stride='32'):
     return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
-        128, num_classes=1000, depth=4, ost=output_stride)
-
-
-def stackedunet7128(output_stride='32'):
-    return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
-        128, num_classes=1000, depth=7, ost=output_stride)
+        64, num_classes=1000, depth=4, ost=output_stride)
 
 
 def prediction_stat(outputs, labels, n_classes):
@@ -372,6 +364,14 @@ def prediction_stat(outputs, labels, n_classes):
             classwise_gtpixels += [torch.sum(mask1)]
             classwise_predpixels += [torch.sum(mask2)]
     return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+
+
+mom_bn = 0.01
+
+
+def stackedunet7128(output_stride='32'):
+    return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
+        128, num_classes=1000, depth=7, ost=output_stride)
 
 
 class degrid_sunet7128(nn.Module):

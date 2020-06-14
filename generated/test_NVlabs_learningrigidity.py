@@ -177,15 +177,15 @@ def deconv(in_planes, out_planes, kernel_size=4, stride=2, padding=1):
         padding, bias=True)
 
 
-def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
-
-
 def conv(inplanes, outplanes, ks=3, st=1):
     return nn.Sequential(nn.Conv2d(inplanes, outplanes, kernel_size=ks,
         stride=st, padding=(ks - 1) // 2, bias=True), nn.BatchNorm2d(
         outplanes), nn.ReLU(inplace=True))
+
+
+def predict_flow(in_planes):
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
+        =True)
 
 
 class PWCDCNet(nn.Module):

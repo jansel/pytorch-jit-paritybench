@@ -405,6 +405,19 @@ class MeshUnpool(nn.Module):
         return torch.matmul(features, unroll_mat)
 
 
+def build_v(x, meshes):
+    mesh = meshes[0]
+    x = x.reshape(len(meshes), 2, 3, -1)
+    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3],
+        dtype=x.dtype, device=x.device)
+    x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
+    vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
+    vs_sum = torch.sum(vs_to_sum, dim=2)
+    nvs = mesh.nvs
+    vs = vs_sum / nvs[(None), :, (None)]
+    return vs
+
+
 def init_weights(net, init_type, init_gain):
 
     def init_func(m):
@@ -427,19 +440,6 @@ def init_weights(net, init_type, init_gain):
             init.normal_(m.weight.data, 1.0, init_gain)
             init.constant_(m.bias.data, 0.0)
     net.apply(init_func)
-
-
-def build_v(x, meshes):
-    mesh = meshes[0]
-    x = x.reshape(len(meshes), 2, 3, -1)
-    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3],
-        dtype=x.dtype, device=x.device)
-    x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
-    vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
-    vs_sum = torch.sum(vs_to_sum, dim=2)
-    nvs = mesh.nvs
-    vs = vs_sum / nvs[(None), :, (None)]
-    return vs
 
 
 class PriorNet(nn.Module):

@@ -40,20 +40,20 @@ from torch.autograd import Variable
 from torch import optim
 
 
-def deconv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
-    """Custom deconvolutional layer for simplicity."""
+def conv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
+    """Custom convolutional layer for simplicity."""
     layers = []
-    layers.append(nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias
-        =False))
+    layers.append(nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=False))
     if bn:
         layers.append(nn.BatchNorm2d(c_out))
     return nn.Sequential(*layers)
 
 
-def conv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
-    """Custom convolutional layer for simplicity."""
+def deconv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
+    """Custom deconvolutional layer for simplicity."""
     layers = []
-    layers.append(nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=False))
+    layers.append(nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias
+        =False))
     if bn:
         layers.append(nn.BatchNorm2d(c_out))
     return nn.Sequential(*layers)

@@ -157,6 +157,9 @@ class rpn_graph(nn.Module):
         return rpn_class_logits, rpn_probs, rpn_bbox
 
 
+time_print = False
+
+
 def log2_graph(x):
     """Implementatin of Log2. pytorch doesn't have a native implemenation."""
     return torch.div(torch.log(x), math.log(2.0))
@@ -226,9 +229,6 @@ def ROIAlign(feature_maps, rois, config, pool_size, mode='bilinear'):
         pool_size)
     pooled = Variable(pooled).cuda()
     return pooled
-
-
-time_print = False
 
 
 class fpn_classifier_graph(nn.Module):
@@ -395,25 +395,19 @@ class build_fpn_mask_graph(nn.Module):
         return x
 
 
-def apply_box_deltas_graph(boxes, deltas):
-    """Applies the given deltas to the given boxes.
-    boxes: [N, 4] where each row is y1, x1, y2, x2
-    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
+def clip_boxes_graph(boxes, window):
     """
-    height = boxes[:, :, (2)] - boxes[:, :, (0)]
-    width = boxes[:, :, (3)] - boxes[:, :, (1)]
-    center_y = boxes[:, :, (0)] + 0.5 * height
-    center_x = boxes[:, :, (1)] + 0.5 * width
-    center_y += deltas[:, :, (0)] * height
-    center_x += deltas[:, :, (1)] * width
-    height *= torch.exp(deltas[:, :, (2)])
-    width *= torch.exp(deltas[:, :, (3)])
-    y1 = center_y - 0.5 * height
-    x1 = center_x - 0.5 * width
-    y2 = y1 + height
-    x2 = x1 + width
-    result = [y1, x1, y2, x2]
-    return result
+    boxes: [N, 4] each row is y1, x1, y2, x2
+    window: [4] in the form y1, x1, y2, x2
+    """
+    wy1, wx1, wy2, wx2 = window
+    y1, x1, y2, x2 = boxes
+    y1 = torch.max(torch.min(y1, wy2), wy1)
+    x1 = torch.max(torch.min(x1, wx2), wx1)
+    y2 = torch.max(torch.min(y2, wy2), wy1)
+    x2 = torch.max(torch.min(x2, wx2), wx1)
+    clipped = torch.stack([x1, y1, x2, y2], dim=2)
+    return clipped
 
 
 def rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox, config):
@@ -439,22 +433,17 @@ def rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox, config):
     return loss
 
 
-def mrcnn_class_loss(target_class_ids, pred_class_logits, active_class_ids,
-    config):
-    """Loss for the classifier head of Mask RCNN.
-    target_class_ids: [batch, num_rois]. Integer class IDs. Uses zero
-        padding to fill in the array.
-    pred_class_logits: [batch, num_rois, num_classes]
-    active_class_ids: [batch, num_classes]. Has a value of 1 for
-        classes that are in the dataset of the image, and 0
-        for classes that are not in the dataset.
+def mrcnn_mask_loss(target_masks, target_class_ids, pred_masks_logits):
+    """Mask binary cross-entropy loss for the masks head.
+
+    target_masks: [batch, num_rois, height, width].
+        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
+    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
+    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
+                with values from 0 to 1.
     """
-    pred_class_logits = pred_class_logits.contiguous().view(-1, config.
-        NUM_CLASSES)
-    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.
-        cuda.LongTensor)
-    loss = F.cross_entropy(pred_class_logits, target_class_ids, weight=None,
-        size_average=True)
+    target_class_ids = target_class_ids.view(-1)
+    loss = F.binary_cross_entropy_with_logits(pred_masks_logits, target_masks)
     return loss
 
 
@@ -504,19 +493,25 @@ def stage2_target(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
         batch_mrcnn_mask)
 
 
-def clip_boxes_graph(boxes, window):
+def apply_box_deltas_graph(boxes, deltas):
+    """Applies the given deltas to the given boxes.
+    boxes: [N, 4] where each row is y1, x1, y2, x2
+    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
     """
-    boxes: [N, 4] each row is y1, x1, y2, x2
-    window: [4] in the form y1, x1, y2, x2
-    """
-    wy1, wx1, wy2, wx2 = window
-    y1, x1, y2, x2 = boxes
-    y1 = torch.max(torch.min(y1, wy2), wy1)
-    x1 = torch.max(torch.min(x1, wx2), wx1)
-    y2 = torch.max(torch.min(y2, wy2), wy1)
-    x2 = torch.max(torch.min(x2, wx2), wx1)
-    clipped = torch.stack([x1, y1, x2, y2], dim=2)
-    return clipped
+    height = boxes[:, :, (2)] - boxes[:, :, (0)]
+    width = boxes[:, :, (3)] - boxes[:, :, (1)]
+    center_y = boxes[:, :, (0)] + 0.5 * height
+    center_x = boxes[:, :, (1)] + 0.5 * width
+    center_y += deltas[:, :, (0)] * height
+    center_x += deltas[:, :, (1)] * width
+    height *= torch.exp(deltas[:, :, (2)])
+    width *= torch.exp(deltas[:, :, (3)])
+    y1 = center_y - 0.5 * height
+    x1 = center_x - 0.5 * width
+    y2 = y1 + height
+    x2 = x1 + width
+    result = [y1, x1, y2, x2]
+    return result
 
 
 def rpn_class_loss(rpn_match, rpn_class_logits):
@@ -537,17 +532,22 @@ def rpn_class_loss(rpn_match, rpn_class_logits):
     return loss
 
 
-def mrcnn_mask_loss(target_masks, target_class_ids, pred_masks_logits):
-    """Mask binary cross-entropy loss for the masks head.
-
-    target_masks: [batch, num_rois, height, width].
-        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
-    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
-    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
-                with values from 0 to 1.
+def mrcnn_class_loss(target_class_ids, pred_class_logits, active_class_ids,
+    config):
+    """Loss for the classifier head of Mask RCNN.
+    target_class_ids: [batch, num_rois]. Integer class IDs. Uses zero
+        padding to fill in the array.
+    pred_class_logits: [batch, num_rois, num_classes]
+    active_class_ids: [batch, num_classes]. Has a value of 1 for
+        classes that are in the dataset of the image, and 0
+        for classes that are not in the dataset.
     """
-    target_class_ids = target_class_ids.view(-1)
-    loss = F.binary_cross_entropy_with_logits(pred_masks_logits, target_masks)
+    pred_class_logits = pred_class_logits.contiguous().view(-1, config.
+        NUM_CLASSES)
+    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.
+        cuda.LongTensor)
+    loss = F.cross_entropy(pred_class_logits, target_class_ids, weight=None,
+        size_average=True)
     return loss
 
 

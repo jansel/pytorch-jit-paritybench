@@ -278,25 +278,6 @@ class DeformConvNet(nn.Module):
             .parameters())
 
 
-def np_repeat_2d(a, repeats):
-    """Tensorflow version of np.repeat for 2D"""
-    assert len(a.shape) == 2
-    a = np.expand_dims(a, 0)
-    a = np.tile(a, [repeats, 1, 1])
-    return a
-
-
-def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
-    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
-    grid = np.stack(grid, axis=-1)
-    grid = grid.reshape(-1, 2)
-    grid = np_repeat_2d(grid, batch_size)
-    grid = torch.from_numpy(grid).type(dtype)
-    if cuda:
-        grid = grid.cuda()
-    return Variable(grid, requires_grad=False)
-
-
 def th_flatten(a):
     """Flatten tensor"""
     return a.contiguous().view(a.nelement())
@@ -352,6 +333,25 @@ def th_batch_map_coordinates(input, coords, order=1):
     vals_b = coords_offset_lt[..., 0] * (vals_rb - vals_lb) + vals_lb
     mapped_vals = coords_offset_lt[..., 1] * (vals_b - vals_t) + vals_t
     return mapped_vals
+
+
+def np_repeat_2d(a, repeats):
+    """Tensorflow version of np.repeat for 2D"""
+    assert len(a.shape) == 2
+    a = np.expand_dims(a, 0)
+    a = np.tile(a, [repeats, 1, 1])
+    return a
+
+
+def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
+    grid = np.meshgrid(range(input_height), range(input_width), indexing='ij')
+    grid = np.stack(grid, axis=-1)
+    grid = grid.reshape(-1, 2)
+    grid = np_repeat_2d(grid, batch_size)
+    grid = torch.from_numpy(grid).type(dtype)
+    if cuda:
+        grid = grid.cuda()
+    return Variable(grid, requires_grad=False)
 
 
 def th_batch_map_offsets(input, offsets, grid=None, order=1):
@@ -905,16 +905,16 @@ class Depth3DGridGen_with_mask(Module):
 defines = []
 
 
+extra_objects = ['src/nms_cuda_kernel.cu.o']
+
+
 headers = []
-
-
-with_cuda = False
 
 
 sources = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+with_cuda = False
 
 
 class RoIPoolFunction(Function):
@@ -1172,15 +1172,6 @@ class topdown_lateral_module(nn.Module):
         return lat + td
 
 
-def _whctrs(anchor):
-    """Return width, height, x center, and y center for an anchor (window)."""
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
 def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
@@ -1190,6 +1181,15 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """Return width, height, x center, and y center for an anchor (window)."""
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):
@@ -1375,13 +1375,6 @@ class FocalLoss(nn.Module):
         return loss
 
 
-def freeze_params(m):
-    """Freeze all the weights by setting requires_grad to False
-    """
-    for p in m.parameters():
-        p.requires_grad = False
-
-
 _global_config['RESNETS'] = 4
 
 
@@ -1419,6 +1412,13 @@ def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
         inplanes = outplanes
         stride = 1
     return nn.Sequential(*res_blocks), outplanes
+
+
+def freeze_params(m):
+    """Freeze all the weights by setting requires_grad to False
+    """
+    for p in m.parameters():
+        p.requires_grad = False
 
 
 def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
@@ -2461,6 +2461,26 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         return x
 
 
+_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
+
+
+def check_inference(net_func):
+
+    @wraps(net_func)
+    def wrapper(self, *args, **kwargs):
+        if not self.training:
+            if cfg.PYTORCH_VERSION_LESS_THAN_040:
+                return net_func(self, *args, **kwargs)
+            else:
+                with torch.no_grad():
+                    return net_func(self, *args, **kwargs)
+        else:
+            raise ValueError(
+                'You should call this function only on inference.Set the network in inference mode by net.eval().'
+                )
+    return wrapper
+
+
 def compare_state_dict(sa, sb):
     if sa.keys() != sb.keys():
         return False
@@ -2500,33 +2520,13 @@ def get_func(func_name):
         raise
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
-def check_inference(net_func):
-
-    @wraps(net_func)
-    def wrapper(self, *args, **kwargs):
-        if not self.training:
-            if cfg.PYTORCH_VERSION_LESS_THAN_040:
-                return net_func(self, *args, **kwargs)
-            else:
-                with torch.no_grad():
-                    return net_func(self, *args, **kwargs)
-        else:
-            raise ValueError(
-                'You should call this function only on inference.Set the network in inference mode by net.eval().'
-                )
-    return wrapper
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['TRAIN'] = 4
 
 
 _global_config['CASCADE_RCNN'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class RoIAlign(Module):

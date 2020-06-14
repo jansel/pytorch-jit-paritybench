@@ -768,15 +768,10 @@ class Critic(nn.Module):
         self.value.weight.data.uniform_(-stdv, stdv)
 
 
+START = 1
+
+
 STOP = 2
-
-
-def log_sum_exp(input, keepdim=False):
-    assert input.dim() == 2
-    max_scores, _ = input.max(dim=-1, keepdim=True)
-    output = input - max_scores
-    return max_scores + torch.log(torch.sum(torch.exp(output), dim=-1,
-        keepdim=keepdim))
 
 
 def gather_index(encode, k1, k2, n=6):
@@ -791,7 +786,12 @@ def gather_index(encode, k1, k2, n=6):
         idx in range(encode.size(0))], dim=0)
 
 
-START = 1
+def log_sum_exp(input, keepdim=False):
+    assert input.dim() == 2
+    max_scores, _ = input.max(dim=-1, keepdim=True)
+    output = input - max_scores
+    return max_scores + torch.log(torch.sum(torch.exp(output), dim=-1,
+        keepdim=keepdim))
 
 
 class CRF(nn.Module):
@@ -1258,7 +1258,25 @@ class AtteMatchLay(nn.Module):
         return temp.view(bsz, sent_len, self.mp_dim)
 
 
-eps = 1e-12
+def cosine_cont(repr_context, relevancy, norm=False):
+    """
+    cosine siminlarity betwen context and relevancy
+    Args:
+        repr_context - [batch_size, other_len, context_lstm_dim]
+        relevancy - [batch_size, this_len, other_len]
+    Return:
+        size - [batch_size, this_len, context_lstm_dim]
+    """
+    dim = repr_context.dim()
+    temp_relevancy = relevancy.unsqueeze(dim)
+    buff = repr_context.unsqueeze(1)
+    buff = torch.mul(buff, temp_relevancy)
+    buff = buff.sum(2)
+    if norm:
+        relevancy = relevancy.sum(dim - 1).clamp(min=1e-06)
+        relevancy = relevancy.unsqueeze(2)
+        buff = buff.div(relevancy)
+    return buff
 
 
 def max_repres(repre_cos):
@@ -1292,28 +1310,10 @@ def max_repres(repre_cos):
     return tf_gather(repres, index)
 
 
+eps = 1e-12
+
+
 PF_POS = 1
-
-
-def cosine_cont(repr_context, relevancy, norm=False):
-    """
-    cosine siminlarity betwen context and relevancy
-    Args:
-        repr_context - [batch_size, other_len, context_lstm_dim]
-        relevancy - [batch_size, this_len, other_len]
-    Return:
-        size - [batch_size, this_len, context_lstm_dim]
-    """
-    dim = repr_context.dim()
-    temp_relevancy = relevancy.unsqueeze(dim)
-    buff = repr_context.unsqueeze(1)
-    buff = torch.mul(buff, temp_relevancy)
-    buff = buff.sum(2)
-    if norm:
-        relevancy = relevancy.sum(dim - 1).clamp(min=1e-06)
-        relevancy = relevancy.unsqueeze(2)
-        buff = buff.div(relevancy)
-    return buff
 
 
 class biMPModule(nn.Module):
@@ -2262,14 +2262,14 @@ class Beauty(nn.Module):
         return filter(lambda m: m.requires_grad, self.parameters())
 
 
-FINAL_EPSILON = 0.01
-
-
 INITIAL_EPSILON = 0.5
 
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state',
     'reward'))
+
+
+FINAL_EPSILON = 0.01
 
 
 class DQN(nn.Module):
@@ -3736,6 +3736,24 @@ class VAE(nn.Module):
             else:
                 portry += self.idx2word[next_word]
         return portry[:-1] + '。'
+
+
+LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
+
+
+def load_classes(inp='data/coco.names'):
+    return [c.strip() for c in open(inp)]
+
+
+OUT_DIM = 3 * (len(load_classes()) + 5)
+
+
+DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1,
+    0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (OUT_DIM, 1, 1, 0,
+    0)], 'second': [768, (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (
+    512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)],
+    'third': [384, (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3,
+    1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
 
 
 class BasicConv(nn.Module):

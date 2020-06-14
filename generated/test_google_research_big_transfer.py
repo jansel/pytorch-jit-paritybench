@@ -139,11 +139,9 @@ class StdConv2d(nn.Conv2d):
             dilation, self.groups)
 
 
-def tf2th(conv_weights):
-    """Possibly convert HWIO to OIHW."""
-    if conv_weights.ndim == 4:
-        conv_weights = conv_weights.transpose([3, 2, 0, 1])
-    return torch.from_numpy(conv_weights)
+def conv1x1(cin, cout, stride=1, bias=False):
+    return StdConv2d(cin, cout, kernel_size=1, stride=stride, padding=0,
+        bias=bias)
 
 
 def conv3x3(cin, cout, stride=1, groups=1, bias=False):
@@ -151,9 +149,11 @@ def conv3x3(cin, cout, stride=1, groups=1, bias=False):
         bias=bias, groups=groups)
 
 
-def conv1x1(cin, cout, stride=1, bias=False):
-    return StdConv2d(cin, cout, kernel_size=1, stride=stride, padding=0,
-        bias=bias)
+def tf2th(conv_weights):
+    """Possibly convert HWIO to OIHW."""
+    if conv_weights.ndim == 4:
+        conv_weights = conv_weights.transpose([3, 2, 0, 1])
+    return torch.from_numpy(conv_weights)
 
 
 class PreActBottleneck(nn.Module):

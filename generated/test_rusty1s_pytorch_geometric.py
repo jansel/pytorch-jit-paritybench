@@ -578,11 +578,6 @@ from collections import namedtuple
 import re
 
 
-def zeros(tensor):
-    if tensor is not None:
-        tensor.data.fill_(0)
-
-
 def maybe_num_nodes(index, num_nodes=None):
     return index.max().item() + 1 if num_nodes is None else num_nodes
 
@@ -632,10 +627,18 @@ def glorot(tensor):
         tensor.data.uniform_(-stdv, stdv)
 
 
+def zeros(tensor):
+    if tensor is not None:
+        tensor.data.fill_(0)
+
+
+_global_config['num_stacks'] = 4
+
+
 _global_config['hidden'] = 4
 
 
-_global_config['skip_dropout'] = 0.5
+_global_config['dropout'] = 0.5
 
 
 _global_config['shared_weights'] = 4
@@ -644,10 +647,7 @@ _global_config['shared_weights'] = 4
 _global_config['num_layers'] = 1
 
 
-_global_config['num_stacks'] = 4
-
-
-_global_config['dropout'] = 0.5
+_global_config['skip_dropout'] = 0.5
 
 
 class Net(torch.nn.Module):
@@ -1240,6 +1240,11 @@ class GINWithJK(torch.nn.Module):
         return self.__class__.__name__
 
 
+__num_nodes_warn_msg__ = (
+    'The number of nodes in your data object can only be inferred by its {} indices, and hence may result in unexpected batch-wise behavior, e.g., in case there exists isolated nodes. Please consider explicitly setting the number of nodes for this data object by assigning it to data.num_nodes.'
+    )
+
+
 def size_repr(key, item, indent=0):
     indent_str = ' ' * indent
     if torch.is_tensor(item):
@@ -1252,11 +1257,6 @@ def size_repr(key, item, indent=0):
     else:
         out = str(item)
     return f'{indent_str}{key}={out}'
-
-
-__num_nodes_warn_msg__ = (
-    'The number of nodes in your data object can only be inferred by its {} indices, and hence may result in unexpected batch-wise behavior, e.g., in case there exists isolated nodes. Please consider explicitly setting the number of nodes for this data object by assigning it to data.num_nodes.'
-    )
 
 
 class Data(object):
@@ -1691,6 +1691,35 @@ class Batch(Data):
         return self.batch[-1].item() + 1
 
 
+def graclus(edge_index, weight=None, num_nodes=None):
+    """A greedy clustering algorithm from the `"Weighted Graph Cuts without
+    Eigenvectors: A Multilevel Approach" <http://www.cs.utexas.edu/users/
+    inderjit/public_papers/multilevel_pami.pdf>`_ paper of picking an unmarked
+    vertex and matching it with one of its unmarked neighbors (that maximizes
+    its edge weight).
+    The GPU algoithm is adapted from the `"A GPU Algorithm for Greedy Graph
+    Matching" <http://www.staff.science.uu.nl/~bisse101/Articles/match12.pdf>`_
+    paper.
+
+    Args:
+        edge_index (LongTensor): The edge indices.
+        weight (Tensor, optional): One-dimensional edge weights.
+            (default: :obj:`None`)
+        num_nodes (int, optional): The number of nodes, *i.e.*
+            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
+
+    :rtype: :class:`LongTensor`
+    """
+    if graclus_cluster is None:
+        raise ImportError('`graclus` requires `torch-cluster`.')
+    row, col = edge_index
+    return graclus_cluster(row, col, weight, num_nodes)
+
+
+def _max_pool_x(cluster, x, size=None):
+    return scatter(x, cluster, dim=0, dim_size=size, reduce='max')
+
+
 def consecutive_cluster(src):
     unique, inv = torch.unique(src, sorted=True, return_inverse=True)
     perm = torch.arange(inv.size(0), dtype=inv.dtype, device=inv.device)
@@ -1698,8 +1727,8 @@ def consecutive_cluster(src):
     return inv, perm
 
 
-def pool_pos(cluster, pos):
-    return scatter_mean(pos, cluster, dim=0)
+def pool_batch(perm, batch):
+    return batch[perm]
 
 
 def pool_edge(cluster, edge_index, edge_attr=None):
@@ -1712,12 +1741,8 @@ def pool_edge(cluster, edge_index, edge_attr=None):
     return edge_index, edge_attr
 
 
-def pool_batch(perm, batch):
-    return batch[perm]
-
-
-def _max_pool_x(cluster, x, size=None):
-    return scatter(x, cluster, dim=0, dim_size=size, reduce='max')
+def pool_pos(cluster, pos):
+    return scatter_mean(pos, cluster, dim=0)
 
 
 def max_pool(cluster, data, transform=None):
@@ -1749,31 +1774,6 @@ def max_pool(cluster, data, transform=None):
     if transform is not None:
         data = transform(data)
     return data
-
-
-def graclus(edge_index, weight=None, num_nodes=None):
-    """A greedy clustering algorithm from the `"Weighted Graph Cuts without
-    Eigenvectors: A Multilevel Approach" <http://www.cs.utexas.edu/users/
-    inderjit/public_papers/multilevel_pami.pdf>`_ paper of picking an unmarked
-    vertex and matching it with one of its unmarked neighbors (that maximizes
-    its edge weight).
-    The GPU algoithm is adapted from the `"A GPU Algorithm for Greedy Graph
-    Matching" <http://www.staff.science.uu.nl/~bisse101/Articles/match12.pdf>`_
-    paper.
-
-    Args:
-        edge_index (LongTensor): The edge indices.
-        weight (Tensor, optional): One-dimensional edge weights.
-            (default: :obj:`None`)
-        num_nodes (int, optional): The number of nodes, *i.e.*
-            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
-
-    :rtype: :class:`LongTensor`
-    """
-    if graclus_cluster is None:
-        raise ImportError('`graclus` requires `torch-cluster`.')
-    row, col = edge_index
-    return graclus_cluster(row, col, weight, num_nodes)
 
 
 class Graclus(torch.nn.Module):
@@ -2131,78 +2131,6 @@ class TopK(torch.nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__
-
-
-def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine
-    =False):
-    """Computes graph edges to the nearest :obj:`k` points.
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
-        k (int): The number of neighbors.
-        batch (LongTensor, optional): Batch vector
-            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
-            node to a specific example. (default: :obj:`None`)
-        loop (bool, optional): If :obj:`True`, the graph will contain
-            self-loops. (default: :obj:`False`)
-        flow (string, optional): The flow direction when using in combination
-            with message passing (:obj:`"source_to_target"` or
-            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
-        cosine (boolean, optional): If :obj:`True`, will use the cosine
-            distance instead of euclidean distance to find nearest neighbors.
-            (default: :obj:`False`)
-
-    :rtype: :class:`LongTensor`
-
-    .. code-block:: python
-
-        import torch
-        from torch_geometric.nn import knn_graph
-
-        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
-        batch = torch.tensor([0, 0, 0, 0])
-        edge_index = knn_graph(x, k=2, batch=batch, loop=False)
-    """
-    if torch_cluster is None:
-        raise ImportError('`knn_graph` requires `torch-cluster`.')
-    return torch_cluster.knn_graph(x, k, batch, loop, flow, cosine)
-
-
-def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
-    'source_to_target'):
-    """Computes graph edges to all points within a given distance.
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
-        r (float): The radius.
-        batch (LongTensor, optional): Batch vector
-            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
-            node to a specific example. (default: :obj:`None`)
-        loop (bool, optional): If :obj:`True`, the graph will contain
-            self-loops. (default: :obj:`False`)
-        max_num_neighbors (int, optional): The maximum number of neighbors to
-            return for each element in :obj:`y`. (default: :obj:`32`)
-        flow (string, optional): The flow direction when using in combination
-            with message passing (:obj:`"source_to_target"` or
-            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
-
-    :rtype: :class:`LongTensor`
-
-    .. code-block:: python
-
-        import torch
-        from torch_geometric.nn import radius_graph
-
-        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
-        batch = torch.tensor([0, 0, 0, 0])
-        edge_index = radius_graph(x, r=1.5, batch=batch, loop=False)
-    """
-    if torch_cluster is None:
-        raise ImportError('`radius_graph` requires `torch-cluster`.')
-    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors,
-        flow)
 
 
 def fps(x, batch=None, ratio=0.5, random_start=True):
@@ -2678,6 +2606,9 @@ class Discriminator(torch.nn.Module):
         return x
 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 _global_config['model'] = 4
 
 
@@ -2762,137 +2693,8 @@ class Net(torch.nn.Module):
         return out, attn_loss, ratio
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = SplineConv(dataset.num_features, 32, dim=2, kernel_size=5)
-        self.conv2 = SplineConv(32, 64, dim=2, kernel_size=5)
-        self.lin1 = torch.nn.Linear(64, 128)
-        self.lin2 = torch.nn.Linear(128, dataset.num_classes)
-
-    def forward(self, data):
-        None
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-        x = F.elu(self.conv1(x, edge_index, edge_attr))
-        x = F.elu(self.conv2(x, edge_index, edge_attr))
-        x = global_mean_pool(x, data.batch)
-        x = F.elu(self.lin1(x))
-        return F.log_softmax(self.lin2(x), dim=1)
-
-
-def MLP(channels, batch_norm=True):
-    return Seq(*[Seq(Lin(channels[i - 1], channels[i]), ReLU(), BN(channels
-        [i])) for i in range(1, len(channels))])
-
-
-def global_max_pool(x, batch, size=None):
-    """Returns batch-wise graph-level-outputs by taking the channel-wise
-    maximum across the node dimension, so that for a single graph
-    :math:`\\mathcal{G}_i` its output is computed by
-
-    .. math::
-        \\mathbf{r}_i = \\mathrm{max}_{n=1}^{N_i} \\, \\mathbf{x}_n
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
-        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
-            B-1\\}}^N`, which assigns each node to a specific example.
-        size (int, optional): Batch-size :math:`B`.
-            Automatically calculated if not given. (default: :obj:`None`)
-
-    :rtype: :class:`Tensor`
-    """
-    size = batch.max().item() + 1 if size is None else size
-    return scatter(x, batch, dim=0, dim_size=size, reduce='max')
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, out_channels, k=20, aggr='max'):
-        super().__init__()
-        self.conv1 = DynamicEdgeConv(MLP([2 * 3, 64, 64, 64]), k, aggr)
-        self.conv2 = DynamicEdgeConv(MLP([2 * 64, 128]), k, aggr)
-        self.lin1 = MLP([128 + 64, 1024])
-        self.mlp = Seq(MLP([1024, 512]), Dropout(0.5), MLP([512, 256]),
-            Dropout(0.5), Lin(256, out_channels))
-
-    def forward(self, data):
-        pos, batch = data.pos, data.batch
-        x1 = self.conv1(pos, batch)
-        x2 = self.conv2(x1, batch)
-        out = self.lin1(torch.cat([x1, x2], dim=1))
-        out = global_max_pool(out, batch)
-        out = self.mlp(out)
-        return F.log_softmax(out, dim=1)
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, out_channels, k=30, aggr='max'):
-        super(Net, self).__init__()
-        self.conv1 = DynamicEdgeConv(MLP([2 * 6, 64, 64]), k, aggr)
-        self.conv2 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
-        self.conv3 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
-        self.lin1 = MLP([3 * 64, 1024])
-        self.mlp = Seq(MLP([1024, 256]), Dropout(0.5), MLP([256, 128]),
-            Dropout(0.5), Lin(128, out_channels))
-
-    def forward(self, data):
-        x, pos, batch = data.x, data.pos, data.batch
-        x0 = torch.cat([x, pos], dim=-1)
-        x1 = self.conv1(x0, batch)
-        x2 = self.conv2(x1, batch)
-        x3 = self.conv3(x2, batch)
-        out = self.lin1(torch.cat([x1, x2, x3], dim=1))
-        out = self.mlp(out)
-        return F.log_softmax(out, dim=1)
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = GraphConv(dataset.num_features, 128)
-        self.pool1 = TopKPooling(128, ratio=0.8)
-        self.conv2 = GraphConv(128, 128)
-        self.pool2 = TopKPooling(128, ratio=0.8)
-        self.conv3 = GraphConv(128, 128)
-        self.pool3 = TopKPooling(128, ratio=0.8)
-        self.lin1 = torch.nn.Linear(256, 128)
-        self.lin2 = torch.nn.Linear(128, 64)
-        self.lin3 = torch.nn.Linear(64, dataset.num_classes)
-
-    def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        x = F.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
-        x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x = F.relu(self.conv2(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
-        x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x = F.relu(self.conv3(x, edge_index))
-        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
-        x3 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x = x1 + x2 + x3
-        x = F.relu(self.lin1(x))
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = F.relu(self.lin2(x))
-        x = F.log_softmax(self.lin3(x), dim=-1)
-        return x
-
-
-seq_len = 10
-
-
-def to_list(x):
-    if not isinstance(x, collections.Iterable) or isinstance(x, str):
-        x = [x]
-    return x
+def files_exist(files):
+    return len(files) != 0 and all([osp.exists(f) for f in files])
 
 
 def makedirs(path):
@@ -2903,8 +2705,10 @@ def makedirs(path):
             raise e
 
 
-def files_exist(files):
-    return len(files) != 0 and all([osp.exists(f) for f in files])
+def to_list(x):
+    if not isinstance(x, collections.Iterable) or isinstance(x, str):
+        x = [x]
+    return x
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -3216,6 +3020,397 @@ class InMemoryDataset(Dataset):
         return dataset
 
 
+def download_url(url, folder, log=True):
+    """Downloads the content of an URL to a specific folder.
+
+    Args:
+        url (string): The url.
+        folder (string): The folder.
+        log (bool, optional): If :obj:`False`, will not print anything to the
+            console. (default: :obj:`True`)
+    """
+    filename = url.rpartition('/')[2]
+    path = osp.join(folder, filename)
+    if osp.exists(path):
+        if log:
+            print('Using exist file', filename)
+        return path
+    if log:
+        print('Downloading', url)
+    makedirs(folder)
+    data = urllib.request.urlopen(url)
+    with open(path, 'wb') as f:
+        f.write(data.read())
+    return path
+
+
+def maybe_log(path, log=True):
+    if log:
+        print('Extracting', path)
+
+
+def extract_zip(path, folder, log=True):
+    """Extracts a zip archive to a specific folder.
+
+    Args:
+        path (string): The path to the tar archive.
+        folder (string): The folder.
+        log (bool, optional): If :obj:`False`, will not print anything to the
+            console. (default: :obj:`True`)
+    """
+    maybe_log(path, log)
+    with zipfile.ZipFile(path, 'r') as f:
+        f.extractall(folder)
+
+
+def cat(seq):
+    seq = [item for item in seq if item is not None]
+    seq = [(item.unsqueeze(-1) if item.dim() == 1 else item) for item in seq]
+    return torch.cat(seq, dim=-1) if len(seq) > 0 else None
+
+
+def parse_txt_array(src, sep=None, start=0, end=None, dtype=None, device=None):
+    src = [[float(x) for x in line.split(sep)[start:end]] for line in src]
+    src = torch.tensor(src, dtype=dtype).squeeze()
+    return src
+
+
+def read_txt_array(path, sep=None, start=0, end=None, dtype=None, device=None):
+    with open(path, 'r') as f:
+        src = f.read().split('\n')[:-1]
+    return parse_txt_array(src, sep, start, end, dtype, device)
+
+
+def read_file(folder, prefix, name, dtype=None):
+    path = osp.join(folder, '{}_{}.txt'.format(prefix, name))
+    return read_txt_array(path, sep=',', dtype=dtype)
+
+
+def split(data, batch):
+    node_slice = torch.cumsum(torch.from_numpy(np.bincount(batch)), 0)
+    node_slice = torch.cat([torch.tensor([0]), node_slice])
+    row, _ = data.edge_index
+    edge_slice = torch.cumsum(torch.from_numpy(np.bincount(batch[row])), 0)
+    edge_slice = torch.cat([torch.tensor([0]), edge_slice])
+    data.edge_index -= node_slice[batch[row]].unsqueeze(0)
+    data.__num_nodes__ = torch.bincount(batch).tolist()
+    slices = {'edge_index': edge_slice}
+    if data.x is not None:
+        slices['x'] = node_slice
+    if data.edge_attr is not None:
+        slices['edge_attr'] = edge_slice
+    if data.y is not None:
+        if data.y.size(0) == batch.size(0):
+            slices['y'] = node_slice
+        else:
+            slices['y'] = torch.arange(0, batch[-1] + 2, dtype=torch.long)
+    return data, slices
+
+
+def read_tu_data(folder, prefix):
+    files = glob.glob(osp.join(folder, '{}_*.txt'.format(prefix)))
+    names = [f.split(os.sep)[-1][len(prefix) + 1:-4] for f in files]
+    edge_index = read_file(folder, prefix, 'A', torch.long).t() - 1
+    batch = read_file(folder, prefix, 'graph_indicator', torch.long) - 1
+    node_attributes = node_labels = None
+    if 'node_attributes' in names:
+        node_attributes = read_file(folder, prefix, 'node_attributes')
+    if 'node_labels' in names:
+        node_labels = read_file(folder, prefix, 'node_labels', torch.long)
+        if node_labels.dim() == 1:
+            node_labels = node_labels.unsqueeze(-1)
+        node_labels = node_labels - node_labels.min(dim=0)[0]
+        node_labels = node_labels.unbind(dim=-1)
+        node_labels = [F.one_hot(x, num_classes=-1) for x in node_labels]
+        node_labels = torch.cat(node_labels, dim=-1).to(torch.float)
+    x = cat([node_attributes, node_labels])
+    edge_attributes, edge_labels = None, None
+    if 'edge_attributes' in names:
+        edge_attributes = read_file(folder, prefix, 'edge_attributes')
+    if 'edge_labels' in names:
+        edge_labels = read_file(folder, prefix, 'edge_labels', torch.long)
+        if edge_labels.dim() == 1:
+            edge_labels = edge_labels.unsqueeze(-1)
+        edge_labels = edge_labels - edge_labels.min(dim=0)[0]
+        edge_labels = edge_labels.unbind(dim=-1)
+        edge_labels = [F.one_hot(e, num_classes=-1) for e in edge_labels]
+        edge_labels = torch.cat(edge_labels, dim=-1).to(torch.float)
+    edge_attr = cat([edge_attributes, edge_labels])
+    y = None
+    if 'graph_attributes' in names:
+        y = read_file(folder, prefix, 'graph_attributes')
+    elif 'graph_labels' in names:
+        y = read_file(folder, prefix, 'graph_labels', torch.long)
+        _, y = y.unique(sorted=True, return_inverse=True)
+    num_nodes = edge_index.max().item() + 1 if x is None else x.size(0)
+    edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
+    edge_index, edge_attr = coalesce(edge_index, edge_attr, num_nodes,
+        num_nodes)
+    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+    data, slices = split(data, batch)
+    return data, slices
+
+
+class TUDataset(InMemoryDataset):
+    """A variety of graph kernel benchmark datasets, *.e.g.* "IMDB-BINARY",
+    "REDDIT-BINARY" or "PROTEINS", collected from the `TU Dortmund University
+    <https://chrsmrrs.github.io/datasets>`_.
+    In addition, this dataset wrapper provides `cleaned dataset versions
+    <https://github.com/nd7141/graph_datasets>`_ as motivated by the
+    `"Understanding Isomorphism Bias in Graph Data Sets"
+    <https://arxiv.org/abs/1910.12091>`_ paper, containing only non-isomorphic
+    graphs.
+
+    .. note::
+        Some datasets may not come with any node labels.
+        You can then either make use of the argument :obj:`use_node_attr`
+        to load additional continuous node attributes (if present) or provide
+        synthetic node features using transforms such as
+        like :class:`torch_geometric.transforms.Constant` or
+        :class:`torch_geometric.transforms.OneHotDegree`.
+
+    Args:
+        root (string): Root directory where the dataset should be saved.
+        name (string): The `name
+            <https://chrsmrrs.github.io/datasets/docs/datasets/>`_ of the
+            dataset.
+        transform (callable, optional): A function/transform that takes in an
+            :obj:`torch_geometric.data.Data` object and returns a transformed
+            version. The data object will be transformed before every access.
+            (default: :obj:`None`)
+        pre_transform (callable, optional): A function/transform that takes in
+            an :obj:`torch_geometric.data.Data` object and returns a
+            transformed version. The data object will be transformed before
+            being saved to disk. (default: :obj:`None`)
+        pre_filter (callable, optional): A function that takes in an
+            :obj:`torch_geometric.data.Data` object and returns a boolean
+            value, indicating whether the data object should be included in the
+            final dataset. (default: :obj:`None`)
+        use_node_attr (bool, optional): If :obj:`True`, the dataset will
+            contain additional continuous node attributes (if present).
+            (default: :obj:`False`)
+        use_edge_attr (bool, optional): If :obj:`True`, the dataset will
+            contain additional continuous edge attributes (if present).
+            (default: :obj:`False`)
+        cleaned: (bool, optional): If :obj:`True`, the dataset will
+            contain only non-isomorphic graphs. (default: :obj:`False`)
+    """
+    url = 'http://ls11-www.cs.tu-dortmund.de/people/morris/graphkerneldatasets'
+    cleaned_url = (
+        'https://raw.githubusercontent.com/nd7141/graph_datasets/master/datasets'
+        )
+
+    def __init__(self, root, name, transform=None, pre_transform=None,
+        pre_filter=None, use_node_attr=False, use_edge_attr=False, cleaned=
+        False):
+        self.name = name
+        self.cleaned = cleaned
+        super(TUDataset, self).__init__(root, transform, pre_transform,
+            pre_filter)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+        if self.data.x is not None and not use_node_attr:
+            num_node_attributes = self.num_node_attributes
+            self.data.x = self.data.x[:, num_node_attributes:]
+        if self.data.edge_attr is not None and not use_edge_attr:
+            num_edge_attributes = self.num_edge_attributes
+            self.data.edge_attr = self.data.edge_attr[:, num_edge_attributes:]
+
+    @property
+    def raw_dir(self):
+        name = 'raw{}'.format('_cleaned' if self.cleaned else '')
+        return osp.join(self.root, self.name, name)
+
+    @property
+    def processed_dir(self):
+        name = 'processed{}'.format('_cleaned' if self.cleaned else '')
+        return osp.join(self.root, self.name, name)
+
+    @property
+    def num_node_labels(self):
+        if self.data.x is None:
+            return 0
+        for i in range(self.data.x.size(1)):
+            x = self.data.x[:, i:]
+            if ((x == 0) | (x == 1)).all() and (x.sum(dim=1) == 1).all():
+                return self.data.x.size(1) - i
+        return 0
+
+    @property
+    def num_node_attributes(self):
+        if self.data.x is None:
+            return 0
+        return self.data.x.size(1) - self.num_node_labels
+
+    @property
+    def num_edge_labels(self):
+        if self.data.edge_attr is None:
+            return 0
+        for i in range(self.data.edge_attr.size(1)):
+            if self.data.edge_attr[:, i:].sum() == self.data.edge_attr.size(0):
+                return self.data.edge_attr.size(1) - i
+        return 0
+
+    @property
+    def num_edge_attributes(self):
+        if self.data.edge_attr is None:
+            return 0
+        return self.data.edge_attr.size(1) - self.num_edge_labels
+
+    @property
+    def raw_file_names(self):
+        names = ['A', 'graph_indicator']
+        return ['{}_{}.txt'.format(self.name, name) for name in names]
+
+    @property
+    def processed_file_names(self):
+        return 'data.pt'
+
+    def download(self):
+        url = self.cleaned_url if self.cleaned else self.url
+        folder = osp.join(self.root, self.name)
+        path = download_url('{}/{}.zip'.format(url, self.name), folder)
+        extract_zip(path, folder)
+        os.unlink(path)
+        shutil.rmtree(self.raw_dir)
+        os.rename(osp.join(folder, self.name), self.raw_dir)
+
+    def process(self):
+        self.data, self.slices = read_tu_data(self.raw_dir, self.name)
+        if self.pre_filter is not None:
+            data_list = [self.get(idx) for idx in range(len(self))]
+            data_list = [data for data in data_list if self.pre_filter(data)]
+            self.data, self.slices = self.collate(data_list)
+        if self.pre_transform is not None:
+            data_list = [self.get(idx) for idx in range(len(self))]
+            data_list = [self.pre_transform(data) for data in data_list]
+            self.data, self.slices = self.collate(data_list)
+        torch.save((self.data, self.slices), self.processed_paths[0])
+
+    def __repr__(self):
+        return '{}({})'.format(self.name, len(self))
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = SplineConv(dataset.num_features, 32, dim=2, kernel_size=5)
+        self.conv2 = SplineConv(32, 64, dim=2, kernel_size=5)
+        self.lin1 = torch.nn.Linear(64, 128)
+        self.lin2 = torch.nn.Linear(128, dataset.num_classes)
+
+    def forward(self, data):
+        None
+        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x = F.elu(self.conv1(x, edge_index, edge_attr))
+        x = F.elu(self.conv2(x, edge_index, edge_attr))
+        x = global_mean_pool(x, data.batch)
+        x = F.elu(self.lin1(x))
+        return F.log_softmax(self.lin2(x), dim=1)
+
+
+def MLP(channels, batch_norm=True):
+    return Seq(*[Seq(Lin(channels[i - 1], channels[i]), ReLU(), BN(channels
+        [i])) for i in range(1, len(channels))])
+
+
+def global_max_pool(x, batch, size=None):
+    """Returns batch-wise graph-level-outputs by taking the channel-wise
+    maximum across the node dimension, so that for a single graph
+    :math:`\\mathcal{G}_i` its output is computed by
+
+    .. math::
+        \\mathbf{r}_i = \\mathrm{max}_{n=1}^{N_i} \\, \\mathbf{x}_n
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
+        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
+            B-1\\}}^N`, which assigns each node to a specific example.
+        size (int, optional): Batch-size :math:`B`.
+            Automatically calculated if not given. (default: :obj:`None`)
+
+    :rtype: :class:`Tensor`
+    """
+    size = batch.max().item() + 1 if size is None else size
+    return scatter(x, batch, dim=0, dim_size=size, reduce='max')
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, out_channels, k=20, aggr='max'):
+        super().__init__()
+        self.conv1 = DynamicEdgeConv(MLP([2 * 3, 64, 64, 64]), k, aggr)
+        self.conv2 = DynamicEdgeConv(MLP([2 * 64, 128]), k, aggr)
+        self.lin1 = MLP([128 + 64, 1024])
+        self.mlp = Seq(MLP([1024, 512]), Dropout(0.5), MLP([512, 256]),
+            Dropout(0.5), Lin(256, out_channels))
+
+    def forward(self, data):
+        pos, batch = data.pos, data.batch
+        x1 = self.conv1(pos, batch)
+        x2 = self.conv2(x1, batch)
+        out = self.lin1(torch.cat([x1, x2], dim=1))
+        out = global_max_pool(out, batch)
+        out = self.mlp(out)
+        return F.log_softmax(out, dim=1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, out_channels, k=30, aggr='max'):
+        super(Net, self).__init__()
+        self.conv1 = DynamicEdgeConv(MLP([2 * 6, 64, 64]), k, aggr)
+        self.conv2 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
+        self.conv3 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
+        self.lin1 = MLP([3 * 64, 1024])
+        self.mlp = Seq(MLP([1024, 256]), Dropout(0.5), MLP([256, 128]),
+            Dropout(0.5), Lin(128, out_channels))
+
+    def forward(self, data):
+        x, pos, batch = data.x, data.pos, data.batch
+        x0 = torch.cat([x, pos], dim=-1)
+        x1 = self.conv1(x0, batch)
+        x2 = self.conv2(x1, batch)
+        x3 = self.conv3(x2, batch)
+        out = self.lin1(torch.cat([x1, x2, x3], dim=1))
+        out = self.mlp(out)
+        return F.log_softmax(out, dim=1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = GraphConv(dataset.num_features, 128)
+        self.pool1 = TopKPooling(128, ratio=0.8)
+        self.conv2 = GraphConv(128, 128)
+        self.pool2 = TopKPooling(128, ratio=0.8)
+        self.conv3 = GraphConv(128, 128)
+        self.pool3 = TopKPooling(128, ratio=0.8)
+        self.lin1 = torch.nn.Linear(256, 128)
+        self.lin2 = torch.nn.Linear(128, 64)
+        self.lin3 = torch.nn.Linear(64, dataset.num_classes)
+
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x = F.relu(self.conv1(x, edge_index))
+        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
+        x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
+        x = F.relu(self.conv2(x, edge_index))
+        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
+        x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
+        x = F.relu(self.conv3(x, edge_index))
+        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
+        x3 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
+        x = x1 + x2 + x3
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = F.relu(self.lin2(x))
+        x = F.log_softmax(self.lin3(x), dim=-1)
+        return x
+
+
 class EventDataset(InMemoryDataset):
 
     def __init__(self, root, transform=None, pre_transform=None, pre_filter
@@ -3246,42 +3441,6 @@ class EventDataset(InMemoryDataset):
                 data = self.pre_transform(data)
             data_list.append(data)
         return data_list
-
-
-def download_url(url, folder, log=True):
-    """Downloads the content of an URL to a specific folder.
-
-    Args:
-        url (string): The url.
-        folder (string): The folder.
-        log (bool, optional): If :obj:`False`, will not print anything to the
-            console. (default: :obj:`True`)
-    """
-    filename = url.rpartition('/')[2]
-    path = osp.join(folder, filename)
-    if osp.exists(path):
-        if log:
-            print('Using exist file', filename)
-        return path
-    if log:
-        print('Downloading', url)
-    makedirs(folder)
-    data = urllib.request.urlopen(url)
-    with open(path, 'wb') as f:
-        f.write(data.read())
-    return path
-
-
-def parse_txt_array(src, sep=None, start=0, end=None, dtype=None, device=None):
-    src = [[float(x) for x in line.split(sep)[start:end]] for line in src]
-    src = torch.tensor(src, dtype=dtype).squeeze()
-    return src
-
-
-def read_txt_array(path, sep=None, start=0, end=None, dtype=None, device=None):
-    with open(path, 'r') as f:
-        src = f.read().split('\n')[:-1]
-    return parse_txt_array(src, sep, start, end, dtype, device)
 
 
 class ICEWS18(EventDataset):
@@ -3353,6 +3512,9 @@ class ICEWS18(EventDataset):
         torch.save(self.collate(data_list[s[0]:s[1]]), self.processed_paths[0])
         torch.save(self.collate(data_list[s[1]:s[2]]), self.processed_paths[1])
         torch.save(self.collate(data_list[s[2]:s[3]]), self.processed_paths[2])
+
+
+seq_len = 10
 
 
 class Net(torch.nn.Module):
@@ -3630,12 +3792,32 @@ class Net(torch.nn.Module):
         return torch.einsum('ef,ef->e', x_i, x_j)
 
 
-class HandleNodeAttention(object):
+def max_pool_x(cluster, x, batch, size=None):
+    """Max-Pools node features according to the clustering defined in
+    :attr:`cluster`.
 
-    def __call__(self, data):
-        data.attn = torch.softmax(data.x, dim=0).flatten()
-        data.x = None
-        return data
+    Args:
+        cluster (LongTensor): Cluster vector :math:`\\mathbf{c} \\in \\{ 0,
+            \\ldots, N - 1 \\}^N`, which assigns each node to a specific cluster.
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
+        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
+            B-1\\}}^N`, which assigns each node to a specific example.
+        size (int, optional): The maximum number of clusters in a single
+            example. This property is useful to obtain a batch-wise dense
+            representation, *e.g.* for applying FC layers, but should only be
+            used if the size of the maximum number of clusters per example is
+            known in advance. (default: :obj:`None`)
+
+    :rtype: (:class:`Tensor`, :class:`LongTensor`) if :attr:`size` is
+        :obj:`None`, else :class:`Tensor`
+    """
+    if size is not None:
+        return _max_pool_x(cluster, x, (batch.max().item() + 1) * size)
+    cluster, perm = consecutive_cluster(cluster)
+    x = _max_pool_x(cluster, x)
+    batch = pool_batch(perm, batch)
+    return x, batch
 
 
 def degree(index, num_nodes=None, dtype=None):
@@ -3682,32 +3864,12 @@ def normalized_cut_2d(edge_index, pos):
     return normalized_cut(edge_index, edge_attr, num_nodes=pos.size(0))
 
 
-def max_pool_x(cluster, x, batch, size=None):
-    """Max-Pools node features according to the clustering defined in
-    :attr:`cluster`.
+class HandleNodeAttention(object):
 
-    Args:
-        cluster (LongTensor): Cluster vector :math:`\\mathbf{c} \\in \\{ 0,
-            \\ldots, N - 1 \\}^N`, which assigns each node to a specific cluster.
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
-        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
-            B-1\\}}^N`, which assigns each node to a specific example.
-        size (int, optional): The maximum number of clusters in a single
-            example. This property is useful to obtain a batch-wise dense
-            representation, *e.g.* for applying FC layers, but should only be
-            used if the size of the maximum number of clusters per example is
-            known in advance. (default: :obj:`None`)
-
-    :rtype: (:class:`Tensor`, :class:`LongTensor`) if :attr:`size` is
-        :obj:`None`, else :class:`Tensor`
-    """
-    if size is not None:
-        return _max_pool_x(cluster, x, (batch.max().item() + 1) * size)
-    cluster, perm = consecutive_cluster(cluster)
-    x = _max_pool_x(cluster, x)
-    batch = pool_batch(perm, batch)
-    return x, batch
+    def __call__(self, data):
+        data.attn = torch.softmax(data.x, dim=0).flatten()
+        data.x = None
+        return data
 
 
 class Net(nn.Module):
@@ -4156,41 +4318,6 @@ class Net(torch.nn.Module):
         return F.log_softmax(x, dim=-1), l1 + l2, e1 + e2
 
 
-def to_dense_adj(edge_index, batch=None, edge_attr=None):
-    """Converts batched sparse adjacency matrices given by edge indices and
-    edge attributes to a single dense batched adjacency matrix.
-
-    Args:
-        edge_index (LongTensor): The edge indices.
-        batch (LongTensor, optional): Batch vector
-            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
-            node to a specific example. (default: :obj:`None`)
-        edge_attr (Tensor, optional): Edge weights or multi-dimensional edge
-            features. (default: :obj:`None`)
-
-    :rtype: :class:`Tensor`
-    """
-    if batch is None:
-        batch = edge_index.new_zeros(edge_index.max().item() + 1)
-    batch_size = batch[-1].item() + 1
-    one = batch.new_ones(batch.size(0))
-    num_nodes = scatter_add(one, batch, dim=0, dim_size=batch_size)
-    cum_nodes = torch.cat([batch.new_zeros(1), num_nodes.cumsum(dim=0)])
-    max_num_nodes = num_nodes.max().item()
-    size = [batch_size, max_num_nodes, max_num_nodes]
-    size = size if edge_attr is None else size + list(edge_attr.size())[1:]
-    dtype = torch.float if edge_attr is None else edge_attr.dtype
-    adj = torch.zeros(size, dtype=dtype, device=edge_index.device)
-    edge_index_0 = batch[edge_index[0]].view(1, -1)
-    edge_index_1 = edge_index[0] - cum_nodes[batch][edge_index[0]]
-    edge_index_2 = edge_index[1] - cum_nodes[batch][edge_index[1]]
-    if edge_attr is None:
-        adj[edge_index_0, edge_index_1, edge_index_2] = 1
-    else:
-        adj[edge_index_0, edge_index_1, edge_index_2] = edge_attr
-    return adj
-
-
 class Net(torch.nn.Module):
 
     def __init__(self):
@@ -4548,6 +4675,9 @@ class Attention(torch.nn.Module):
         return '{}(dropout={})'.format(self.__class__.__name__, self.dropout)
 
 
+aggr_special_args = set(['ptr', 'index', 'dim_size'])
+
+
 msg_aggr_special_args = set(['adj_t'])
 
 
@@ -4555,9 +4685,6 @@ msg_special_args = set(['edge_index_i', 'edge_index_j', 'size_i', 'size_j'])
 
 
 update_special_args = set([])
-
-
-aggr_special_args = set(['ptr', 'index', 'dim_size'])
 
 
 class MessagePassing(torch.nn.Module):
@@ -4820,6 +4947,42 @@ class MessagePassing(torch.nn.Module):
         which was initially passed to :meth:`propagate`.
         """
         return inputs
+
+
+def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine
+    =False):
+    """Computes graph edges to the nearest :obj:`k` points.
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
+        k (int): The number of neighbors.
+        batch (LongTensor, optional): Batch vector
+            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
+            node to a specific example. (default: :obj:`None`)
+        loop (bool, optional): If :obj:`True`, the graph will contain
+            self-loops. (default: :obj:`False`)
+        flow (string, optional): The flow direction when using in combination
+            with message passing (:obj:`"source_to_target"` or
+            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
+        cosine (boolean, optional): If :obj:`True`, will use the cosine
+            distance instead of euclidean distance to find nearest neighbors.
+            (default: :obj:`False`)
+
+    :rtype: :class:`LongTensor`
+
+    .. code-block:: python
+
+        import torch
+        from torch_geometric.nn import knn_graph
+
+        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        batch = torch.tensor([0, 0, 0, 0])
+        edge_index = knn_graph(x, k=2, batch=batch, loop=False)
+    """
+    if torch_cluster is None:
+        raise ImportError('`knn_graph` requires `torch-cluster`.')
+    return torch_cluster.knn_graph(x, k, batch, loop, flow, cosine)
 
 
 class XConv(torch.nn.Module):
@@ -7091,29 +7254,46 @@ class RENet(torch.nn.Module):
         return torch.tensor([mrr, hits1, hits3, hits10])
 
 
-def maybe_log(path, log=True):
-    if log:
-        print('Extracting', path)
-
-
-def extract_zip(path, folder, log=True):
-    """Extracts a zip archive to a specific folder.
-
-    Args:
-        path (string): The path to the tar archive.
-        folder (string): The folder.
-        log (bool, optional): If :obj:`False`, will not print anything to the
-            console. (default: :obj:`True`)
-    """
-    maybe_log(path, log)
-    with zipfile.ZipFile(path, 'r') as f:
-        f.extractall(folder)
-
-
 qm9_target_dict = {(0): 'dipole_moment', (1): 'isotropic_polarizability', (
     2): 'homo', (3): 'lumo', (4): 'gap', (5): 'electronic_spatial_extent',
     (6): 'zpve', (7): 'energy_U0', (8): 'energy_U', (9): 'enthalpy_H', (10):
     'free_energy', (11): 'heat_capacity'}
+
+
+def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
+    'source_to_target'):
+    """Computes graph edges to all points within a given distance.
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
+        r (float): The radius.
+        batch (LongTensor, optional): Batch vector
+            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
+            node to a specific example. (default: :obj:`None`)
+        loop (bool, optional): If :obj:`True`, the graph will contain
+            self-loops. (default: :obj:`False`)
+        max_num_neighbors (int, optional): The maximum number of neighbors to
+            return for each element in :obj:`y`. (default: :obj:`32`)
+        flow (string, optional): The flow direction when using in combination
+            with message passing (:obj:`"source_to_target"` or
+            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
+
+    :rtype: :class:`LongTensor`
+
+    .. code-block:: python
+
+        import torch
+        from torch_geometric.nn import radius_graph
+
+        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        batch = torch.tensor([0, 0, 0, 0])
+        edge_index = radius_graph(x, r=1.5, batch=batch, loop=False)
+    """
+    if torch_cluster is None:
+        raise ImportError('`radius_graph` requires `torch-cluster`.')
+    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors,
+        flow)
 
 
 class SchNet(torch.nn.Module):
@@ -7385,109 +7565,6 @@ class ShiftedSoftplus(torch.nn.Module):
         return F.softplus(x) - self.shift
 
 
-def false_negative(pred, target, num_classes):
-    """Computes the number of false negative predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`LongTensor`
-    """
-    out = []
-    for i in range(num_classes):
-        out.append(((pred != i) & (target == i)).sum())
-    return torch.tensor(out)
-
-
-def true_positive(pred, target, num_classes):
-    """Computes the number of true positive predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`LongTensor`
-    """
-    out = []
-    for i in range(num_classes):
-        out.append(((pred == i) & (target == i)).sum())
-    return torch.tensor(out)
-
-
-def recall(pred, target, num_classes):
-    """Computes the recall
-    :math:`\\frac{\\mathrm{TP}}{\\mathrm{TP}+\\mathrm{FN}}` of predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`Tensor`
-    """
-    tp = true_positive(pred, target, num_classes).to(torch.float)
-    fn = false_negative(pred, target, num_classes).to(torch.float)
-    out = tp / (tp + fn)
-    out[torch.isnan(out)] = 0
-    return out
-
-
-def false_positive(pred, target, num_classes):
-    """Computes the number of false positive predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`LongTensor`
-    """
-    out = []
-    for i in range(num_classes):
-        out.append(((pred == i) & (target != i)).sum())
-    return torch.tensor(out)
-
-
-def precision(pred, target, num_classes):
-    """Computes the precision
-    :math:`\\frac{\\mathrm{TP}}{\\mathrm{TP}+\\mathrm{FP}}` of predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`Tensor`
-    """
-    tp = true_positive(pred, target, num_classes).to(torch.float)
-    fp = false_positive(pred, target, num_classes).to(torch.float)
-    out = tp / (tp + fp)
-    out[torch.isnan(out)] = 0
-    return out
-
-
-def f1_score(pred, target, num_classes):
-    """Computes the :math:`F_1` score
-    :math:`2 \\cdot \\frac{\\mathrm{precision} \\cdot \\mathrm{recall}}
-    {\\mathrm{precision}+\\mathrm{recall}}` of predictions.
-
-    Args:
-        pred (Tensor): The predictions.
-        target (Tensor): The targets.
-        num_classes (int): The number of classes.
-
-    :rtype: :class:`Tensor`
-    """
-    prec = precision(pred, target, num_classes)
-    rec = recall(pred, target, num_classes)
-    score = 2 * (prec * rec) / (prec + rec)
-    score[torch.isnan(score)] = 0
-    return score
-
-
 class SignedConv(MessagePassing):
     """The signed graph convolutional operator from the `"Signed Graph
     Convolutional Network" <https://arxiv.org/abs/1808.06354>`_ paper
@@ -7568,6 +7645,109 @@ class SignedConv(MessagePassing):
     def __repr__(self):
         return '{}({}, {}, first_aggr={})'.format(self.__class__.__name__,
             self.in_channels, self.out_channels, self.first_aggr)
+
+
+def false_positive(pred, target, num_classes):
+    """Computes the number of false positive predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`LongTensor`
+    """
+    out = []
+    for i in range(num_classes):
+        out.append(((pred == i) & (target != i)).sum())
+    return torch.tensor(out)
+
+
+def true_positive(pred, target, num_classes):
+    """Computes the number of true positive predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`LongTensor`
+    """
+    out = []
+    for i in range(num_classes):
+        out.append(((pred == i) & (target == i)).sum())
+    return torch.tensor(out)
+
+
+def precision(pred, target, num_classes):
+    """Computes the precision
+    :math:`\\frac{\\mathrm{TP}}{\\mathrm{TP}+\\mathrm{FP}}` of predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`Tensor`
+    """
+    tp = true_positive(pred, target, num_classes).to(torch.float)
+    fp = false_positive(pred, target, num_classes).to(torch.float)
+    out = tp / (tp + fp)
+    out[torch.isnan(out)] = 0
+    return out
+
+
+def false_negative(pred, target, num_classes):
+    """Computes the number of false negative predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`LongTensor`
+    """
+    out = []
+    for i in range(num_classes):
+        out.append(((pred != i) & (target == i)).sum())
+    return torch.tensor(out)
+
+
+def recall(pred, target, num_classes):
+    """Computes the recall
+    :math:`\\frac{\\mathrm{TP}}{\\mathrm{TP}+\\mathrm{FN}}` of predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`Tensor`
+    """
+    tp = true_positive(pred, target, num_classes).to(torch.float)
+    fn = false_negative(pred, target, num_classes).to(torch.float)
+    out = tp / (tp + fn)
+    out[torch.isnan(out)] = 0
+    return out
+
+
+def f1_score(pred, target, num_classes):
+    """Computes the :math:`F_1` score
+    :math:`2 \\cdot \\frac{\\mathrm{precision} \\cdot \\mathrm{recall}}
+    {\\mathrm{precision}+\\mathrm{recall}}` of predictions.
+
+    Args:
+        pred (Tensor): The predictions.
+        target (Tensor): The targets.
+        num_classes (int): The number of classes.
+
+    :rtype: :class:`Tensor`
+    """
+    prec = precision(pred, target, num_classes)
+    rec = recall(pred, target, num_classes)
+    score = 2 * (prec * rec) / (prec + rec)
+    score[torch.isnan(score)] = 0
+    return score
 
 
 def structured_negative_sampling(edge_index, num_nodes=None):

@@ -217,24 +217,6 @@ def reduce_sum(x, axis=None, keepdim=False):
     return x
 
 
-def same_padding(images, ksizes, strides, rates):
-    assert len(images.size()) == 4
-    batch_size, channel, rows, cols = images.size()
-    out_rows = (rows + strides[0] - 1) // strides[0]
-    out_cols = (cols + strides[1] - 1) // strides[1]
-    effective_k_row = (ksizes[0] - 1) * rates[0] + 1
-    effective_k_col = (ksizes[1] - 1) * rates[1] + 1
-    padding_rows = max(0, (out_rows - 1) * strides[0] + effective_k_row - rows)
-    padding_cols = max(0, (out_cols - 1) * strides[1] + effective_k_col - cols)
-    padding_top = int(padding_rows / 2.0)
-    padding_left = int(padding_cols / 2.0)
-    padding_bottom = padding_rows - padding_top
-    padding_right = padding_cols - padding_left
-    paddings = padding_left, padding_right, padding_top, padding_bottom
-    images = torch.nn.ZeroPad2d(paddings)(images)
-    return images
-
-
 def make_color_wheel():
     RY, YG, GC, CB, BM, MR = 15, 6, 4, 11, 13, 6
     ncols = RY + YG + GC + CB + BM + MR
@@ -320,6 +302,24 @@ def flow_to_image(flow):
         img = compute_color(u, v)
         out.append(img)
     return np.float32(np.uint8(out))
+
+
+def same_padding(images, ksizes, strides, rates):
+    assert len(images.size()) == 4
+    batch_size, channel, rows, cols = images.size()
+    out_rows = (rows + strides[0] - 1) // strides[0]
+    out_cols = (cols + strides[1] - 1) // strides[1]
+    effective_k_row = (ksizes[0] - 1) * rates[0] + 1
+    effective_k_col = (ksizes[1] - 1) * rates[1] + 1
+    padding_rows = max(0, (out_rows - 1) * strides[0] + effective_k_row - rows)
+    padding_cols = max(0, (out_cols - 1) * strides[1] + effective_k_col - cols)
+    padding_top = int(padding_rows / 2.0)
+    padding_left = int(padding_cols / 2.0)
+    padding_bottom = padding_rows - padding_top
+    padding_right = padding_cols - padding_left
+    paddings = padding_left, padding_right, padding_top, padding_bottom
+    images = torch.nn.ZeroPad2d(paddings)(images)
+    return images
 
 
 def extract_image_patches(images, ksizes, strides, rates, padding='same'):
@@ -634,13 +634,22 @@ class Conv2dBlock(nn.Module):
         return x
 
 
-def local_patch(x, bbox_list):
-    assert len(x.size()) == 4
-    patches = []
-    for i, bbox in enumerate(bbox_list):
-        t, l, h, w = bbox
-        patches.append(x[(i), :, t:t + h, l:l + w])
-    return torch.stack(patches, dim=0)
+def get_model_list(dirname, key, iteration=0):
+    if os.path.exists(dirname) is False:
+        return None
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
+        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    if gen_models is None:
+        return None
+    gen_models.sort()
+    if iteration == 0:
+        last_model_name = gen_models[-1]
+    else:
+        for model_name in gen_models:
+            if '{:0>8d}'.format(iteration) in model_name:
+                return model_name
+        raise ValueError('Not found models with this iteration')
+    return last_model_name
 
 
 def spatial_discounting_mask(config):
@@ -715,22 +724,13 @@ def get_logger(checkpoint_path=None):
 logger = get_logger()
 
 
-def get_model_list(dirname, key, iteration=0):
-    if os.path.exists(dirname) is False:
-        return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
-    if gen_models is None:
-        return None
-    gen_models.sort()
-    if iteration == 0:
-        last_model_name = gen_models[-1]
-    else:
-        for model_name in gen_models:
-            if '{:0>8d}'.format(iteration) in model_name:
-                return model_name
-        raise ValueError('Not found models with this iteration')
-    return last_model_name
+def local_patch(x, bbox_list):
+    assert len(x.size()) == 4
+    patches = []
+    for i, bbox in enumerate(bbox_list):
+        t, l, h, w = bbox
+        patches.append(x[(i), :, t:t + h, l:l + w])
+    return torch.stack(patches, dim=0)
 
 
 class Trainer(nn.Module):

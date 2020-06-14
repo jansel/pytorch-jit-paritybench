@@ -145,6 +145,21 @@ class UpsampleNetwork(nn.Module):
         return m.transpose(1, 2), aux.transpose(1, 2)
 
 
+def sample_from_gaussian(y_hat, log_std_min=-7.0, scale_factor=1.0):
+    """y_hat (batch_size x seq_len x 2)
+        y (batch_size x seq_len x 1)
+    """
+    assert y_hat.size(2) == 2
+    mean = y_hat[:, :, :1]
+    log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
+    dist = Normal(mean, torch.exp(log_std))
+    sample = dist.sample()
+    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=
+        scale_factor)
+    del dist
+    return sample
+
+
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:

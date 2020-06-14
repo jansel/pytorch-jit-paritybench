@@ -544,6 +544,24 @@ class ConditionalBatchNorm2d(nn.Module):
         return out
 
 
+class Kaiming_Normal(object):
+
+    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
+        """
+
+        :param neg_slope:
+        :param mode:
+        :param non_linearity:
+        """
+        self.neg_slope = neg_slope
+        self.mode = mode
+        self.non_linearity = non_linearity
+
+    def __call__(self, tensor):
+        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.
+            non_linearity)
+
+
 class Constant(object):
 
     def __init__(self, value):
@@ -561,24 +579,6 @@ class Zeros(Constant):
 
     def __init__(self):
         super(Zeros, self).__init__(0)
-
-
-class Kaiming_Normal(object):
-
-    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
-        """
-
-        :param neg_slope:
-        :param mode:
-        :param non_linearity:
-        """
-        self.neg_slope = neg_slope
-        self.mode = mode
-        self.non_linearity = non_linearity
-
-    def __call__(self, tensor):
-        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.
-            non_linearity)
 
 
 class SelfAttention(nn.Module):

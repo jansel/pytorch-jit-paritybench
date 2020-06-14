@@ -168,39 +168,7 @@ class Twist2Mat(nn.Module):
             ).expand(batch_size, 3, 3)
 
 
-class Inverse(torch.autograd.Function):
-
-    def forward(self, input):
-        h, w = input.size()
-        assert h == w
-        H = input.inverse()
-        self.save_for_backward(H)
-        return H
-
-    def backward(self, grad_output):
-        H, = self.saved_tensors
-        h, w = H.size()
-        assert h == w
-        Hl = H.t().repeat(1, h).view(h * h, h, 1)
-        Hr = H.repeat(h, 1).view(h * h, 1, h)
-        r = Hl.bmm(Hr).view(h, h, h, h) * grad_output.contiguous().view(1, 
-            1, h, h).expand(h, h, h, h)
-        return -r.sum(-1).sum(-1)
-
-
-def inv(input):
-    return Inverse()(input)
-
-
 IMG_CHAN = 3
-
-
-def meshgrid(x, y):
-    imW = x.size(0)
-    imH = y.size(0)
-    X = x.unsqueeze(0).repeat(imH, 1)
-    Y = y.unsqueeze(1).repeat(1, imW)
-    return X, Y
 
 
 def compute_SSIM(img0, mu0, sigma0, img1, mu1, sigma1):
@@ -213,26 +181,6 @@ def compute_SSIM(img0, mu0, sigma0, img1, mu1, sigma1):
     ssim_d = (mu0 ** 2 + mu1 ** 2 + C1) * (sigma0 + sigma1 + C2)
     ssim = ssim_n / ssim_d
     return ((1 - ssim) * 0.5).clamp(0, 1)
-
-
-def inv_rigid_transformation(rot_mat_batch, trans_batch):
-    inv_rot_mat_batch = rot_mat_batch.transpose(1, 2)
-    inv_trans_batch = -inv_rot_mat_batch.bmm(trans_batch.unsqueeze(-1)
-        ).squeeze(-1)
-    return inv_rot_mat_batch, inv_trans_batch
-
-
-def grid_bilinear_sampling(A, x, y):
-    batch_size, k, h, w = A.size()
-    x_norm = x / ((w - 1) / 2) - 1
-    y_norm = y / ((h - 1) / 2) - 1
-    grid = torch.cat((x_norm.view(batch_size, h, w, 1), y_norm.view(
-        batch_size, h, w, 1)), 3)
-    Q = grid_sample(A, grid, mode='bilinear')
-    in_view_mask = Variable(((x_norm.data > -1 + 2 / w) & (x_norm.data < 1 -
-        2 / w) & (y_norm.data > -1 + 2 / h) & (y_norm.data < 1 - 2 / h)).
-        type_as(A.data))
-    return Q.view(batch_size, k, h * w), in_view_mask
 
 
 def compute_img_stats(img):
@@ -272,6 +220,58 @@ def gradient(input, do_normalize=False):
         Dx = Dx / (D_rx + D_lx)
         Dy = Dy / (D_ry + D_ly)
     return Dx, Dy
+
+
+def grid_bilinear_sampling(A, x, y):
+    batch_size, k, h, w = A.size()
+    x_norm = x / ((w - 1) / 2) - 1
+    y_norm = y / ((h - 1) / 2) - 1
+    grid = torch.cat((x_norm.view(batch_size, h, w, 1), y_norm.view(
+        batch_size, h, w, 1)), 3)
+    Q = grid_sample(A, grid, mode='bilinear')
+    in_view_mask = Variable(((x_norm.data > -1 + 2 / w) & (x_norm.data < 1 -
+        2 / w) & (y_norm.data > -1 + 2 / h) & (y_norm.data < 1 - 2 / h)).
+        type_as(A.data))
+    return Q.view(batch_size, k, h * w), in_view_mask
+
+
+class Inverse(torch.autograd.Function):
+
+    def forward(self, input):
+        h, w = input.size()
+        assert h == w
+        H = input.inverse()
+        self.save_for_backward(H)
+        return H
+
+    def backward(self, grad_output):
+        H, = self.saved_tensors
+        h, w = H.size()
+        assert h == w
+        Hl = H.t().repeat(1, h).view(h * h, h, 1)
+        Hr = H.repeat(h, 1).view(h * h, 1, h)
+        r = Hl.bmm(Hr).view(h, h, h, h) * grad_output.contiguous().view(1, 
+            1, h, h).expand(h, h, h, h)
+        return -r.sum(-1).sum(-1)
+
+
+def inv(input):
+    return Inverse()(input)
+
+
+def inv_rigid_transformation(rot_mat_batch, trans_batch):
+    inv_rot_mat_batch = rot_mat_batch.transpose(1, 2)
+    inv_trans_batch = -inv_rot_mat_batch.bmm(trans_batch.unsqueeze(-1)
+        ).squeeze(-1)
+    return inv_rot_mat_batch, inv_trans_batch
+
+
+def meshgrid(x, y):
+    imW = x.size(0)
+    imH = y.size(0)
+    X = x.unsqueeze(0).repeat(imH, 1)
+    Y = y.unsqueeze(1).repeat(1, imW)
+    return X, Y
 
 
 class DirectVO(nn.Module):

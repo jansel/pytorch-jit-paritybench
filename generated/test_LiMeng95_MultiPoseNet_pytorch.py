@@ -188,20 +188,6 @@ class ListDataParallel(DataParallel):
         return pose_gather(outputs, output_device, dim=self.dim)
 
 
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
-        shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
-        ).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
-
-
 def generate_anchors(base_size=16, ratios=None, scales=None):
     """
     Generate anchor (reference) windows by enumerating aspect ratios X
@@ -220,6 +206,20 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
     anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
     anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
     return anchors
+
+
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
+        shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
+        ).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
 
 
 class Anchors(nn.Module):
@@ -593,6 +593,28 @@ def FPN101():
     return FPN(Bottleneck, [3, 4, 23, 3])
 
 
+def FPN50():
+    return FPN(Bottleneck, [3, 4, 6, 3])
+
+
+def build_detection_loss(saved_for_loss, anno):
+    """
+    :param saved_for_loss: [classifications, regressions, anchors]
+    :param anno: annotations
+    :return: classification_loss, regression_loss
+    """
+    saved_for_log = OrderedDict()
+    focalLoss = losses.FocalLoss()
+    classification_loss, regression_loss = focalLoss(*saved_for_loss, anno)
+    classification_loss = classification_loss.mean()
+    regression_loss = regression_loss.mean()
+    total_loss = classification_loss + regression_loss
+    saved_for_log['total_loss'] = total_loss.item()
+    saved_for_log['classification_loss'] = classification_loss.item()
+    saved_for_log['regression_loss'] = regression_loss.item()
+    return total_loss, saved_for_log
+
+
 def build_names():
     names = []
     for j in range(2, 6):
@@ -622,21 +644,18 @@ def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
     return total_loss, saved_for_log
 
 
-def build_detection_loss(saved_for_loss, anno):
+def build_prn_loss(saved_for_loss, label):
     """
-    :param saved_for_loss: [classifications, regressions, anchors]
-    :param anno: annotations
-    :return: classification_loss, regression_loss
+    :param saved_for_loss: [out]
+    :param label: label
+    :return: prn loss
     """
     saved_for_log = OrderedDict()
-    focalLoss = losses.FocalLoss()
-    classification_loss, regression_loss = focalLoss(*saved_for_loss, anno)
-    classification_loss = classification_loss.mean()
-    regression_loss = regression_loss.mean()
-    total_loss = classification_loss + regression_loss
-    saved_for_log['total_loss'] = total_loss.item()
-    saved_for_log['classification_loss'] = classification_loss.item()
-    saved_for_log['regression_loss'] = regression_loss.item()
+    criterion = nn.BCELoss(size_average=True).cuda()
+    total_loss = 0
+    loss1 = criterion(saved_for_loss[0], label)
+    total_loss += loss1
+    saved_for_log['PRN loss'] = loss1.item()
     return total_loss, saved_for_log
 
 
@@ -674,25 +693,6 @@ def pth_nms(dets, thresh):
 def nms(dets, thresh):
     """Dispatch to either CPU or GPU NMS implementations.    Accept dets as tensor"""
     return pth_nms(dets, thresh)
-
-
-def build_prn_loss(saved_for_loss, label):
-    """
-    :param saved_for_loss: [out]
-    :param label: label
-    :return: prn loss
-    """
-    saved_for_log = OrderedDict()
-    criterion = nn.BCELoss(size_average=True).cuda()
-    total_loss = 0
-    loss1 = criterion(saved_for_loss[0], label)
-    total_loss += loss1
-    saved_for_log['PRN loss'] = loss1.item()
-    return total_loss, saved_for_log
-
-
-def FPN50():
-    return FPN(Bottleneck, [3, 4, 6, 3])
 
 
 class poseNet(nn.Module):

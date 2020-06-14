@@ -114,14 +114,14 @@ def classifier(inp, nclass):
     return nn.Linear(inp, nclass)
 
 
-def stem(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), Hswish())
-
-
 def conv_before_pooling(inp, oup):
     return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), Hswish())
+
+
+def conv_head(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace
+        =True), nn.Dropout2d(0.2))
 
 
 def separable_conv(inp, oup):
@@ -130,9 +130,9 @@ def separable_conv(inp, oup):
         oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
 
-def conv_head(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace
-        =True), nn.Dropout2d(0.2))
+def stem(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+        BatchNorm2d(oup), Hswish())
 
 
 class MoGaA(nn.Module):

@@ -499,6 +499,15 @@ class VRDRelationshipPhrase(nn.Module):
         self.reset()
 
 
+def CountSketchFn_backward(h, s, x_size, grad_output):
+    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
+    s = s.view(s_view)
+    h = h.view(s_view).expand(x_size)
+    grad_x = grad_output.gather(-1, h)
+    grad_x = grad_x * s
+    return grad_x
+
+
 def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     x_size = tuple(x.size())
     s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
@@ -512,15 +521,6 @@ def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     else:
         out = x.new(*out_size).zero_()
         return out.scatter_add_(-1, h, xs)
-
-
-def CountSketchFn_backward(h, s, x_size, grad_output):
-    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
-    s = s.view(s_view)
-    h = h.view(s_view).expand(x_size)
-    grad_x = grad_output.gather(-1, h)
-    grad_x = grad_x * s
-    return grad_x
 
 
 class CountSketchFn(Function):
@@ -1208,6 +1208,17 @@ class MLP(nn.Module):
         return x
 
 
+def factory_text_enc(vocab_words, opt):
+    list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
+    if opt['name'] == 'skipthoughts':
+        st_class = getattr(skipthoughts, opt['type'])
+        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'
+            ], fixed_emb=opt['fixed_emb'])
+    else:
+        raise NotImplementedError
+    return seq2vec
+
+
 def mask_softmax(x, lengths):
     mask = torch.zeros_like(x).to(device=x.device, non_blocking=True)
     t_lengths = lengths[:, :, (None)].expand_as(mask)
@@ -1219,17 +1230,6 @@ def mask_softmax(x, lengths):
     x = x * mask
     x = x / torch.sum(x, dim=1, keepdim=True).expand_as(x)
     return x
-
-
-def factory_text_enc(vocab_words, opt):
-    list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
-    if opt['name'] == 'skipthoughts':
-        st_class = getattr(skipthoughts, opt['type'])
-        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'
-            ], fixed_emb=opt['fixed_emb'])
-    else:
-        raise NotImplementedError
-    return seq2vec
 
 
 class VQANet(nn.Module):

@@ -2300,11 +2300,6 @@ class _DeepLabHead(nn.Module):
         return self.block(torch.cat([x, c1], dim=1))
 
 
-densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
-    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
-    32])}
-
-
 class DilatedDenseNet(DenseNet):
 
     def __init__(self, growth_rate=12, block_config=(6, 12, 24, 16),
@@ -2334,6 +2329,11 @@ class DilatedDenseNet(DenseNet):
                 m.dilation = dilate, dilate
 
 
+densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
+    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
+    32])}
+
+
 def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
     model = DilatedDenseNet(growth_rate, block_config, num_init_features,
@@ -2353,20 +2353,20 @@ def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     return model
 
 
-def dilated_densenet201(dilate_scale, **kwargs):
-    return get_dilated_densenet(201, dilate_scale, **kwargs)
-
-
-def dilated_densenet169(dilate_scale, **kwargs):
-    return get_dilated_densenet(169, dilate_scale, **kwargs)
+def dilated_densenet121(dilate_scale, **kwargs):
+    return get_dilated_densenet(121, dilate_scale, **kwargs)
 
 
 def dilated_densenet161(dilate_scale, **kwargs):
     return get_dilated_densenet(161, dilate_scale, **kwargs)
 
 
-def dilated_densenet121(dilate_scale, **kwargs):
-    return get_dilated_densenet(121, dilate_scale, **kwargs)
+def dilated_densenet169(dilate_scale, **kwargs):
+    return get_dilated_densenet(169, dilate_scale, **kwargs)
+
+
+def dilated_densenet201(dilate_scale, **kwargs):
+    return get_dilated_densenet(201, dilate_scale, **kwargs)
 
 
 class DenseASPP(nn.Module):
@@ -3874,20 +3874,20 @@ class _PSPHead(nn.Module):
         return self.block(x)
 
 
-def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
-    if pretrained:
-        from ..model_store import get_resnet_file
-        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
-            root)), strict=False)
-    return model
-
-
 def resnet101_v1s(pretrained=False, root='~/.torch/models', **kwargs):
     model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True, **kwargs)
     if pretrained:
         from ..model_store import get_resnet_file
         model.load_state_dict(torch.load(get_resnet_file('resnet101', root=
+            root)), strict=False)
+    return model
+
+
+def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
+    if pretrained:
+        from ..model_store import get_resnet_file
+        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
             root)), strict=False)
     return model
 
@@ -4797,6 +4797,19 @@ class DataParallelModel(DataParallel):
         return modules
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutputs):
+        return Broadcast.apply(ctx.target_gpus, gradOutputs)
+
+
 def get_a_var(obj):
     if isinstance(obj, torch.Tensor):
         return obj
@@ -4872,19 +4885,6 @@ def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutputs):
-        return Broadcast.apply(ctx.target_gpus, gradOutputs)
 
 
 class DataParallelCriterion(DataParallel):

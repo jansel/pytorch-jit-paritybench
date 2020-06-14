@@ -449,11 +449,11 @@ from torch import nn
 from collections import OrderedDict
 
 
-def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
-    1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda :
-    nn.ReLU(inplace=True)):
+def conv1x1_block(in_channels, out_channels, stride=1, padding=0, groups=1,
+    bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(
+    inplace=True)):
     """
-    3x3 version of the standard convolution block.
+    1x1 version of the standard convolution block.
 
     Parameters:
     ----------
@@ -463,10 +463,8 @@ def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
         Number of output channels.
     stride : int or tuple/list of 2 int, default 1
         Strides of the convolution.
-    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 1
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 0
         Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
     groups : int, default 1
         Number of groups.
     bias : bool, default False
@@ -479,9 +477,8 @@ def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
         Activation function or name of activation function.
     """
     return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation)
+        kernel_size=1, stride=stride, padding=padding, groups=groups, bias=
+        bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class AirInitBlock(nn.Module):
@@ -722,6 +719,12 @@ class AlexOutputBlock(nn.Module):
         x = self.fc2(x)
         x = self.fc3(x)
         return x
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
 
 
 class BagNetBottleneck(nn.Module):
@@ -3692,36 +3695,6 @@ def darts_maxpool3x3(channels, stride):
     return nn.MaxPool2d(kernel_size=3, stride=stride, padding=1)
 
 
-def darts_dws_conv3x3(channels, stride):
-    """
-    3x3 version of DARTS specific dilated convolution block.
-
-    Parameters:
-    ----------
-    channels : int
-        Number of input/output channels.
-    stride : int or tuple/list of 2 int
-        Strides of the convolution.
-    """
-    return DartsDwsConv(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=2, dilation=2)
-
-
-def darts_dws_branch3x3(channels, stride):
-    """
-    3x3 version of DARTS specific dilated convolution branch.
-
-    Parameters:
-    ----------
-    channels : int
-        Number of input/output channels.
-    stride : int or tuple/list of 2 int
-        Strides of the convolution.
-    """
-    return DartsDwsBranch(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1)
-
-
 def darts_skip_connection(channels, stride):
     """
     DARTS specific skip connection layer.
@@ -3740,6 +3713,36 @@ def darts_skip_connection(channels, stride):
         assert stride == 2
         return DartsReduceBranch(in_channels=channels, out_channels=
             channels, stride=stride)
+
+
+def darts_dws_branch3x3(channels, stride):
+    """
+    3x3 version of DARTS specific dilated convolution branch.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of input/output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    """
+    return DartsDwsBranch(in_channels=channels, out_channels=channels,
+        kernel_size=3, stride=stride, padding=1)
+
+
+def darts_dws_conv3x3(channels, stride):
+    """
+    3x3 version of DARTS specific dilated convolution block.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of input/output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    """
+    return DartsDwsConv(in_channels=channels, out_channels=channels,
+        kernel_size=3, stride=stride, padding=2, dilation=2)
 
 
 GENOTYPE_OPS = {'max_pool_3x3': darts_maxpool3x3, 'skip_connect':
@@ -3849,6 +3852,43 @@ class DartsUnit(nn.Module):
         return x_out
 
 
+def stem2_unit(in_channels, out_channels):
+    """
+    DARTS Stem2 unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    """
+    return darts_conv3x3_s2(in_channels=in_channels, out_channels=
+        out_channels, activate=True)
+
+
+def nasnet_dual_path_scheme_ordinal(module, x, _):
+    """
+    NASNet specific scheme of dual path response for an ordinal module with dual inputs/outputs in a DualPathSequential
+    module.
+
+    Parameters:
+    ----------
+    module : nn.Module
+        A module.
+    x : Tensor
+        Current processed tensor.
+
+    Returns
+    -------
+    x_next : Tensor
+        Next processed tensor.
+    x : Tensor
+        Current processed tensor.
+    """
+    return module(x), x
+
+
 class NasDualPathScheme(object):
     """
     NASNet specific scheme of dual path response for a module in a DualPathSequential module.
@@ -3892,28 +3932,6 @@ class NasDualPathScheme(object):
         return x_next, x
 
 
-def nasnet_dual_path_scheme_ordinal(module, x, _):
-    """
-    NASNet specific scheme of dual path response for an ordinal module with dual inputs/outputs in a DualPathSequential
-    module.
-
-    Parameters:
-    ----------
-    module : nn.Module
-        A module.
-    x : Tensor
-        Current processed tensor.
-
-    Returns
-    -------
-    x_next : Tensor
-        Next processed tensor.
-    x : Tensor
-        Current processed tensor.
-    """
-    return module(x), x
-
-
 def nasnet_dual_path_sequential(return_two=True, first_ordinals=0,
     last_ordinals=0, can_skip_input=False):
     """
@@ -3938,21 +3956,6 @@ def nasnet_dual_path_sequential(return_two=True, first_ordinals=0,
         first_ordinals, last_ordinals=last_ordinals, dual_path_scheme=
         NasDualPathScheme(can_skip_input=can_skip_input),
         dual_path_scheme_ordinal=nasnet_dual_path_scheme_ordinal)
-
-
-def stem2_unit(in_channels, out_channels):
-    """
-    DARTS Stem2 unit.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    """
-    return darts_conv3x3_s2(in_channels=in_channels, out_channels=
-        out_channels, activate=True)
 
 
 class DARTS(nn.Module):
@@ -4188,10 +4191,10 @@ class DeepLabv3(nn.Module):
             return x
 
 
-def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
+def pre_conv1x1_block(in_channels, out_channels, stride=1, bias=False,
+    use_bn=True, return_preact=False, activate=True):
     """
-    3x3 version of the pre-activated convolution block.
+    1x1 version of the pre-activated convolution block.
 
     Parameters:
     ----------
@@ -4201,10 +4204,6 @@ def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
         Number of output channels.
     stride : int or tuple/list of 2 int, default 1
         Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
     bias : bool, default False
         Whether the layer uses a bias vector.
     use_bn : bool, default True
@@ -4215,9 +4214,8 @@ def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
         Whether activate the convolution block.
     """
     return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        bias=bias, use_bn=use_bn, return_preact=return_preact, activate=
-        activate)
+        kernel_size=1, stride=stride, padding=0, bias=bias, use_bn=use_bn,
+        return_preact=return_preact, activate=activate)
 
 
 class DenseUnit(nn.Module):
@@ -4311,6 +4309,72 @@ class DenseSimpleUnit(nn.Module):
         if self.use_dropout:
             x = self.dropout(x)
         x = torch.cat((identity, x), dim=1)
+        return x
+
+
+class CIFARDenseNet(nn.Module):
+    """
+    DenseNet model for CIFAR from 'Densely Connected Convolutional Networks,' https://arxiv.org/abs/1608.06993.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    dropout_rate : float, default 0.0
+        Parameter of Dropout layer. Faction of the input units to drop.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (32, 32)
+        Spatial size of the expected input image.
+    num_classes : int, default 10
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        dropout_rate=0.0, in_channels=3, in_size=(32, 32), num_classes=10):
+        super(CIFARDenseNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        unit_class = DenseUnit if bottleneck else DenseSimpleUnit
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', conv3x3(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            if i != 0:
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
+                    in_channels=in_channels, out_channels=in_channels // 2))
+                in_channels = in_channels // 2
+            for j, out_channels in enumerate(channels_per_stage):
+                stage.add_module('unit{}'.format(j + 1), unit_class(
+                    in_channels=in_channels, out_channels=out_channels,
+                    dropout_rate=dropout_rate))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('post_activ', PreResActivation(in_channels
+            =in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
         return x
 
 
@@ -4480,6 +4544,69 @@ class DIAResUnit(nn.Module):
         x = x + identity
         x = self.activ(x)
         return x, hc
+
+
+class DIAResNet(nn.Module):
+    """
+    DIA-ResNet model from 'DIANet: Dense-and-Implicit Attention Network,' https://arxiv.org/abs/1905.10671.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    conv1_stride : bool
+        Whether to use stride in the first or the second convolution layer in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(DIAResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', ResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = DualPathSequential(return_two=False)
+            attention = DIAAttention(in_x_features=channels_per_stage[0],
+                in_h_features=channels_per_stage[0])
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), DIAResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck, conv1_stride=
+                    conv1_stride, attention=attention))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
 
 
 class CIFARDIAResNet(nn.Module):
@@ -5360,6 +5487,36 @@ class DRN(nn.Module):
         return x
 
 
+def calc_tf_padding(x, kernel_size, stride=1, dilation=1):
+    """
+    Calculate TF-same like padding size.
+
+    Parameters:
+    ----------
+    x : tensor
+        Input tensor.
+    kernel_size : int
+        Convolution window size.
+    stride : int, default 1
+        Strides of the convolution.
+    dilation : int, default 1
+        Dilation value for convolution layer.
+
+    Returns
+    -------
+    tuple of 4 int
+        The size of the padding.
+    """
+    height, width = x.size()[2:]
+    oh = math.ceil(height / stride)
+    ow = math.ceil(width / stride)
+    pad_h = max((oh - 1) * stride + (kernel_size - 1) * dilation + 1 -
+        height, 0)
+    pad_w = max((ow - 1) * stride + (kernel_size - 1) * dilation + 1 - width, 0
+        )
+    return pad_h // 2, pad_h - pad_h // 2, pad_w // 2, pad_w - pad_w // 2
+
+
 def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     dilation=1, use_bias=False, bn_eps=1e-05, activation='relu',
     data_format='channels_last', **kwargs):
@@ -5391,36 +5548,6 @@ def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
         kernel_size=3, strides=strides, padding=padding, dilation=dilation,
         use_bias=use_bias, bn_eps=bn_eps, activation=activation,
         data_format=data_format, **kwargs)
-
-
-def calc_tf_padding(x, kernel_size, stride=1, dilation=1):
-    """
-    Calculate TF-same like padding size.
-
-    Parameters:
-    ----------
-    x : tensor
-        Input tensor.
-    kernel_size : int
-        Convolution window size.
-    stride : int, default 1
-        Strides of the convolution.
-    dilation : int, default 1
-        Dilation value for convolution layer.
-
-    Returns
-    -------
-    tuple of 4 int
-        The size of the padding.
-    """
-    height, width = x.size()[2:]
-    oh = math.ceil(height / stride)
-    ow = math.ceil(width / stride)
-    pad_h = max((oh - 1) * stride + (kernel_size - 1) * dilation + 1 -
-        height, 0)
-    pad_w = max((ow - 1) * stride + (kernel_size - 1) * dilation + 1 - width, 0
-        )
-    return pad_h // 2, pad_h - pad_h // 2, pad_w // 2, pad_w - pad_w // 2
 
 
 class EffiDwsConvUnit(nn.Module):
@@ -5913,12 +6040,6 @@ class HierarchicalConcurrent(nn.Sequential):
             y_prev = y
         out = torch.cat(tuple(out), dim=self.axis)
         return out
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class ESPBlock(nn.Module):
@@ -8284,71 +8405,6 @@ class IBNDenseUnit(nn.Module):
         if self.use_dropout:
             x = self.dropout(x)
         x = torch.cat((identity, x), dim=1)
-        return x
-
-
-class IBNDenseNet(nn.Module):
-    """
-    IBN-DenseNet model from 'Two at Once: Enhancing Learning and Generalization Capacities via IBN-Net,'
-    https://arxiv.org/abs/1807.09441.
-
-    Parameters:
-    ----------
-    channels : list of list of int
-        Number of output channels for each unit.
-    init_block_channels : int
-        Number of output channels for the initial unit.
-    dropout_rate : float, default 0.0
-        Parameter of Dropout layer. Faction of the input units to drop.
-    in_channels : int, default 3
-        Number of input channels.
-    in_size : tuple of two ints, default (224, 224)
-        Spatial size of the expected input image.
-    num_classes : int, default 1000
-        Number of classification classes.
-    """
-
-    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
-        super(IBNDenseNet, self).__init__()
-        self.in_size = in_size
-        self.num_classes = num_classes
-        self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
-        in_channels = init_block_channels
-        for i, channels_per_stage in enumerate(channels):
-            stage = nn.Sequential()
-            if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
-                in_channels = in_channels // 2
-            for j, out_channels in enumerate(channels_per_stage):
-                conv1_ibn = i < 3 and j % 3 == 0
-                stage.add_module('unit{}'.format(j + 1), IBNDenseUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate, conv1_ibn=conv1_ibn))
-                in_channels = out_channels
-            self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
-        self._init_params()
-
-    def _init_params(self):
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Conv2d):
-                init.kaiming_uniform_(module.weight)
-                if module.bias is not None:
-                    init.constant_(module.bias, 0)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.output(x)
         return x
 
 
@@ -13712,6 +13768,14 @@ def nas_conv1x1(in_channels, out_channels):
         kernel_size=1, stride=1, padding=0, groups=1)
 
 
+def nasnet_avgpool3x3_s2():
+    """
+    NASNet specific 3x3 Average pooling layer with stride 2.
+    """
+    return nn.AvgPool2d(kernel_size=3, stride=2, padding=1,
+        count_include_pad=False)
+
+
 def dws_branch_k3_s1_p1(in_channels, out_channels, extra_padding=False):
     """
     3x3/1/1 version of the NASNet specific depthwise separable convolution branch.
@@ -13727,22 +13791,6 @@ def dws_branch_k3_s1_p1(in_channels, out_channels, extra_padding=False):
     """
     return DwsBranch(in_channels=in_channels, out_channels=out_channels,
         kernel_size=3, stride=1, padding=1, extra_padding=extra_padding)
-
-
-def nasnet_avgpool3x3_s1():
-    """
-    NASNet specific 3x3 Average pooling layer with stride 1.
-    """
-    return nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
-        count_include_pad=False)
-
-
-def nasnet_avgpool3x3_s2():
-    """
-    NASNet specific 3x3 Average pooling layer with stride 2.
-    """
-    return nn.AvgPool2d(kernel_size=3, stride=2, padding=1,
-        count_include_pad=False)
 
 
 def dws_branch_k5_s2_p2(in_channels, out_channels, extra_padding=False,
@@ -13764,6 +13812,14 @@ def dws_branch_k5_s2_p2(in_channels, out_channels, extra_padding=False,
     return DwsBranch(in_channels=in_channels, out_channels=out_channels,
         kernel_size=5, stride=2, padding=2, extra_padding=extra_padding,
         stem=stem)
+
+
+def nasnet_avgpool3x3_s1():
+    """
+    NASNet specific 3x3 Average pooling layer with stride 1.
+    """
+    return nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
+        count_include_pad=False)
 
 
 def dws_branch_k7_s2_p3(in_channels, out_channels, extra_padding=False,
@@ -14069,6 +14125,26 @@ class NASNetInitBlock(nn.Module):
         return x
 
 
+class Reduction1Unit(ReductionBaseUnit):
+    """
+    NASNet Reduction1 unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    prev_in_channels : int
+        Number of input channels in previous input.
+    out_channels : int
+        Number of output channels.
+    """
+
+    def __init__(self, in_channels, prev_in_channels, out_channels):
+        super(Reduction1Unit, self).__init__(in_channels=in_channels,
+            prev_in_channels=prev_in_channels, out_channels=out_channels,
+            extra_padding=True)
+
+
 class Reduction2Unit(ReductionBaseUnit):
     """
     NASNet Reduction2 unit.
@@ -14090,26 +14166,6 @@ class Reduction2Unit(ReductionBaseUnit):
         super(Reduction2Unit, self).__init__(in_channels=in_channels,
             prev_in_channels=prev_in_channels, out_channels=out_channels,
             extra_padding=extra_padding)
-
-
-class Reduction1Unit(ReductionBaseUnit):
-    """
-    NASNet Reduction1 unit.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    prev_in_channels : int
-        Number of input channels in previous input.
-    out_channels : int
-        Number of output channels.
-    """
-
-    def __init__(self, in_channels, prev_in_channels, out_channels):
-        super(Reduction1Unit, self).__init__(in_channels=in_channels,
-            prev_in_channels=prev_in_channels, out_channels=out_channels,
-            extra_padding=True)
 
 
 class NASNet(nn.Module):
@@ -16329,6 +16385,14 @@ class NaiveNet(nn.Module):
         return outs
 
 
+def conv_dw_no_bn(in_channels, out_channels, kernel_size=3, padding=1,
+    stride=1, dilation=1):
+    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size,
+        stride, padding, dilation=dilation, groups=in_channels, bias=False),
+        nn.ELU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0,
+        bias=False), nn.ELU(inplace=True))
+
+
 def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True,
     dilation=1, stride=1, relu=True, bias=True):
     modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride,
@@ -16338,14 +16402,6 @@ def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True,
     if relu:
         modules.append(nn.ReLU(inplace=True))
     return nn.Sequential(*modules)
-
-
-def conv_dw_no_bn(in_channels, out_channels, kernel_size=3, padding=1,
-    stride=1, dilation=1):
-    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size,
-        stride, padding, dilation=dilation, groups=in_channels, bias=False),
-        nn.ELU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0,
-        bias=False), nn.ELU(inplace=True))
 
 
 class Cpm(nn.Module):
@@ -18084,10 +18140,10 @@ class PnasBaseUnit(nn.Module):
         return x_out
 
 
-def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False,
+def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False,
     stem=False):
     """
-    5x5 version of the PNASNet specific depthwise separable convolution branch.
+    3x3 version of the PNASNet specific depthwise separable convolution branch.
 
     Parameters:
     ----------
@@ -18103,7 +18159,24 @@ def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False,
         Whether to use squeeze reduction if False.
     """
     return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, stride=stride, extra_padding=extra_padding, stem=stem)
+        kernel_size=3, stride=stride, extra_padding=extra_padding, stem=stem)
+
+
+def pnas_conv1x1(in_channels, out_channels, stride=1):
+    """
+    1x1 version of the PNASNet specific convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    """
+    return NasConv(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=1, stride=stride, padding=0, groups=1)
 
 
 def dws_branch_k7(in_channels, out_channels, stride=2, extra_padding=False):
@@ -18125,27 +18198,10 @@ def dws_branch_k7(in_channels, out_channels, stride=2, extra_padding=False):
         kernel_size=7, stride=stride, extra_padding=extra_padding, stem=False)
 
 
-def pnas_conv1x1(in_channels, out_channels, stride=1):
-    """
-    1x1 version of the PNASNet specific convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    stride : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    """
-    return NasConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=1)
-
-
-def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False,
+def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False,
     stem=False):
     """
-    3x3 version of the PNASNet specific depthwise separable convolution branch.
+    5x5 version of the PNASNet specific depthwise separable convolution branch.
 
     Parameters:
     ----------
@@ -18161,7 +18217,7 @@ def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False,
         Whether to use squeeze reduction if False.
     """
     return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, extra_padding=extra_padding, stem=stem)
+        kernel_size=5, stride=stride, extra_padding=extra_padding, stem=stem)
 
 
 class PnasUnit(PnasBaseUnit):
@@ -18898,6 +18954,24 @@ class PolyCUnit(PolyBaseUnit):
             poly_res_block=poly_res_c_block, poly_pre_block=PolyPreCBlock)
 
 
+class PolyAUnit(PolyBaseUnit):
+    """
+    PolyNet type A unit.
+
+    Parameters:
+    ----------
+    two_way_scale : float
+        Scale value for 2-way stage.
+    poly_scale : float
+        Scale value for 2-way stage.
+    """
+
+    def __init__(self, two_way_scale, poly_scale=0.0):
+        super(PolyAUnit, self).__init__(two_way_scale=two_way_scale,
+            two_way_block=TwoWayABlock)
+        assert poly_scale == 0.0
+
+
 def poly_res_b_block():
     """
     PolyNet type PolyResidual-Res-B block.
@@ -18922,24 +18996,6 @@ class PolyBUnit(PolyBaseUnit):
         super(PolyBUnit, self).__init__(two_way_scale=two_way_scale,
             two_way_block=TwoWayBBlock, poly_scale=poly_scale,
             poly_res_block=poly_res_b_block, poly_pre_block=PolyPreBBlock)
-
-
-class PolyAUnit(PolyBaseUnit):
-    """
-    PolyNet type A unit.
-
-    Parameters:
-    ----------
-    two_way_scale : float
-        Scale value for 2-way stage.
-    poly_scale : float
-        Scale value for 2-way stage.
-    """
-
-    def __init__(self, two_way_scale, poly_scale=0.0):
-        super(PolyAUnit, self).__init__(two_way_scale=two_way_scale,
-            two_way_block=TwoWayABlock)
-        assert poly_scale == 0.0
 
 
 class PolyNet(nn.Module):
@@ -24009,41 +24065,6 @@ class FDWConvBlock(nn.Module):
         return x
 
 
-def fdwconv5x5_block(in_channels, out_channels, strides=1, padding=2,
-    dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation=
-    'relu', data_format='channels_last', **kwargs):
-    """
-    5x5 factorized depthwise version of the standard convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    strides : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    padding : int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    use_bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    bn_eps : float, default 1e-5
-        Small float added to variance in Batch norm.
-    activation : function or str or None, default 'relu'
-        Activation function or name of activation function.
-    data_format : str, default 'channels_last'
-        The ordering of the dimensions in tensors.
-    """
-    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, strides=strides, padding=padding, dilation=dilation,
-        use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation, data_format=data_format, **kwargs)
-
-
 def fdwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation=
     'relu', data_format='channels_last', **kwargs):
@@ -24075,6 +24096,41 @@ def fdwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     """
     return FDWConvBlock(in_channels=in_channels, out_channels=out_channels,
         kernel_size=3, strides=strides, padding=padding, dilation=dilation,
+        use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=
+        activation, data_format=data_format, **kwargs)
+
+
+def fdwconv5x5_block(in_channels, out_channels, strides=1, padding=2,
+    dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation=
+    'relu', data_format='channels_last', **kwargs):
+    """
+    5x5 factorized depthwise version of the standard convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    strides : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    use_bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default 'relu'
+        Activation function or name of activation function.
+    data_format : str, default 'channels_last'
+        The ordering of the dimensions in tensors.
+    """
+    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=5, strides=strides, padding=padding, dilation=dilation,
         use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=
         activation, data_format=data_format, **kwargs)
 
@@ -27370,58 +27426,58 @@ class Test_osmr_imgclsmob(_paritybench_base):
     def test_044(self):
         self._check(FirstLSTMAmp(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_045(self):
+        self._check(FishFinalBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_046(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_046(self):
+    def test_047(self):
         self._check(FractalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_047(self):
+    def test_048(self):
         self._check(FractalUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_048(self):
+    def test_049(self):
         self._check(GhostHSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_049(self):
+    def test_050(self):
         self._check(GlobalAvgMaxPool2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_050(self):
+    def test_051(self):
         self._check(HSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_051(self):
+    def test_052(self):
         self._check(HSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_052(self):
+    def test_053(self):
         self._check(HeatmapMaxDetBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_053(self):
+    def test_054(self):
         self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_054(self):
+    def test_055(self):
         self._check(IBN(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_055(self):
+    def test_056(self):
         self._check(IBNConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_056(self):
+    def test_057(self):
         self._check(IBNPreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_057(self):
+    def test_058(self):
         self._check(IBNbConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_058(self):
-        self._check(IBNbResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_059(self):
-        self._check(IRevBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(IBNbResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_060(self):
@@ -27439,135 +27495,135 @@ class Test_osmr_imgclsmob(_paritybench_base):
     def test_064(self):
         self._check(IRevSplitBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_065(self):
-        self._check(IRevUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_066(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_067(self):
+    def test_066(self):
         self._check(InceptConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_068(self):
+    def test_067(self):
         self._check(InitialStage(*[], **{'num_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_069(self):
+    def test_068(self):
         self._check(InterpolationBlock(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_070(self):
+    def test_069(self):
         self._check(MEInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_071(self):
+    def test_070(self):
         self._check(MaxPoolBranch(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_072(self):
+    def test_071(self):
         self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_072(self):
+        self._check(MergeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
     def test_073(self):
-        self._check(MixConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MiddleAttBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_074(self):
-        self._check(MultiBlockSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MixConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_075(self):
+        self._check(MultiBlockSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_076(self):
         self._check(MultiOutputSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_076(self):
+    def test_077(self):
         self._check(NASNetInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_077(self):
+    def test_078(self):
         self._check(NINConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_078(self):
+    def test_079(self):
         self._check(NasAvgPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_079(self):
+    def test_080(self):
         self._check(NasConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_080(self):
+    def test_081(self):
         self._check(NasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_081(self):
+    def test_082(self):
         self._check(NasPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_082(self):
+    def test_083(self):
         self._check(NasPathBranch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_083(self):
+    def test_084(self):
         self._check(NormActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_084(self):
+    def test_085(self):
         self._check(OctConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_085(self):
+    def test_086(self):
         self._check(OctConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_086(self):
+    def test_087(self):
         self._check(OctResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_087(self):
+    def test_088(self):
         self._check(OctResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_088(self):
+    def test_089(self):
         self._check(OctResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_089(self):
+    def test_090(self):
         self._check(ParallelConcurent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_090(self):
+    def test_091(self):
         self._check(ParametricSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_091(self):
+    def test_092(self):
         self._check(PnasMaxPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_092(self):
+    def test_093(self):
         self._check(PnasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_093(self):
+    def test_094(self):
         self._check(PolyConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'num_blocks': 1}), [torch.rand([4, 4, 4, 4]), 0], {})
 
-    def test_094(self):
+    def test_095(self):
         self._check(PoseEstimationWithMobileNet2d(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_095(self):
+    def test_096(self):
         self._check(PostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_096(self):
+    def test_097(self):
         self._check(PreActivation(*[], **{'in_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_097(self):
+    def test_098(self):
         self._check(PreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_098(self):
+    def test_099(self):
         self._check(PreConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_099(self):
-        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_100(self):
-        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_101(self):
@@ -27584,24 +27640,24 @@ class Test_osmr_imgclsmob(_paritybench_base):
     def test_104(self):
         self._check(PreXConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_105(self):
-        self._check(PyrBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_106(self):
         self._check(PyrInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_107(self):
+    def test_106(self):
         self._check(PytorchModel(*[], **{}), [torch.rand([1024, 1024])], {})
 
-    def test_108(self):
+    def test_107(self):
         self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_109(self):
+    def test_108(self):
         self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_110(self):
+    def test_109(self):
         self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_110(self):
+        self._check(ResADownBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_111(self):
@@ -27617,45 +27673,45 @@ class Test_osmr_imgclsmob(_paritybench_base):
     def test_114(self):
         self._check(RevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_115(self):
-        self._check(RevResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_116(self):
         self._check(RiRFinalBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_117(self):
+    def test_116(self):
         self._check(SBmodule(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_118(self):
+    def test_117(self):
         self._check(SEseparableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_119(self):
+    def test_118(self):
         self._check(SequentialConcurrent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_120(self):
+    def test_119(self):
         self._check(ShaConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_121(self):
+    def test_120(self):
         self._check(ShakeShakeShortcut(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_122(self):
+    def test_121(self):
         self._check(SimpleGroupBlock(*[], **{'channels': 4, 'multi_blocks': 1, 'groups': 1, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_123(self):
+    def test_122(self):
         self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_124(self):
+    def test_123(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_125(self):
+    def test_124(self):
         self._check(SqueezeInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_126(self):
+    def test_125(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_126(self):
+        self._check(UpSamplingBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_127(self):
         self._check(VGGDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})

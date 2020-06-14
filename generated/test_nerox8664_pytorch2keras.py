@@ -395,12 +395,12 @@ class LayerTest(nn.Module):
         return x
 
 
+BatchNorm = nn.BatchNorm2d
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-BatchNorm = nn.BatchNorm2d
 
 
 class BasicBlock(nn.Module):
@@ -694,16 +694,6 @@ class ShuffleInitBlock(nn.Module):
         return x
 
 
-def depthwise_conv3x3(channels, stride):
-    return nn.Conv2d(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
-
-
-def group_conv1x1(in_channels, out_channels, groups):
-    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, groups=groups, bias=False)
-
-
 def conv1x1(in_channels, out_channels, stride):
     """
     Convolution 1x1 layer.
@@ -719,6 +709,16 @@ def conv1x1(in_channels, out_channels, stride):
     """
     return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
         kernel_size=1, stride=stride, padding=0, bias=False)
+
+
+def depthwise_conv3x3(channels, stride):
+    return nn.Conv2d(in_channels=channels, out_channels=channels,
+        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
+
+
+def group_conv1x1(in_channels, out_channels, groups):
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=1, groups=groups, bias=False)
 
 
 class MEModule(nn.Module):
@@ -841,13 +841,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 

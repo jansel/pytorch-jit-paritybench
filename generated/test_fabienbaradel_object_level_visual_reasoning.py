@@ -156,6 +156,24 @@ class Bottleneck(nn.Module):
         return out
 
 
+def conv3x3(in_planes, out_planes, stride=1, dilation=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False, dilation=dilation)
+
+
+class BasicBlock2D(BasicBlock):
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None,
+        dilation=1, **kwargs):
+        super().__init__(inplanes, planes, stride, downsample, dilation)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
+        self.conv2 = conv3x3(planes, planes, dilation)
+        self.input_dim = 4
+
+
 class Bottleneck2D(Bottleneck):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None,
@@ -191,24 +209,6 @@ def transform_input(x, dim, T=8):
         x = x.view(-1, T, C, W, H)
         x = x.transpose(1, 2)
     return x
-
-
-def conv3x3(in_planes, out_planes, stride=1, dilation=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False, dilation=dilation)
-
-
-class BasicBlock2D(BasicBlock):
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=1, **kwargs):
-        super().__init__(inplanes, planes, stride, downsample, dilation)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
-        self.conv2 = conv3x3(planes, planes, dilation)
-        self.input_dim = 4
 
 
 class ResNet(nn.Module):

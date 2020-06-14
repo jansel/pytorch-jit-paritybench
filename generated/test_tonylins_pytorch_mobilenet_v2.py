@@ -50,9 +50,9 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def make_divisible(x, divisible_by=8):
-    import numpy as np
-    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 def conv_bn(inp, oup, stride):
@@ -60,9 +60,9 @@ def conv_bn(inp, oup, stride):
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+def make_divisible(x, divisible_by=8):
+    import numpy as np
+    return int(np.ceil(x * 1.0 / divisible_by) * divisible_by)
 
 
 class MobileNetV2(nn.Module):

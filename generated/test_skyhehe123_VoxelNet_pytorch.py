@@ -235,10 +235,10 @@ class RPN(nn.Module):
 _global_config['H'] = 4
 
 
-_global_config['N'] = 4
-
-
 _global_config['W'] = 4
+
+
+_global_config['N'] = 4
 
 
 _global_config['D'] = 4

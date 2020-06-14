@@ -281,13 +281,13 @@ class MLP(nn.Module):
         return x.squeeze() if self.output_squeeze else x
 
 
-LOG_STD_MAX = 2
+LOG_STD_MIN = -20
 
 
 EPS = 1e-08
 
 
-LOG_STD_MIN = -20
+LOG_STD_MAX = 2
 
 
 class GaussianPolicy(nn.Module):

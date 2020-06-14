@@ -417,11 +417,6 @@ class Bilinear(nn.Module):
         return F.conv_transpose2d(x, Variable(self.w), stride=self.factor)
 
 
-def _crop(input, shape, offset=0):
-    _, _, h, w = shape.size()
-    return input[:, :, offset:offset + h, offset:offset + w].contiguous()
-
-
 def make_layers(cfg, batch_norm=False):
     """This is almost verbatim from torchvision.models.vgg, except that the
 	MaxPool2d modules are configured with ceil_mode=True.
@@ -440,6 +435,11 @@ def make_layers(cfg, batch_norm=False):
             layers.extend(modules)
             in_channels = v
     return nn.Sequential(*layers)
+
+
+def _crop(input, shape, offset=0):
+    _, _, h, w = shape.size()
+    return input[:, :, offset:offset + h, offset:offset + w].contiguous()
 
 
 class Discriminator(nn.Module):

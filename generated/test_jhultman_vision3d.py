@@ -84,6 +84,14 @@ import itertools
 from torch.utils.data import DataLoader
 
 
+def torchify_anchor_attributes(cfg):
+    attr = {}
+    for key in ['wlh', 'center_z', 'yaw']:
+        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
+        attr[key] = torch.stack(vals).float()
+    return dict(attr)
+
+
 def _linspace_midpoint(x0, x1, nx):
     """
     Mimics np.linspace with endpoint=False except
@@ -99,14 +107,6 @@ def meshgrid_midpoint(*arrays):
     spaces = [_linspace_midpoint(*x) for x in arrays]
     grid = torch.stack(torch.meshgrid(spaces), -1)
     return grid
-
-
-def torchify_anchor_attributes(cfg):
-    attr = {}
-    for key in ['wlh', 'center_z', 'yaw']:
-        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
-        attr[key] = torch.stack(vals).float()
-    return dict(attr)
 
 
 class AnchorGenerator(nn.Module):
@@ -584,18 +584,21 @@ class MLP(nn.Sequential):
         return module
 
 
-def make_subm_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
-    return layer
-
-
 def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
     layer = spconv.SparseSequential(spconv.SparseConv3d(C_in, C_out, *args,
         **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
         0.01), nn.ReLU())
     return layer
+
+
+def decode(deltas, anchors):
+    """Both inputs of shape (*, 7)."""
+    P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
+    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
+    A_norm = _anchor_diagonal(A_wlh)
+    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
+        A_yaw), dim=-1)
+    return boxes
 
 
 def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
@@ -785,6 +788,13 @@ class RoiGridPool(nn.Module):
             ).view(b, n, -1)
         features = self.reduction(features)
         return features
+
+
+def make_subm_layer(C_in, C_out, *args, **kwargs):
+    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
+        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
+        0.01), nn.ReLU())
+    return layer
 
 
 class RPN(nn.Module):

@@ -141,21 +141,6 @@ class SiamRPNPP(nn.Module):
         return loc, cls
 
 
-def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
-    c = patch_sz / 2
-    xleft_pad = max(0, -int(round(pos_x - c)))
-    ytop_pad = max(0, -int(round(pos_y - c)))
-    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
-    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
-    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
-    if avg_chan is not None:
-        avg_chan = tuple([int(round(c)) for c in avg_chan])
-        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
-    else:
-        im_padded = ImageOps.expand(im, border=npad, fill=0)
-    return im_padded, npad
-
-
 def Image_to_Tensor(img, mean=[0.5, 0.5, 0.5], std=[0.25, 0.25, 0.25]):
     zn = np.asarray(img, 'float')
     zr = zn.transpose(2, 0, 1)
@@ -189,6 +174,34 @@ def extract_crops_x(im, npad, pos_x, pos_y, sz_src0, sz_src1, sz_src2, sz_dst):
     return crops
 
 
+def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
+    c = sz_src / 2
+    tr_x = npad + int(round(pos_x - c))
+    tr_y = npad + int(round(pos_y - c))
+    width = round(pos_x + c) - round(pos_x - c)
+    height = round(pos_y + c) - round(pos_y - c)
+    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y +
+        height)))
+    crop = crop.resize((sz_dst, sz_dst), Image.BILINEAR)
+    crops = 255.0 * F.to_tensor(crop).unsqueeze(0)
+    return crops
+
+
+def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
+    c = patch_sz / 2
+    xleft_pad = max(0, -int(round(pos_x - c)))
+    ytop_pad = max(0, -int(round(pos_y - c)))
+    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
+    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
+    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
+    if avg_chan is not None:
+        avg_chan = tuple([int(round(c)) for c in avg_chan])
+        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
+    else:
+        im_padded = ImageOps.expand(im, border=npad, fill=0)
+    return im_padded, npad
+
+
 Rectangle = collections.namedtuple('Rectangle', ['x', 'y', 'width', 'height'])
 
 
@@ -207,19 +220,6 @@ def gen_xz(img, inbox, to='x', pdrt=1):
     else:
         raise ValueError('Bbox format: {} was not recognized'.format(to))
     return temp
-
-
-def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
-    c = sz_src / 2
-    tr_x = npad + int(round(pos_x - c))
-    tr_y = npad + int(round(pos_y - c))
-    width = round(pos_x + c) - round(pos_x - c)
-    height = round(pos_y + c) - round(pos_y - c)
-    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y +
-        height)))
-    crop = crop.resize((sz_dst, sz_dst), Image.BILINEAR)
-    crops = 255.0 * F.to_tensor(crop).unsqueeze(0)
-    return crops
 
 
 class SiameseNet(nn.Module):
@@ -527,14 +527,6 @@ class SiamRPN(nn.Module):
         pred_regression = self.regress_adjust(self.xcorr(kernel_regression,
             conv_regression, 20))
         return pred_score, pred_regression
-
-
-def resnet50(**kwargs):
-    """Constructs a ResNet-50 model.
-
-    """
-    model = ResNetPP(Bottleneck, [3, 4, 6, 3], **kwargs)
-    return model
 
 
 class Corr_Up(nn.Module):

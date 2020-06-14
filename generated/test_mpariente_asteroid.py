@@ -323,107 +323,6 @@ class SingleSrcMSE(_Loss):
 EPS = 1e-08
 
 
-class STFTFB(Filterbank):
-    """ STFT filterbank.
-
-    Args:
-        n_filters (int): Number of filters. Determines the length of the STFT
-            filters before windowing.
-        kernel_size (int): Length of the filters (i.e the window).
-        stride (int, optional): Stride of the convolution (hop size). If None
-            (default), set to ``kernel_size // 2``.
-        window (:class:`numpy.ndarray`, optional): If None, defaults to
-            ``np.sqrt(np.hanning())``.
-
-    Attributes:
-        n_feats_out (int): Number of output filters.
-    """
-
-    def __init__(self, n_filters, kernel_size, stride=None, window=None, **
-        kwargs):
-        super(STFTFB, self).__init__(n_filters, kernel_size, stride=stride)
-        assert n_filters >= kernel_size
-        self.cutoff = int(n_filters / 2 + 1)
-        self.n_feats_out = 2 * self.cutoff
-        if window is None:
-            self.window = np.hanning(kernel_size + 1)[:-1] ** 0.5
-        else:
-            ws = window.size
-            if not ws == kernel_size:
-                raise AssertionError(
-                    'Expected window of size {}.Received window of size {} instead.'
-                    .format(kernel_size, ws))
-            self.window = window
-        filters = np.fft.fft(np.eye(n_filters))
-        filters /= 0.5 * np.sqrt(kernel_size * n_filters / self.stride)
-        lpad = int((n_filters - kernel_size) // 2)
-        rpad = int(n_filters - kernel_size - lpad)
-        indexes = list(range(lpad, n_filters - rpad))
-        filters = np.vstack([np.real(filters[:self.cutoff, (indexes)]), np.
-            imag(filters[:self.cutoff, (indexes)])])
-        filters[(0), :] /= np.sqrt(2)
-        filters[(n_filters // 2), :] /= np.sqrt(2)
-        filters = torch.from_numpy(filters * self.window).unsqueeze(1).float()
-        self.register_buffer('_filters', filters)
-
-    @property
-    def filters(self):
-        return self._filters
-
-
-def check_complex(tensor, dim=-2):
-    """ Assert tensor in complex-like in a given dimension.
-
-    Args:
-        tensor (torch.Tensor): tensor to be checked.
-        dim(int): the frequency (or equivalent) dimension along which
-            real and imaginary values are concatenated.
-
-    Raises:
-        AssertionError if dimension is not even in the specified dimension
-
-    """
-    if tensor.shape[dim] % 2 != 0:
-        raise AssertionError(
-            'Could not equally chunk the tensor (shape {}) along the given dimension ({}). Dim axis is probably wrong'
-            )
-
-
-def take_mag(x, dim=-2):
-    """ Takes the magnitude of a complex tensor.
-
-    The operands is assumed to have the real parts of each entry followed by
-    the imaginary parts of each entry along dimension `dim`, e.g. for,
-    ``dim = 1``, the matrix
-
-    .. code::
-
-        [[1, 2, 3, 4],
-         [5, 6, 7, 8]]
-
-    is interpreted as
-
-    .. code::
-
-        [[1 + 3j, 2 + 4j],
-         [5 + 7j, 6 + 8j]
-
-    where `j` is such that `j * j = -1`.
-
-    Args:
-        x (:class:`torch.Tensor`): Complex valued tensor.
-        dim (int): frequency (or equivalent) dimension along which real and
-            imaginary values are concatenated.
-
-    Returns:
-        :class:`torch.Tensor`: The magnitude of x.
-    """
-    check_complex(x, dim=dim)
-    power = torch.stack(torch.chunk(x, 2, dim=dim), dim=-1).pow(2).sum(dim=-1)
-    power = power + EPS
-    return power.pow(0.5)
-
-
 class Decoder(_EncDec):
     """ Decoder class.
     
@@ -552,6 +451,107 @@ class Encoder(_EncDec):
             stride=self.stride, padding=self.padding)
         output_shape = inp.shape[:-1] + batched_conv.shape[-2:]
         return batched_conv.view(output_shape)
+
+
+class STFTFB(Filterbank):
+    """ STFT filterbank.
+
+    Args:
+        n_filters (int): Number of filters. Determines the length of the STFT
+            filters before windowing.
+        kernel_size (int): Length of the filters (i.e the window).
+        stride (int, optional): Stride of the convolution (hop size). If None
+            (default), set to ``kernel_size // 2``.
+        window (:class:`numpy.ndarray`, optional): If None, defaults to
+            ``np.sqrt(np.hanning())``.
+
+    Attributes:
+        n_feats_out (int): Number of output filters.
+    """
+
+    def __init__(self, n_filters, kernel_size, stride=None, window=None, **
+        kwargs):
+        super(STFTFB, self).__init__(n_filters, kernel_size, stride=stride)
+        assert n_filters >= kernel_size
+        self.cutoff = int(n_filters / 2 + 1)
+        self.n_feats_out = 2 * self.cutoff
+        if window is None:
+            self.window = np.hanning(kernel_size + 1)[:-1] ** 0.5
+        else:
+            ws = window.size
+            if not ws == kernel_size:
+                raise AssertionError(
+                    'Expected window of size {}.Received window of size {} instead.'
+                    .format(kernel_size, ws))
+            self.window = window
+        filters = np.fft.fft(np.eye(n_filters))
+        filters /= 0.5 * np.sqrt(kernel_size * n_filters / self.stride)
+        lpad = int((n_filters - kernel_size) // 2)
+        rpad = int(n_filters - kernel_size - lpad)
+        indexes = list(range(lpad, n_filters - rpad))
+        filters = np.vstack([np.real(filters[:self.cutoff, (indexes)]), np.
+            imag(filters[:self.cutoff, (indexes)])])
+        filters[(0), :] /= np.sqrt(2)
+        filters[(n_filters // 2), :] /= np.sqrt(2)
+        filters = torch.from_numpy(filters * self.window).unsqueeze(1).float()
+        self.register_buffer('_filters', filters)
+
+    @property
+    def filters(self):
+        return self._filters
+
+
+def check_complex(tensor, dim=-2):
+    """ Assert tensor in complex-like in a given dimension.
+
+    Args:
+        tensor (torch.Tensor): tensor to be checked.
+        dim(int): the frequency (or equivalent) dimension along which
+            real and imaginary values are concatenated.
+
+    Raises:
+        AssertionError if dimension is not even in the specified dimension
+
+    """
+    if tensor.shape[dim] % 2 != 0:
+        raise AssertionError(
+            'Could not equally chunk the tensor (shape {}) along the given dimension ({}). Dim axis is probably wrong'
+            )
+
+
+def take_mag(x, dim=-2):
+    """ Takes the magnitude of a complex tensor.
+
+    The operands is assumed to have the real parts of each entry followed by
+    the imaginary parts of each entry along dimension `dim`, e.g. for,
+    ``dim = 1``, the matrix
+
+    .. code::
+
+        [[1, 2, 3, 4],
+         [5, 6, 7, 8]]
+
+    is interpreted as
+
+    .. code::
+
+        [[1 + 3j, 2 + 4j],
+         [5 + 7j, 6 + 8j]
+
+    where `j` is such that `j * j = -1`.
+
+    Args:
+        x (:class:`torch.Tensor`): Complex valued tensor.
+        dim (int): frequency (or equivalent) dimension along which real and
+            imaginary values are concatenated.
+
+    Returns:
+        :class:`torch.Tensor`: The magnitude of x.
+    """
+    check_complex(x, dim=dim)
+    power = torch.stack(torch.chunk(x, 2, dim=dim), dim=-1).pow(2).sum(dim=-1)
+    power = power + EPS
+    return power.pow(0.5)
 
 
 class SingleSrcMultiScaleSpectral(_Loss):
@@ -2020,26 +2020,6 @@ class BaseTasNet(nn.Module):
         return model_conf
 
 
-def apply_real_mask(tf_rep, mask, dim=-2):
-    """ Applies a real-valued mask to a real-valued representation.
-
-    It corresponds to ReIm mask in [1].
-
-    Args:
-        tf_rep (:class:`torch.Tensor`): The time frequency representation to
-            apply the mask to.
-        mask (:class:`torch.Tensor`): The real-valued mask to be applied.
-        dim (int): Kept to have the same interface with the other ones.
-    Returns:
-        :class:`torch.Tensor`: `tf_rep` multiplied by the `mask`.
-    """
-    return tf_rep * mask
-
-
-def take_cat(x, dim=-2):
-    return torch.cat([take_mag(x, dim=dim), x], dim=dim)
-
-
 def apply_mag_mask(tf_rep, mask, dim=-2):
     """ Applies a real-valued mask to a complex-valued representation.
 
@@ -2076,6 +2056,26 @@ def apply_mag_mask(tf_rep, mask, dim=-2):
     check_complex(tf_rep, dim=dim)
     mask = torch.cat([mask, mask], dim=dim)
     return tf_rep * mask
+
+
+def apply_real_mask(tf_rep, mask, dim=-2):
+    """ Applies a real-valued mask to a real-valued representation.
+
+    It corresponds to ReIm mask in [1].
+
+    Args:
+        tf_rep (:class:`torch.Tensor`): The time frequency representation to
+            apply the mask to.
+        mask (:class:`torch.Tensor`): The real-valued mask to be applied.
+        dim (int): Kept to have the same interface with the other ones.
+    Returns:
+        :class:`torch.Tensor`: `tf_rep` multiplied by the `mask`.
+    """
+    return tf_rep * mask
+
+
+def take_cat(x, dim=-2):
+    return torch.cat([take_mag(x, dim=dim), x], dim=dim)
 
 
 class Model(nn.Module):
@@ -2562,24 +2562,6 @@ class FreeFB(Filterbank):
         return self._filters
 
 
-def pad_x_to_y(x, y, axis=-1):
-    """  Pad first argument to have same size as second argument
-
-    Args:
-        x (torch.Tensor): Tensor to be padded.
-        y (torch.Tensor): Tensor to pad x to.
-        axis (int): Axis to pad on.
-
-    Returns:
-        torch.Tensor, x padded to match y's shape.
-    """
-    if axis != -1:
-        raise NotImplementedError
-    inp_len = y.size(axis)
-    output_len = x.size(axis)
-    return nn.functional.pad(x, [0, inp_len - output_len])
-
-
 class GlobLN(_LayerNorm):
     """Global Layer Normalization (globLN)."""
 
@@ -2598,6 +2580,24 @@ class GlobLN(_LayerNorm):
         mean = x.mean(dim=dims, keepdim=True)
         var = torch.pow(x - mean, 2).mean(dim=dims, keepdim=True)
         return self.apply_gain_and_bias((x - mean) / (var + EPS).sqrt())
+
+
+def pad_x_to_y(x, y, axis=-1):
+    """  Pad first argument to have same size as second argument
+
+    Args:
+        x (torch.Tensor): Tensor to be padded.
+        y (torch.Tensor): Tensor to pad x to.
+        axis (int): Axis to pad on.
+
+    Returns:
+        torch.Tensor, x padded to match y's shape.
+    """
+    if axis != -1:
+        raise NotImplementedError
+    inp_len = y.size(axis)
+    output_len = x.size(axis)
+    return nn.functional.pad(x, [0, inp_len - output_len])
 
 
 class TasNet(nn.Module):
@@ -2762,9 +2762,6 @@ class Model(nn.Module):
         return wavs, dic_out
 
 
-pairwise_mse = PairwiseMSE()
-
-
 def batch_matrix_norm(matrix, norm_order=2):
     """ Normalize a matrix according to `norm_order`
 
@@ -2830,6 +2827,9 @@ def deep_clustering_loss(embedding, tgt_index, binary_mask=None):
     cost = batch_matrix_norm(est_proj) + batch_matrix_norm(true_proj)
     cost = cost - 2 * batch_matrix_norm(true_est_proj)
     return cost / torch.sum(binary_mask, dim=[1, 2])
+
+
+pairwise_mse = PairwiseMSE()
 
 
 class ChimeraLoss(nn.Module):

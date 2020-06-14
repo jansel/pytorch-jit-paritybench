@@ -115,11 +115,6 @@ class SelecSLSBlockFused(nn.Module):
             return [self.conv6(torch.cat([d1, d2, d3, x[1]], 1)), x[1]]
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU(inplace=True))
-
-
 def conv_bn(inp, oup, stride):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
@@ -149,6 +144,11 @@ def bn_fuse(c, b):
         W.mul_(A)
         bias.add_(b)
     return W.clone().detach(), bias.clone().detach()
+
+
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
 class Net(nn.Module):

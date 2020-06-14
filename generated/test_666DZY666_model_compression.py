@@ -1013,23 +1013,23 @@ class Quantizer(nn.Module):
         return output
 
 
-class SignedQuantizer(Quantizer):
+class AveragedRangeTracker(RangeTracker):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer('min_val', torch.tensor(-(1 << self.bits - 1)))
-        self.register_buffer('max_val', torch.tensor((1 << self.bits - 1) - 1))
+    def __init__(self, q_level, momentum=0.1):
+        super().__init__(q_level)
+        self.momentum = momentum
+        self.register_buffer('min_val', torch.zeros(1))
+        self.register_buffer('max_val', torch.zeros(1))
+        self.register_buffer('first_a', torch.zeros(1))
 
-
-class SymmetricQuantizer(SignedQuantizer):
-
-    def update_params(self):
-        quantized_range = torch.min(torch.abs(self.min_val), torch.abs(self
-            .max_val))
-        float_range = torch.max(torch.abs(self.range_tracker.min_val),
-            torch.abs(self.range_tracker.max_val))
-        self.scale = quantized_range / float_range
-        self.zero_point = torch.zeros_like(self.scale)
+    def update_range(self, min_val, max_val):
+        if self.first_a == 0:
+            self.first_a.add_(1)
+            self.min_val.add_(min_val)
+            self.max_val.add_(max_val)
+        else:
+            self.min_val.mul_(1 - self.momentum).add_(min_val * self.momentum)
+            self.max_val.mul_(1 - self.momentum).add_(max_val * self.momentum)
 
 
 class GlobalRangeTracker(RangeTracker):
@@ -1054,23 +1054,23 @@ class GlobalRangeTracker(RangeTracker):
                 max_val))
 
 
-class AveragedRangeTracker(RangeTracker):
+class SignedQuantizer(Quantizer):
 
-    def __init__(self, q_level, momentum=0.1):
-        super().__init__(q_level)
-        self.momentum = momentum
-        self.register_buffer('min_val', torch.zeros(1))
-        self.register_buffer('max_val', torch.zeros(1))
-        self.register_buffer('first_a', torch.zeros(1))
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_buffer('min_val', torch.tensor(-(1 << self.bits - 1)))
+        self.register_buffer('max_val', torch.tensor((1 << self.bits - 1) - 1))
 
-    def update_range(self, min_val, max_val):
-        if self.first_a == 0:
-            self.first_a.add_(1)
-            self.min_val.add_(min_val)
-            self.max_val.add_(max_val)
-        else:
-            self.min_val.mul_(1 - self.momentum).add_(min_val * self.momentum)
-            self.max_val.mul_(1 - self.momentum).add_(max_val * self.momentum)
+
+class SymmetricQuantizer(SignedQuantizer):
+
+    def update_params(self):
+        quantized_range = torch.min(torch.abs(self.min_val), torch.abs(self
+            .max_val))
+        float_range = torch.max(torch.abs(self.range_tracker.min_val),
+            torch.abs(self.range_tracker.max_val))
+        self.scale = quantized_range / float_range
+        self.zero_point = torch.zeros_like(self.scale)
 
 
 class Conv2d_Q(nn.Conv2d):

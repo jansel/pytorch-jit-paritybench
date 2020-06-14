@@ -364,26 +364,13 @@ class MultiscaleTTAWrapper(nn.Module):
         return output
 
 
-def to_tensor(x, dtype=None) ->torch.Tensor:
-    if isinstance(x, torch.Tensor):
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    if isinstance(x, np.ndarray):
-        x = torch.from_numpy(x)
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    if isinstance(x, (list, tuple)):
-        x = np.ndarray(x)
-        x = torch.from_numpy(x)
-        if dtype is not None:
-            x = x.type(dtype)
-        return x
-    raise ValueError('Unsupported input type' + str(type(x)))
+BINARY_MODE = 'binary'
 
 
 MULTICLASS_MODE = 'multiclass'
+
+
+MULTILABEL_MODE = 'multilabel'
 
 
 def soft_dice_score(y_pred: torch.Tensor, y_true: torch.Tensor, smooth=0,
@@ -415,10 +402,23 @@ def soft_dice_score(y_pred: torch.Tensor, y_true: torch.Tensor, smooth=0,
     return dice_score
 
 
-BINARY_MODE = 'binary'
-
-
-MULTILABEL_MODE = 'multilabel'
+def to_tensor(x, dtype=None) ->torch.Tensor:
+    if isinstance(x, torch.Tensor):
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    if isinstance(x, (list, tuple)):
+        x = np.ndarray(x)
+        x = torch.from_numpy(x)
+        if dtype is not None:
+            x = x.type(dtype)
+        return x
+    raise ValueError('Unsupported input type' + str(type(x)))
 
 
 class DiceLoss(_Loss):
@@ -730,6 +730,20 @@ class JointLoss(_Loss):
         return self.first(*input) + self.second(*input)
 
 
+def _flatten_binary_scores(scores, labels, ignore=None):
+    """Flattens predictions in the batch (binary case)
+    Remove labels equal to 'ignore'
+    """
+    scores = scores.view(-1)
+    labels = labels.view(-1)
+    if ignore is None:
+        return scores, labels
+    valid = labels != ignore
+    vscores = scores[valid]
+    vlabels = labels[valid]
+    return vscores, vlabels
+
+
 def _lovasz_grad(gt_sorted):
     """Compute gradient of the Lovasz extension w.r.t sorted errors
     See Alg. 1 in paper
@@ -761,20 +775,6 @@ def _lovasz_hinge_flat(logits, labels):
     grad = _lovasz_grad(gt_sorted)
     loss = torch.dot(F.relu(errors_sorted), Variable(grad))
     return loss
-
-
-def _flatten_binary_scores(scores, labels, ignore=None):
-    """Flattens predictions in the batch (binary case)
-    Remove labels equal to 'ignore'
-    """
-    scores = scores.view(-1)
-    labels = labels.view(-1)
-    if ignore is None:
-        return scores, labels
-    valid = labels != ignore
-    vscores = scores[valid]
-    vlabels = labels[valid]
-    return vscores, vlabels
 
 
 def isnan(x):
@@ -831,6 +831,23 @@ class BinaryLovaszLoss(_Loss):
             ignore=self.ignore)
 
 
+def _flatten_probas(probas, labels, ignore=None):
+    """Flattens predictions in the batch
+    """
+    if probas.dim() == 3:
+        B, H, W = probas.size()
+        probas = probas.view(B, 1, H, W)
+    B, C, H, W = probas.size()
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
+    labels = labels.view(-1)
+    if ignore is None:
+        return probas, labels
+    valid = labels != ignore
+    vprobas = probas[valid.nonzero().squeeze()]
+    vlabels = labels[valid]
+    return vprobas, vlabels
+
+
 def _lovasz_softmax_flat(probas, labels, classes='present'):
     """Multi-class Lovasz-Softmax loss
     Args:
@@ -860,23 +877,6 @@ def _lovasz_softmax_flat(probas, labels, classes='present'):
         losses.append(torch.dot(errors_sorted, Variable(_lovasz_grad(
             fg_sorted))))
     return mean(losses)
-
-
-def _flatten_probas(probas, labels, ignore=None):
-    """Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
-    B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = labels != ignore
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
 
 
 def _lovasz_softmax(probas, labels, classes='present', per_image=False,
@@ -1355,9 +1355,44 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
+def conv_1x1_bn(inp, oup, activation):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), activation())
+
+
 def conv_bn(inp, oup, stride, activation):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), activation())
+
+
+ACT_CELU = 'celu'
+
+
+ACT_ELU = 'elu'
+
+
+ACT_GLU = 'glu'
+
+
+ACT_HARD_SIGMOID = 'hard_sigmoid'
+
+
+ACT_HARD_SWISH = 'hard_swish'
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_MISH = 'mish'
+
+
+ACT_NONE = 'none'
+
+
+ACT_PRELU = 'prelu'
+
+
+ACT_RELU = 'relu'
 
 
 ACT_RELU6 = 'relu6'
@@ -1366,40 +1401,10 @@ ACT_RELU6 = 'relu6'
 ACT_SELU = 'selu'
 
 
-ACT_ELU = 'elu'
-
-
-ACT_NONE = 'none'
-
-
-ACT_HARD_SIGMOID = 'hard_sigmoid'
-
-
-ACT_RELU = 'relu'
-
-
-ACT_SWISH_NAIVE = 'swish_naive'
-
-
-ACT_HARD_SWISH = 'hard_swish'
-
-
 ACT_SWISH = 'swish'
 
 
-ACT_GLU = 'glu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
-ACT_PRELU = 'prelu'
-
-
-ACT_MISH = 'mish'
-
-
-ACT_CELU = 'celu'
+ACT_SWISH_NAIVE = 'swish_naive'
 
 
 def get_activation_block(activation_name: str):
@@ -1409,11 +1414,6 @@ def get_activation_block(activation_name: str):
         Identity, ACT_RELU6: nn.ReLU6, ACT_RELU: nn.ReLU, ACT_SELU: nn.SELU,
         ACT_SWISH: Swish, ACT_SWISH_NAIVE: SwishNaive}
     return ACTIVATIONS[activation_name.lower()]
-
-
-def conv_1x1_bn(inp, oup, activation):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), activation())
 
 
 class MobileNetV2(nn.Module):
@@ -2577,6 +2577,10 @@ class DepthwiseSeparableConv2d(nn.Module):
         return out
 
 
+def _take(elements, indexes):
+    return list([elements[i] for i in indexes])
+
+
 string_types = type(b''), type('')
 
 
@@ -2619,10 +2623,6 @@ def pytorch_toolbelt_deprecated(reason):
         return new_func2
     else:
         raise TypeError(repr(type(reason)))
-
-
-def _take(elements, indexes):
-    return list([elements[i] for i in indexes])
 
 
 def drop_connect(inputs, p, training):
@@ -2803,13 +2803,13 @@ class HGSupervisionBlock(nn.Module):
         return sup_mask, sup_features
 
 
+HRNETV2_BN_MOMENTUM = 0.1
+
+
 def hrnet_conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-HRNETV2_BN_MOMENTUM = 0.1
 
 
 class HRNetBasicBlock(nn.Module):

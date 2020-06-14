@@ -175,14 +175,6 @@ class CustomLSTM(nn.Module):
         return ys
 
 
-def to_tensor(x, dtype=None):
-    dtype = dtype if dtype is not None else torch.get_default_dtype()
-    if type(x) is np.ndarray:
-        return torch.from_numpy(x).type(dtype=dtype)
-    else:
-        return torch.tensor(x, dtype=dtype)
-
-
 def _laplacian(y, h):
     """Laplacian operator"""
     operator = h ** -2 * torch.tensor([[[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0],
@@ -226,6 +218,14 @@ class TimeStep(torch.autograd.Function):
 
 def saturable_damping(u, uth, b0):
     return b0 / (1 + torch.abs(u / uth).pow(2))
+
+
+def to_tensor(x, dtype=None):
+    dtype = dtype if dtype is not None else torch.get_default_dtype()
+    if type(x) is np.ndarray:
+        return torch.from_numpy(x).type(dtype=dtype)
+    else:
+        return torch.tensor(x, dtype=dtype)
 
 
 class WaveCell(torch.nn.Module):

@@ -1635,4 +1635,3 @@ class MultiTaskWithLoss(nn.Module):
             target_slice = [target[slice_idx[k]:slice_idx[k + 1]] for k in
                 range(self.num_tasks)]
             return [self.criterion(xx, tg) for xx, tg in zip(x, target_slice)]
-

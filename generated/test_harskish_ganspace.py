@@ -345,6 +345,9 @@ class Generator(nn.Module):
         return z
 
 
+CONFIG_NAME = 'config.json'
+
+
 WEIGHTS_NAME = 'pytorch_model.bin'
 
 
@@ -398,55 +401,6 @@ class BigGANConfig(object):
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
 
 
-PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json'
-    , 'biggan-deep-256':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-config.json'
-    , 'biggan-deep-512':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-config.json'
-    }
-
-
-def http_get(url, temp_file):
-    req = requests.get(url, stream=True)
-    content_length = req.headers.get('Content-Length')
-    total = int(content_length) if content_length is not None else None
-    progress = tqdm(unit='B', total=total)
-    for chunk in req.iter_content(chunk_size=1024):
-        if chunk:
-            progress.update(len(chunk))
-            temp_file.write(chunk)
-    progress.close()
-
-
-def url_to_filename(url, etag=None):
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
-
-
 def s3_request(func):
     """
     Wrapper function for s3 requests in order to create more helpful error
@@ -463,6 +417,18 @@ def s3_request(func):
             else:
                 raise
     return wrapper
+
+
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
 
 
 class MyLinear(nn.Module):

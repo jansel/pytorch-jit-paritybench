@@ -1987,6 +1987,21 @@ class AngularPenaltySMLoss(nn.Module):
         return -torch.mean(L)
 
 
+def flatten_binary_scores(scores, labels, ignore=None):
+    """
+    Flattens predictions in the batch (binary case)
+    Remove labels equal to 'ignore'
+    """
+    scores = scores.view(-1)
+    labels = labels.view(-1)
+    if ignore is None:
+        return scores, labels
+    valid = labels != ignore
+    vscores = scores[valid]
+    vlabels = labels[valid]
+    return vscores, vlabels
+
+
 def lovasz_hinge_flat(logits, labels):
     """
     Binary Lovasz hinge loss
@@ -2029,21 +2044,6 @@ def mean(l, ignore_nan=True, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def flatten_binary_scores(scores, labels, ignore=None):
-    """
-    Flattens predictions in the batch (binary case)
-    Remove labels equal to 'ignore'
-    """
-    scores = scores.view(-1)
-    labels = labels.view(-1)
-    if ignore is None:
-        return scores, labels
-    valid = labels != ignore
-    vscores = scores[valid]
-    vlabels = labels[valid]
-    return vscores, vlabels
 
 
 def lovasz_hinge(logits, labels, per_image=True, ignore=None):
@@ -5597,6 +5597,19 @@ class InceptionResNetA2Way(MultiWay):
             num_blocks=2)
 
 
+class InceptionResNetB2Way(MultiWay):
+
+    def __init__(self, scale):
+        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
+            num_blocks=2)
+
+
+class InceptionResNetBPoly3(InceptionResNetBPoly):
+
+    def __init__(self, scale):
+        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
+
+
 class InceptionResNetC2Way(MultiWay):
 
     def __init__(self, scale):
@@ -5608,19 +5621,6 @@ class InceptionResNetCPoly3(InceptionResNetCPoly):
 
     def __init__(self, scale):
         super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetBPoly3(InceptionResNetBPoly):
-
-    def __init__(self, scale):
-        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetB2Way(MultiWay):
-
-    def __init__(self, scale):
-        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
-            num_blocks=2)
 
 
 class PolyNet(nn.Module):
@@ -8659,20 +8659,20 @@ class ResNetV1b(nn.Module):
         return x
 
 
-def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
-    if pretrained:
-        from .model_store import get_resnet_file
-        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
-            root)), strict=False)
-    return model
-
-
 def resnet101_v1s(pretrained=False, root='~/.torch/models', **kwargs):
     model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True, **kwargs)
     if pretrained:
         from .model_store import get_resnet_file
         model.load_state_dict(torch.load(get_resnet_file('resnet101', root=
+            root)), strict=False)
+    return model
+
+
+def resnet152_v1s(pretrained=False, root='~/.torch/models', **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True, **kwargs)
+    if pretrained:
+        from .model_store import get_resnet_file
+        model.load_state_dict(torch.load(get_resnet_file('resnet152', root=
             root)), strict=False)
     return model
 
@@ -9324,11 +9324,6 @@ class DeepLabv3_plus(nn.Module):
         return x
 
 
-densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
-    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
-    32])}
-
-
 class DilatedDenseNet(DenseNet):
 
     def __init__(self, growth_rate=12, block_config=(6, 12, 24, 16),
@@ -9358,6 +9353,11 @@ class DilatedDenseNet(DenseNet):
                 m.dilation = dilate, dilate
 
 
+densenet_spec = {(121): (64, 32, [6, 12, 24, 16]), (161): (96, 48, [6, 12, 
+    36, 24]), (169): (64, 32, [6, 12, 32, 32]), (201): (64, 32, [6, 12, 48,
+    32])}
+
+
 def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     num_init_features, growth_rate, block_config = densenet_spec[num_layers]
     model = DilatedDenseNet(growth_rate, block_config, num_init_features,
@@ -9377,20 +9377,20 @@ def get_dilated_densenet(num_layers, dilate_scale, pretrained=False, **kwargs):
     return model
 
 
-def dilated_densenet201(dilate_scale, **kwargs):
-    return get_dilated_densenet(201, dilate_scale, **kwargs)
-
-
-def dilated_densenet169(dilate_scale, **kwargs):
-    return get_dilated_densenet(169, dilate_scale, **kwargs)
+def dilated_densenet121(dilate_scale, **kwargs):
+    return get_dilated_densenet(121, dilate_scale, **kwargs)
 
 
 def dilated_densenet161(dilate_scale, **kwargs):
     return get_dilated_densenet(161, dilate_scale, **kwargs)
 
 
-def dilated_densenet121(dilate_scale, **kwargs):
-    return get_dilated_densenet(121, dilate_scale, **kwargs)
+def dilated_densenet169(dilate_scale, **kwargs):
+    return get_dilated_densenet(169, dilate_scale, **kwargs)
+
+
+def dilated_densenet201(dilate_scale, **kwargs):
+    return get_dilated_densenet(201, dilate_scale, **kwargs)
 
 
 class DenseASPP(nn.Module):
@@ -9706,36 +9706,10 @@ class DRN(nn.Module):
             return x
 
 
-def fill_up_weights(up):
-    w = up.weight.data
-    f = math.ceil(w.size(2) / 2)
-    c = (2 * f - 1 - f % 2) / (2.0 * f)
-    for i in range(w.size(2)):
-        for j in range(w.size(3)):
-            w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j /
-                f - c))
-    for c in range(1, w.size(0)):
-        w[(c), (0), :, :] = w[(0), (0), :, :]
-
-
-def drn_d_54(pretrained=False, **kwargs):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-54']))
-    return model
-
-
 def drn_c_42(pretrained=False, **kwargs):
     model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='C', **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['drn-c-42']))
-    return model
-
-
-def drn_d_105(pretrained=False, **kwargs):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 23, 3, 1, 1], arch='D', **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-105']))
     return model
 
 
@@ -9746,11 +9720,37 @@ def drn_c_58(pretrained=False, **kwargs):
     return model
 
 
+def drn_d_105(pretrained=False, **kwargs):
+    model = DRN(Bottleneck, [1, 1, 3, 4, 23, 3, 1, 1], arch='D', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-105']))
+    return model
+
+
 def drn_d_38(pretrained=False, **kwargs):
     model = DRN(BasicBlock, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['drn-d-38']))
     return model
+
+
+def drn_d_54(pretrained=False, **kwargs):
+    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['drn-d-54']))
+    return model
+
+
+def fill_up_weights(up):
+    w = up.weight.data
+    f = math.ceil(w.size(2) / 2)
+    c = (2 * f - 1 - f % 2) / (2.0 * f)
+    for i in range(w.size(2)):
+        for j in range(w.size(3)):
+            w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j /
+                f - c))
+    for c in range(1, w.size(0)):
+        w[(c), (0), :, :] = w[(0), (0), :, :]
 
 
 class DRNSeg(nn.Module):
@@ -12297,12 +12297,8 @@ class PSPUpsample(nn.Module):
         return self.conv(p)
 
 
-def resnet34(pretrained=True):
-    model = ResNet(BasicBlock, [3, 4, 6, 3])
-    if pretrained:
-        load_weights_sequential(model, model_zoo.load_url(model_urls[
-            'resnet34']))
-    return model
+def densenet(pretrained=True):
+    return DenseNet(pretrained=pretrained)
 
 
 def resnet101(pretrained=False, root='./pretrain_models', **kwargs):
@@ -12333,6 +12329,14 @@ def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
+def resnet34(pretrained=True):
+    model = ResNet(BasicBlock, [3, 4, 6, 3])
+    if pretrained:
+        load_weights_sequential(model, model_zoo.load_url(model_urls[
+            'resnet34']))
+    return model
+
+
 def resnet50(pretrained=False, root='./pretrain_models', **kwargs):
     """Constructs a ResNet-50 model.
 
@@ -12347,10 +12351,6 @@ def resnet50(pretrained=False, root='./pretrain_models', **kwargs):
         model.load_state_dict(torch.load(get_model_file('resnet50', root=
             root)), strict=False)
     return model
-
-
-def densenet(pretrained=True):
-    return DenseNet(pretrained=pretrained)
 
 
 extractor_models = {'resnet18': resnet18, 'resnet34': resnet34, 'resnet50':

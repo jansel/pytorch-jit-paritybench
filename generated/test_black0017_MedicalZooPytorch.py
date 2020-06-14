@@ -142,31 +142,6 @@ import math
 import numpy as np
 
 
-def expand_as_one_hot(input, C, ignore_index=None):
-    """
-    Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
-    :param input: 4D input image (NxDxHxW)
-    :param C: number of channels/labels
-    :param ignore_index: ignore index to be kept during the expansion
-    :return: 5D output image (NxCxDxHxW)
-    """
-    if input.dim() == 5:
-        return input
-    assert input.dim() == 4
-    input = input.unsqueeze(1)
-    shape = list(input.size())
-    shape[1] = C
-    if ignore_index is not None:
-        mask = input.expand(shape) == ignore_index
-        input = input.clone()
-        input[input == ignore_index] = 0
-        result = torch.zeros(shape).to(input.device).scatter_(1, input, 1)
-        result[mask] = ignore_index
-        return result
-    else:
-        return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
-
-
 def flatten(tensor):
     """Flattens a given tensor such that the channel axis is first.
     The shapes are transformed as follows:
@@ -199,6 +174,31 @@ def compute_per_channel_dice(input, target, epsilon=1e-06, weight=None):
         intersect = weight * intersect
     denominator = (input * input).sum(-1) + (target * target).sum(-1)
     return 2 * (intersect / denominator.clamp(min=epsilon))
+
+
+def expand_as_one_hot(input, C, ignore_index=None):
+    """
+    Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
+    :param input: 4D input image (NxDxHxW)
+    :param C: number of channels/labels
+    :param ignore_index: ignore index to be kept during the expansion
+    :return: 5D output image (NxCxDxHxW)
+    """
+    if input.dim() == 5:
+        return input
+    assert input.dim() == 4
+    input = input.unsqueeze(1)
+    shape = list(input.size())
+    shape[1] = C
+    if ignore_index is not None:
+        mask = input.expand(shape) == ignore_index
+        input = input.clone()
+        input[input == ignore_index] = 0
+        result = torch.zeros(shape).to(input.device).scatter_(1, input, 1)
+        result[mask] = ignore_index
+        return result
+    else:
+        return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
 
 
 class _AbstractDiceLoss(nn.Module):
@@ -1571,15 +1571,15 @@ class InputTransition(nn.Module):
         return self.relu1(torch.add(out, x16))
 
 
-def passthrough(x, **kwargs):
-    return x
-
-
 def _make_nConv(nchan, depth, elu):
     layers = []
     for _ in range(depth):
         layers.append(LUConv(nchan, elu))
     return nn.Sequential(*layers)
+
+
+def passthrough(x, **kwargs):
+    return x
 
 
 class DownTransition(nn.Module):
@@ -1660,9 +1660,18 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(ResidualConv(*[], **{'nin': 4, 'nout': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    def test_005(self):
+        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_006(self):
+        self._check(UpBlock1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
     @_fails_compile()
-    def test_004(self):
+    def test_007(self):
         self._check(_MaskingLossWrapper(*[], **{'loss': MSELoss(), 'ignore_index': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

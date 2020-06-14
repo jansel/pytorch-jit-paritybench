@@ -231,6 +231,19 @@ class VGGLoss(nn.Module):
         return g
 
 
+def L1(input_flow, target_flow, vis_mask):
+    """
+    compute l1-loss
+    input_flow: (N,C=2,H,W)
+    target_flow: (N,C=2,H,W)
+    vis_mask: (N,1,H,W)
+    """
+    bsz = input_flow.size(0)
+    err = (target_flow - input_flow).abs() * vis_mask
+    count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
+    return (err.view(bsz, -1) / (count * bsz * 2 + 1e-08)).sum()
+
+
 def L2(input_flow, target_flow, vis_mask):
     """
     compute l1-loss
@@ -255,19 +268,6 @@ def EPE(input_flow, target_flow, vis_mask):
     epe = (target_flow - input_flow).norm(dim=1, p=2, keepdim=True) * vis_mask
     count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
     return (epe.view(bsz, -1) / (count * bsz + 1e-08)).sum()
-
-
-def L1(input_flow, target_flow, vis_mask):
-    """
-    compute l1-loss
-    input_flow: (N,C=2,H,W)
-    target_flow: (N,C=2,H,W)
-    vis_mask: (N,1,H,W)
-    """
-    bsz = input_flow.size(0)
-    err = (target_flow - input_flow).abs() * vis_mask
-    count = vis_mask.view(bsz, -1).sum(dim=1, keepdim=True)
-    return (err.view(bsz, -1) / (count * bsz * 2 + 1e-08)).sum()
 
 
 class MultiScaleFlowLoss(nn.Module):

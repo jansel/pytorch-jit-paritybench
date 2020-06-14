@@ -257,26 +257,27 @@ class LeastSquareTracking(nn.Module):
             ).view(B, 1, H, W)
 
 
-def feature_gradient(img, normalize_gradient=True):
-    """ Calculate the gradient on the feature space using Sobel operator
-    :param the input image 
-    -----------
-    :return the gradient of the image in x, y direction
+def compute_jacobian_warping(p_invdepth, K, px, py):
+    """ Compute the Jacobian matrix of the warped (x,y) w.r.t. the inverse depth
+    (linearized at origin)
+    :param p_invdepth the input inverse depth
+    :param the intrinsic calibration
+    :param the pixel x map
+    :param the pixel y map
+     ------------
+    :return the warping jacobian in x, y direction
     """
-    B, C, H, W = img.shape
-    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1,
-        3, 3).type_as(img)
-    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1,
-        3, 3).type_as(img)
-    img_reshaped = img.view(-1, 1, H, W)
-    img_pad = func.pad(img_reshaped, (1, 1, 1, 1), mode='replicate')
-    img_dx = func.conv2d(img_pad, wx, stride=1, padding=0)
-    img_dy = func.conv2d(img_pad, wy, stride=1, padding=0)
-    if normalize_gradient:
-        mag = torch.sqrt(img_dx ** 2 + img_dy ** 2 + 1e-08)
-        img_dx = img_dx / mag
-        img_dy = img_dy / mag
-    return img_dx.view(B, C, H, W), img_dy.view(B, C, H, W)
+    B, C, H, W = p_invdepth.size()
+    assert C == 1
+    x = px.view(B, -1, 1)
+    y = py.view(B, -1, 1)
+    invd = p_invdepth.view(B, -1, 1)
+    xy = x * y
+    O = torch.zeros((B, H * W, 1)).type_as(p_invdepth)
+    dx_dp = torch.cat((-xy, 1 + x ** 2, -y, invd, O, -invd * x), dim=2)
+    dy_dp = torch.cat((-1 - y ** 2, xy, x, O, invd, -invd * y), dim=2)
+    fx, fy, cx, cy = torch.split(K, 1, dim=1)
+    return dx_dp * fx.view(B, 1, 1), dy_dp * fy.view(B, 1, 1)
 
 
 def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
@@ -308,27 +309,26 @@ def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
     return residuals, occ
 
 
-def compute_jacobian_warping(p_invdepth, K, px, py):
-    """ Compute the Jacobian matrix of the warped (x,y) w.r.t. the inverse depth
-    (linearized at origin)
-    :param p_invdepth the input inverse depth
-    :param the intrinsic calibration
-    :param the pixel x map
-    :param the pixel y map
-     ------------
-    :return the warping jacobian in x, y direction
+def feature_gradient(img, normalize_gradient=True):
+    """ Calculate the gradient on the feature space using Sobel operator
+    :param the input image 
+    -----------
+    :return the gradient of the image in x, y direction
     """
-    B, C, H, W = p_invdepth.size()
-    assert C == 1
-    x = px.view(B, -1, 1)
-    y = py.view(B, -1, 1)
-    invd = p_invdepth.view(B, -1, 1)
-    xy = x * y
-    O = torch.zeros((B, H * W, 1)).type_as(p_invdepth)
-    dx_dp = torch.cat((-xy, 1 + x ** 2, -y, invd, O, -invd * x), dim=2)
-    dy_dp = torch.cat((-1 - y ** 2, xy, x, O, invd, -invd * y), dim=2)
-    fx, fy, cx, cy = torch.split(K, 1, dim=1)
-    return dx_dp * fx.view(B, 1, 1), dy_dp * fy.view(B, 1, 1)
+    B, C, H, W = img.shape
+    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1,
+        3, 3).type_as(img)
+    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1,
+        3, 3).type_as(img)
+    img_reshaped = img.view(-1, 1, H, W)
+    img_pad = func.pad(img_reshaped, (1, 1, 1, 1), mode='replicate')
+    img_dx = func.conv2d(img_pad, wx, stride=1, padding=0)
+    img_dy = func.conv2d(img_pad, wy, stride=1, padding=0)
+    if normalize_gradient:
+        mag = torch.sqrt(img_dx ** 2 + img_dy ** 2 + 1e-08)
+        img_dx = img_dx / mag
+        img_dy = img_dy / mag
+    return img_dx.view(B, C, H, W), img_dy.view(B, C, H, W)
 
 
 def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):

@@ -554,12 +554,12 @@ def ProjectiveGridGenerator(size, theta, no_cuda):
     return grid
 
 
-def square_tensor(x):
-    return x ** 2
-
-
 def return_tensor(x):
     return x
+
+
+def square_tensor(x):
+    return x ** 2
 
 
 def activation_layer(activation='square', no_cuda=False):

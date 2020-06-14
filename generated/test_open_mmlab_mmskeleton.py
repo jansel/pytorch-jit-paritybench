@@ -133,17 +133,6 @@ from abc import abstractmethod
 import math
 
 
-def normalize_digraph(A):
-    Dl = np.sum(A, 0)
-    num_node = A.shape[0]
-    Dn = np.zeros((num_node, num_node))
-    for i in range(num_node):
-        if Dl[i] > 0:
-            Dn[i, i] = Dl[i] ** -1
-    AD = np.dot(A, Dn)
-    return AD
-
-
 def get_hop_distance(num_node, edge, max_hop=1):
     A = np.zeros((num_node, num_node))
     for i, j in edge:
@@ -155,6 +144,17 @@ def get_hop_distance(num_node, edge, max_hop=1):
     for d in range(max_hop, -1, -1):
         hop_dis[arrive_mat[d]] = d
     return hop_dis
+
+
+def normalize_digraph(A):
+    Dl = np.sum(A, 0)
+    num_node = A.shape[0]
+    Dn = np.zeros((num_node, num_node))
+    for i in range(num_node):
+        if Dl[i] > 0:
+            Dn[i, i] = Dl[i] ** -1
+    AD = np.dot(A, Dn)
+    return AD
 
 
 class Graph:
@@ -648,6 +648,16 @@ class HRModule(nn.Module):
         return x_fuse
 
 
+url_error_message = """
+
+==================================================
+MMSkeleton fail to load checkpoint from url: 
+    {}
+Please check your network connection. Or manually download checkpoints according to the instructor:
+    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
+"""
+
+
 mmskeleton_model_urls = {'st_gcn/kinetics-skeleton':
     'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.kinetics-6fa43f73.pth'
     , 'st_gcn/ntu-xsub':
@@ -669,16 +679,6 @@ def get_mmskeleton_url(filename):
         model_url = mmskeleton_model_urls[model_name]
         return model_url
     return filename
-
-
-url_error_message = """
-
-==================================================
-MMSkeleton fail to load checkpoint from url: 
-    {}
-Please check your network connection. Or manually download checkpoints according to the instructor:
-    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
-"""
 
 
 def load_checkpoint(model, filename, *args, **kwargs):

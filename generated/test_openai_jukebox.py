@@ -856,9 +856,6 @@ class FusedLayerNorm(torch.nn.Module):
             .format(**self.__dict__))
 
 
-imported_flatten_impl = False
-
-
 def import_flatten_impl():
     global flatten_impl, unflatten_impl, imported_flatten_impl
     try:
@@ -874,6 +871,9 @@ def import_flatten_impl():
     imported_flatten_impl = True
 
 
+imported_flatten_impl = False
+
+
 def flatten(bucket):
     if not imported_flatten_impl:
         import_flatten_impl()
@@ -886,27 +886,6 @@ def unflatten(coalesced, bucket):
     return unflatten_impl(coalesced, bucket)
 
 
-def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
-    buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
-            buckets.append(bucket)
-    return buckets
-
-
-def split_by_type(tensors):
-    buckets = OrderedDict()
-    for tensor in tensors:
-        tp = tensor.type()
-        if tp not in buckets:
-            buckets[tp] = []
-        buckets[tp].append(tensor)
-    return buckets
-
-
 def apply_flat_dist_call(bucket, call, extra_args=None):
     coalesced = flatten(bucket)
     if extra_args is not None:
@@ -917,6 +896,16 @@ def apply_flat_dist_call(bucket, call, extra_args=None):
         coalesced /= dist.get_world_size()
     for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
         buf.copy_(synced)
+
+
+def split_by_type(tensors):
+    buckets = OrderedDict()
+    for tensor in tensors:
+        tp = tensor.type()
+        if tp not in buckets:
+            buckets[tp] = []
+        buckets[tp].append(tensor)
+    return buckets
 
 
 def flat_dist_call(tensors, call, extra_args=None):
@@ -951,6 +940,17 @@ class MultiTensorApply(object):
 
 
 multi_tensor_applier = MultiTensorApply(2048 * 32)
+
+
+def split_half_float_double(tensors):
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
+        'torch.cuda.DoubleTensor']
+    buckets = []
+    for i, dtype in enumerate(dtypes):
+        bucket = [t for t in tensors if t.type() == dtype]
+        if bucket:
+            buckets.append(bucket)
+    return buckets
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -1234,16 +1234,9 @@ class PositionEmbedding(nn.Module):
         return pos_emb
 
 
-def def_tqdm(x):
-    return tqdm(x, leave=True, file=sys.stdout, bar_format=
-        '{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
-
-
-def get_range(x):
-    if dist.get_rank() == 0:
-        return def_tqdm(x)
-    else:
-        return x
+def empty_cache():
+    gc.collect()
+    t.cuda.empty_cache()
 
 
 def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
@@ -1273,13 +1266,20 @@ def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     return logits
 
 
+def def_tqdm(x):
+    return tqdm(x, leave=True, file=sys.stdout, bar_format=
+        '{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
+
+
+def get_range(x):
+    if dist.get_rank() == 0:
+        return def_tqdm(x)
+    else:
+        return x
+
+
 def roll(x, n):
     return t.cat((x[:, -n:], x[:, :-n]), dim=1)
-
-
-def empty_cache():
-    gc.collect()
-    t.cuda.empty_cache()
 
 
 def split_chunks(length, chunk_size):
@@ -1618,10 +1618,6 @@ class ConditionalAutoregressive2D(nn.Module):
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
 
 
-def assert_shape(x, exp_shape):
-    assert x.shape == exp_shape, f'Expected {exp_shape} got {x.shape}'
-
-
 class LayerNorm(FusedLayerNorm):
 
     def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
@@ -1636,6 +1632,10 @@ class LayerNorm(FusedLayerNorm):
                 weight, self.bias, self.eps).type_as(input)
         else:
             return super(LayerNorm, self).forward(input.float()).type_as(input)
+
+
+def assert_shape(x, exp_shape):
+    assert x.shape == exp_shape, f'Expected {exp_shape} got {x.shape}'
 
 
 class Conditioner(nn.Module):
@@ -1794,15 +1794,6 @@ class LabelConditioner(nn.Module):
         return start_emb, pos_emb
 
 
-def calculate_strides(strides, downs):
-    return [(stride ** down) for stride, down in zip(strides, downs)]
-
-
-def print_once(msg):
-    if not dist.is_available() or dist.get_rank() == 0:
-        print(msg)
-
-
 def create_reverse_lookup(atoi):
     itoa = {}
     for a, i in atoi.items():
@@ -1815,19 +1806,9 @@ def create_reverse_lookup(atoi):
     return itoa
 
 
-def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
-    if mask is None or q_l == 1:
-        return None
-    offset = sample_t - q_l if sample else max(kv_l - q_l, 0)
-    if mask == 'autoregressive':
-        mask = t.ones(q_l, kv_l, device=device).tril(offset)
-    elif mask == 'summary':
-        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().
-            view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0,
-            0, 1, 0), value=1).contiguous().view(q_l, kv_l)
-    elif mask == 'prime':
-        mask = t.ones(q_l, kv_l, device=device).tril(offset)
-    return mask.view(1, 1, q_l, kv_l)
+accepted = frozenset([chr(i) for i in range(ord('a'), ord('z') + 1)] + [chr
+    (i) for i in range(ord('A'), ord('Z') + 1)] + [chr(i) for i in range(
+    ord('0'), ord('9') + 1)])
 
 
 class CheckpointFunction(t.autograd.Function):
@@ -1862,6 +1843,21 @@ def checkpoint(func, inputs, params, flag):
         return CheckpointFunction.apply(func, len(inputs), *args)
     else:
         return func(*inputs)
+
+
+def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
+    if mask is None or q_l == 1:
+        return None
+    offset = sample_t - q_l if sample else max(kv_l - q_l, 0)
+    if mask == 'autoregressive':
+        mask = t.ones(q_l, kv_l, device=device).tril(offset)
+    elif mask == 'summary':
+        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().
+            view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0,
+            0, 1, 0), value=1).contiguous().view(q_l, kv_l)
+    elif mask == 'prime':
+        mask = t.ones(q_l, kv_l, device=device).tril(offset)
+    return mask.view(1, 1, q_l, kv_l)
 
 
 class FactoredAttention(nn.Module):
@@ -2380,14 +2376,14 @@ def gelu(x):
 
 
 @t.jit.script
-def quick_gelu_bwd(x, grad_output):
-    sig = t.sigmoid(1.702 * x)
-    return grad_output * sig * (1.702 * x * (1 - sig) + 1.0)
+def quick_gelu(x):
+    return x * t.sigmoid(1.702 * x)
 
 
 @t.jit.script
-def quick_gelu(x):
-    return x * t.sigmoid(1.702 * x)
+def quick_gelu_bwd(x, grad_output):
+    sig = t.sigmoid(1.702 * x)
+    return grad_output * sig * (1.702 * x * (1 - sig) + 1.0)
 
 
 class QuickGelu(t.autograd.Function):
@@ -3014,50 +3010,6 @@ class Resnet1D(nn.Module):
             return self.model(x)
 
 
-class DefaultSTFTValues:
-
-    def __init__(self, hps):
-        self.sr = hps.sr
-        self.n_fft = 2048
-        self.hop_length = 256
-        self.window_size = 6 * self.hop_length
-
-
-def squeeze(x):
-    if len(x.shape) == 3:
-        assert x.shape[-1] in [1, 2]
-        x = t.mean(x, -1)
-    if len(x.shape) != 2:
-        raise ValueError(f'Unknown input shape {x.shape}')
-    return x
-
-
-def stft(sig, hps):
-    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.
-        window_size, window=t.hann_window(hps.window_size, device=sig.device))
-
-
-def spec(x, hps):
-    return t.norm(stft(x, hps), p=2, dim=-1)
-
-
-def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
-    hps = DefaultSTFTValues(hps)
-    spec_in = spec(squeeze(x_in.float()), hps)
-    spec_out = spec(squeeze(x_out.float()), hps)
-    gt_norm = norm(spec_in)
-    residual_norm = norm(spec_in - spec_out)
-    mask = (gt_norm > epsilon).float()
-    return residual_norm * mask / t.clamp(gt_norm, min=epsilon)
-
-
-def spectral_loss(x_in, x_out, hps):
-    hps = DefaultSTFTValues(hps)
-    spec_in = spec(squeeze(x_in.float()), hps)
-    spec_out = spec(squeeze(x_out.float()), hps)
-    return norm(spec_in - spec_out)
-
-
 def _loss_fn(loss_fn, x_target, x_pred, hps):
     if loss_fn == 'l1':
         return t.mean(t.abs(x_pred - x_target)) / hps.bandwidth['l1']
@@ -3080,6 +3032,10 @@ def _loss_fn(loss_fn, x_target, x_pred, hps):
         assert False, f'Unknown loss_fn {loss_fn}'
 
 
+def audio_postprocess(x, hps):
+    return x
+
+
 def average_metrics(_metrics):
     metrics = {}
     for _metric in _metrics:
@@ -3090,8 +3046,8 @@ def average_metrics(_metrics):
     return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
 
 
-def audio_postprocess(x, hps):
-    return x
+def calculate_strides(strides, downs):
+    return [(stride ** down) for stride, down in zip(strides, downs)]
 
 
 class STFTValues:
@@ -3101,6 +3057,24 @@ class STFTValues:
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.window_size = window_size
+
+
+def stft(sig, hps):
+    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.
+        window_size, window=t.hann_window(hps.window_size, device=sig.device))
+
+
+def spec(x, hps):
+    return t.norm(stft(x, hps), p=2, dim=-1)
+
+
+def squeeze(x):
+    if len(x.shape) == 3:
+        assert x.shape[-1] in [1, 2]
+        x = t.mean(x, -1)
+    if len(x.shape) != 2:
+        raise ValueError(f'Unknown input shape {x.shape}')
+    return x
 
 
 def multispectral_loss(x_in, x_out, hps):
@@ -3115,6 +3089,32 @@ def multispectral_loss(x_in, x_out, hps):
         spec_out = spec(squeeze(x_out.float()), hps)
         losses.append(norm(spec_in - spec_out))
     return sum(losses) / len(losses)
+
+
+class DefaultSTFTValues:
+
+    def __init__(self, hps):
+        self.sr = hps.sr
+        self.n_fft = 2048
+        self.hop_length = 256
+        self.window_size = 6 * self.hop_length
+
+
+def spectral_convergence(x_in, x_out, hps, epsilon=0.002):
+    hps = DefaultSTFTValues(hps)
+    spec_in = spec(squeeze(x_in.float()), hps)
+    spec_out = spec(squeeze(x_out.float()), hps)
+    gt_norm = norm(spec_in)
+    residual_norm = norm(spec_in - spec_out)
+    mask = (gt_norm > epsilon).float()
+    return residual_norm * mask / t.clamp(gt_norm, min=epsilon)
+
+
+def spectral_loss(x_in, x_out, hps):
+    hps = DefaultSTFTValues(hps)
+    spec_in = spec(squeeze(x_in.float()), hps)
+    spec_out = spec(squeeze(x_out.float()), hps)
+    return norm(spec_in - spec_out)
 
 
 class VQVAE(nn.Module):

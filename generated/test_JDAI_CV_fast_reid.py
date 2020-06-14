@@ -659,21 +659,8 @@ class rSoftMax(nn.Module):
         return x
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
 
 
 class FutureResult(object):
@@ -700,6 +687,20 @@ class FutureResult(object):
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class SyncMaster(object):
@@ -783,18 +784,17 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 class _SynchronizedBatchNorm(_BatchNorm):
@@ -1545,6 +1545,16 @@ class ResNeXt(nn.Module):
                 m.bias.data.zero_()
 
 
+def weights_init_classifier(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        nn.init.normal_(m.weight, std=0.001)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif classname.find('Arcface') and classname.find('Circle') != -1:
+        nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+
+
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
@@ -1559,16 +1569,6 @@ def weights_init_kaiming(m):
         if m.affine:
             nn.init.normal_(m.weight, 1.0, 0.02)
             nn.init.constant_(m.bias, 0.0)
-
-
-def weights_init_classifier(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        nn.init.normal_(m.weight, std=0.001)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0.0)
-    elif classname.find('Arcface') and classname.find('Circle') != -1:
-        nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
 
 
 class CenterLoss(nn.Module):
@@ -1685,6 +1685,14 @@ class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
         self.p = nn.Parameter(torch.ones(1) * norm)
 
 
+def build_reid_heads(cfg, in_feat, num_classes, pool_layer):
+    """
+    Build REIDHeads defined by `cfg.MODEL.REID_HEADS.NAME`.
+    """
+    head = cfg.MODEL.HEADS.NAME
+    return REID_HEADS_REGISTRY.get(head)(cfg, in_feat, num_classes, pool_layer)
+
+
 def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix=''
     ) ->dict:
     loss_dict = {}
@@ -1697,14 +1705,6 @@ def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix=''
         named_loss_dict[prefix + name] = loss_dict[name]
     del loss_dict
     return named_loss_dict
-
-
-def build_reid_heads(cfg, in_feat, num_classes, pool_layer):
-    """
-    Build REIDHeads defined by `cfg.MODEL.REID_HEADS.NAME`.
-    """
-    head = cfg.MODEL.HEADS.NAME
-    return REID_HEADS_REGISTRY.get(head)(cfg, in_feat, num_classes, pool_layer)
 
 
 class OcclusionUnit(nn.Module):

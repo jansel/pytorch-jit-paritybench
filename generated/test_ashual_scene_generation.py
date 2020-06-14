@@ -80,24 +80,17 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 
-def _init_conv(layer, method):
-    if not isinstance(layer, nn.Conv2d):
-        return
-    if method == 'default':
-        return
-    elif method == 'kaiming-normal':
-        nn.init.kaiming_normal(layer.weight)
-    elif method == 'kaiming-uniform':
-        nn.init.kaiming_uniform(layer.weight)
-
-
-def _get_padding(K, mode):
-    """ Helper method to compute padding size """
-    if mode == 'valid':
-        return 0
-    elif mode == 'same':
-        assert K % 2 == 1, 'Invalid kernel size %d for "same" padding' % K
-        return (K - 1) // 2
+def get_activation(name):
+    kwargs = {}
+    if name.lower().startswith('leakyrelu'):
+        if '-' in name:
+            slope = float(name.split('-')[1])
+            kwargs = {'negative_slope': slope}
+    name = 'leakyrelu'
+    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
+    if name.lower() not in activations:
+        raise ValueError('Invalid activation "%s"' % name)
+    return activations[name.lower()](**kwargs)
 
 
 def get_normalization_2d(channels, normalization):
@@ -112,17 +105,24 @@ def get_normalization_2d(channels, normalization):
             )
 
 
-def get_activation(name):
-    kwargs = {}
-    if name.lower().startswith('leakyrelu'):
-        if '-' in name:
-            slope = float(name.split('-')[1])
-            kwargs = {'negative_slope': slope}
-    name = 'leakyrelu'
-    activations = {'relu': nn.ReLU, 'leakyrelu': nn.LeakyReLU}
-    if name.lower() not in activations:
-        raise ValueError('Invalid activation "%s"' % name)
-    return activations[name.lower()](**kwargs)
+def _get_padding(K, mode):
+    """ Helper method to compute padding size """
+    if mode == 'valid':
+        return 0
+    elif mode == 'same':
+        assert K % 2 == 1, 'Invalid kernel size %d for "same" padding' % K
+        return (K - 1) // 2
+
+
+def _init_conv(layer, method):
+    if not isinstance(layer, nn.Conv2d):
+        return
+    if method == 'default':
+        return
+    elif method == 'kaiming-normal':
+        nn.init.kaiming_normal(layer.weight)
+    elif method == 'kaiming-uniform':
+        nn.init.kaiming_uniform(layer.weight)
 
 
 def build_cnn(arch, normalization='batch', activation='relu', padding=
@@ -233,13 +233,6 @@ class AcDiscriminator(nn.Module):
         return real_scores, ac_loss
 
 
-def _invperm(p):
-    N = p.size(0)
-    eye = torch.arange(0, N).type_as(p)
-    pp = (eye[:, (None)] == p).nonzero()[:, (1)]
-    return pp
-
-
 def bilinear_sample(feats, X, Y):
     """
     Perform bilinear sampling on the features in feats using the sampling grid
@@ -339,6 +332,13 @@ def crop_bbox(feats, bbox, HH, WW=None, backend='cudnn'):
     elif backend == 'cudnn':
         grid = torch.stack([X, Y], dim=3)
         return F.grid_sample(feats, grid)
+
+
+def _invperm(p):
+    N = p.size(0)
+    eye = torch.arange(0, N).type_as(p)
+    pp = (eye[:, (None)] == p).nonzero()[:, (1)]
+    return pp
 
 
 def crop_bbox_batch_cudnn(feats, bbox, bbox_to_feats, HH, WW=None):
@@ -953,111 +953,13 @@ class VGGLoss(nn.Module):
         return loss
 
 
-def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
-    """
-    Input:
-    - samples: FloatTensor of shape (O, D, H, W)
-    - obj_to_img: LongTensor of shape (O,) with each element in the range
-      [0, N) mapping elements of samples to output images
-
-    Output:
-    - pooled: FloatTensor of shape (N, D, H, W)
-    """
-    dtype, device = samples.dtype, samples.device
-    O, D, H, W = samples.size()
-    N = obj_to_img.data.max().item() + 1
-    obj_to_img_list = [i.item() for i in list(obj_to_img)]
-    all_out = []
-    if clean_mask_sampled is None:
-        for i in range(N):
-            start = obj_to_img_list.index(i)
-            end = len(obj_to_img_list) - obj_to_img_list[::-1].index(i)
-            all_out.append(torch.sum(samples[start:end, :, :, :], dim=0))
-    else:
-        _, d, h, w = samples.shape
-        for i in range(N):
-            start = obj_to_img_list.index(i)
-            end = len(obj_to_img_list) - obj_to_img_list[::-1].index(i)
-            mass = [torch.sum(samples[(j), :, :, :]).item() for j in range(
-                start, end)]
-            argsort = np.argsort(mass)
-            result = torch.zeros((d, h, w), device=samples.device, dtype=
-                samples.dtype)
-            result_clean = torch.zeros((h, w), device=samples.device, dtype
-                =samples.dtype)
-            for j in argsort:
-                masked_mask = (result_clean == 0).float() * (clean_mask_sampled
-                    [start + j, 0] > 0.5).float()
-                result_clean += masked_mask
-                result += samples[start + j] * masked_mask
-            all_out.append(result)
-    out = torch.stack(all_out)
-    if pooling == 'avg':
-        ones = torch.ones(O, dtype=dtype, device=device)
-        obj_counts = torch.zeros(N, dtype=dtype, device=device)
-        obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
-        obj_counts = obj_counts.clamp(min=1)
-        out = out / obj_counts.view(N, 1, 1, 1)
-    elif pooling != 'sum':
-        raise ValueError('Invalid pooling "%s"' % pooling)
-    return out
-
-
-def _boxes_to_grid(boxes, H, W):
-    """
-    Input:
-    - boxes: FloatTensor of shape (O, 4) giving boxes in the [x0, y0, x1, y1]
-      format in the [0, 1] coordinate space
-    - H, W: Scalars giving size of output
-
-    Returns:
-    - grid: FloatTensor of shape (O, H, W, 2) suitable for passing to grid_sample
-    """
-    O = boxes.size(0)
-    boxes = boxes.view(O, 4, 1, 1)
-    x0, y0 = boxes[:, (0)], boxes[:, (1)]
-    ww, hh = boxes[:, (2)] - x0, boxes[:, (3)] - y0
-    X = torch.linspace(0, 1, steps=W).view(1, 1, W).to(boxes)
-    Y = torch.linspace(0, 1, steps=H).view(1, H, 1).to(boxes)
-    X = (X - x0) / ww
-    Y = (Y - y0) / hh
-    X = X.expand(O, H, W)
-    Y = Y.expand(O, H, W)
-    grid = torch.stack([X, Y], dim=3)
-    grid = grid.mul(2).sub(1)
-    return grid
-
-
-def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling=
-    'sum', test_mode=False):
-    """
-    Inputs:
-    - vecs: Tensor of shape (O, D) giving vectors
-    - boxes: Tensor of shape (O, 4) giving bounding boxes in the format
-      [x0, y0, x1, y1] in the [0, 1] coordinate space
-    - masks: Tensor of shape (O, M, M) giving binary masks for each object
-    - obj_to_img: LongTensor of shape (O,) mapping objects to images
-    - H, W: Size of the output image.
-
-    Returns:
-    - out: Tensor of shape (N, D, H, W)
-    """
-    O, D = vecs.size()
-    M = masks.size(1)
-    assert masks.size() == (O, M, M)
-    if W is None:
-        W = H
-    grid = _boxes_to_grid(boxes, H, W)
-    img_in = vecs.view(O, D, 1, 1) * masks.float().view(O, 1, M, M)
-    sampled = F.grid_sample(img_in, grid)
-    if test_mode:
-        clean_mask_sampled = F.grid_sample(masks.float().view(O, 1, M, M), grid
-            )
-    else:
-        clean_mask_sampled = None
-    out = _pool_samples(sampled, clean_mask_sampled, obj_to_img, pooling=
-        pooling)
-    return out
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm2d') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
 
 
 def get_norm_layer(norm_type='instance'):
@@ -1071,15 +973,6 @@ def get_norm_layer(norm_type='instance'):
         raise NotImplementedError('normalization layer [%s] is not found' %
             norm_type)
     return norm_layer
-
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm2d') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
 
 
 def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
@@ -1138,6 +1031,113 @@ def mask_net(dim, mask_size):
         raise ValueError('Mask size must be a power of 2')
     layers.append(nn.Conv2d(dim, output_dim, kernel_size=1))
     return nn.Sequential(*layers)
+
+
+def _boxes_to_grid(boxes, H, W):
+    """
+    Input:
+    - boxes: FloatTensor of shape (O, 4) giving boxes in the [x0, y0, x1, y1]
+      format in the [0, 1] coordinate space
+    - H, W: Scalars giving size of output
+
+    Returns:
+    - grid: FloatTensor of shape (O, H, W, 2) suitable for passing to grid_sample
+    """
+    O = boxes.size(0)
+    boxes = boxes.view(O, 4, 1, 1)
+    x0, y0 = boxes[:, (0)], boxes[:, (1)]
+    ww, hh = boxes[:, (2)] - x0, boxes[:, (3)] - y0
+    X = torch.linspace(0, 1, steps=W).view(1, 1, W).to(boxes)
+    Y = torch.linspace(0, 1, steps=H).view(1, H, 1).to(boxes)
+    X = (X - x0) / ww
+    Y = (Y - y0) / hh
+    X = X.expand(O, H, W)
+    Y = Y.expand(O, H, W)
+    grid = torch.stack([X, Y], dim=3)
+    grid = grid.mul(2).sub(1)
+    return grid
+
+
+def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
+    """
+    Input:
+    - samples: FloatTensor of shape (O, D, H, W)
+    - obj_to_img: LongTensor of shape (O,) with each element in the range
+      [0, N) mapping elements of samples to output images
+
+    Output:
+    - pooled: FloatTensor of shape (N, D, H, W)
+    """
+    dtype, device = samples.dtype, samples.device
+    O, D, H, W = samples.size()
+    N = obj_to_img.data.max().item() + 1
+    obj_to_img_list = [i.item() for i in list(obj_to_img)]
+    all_out = []
+    if clean_mask_sampled is None:
+        for i in range(N):
+            start = obj_to_img_list.index(i)
+            end = len(obj_to_img_list) - obj_to_img_list[::-1].index(i)
+            all_out.append(torch.sum(samples[start:end, :, :, :], dim=0))
+    else:
+        _, d, h, w = samples.shape
+        for i in range(N):
+            start = obj_to_img_list.index(i)
+            end = len(obj_to_img_list) - obj_to_img_list[::-1].index(i)
+            mass = [torch.sum(samples[(j), :, :, :]).item() for j in range(
+                start, end)]
+            argsort = np.argsort(mass)
+            result = torch.zeros((d, h, w), device=samples.device, dtype=
+                samples.dtype)
+            result_clean = torch.zeros((h, w), device=samples.device, dtype
+                =samples.dtype)
+            for j in argsort:
+                masked_mask = (result_clean == 0).float() * (clean_mask_sampled
+                    [start + j, 0] > 0.5).float()
+                result_clean += masked_mask
+                result += samples[start + j] * masked_mask
+            all_out.append(result)
+    out = torch.stack(all_out)
+    if pooling == 'avg':
+        ones = torch.ones(O, dtype=dtype, device=device)
+        obj_counts = torch.zeros(N, dtype=dtype, device=device)
+        obj_counts = obj_counts.scatter_add(0, obj_to_img, ones)
+        obj_counts = obj_counts.clamp(min=1)
+        out = out / obj_counts.view(N, 1, 1, 1)
+    elif pooling != 'sum':
+        raise ValueError('Invalid pooling "%s"' % pooling)
+    return out
+
+
+def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling=
+    'sum', test_mode=False):
+    """
+    Inputs:
+    - vecs: Tensor of shape (O, D) giving vectors
+    - boxes: Tensor of shape (O, 4) giving bounding boxes in the format
+      [x0, y0, x1, y1] in the [0, 1] coordinate space
+    - masks: Tensor of shape (O, M, M) giving binary masks for each object
+    - obj_to_img: LongTensor of shape (O,) mapping objects to images
+    - H, W: Size of the output image.
+
+    Returns:
+    - out: Tensor of shape (N, D, H, W)
+    """
+    O, D = vecs.size()
+    M = masks.size(1)
+    assert masks.size() == (O, M, M)
+    if W is None:
+        W = H
+    grid = _boxes_to_grid(boxes, H, W)
+    img_in = vecs.view(O, D, 1, 1) * masks.float().view(O, 1, M, M)
+    sampled = F.grid_sample(img_in, grid)
+    if test_mode:
+        clean_mask_sampled = F.grid_sample(masks.float().view(O, 1, M, M), grid
+            )
+    else:
+        clean_mask_sampled = None
+    out = _pool_samples(sampled, clean_mask_sampled, obj_to_img, pooling=
+        pooling)
+    return out
 
 
 class Model(nn.Module):

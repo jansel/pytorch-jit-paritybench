@@ -56,6 +56,9 @@ import random
 CATEGORIES = 20
 
 
+INTER_DIM = 512
+
+
 DATASET_BASE = '/DATACETNER/1/ch/deepfashion_data'
 
 
@@ -67,9 +70,6 @@ def load_model(path=None):
         if os.path.isfile(i):
             return torch.load(i)
     return None
-
-
-INTER_DIM = 512
 
 
 class f_model(nn.Module):

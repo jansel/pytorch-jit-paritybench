@@ -50,12 +50,6 @@ import torch.optim as optim
 import torch.multiprocessing as mp
 
 
-def normalized_columns_initializer(weights, std=1.0):
-    out = torch.randn(weights.size())
-    out *= std / torch.sqrt(out.pow(2).sum(1).expand_as(out))
-    return out
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -72,6 +66,12 @@ def weights_init(m):
         w_bound = np.sqrt(6.0 / (fan_in + fan_out))
         m.weight.data.uniform_(-w_bound, w_bound)
         m.bias.data.fill_(0)
+
+
+def normalized_columns_initializer(weights, std=1.0):
+    out = torch.randn(weights.size())
+    out *= std / torch.sqrt(out.pow(2).sum(1).expand_as(out))
+    return out
 
 
 class A3CLSTMNet(nn.Module):

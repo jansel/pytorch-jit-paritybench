@@ -274,6 +274,9 @@ class Recorder(nn.Module):
         return out
 
 
+ENC_PREFIX = 'enc_'
+
+
 def group_dict_by_key(cond, d):
     return_val = [dict(), dict()]
     for key in d.keys():
@@ -293,9 +296,6 @@ def group_by_key_prefix_and_remove_prefix(prefix, d):
     kwargs_without_prefix = dict(map(lambda x: (x[0][len(prefix):], x[1]),
         tuple(kwargs_with_prefix.items())))
     return kwargs_without_prefix, kwargs
-
-
-ENC_PREFIX = 'enc_'
 
 
 DEC_PREFIX = 'dec_'
@@ -415,6 +415,13 @@ class Chunk(nn.Module):
         return torch.cat([self.fn(c, **kwargs) for c in chunks], dim=self.dim)
 
 
+def chunked_sum(tensor, chunks=1):
+    *orig_size, last_dim = tensor.shape
+    tensor = tensor.reshape(-1, last_dim)
+    summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
+    return torch.cat(summed_tensors, dim=0).reshape(orig_size)
+
+
 def default(val, default_val):
     return default_val if val is None else val
 
@@ -442,29 +449,22 @@ def cache_method_decorator(cache_attr, cache_namespace, reexecute=False):
     return inner_fn
 
 
-def max_neg_value(tensor):
-    return -torch.finfo(tensor.dtype).max
-
-
 def batched_index_select(values, indices):
     last_dim = values.shape[-1]
     return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
+
+
+TOKEN_SELF_ATTN_VALUE = -50000.0
+
+
+def max_neg_value(tensor):
+    return -torch.finfo(tensor.dtype).max
 
 
 def sort_key_val(t1, t2, dim=-1):
     values, indices = t1.sort(dim=dim)
     t2 = t2.expand_as(t1)
     return values, t2.gather(dim, indices)
-
-
-def chunked_sum(tensor, chunks=1):
-    *orig_size, last_dim = tensor.shape
-    tensor = tensor.reshape(-1, last_dim)
-    summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
-    return torch.cat(summed_tensors, dim=0).reshape(orig_size)
-
-
-TOKEN_SELF_ATTN_VALUE = -50000.0
 
 
 class LSHAttention(nn.Module):
@@ -792,13 +792,6 @@ def expand_dim(dim, k, t):
     return t.expand(*expand_shape)
 
 
-def split_at_index(dim, index, t):
-    pre_slices = (slice(None),) * dim
-    l = *pre_slices, slice(None, index)
-    r = *pre_slices, slice(index, None)
-    return t[l], t[r]
-
-
 def process_inputs_chunk(fn, chunks=1, dim=0):
 
     def inner_fn(*args, **kwargs):
@@ -810,6 +803,13 @@ def process_inputs_chunk(fn, chunks=1, dim=0):
         outputs = [fn(*c_args, **c_kwargs) for c_args, c_kwargs in all_args]
         return tuple(map(lambda x: torch.cat(x, dim=dim), zip(*outputs)))
     return inner_fn
+
+
+def split_at_index(dim, index, t):
+    pre_slices = (slice(None),) * dim
+    l = *pre_slices, slice(None, index)
+    r = *pre_slices, slice(index, None)
+    return t[l], t[r]
 
 
 class LSHSelfAttention(nn.Module):
@@ -970,6 +970,10 @@ class FixedPositionalEmbedding(nn.Module):
         return emb[(None), :, :]
 
 
+def cast_tuple(x):
+    return x if isinstance(x, tuple) else (x,)
+
+
 def cache_fn(f):
     cache = None
 
@@ -981,10 +985,6 @@ def cache_fn(f):
         cache = f(*args, **kwargs)
         return cache
     return cached_fn
-
-
-def cast_tuple(x):
-    return x if isinstance(x, tuple) else (x,)
 
 
 class Reformer(nn.Module):

@@ -262,27 +262,23 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-def round_repeats(repeats, global_params):
-    """Calculate module's repeat number of a block based on depth multiplier.
-       Use depth_coefficient of global_params.
+def efficientnet_params(model_name):
+    """Map EfficientNet model name to parameter coefficients.
 
     Args:
-        repeats (int): num_repeat to be calculated.
-        global_params (namedtuple): Global params of the model.
+        model_name (str): Model name to be queried.
 
     Returns:
-        new repeat: New repeat number after calculating.
+        params_dict[model_name]: A (width,depth,res,dropout) tuple.
     """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
-GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient',
-    'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes',
-    'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate',
-    'depth_divisor', 'min_depth'])
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
+        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    return params_dict[model_name]
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['num_repeat',
@@ -374,6 +370,12 @@ class BlockDecoder(object):
         return block_strings
 
 
+GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient',
+    'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes',
+    'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate',
+    'depth_divisor', 'min_depth'])
+
+
 def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
     =None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
     """Create BlockArgs and GlobalParams for efficientnet model.
@@ -402,25 +404,6 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
         batch_norm_momentum=0.99, batch_norm_epsilon=0.001,
         drop_connect_rate=drop_connect_rate, depth_divisor=8, min_depth=None)
     return blocks_args, global_params
-
-
-def efficientnet_params(model_name):
-    """Map EfficientNet model name to parameter coefficients.
-
-    Args:
-        model_name (str): Model name to be queried.
-
-    Returns:
-        params_dict[model_name]: A (width,depth,res,dropout) tuple.
-    """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
-        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
-    return params_dict[model_name]
 
 
 def get_model_params(model_name, override_params):
@@ -540,6 +523,23 @@ def round_filters(filters, global_params):
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """Calculate module's repeat number of a block based on depth multiplier.
+       Use depth_coefficient of global_params.
+
+    Args:
+        repeats (int): num_repeat to be calculated.
+        global_params (namedtuple): Global params of the model.
+
+    Returns:
+        new repeat: New repeat number after calculating.
+    """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
 
 
 class EfficientNet(nn.Module):

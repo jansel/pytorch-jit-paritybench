@@ -140,6 +140,19 @@ class DataParallelModel(DataParallel):
         return modules
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
+
+
 torch_ver = torch.__version__[:3]
 
 
@@ -191,19 +204,6 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):

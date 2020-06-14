@@ -1288,10 +1288,10 @@ class MBConvBlock(nn.Module):
         return x
 
 
-ACT_RELU = 'relu'
-
-
 ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_RELU = 'relu'
 
 
 ACT_ELU = 'elu'

@@ -167,6 +167,24 @@ class BaseMoCo(nn.Module):
         return out
 
 
+def resnest101(pretrained=False, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        raise NotImplementedError('pretrained model not available')
+    return model
+
+
+def resnest50(pretrained=False, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=32, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        raise NotImplementedError('pretrained model not available')
+    return model
+
+
 model_urls = {'resnet18':
     'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
     'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
@@ -174,28 +192,6 @@ model_urls = {'resnet18':
     'resnet101':
     'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
-
-
-def _resnet(arch, block, layers, pretrained, progress, **kwargs):
-    model = ResNet(block, layers, **kwargs)
-    if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch], progress=
-            progress)
-        model.load_state_dict(state_dict)
-    return model
-
-
-def resnext152_64x4d(pretrained=False, progress=True, **kwargs):
-    """ResNeXt-152 64x4d model from
-    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['groups'] = 64
-    kwargs['width_per_group'] = 4
-    return _resnet('resnext152_64x4d', Bottleneck, [3, 8, 36, 3],
-        pretrained, progress, **kwargs)
 
 
 def resnet101(pretrained=False, **kwargs):
@@ -231,6 +227,28 @@ def resnet50(pretrained=False, **kwargs):
     return model
 
 
+def _resnet(arch, block, layers, pretrained, progress, **kwargs):
+    model = ResNet(block, layers, **kwargs)
+    if pretrained:
+        state_dict = load_state_dict_from_url(model_urls[arch], progress=
+            progress)
+        model.load_state_dict(state_dict)
+    return model
+
+
+def resnext101_32x4d(pretrained=False, progress=True, **kwargs):
+    """ResNeXt-101 32x4d model from
+    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    kwargs['groups'] = 32
+    kwargs['width_per_group'] = 4
+    return _resnet('resnext101_32x4d', Bottleneck, [3, 4, 23, 3],
+        pretrained, progress, **kwargs)
+
+
 def resnext101_32x8d(pretrained=False, progress=True, **kwargs):
     """ResNeXt-101 32x8d model from
     `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
@@ -244,16 +262,16 @@ def resnext101_32x8d(pretrained=False, progress=True, **kwargs):
         pretrained, progress, **kwargs)
 
 
-def resnext101_32x4d(pretrained=False, progress=True, **kwargs):
-    """ResNeXt-101 32x4d model from
+def resnext101_64x4d(pretrained=False, progress=True, **kwargs):
+    """ResNeXt-101 64x4d model from
     `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    kwargs['groups'] = 32
+    kwargs['groups'] = 64
     kwargs['width_per_group'] = 4
-    return _resnet('resnext101_32x4d', Bottleneck, [3, 4, 23, 3],
+    return _resnet('resnext101_64x4d', Bottleneck, [3, 4, 23, 3],
         pretrained, progress, **kwargs)
 
 
@@ -283,17 +301,8 @@ def resnext152_32x8d(pretrained=False, progress=True, **kwargs):
         pretrained, progress, **kwargs)
 
 
-def resnest50(pretrained=False, **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=32, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        raise NotImplementedError('pretrained model not available')
-    return model
-
-
-def resnext101_64x4d(pretrained=False, progress=True, **kwargs):
-    """ResNeXt-101 64x4d model from
+def resnext152_64x4d(pretrained=False, progress=True, **kwargs):
+    """ResNeXt-152 64x4d model from
     `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -301,7 +310,7 @@ def resnext101_64x4d(pretrained=False, progress=True, **kwargs):
     """
     kwargs['groups'] = 64
     kwargs['width_per_group'] = 4
-    return _resnet('resnext101_64x4d', Bottleneck, [3, 4, 23, 3],
+    return _resnet('resnext152_64x4d', Bottleneck, [3, 8, 36, 3],
         pretrained, progress, **kwargs)
 
 
@@ -316,15 +325,6 @@ def resnext50_32x4d(pretrained=False, progress=True, **kwargs):
     kwargs['width_per_group'] = 4
     return _resnet('resnext50_32x4d', Bottleneck, [3, 4, 6, 3], pretrained,
         progress, **kwargs)
-
-
-def resnest101(pretrained=False, **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        raise NotImplementedError('pretrained model not available')
-    return model
 
 
 model_dict = {'resnet50': resnet50, 'resnet101': resnet101, 'resnet152':

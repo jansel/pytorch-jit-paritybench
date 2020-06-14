@@ -599,10 +599,10 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
     return new_J, A
 
 
-_global_config['batch_size'] = 4
-
-
 _global_config['eval_batch_size'] = 4
+
+
+_global_config['batch_size'] = 4
 
 
 _global_config['batch_3d_size'] = 4
@@ -813,30 +813,6 @@ model_urls = {'densenet121':
     'https://download.pytorch.org/models/densenet161-8d451a50.pth'}
 
 
-def densenet121(pretrained=False, **kwargs):
-    """Densenet-121 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 24, 16), **kwargs)
-    if pretrained:
-        pattern = re.compile(
-            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
-            )
-        state_dict = model_zoo.load_url(model_urls['densenet121'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
 def densenet161(pretrained=False, **kwargs):
     """Densenet-161 model from
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
@@ -851,30 +827,6 @@ def densenet161(pretrained=False, **kwargs):
             '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
             )
         state_dict = model_zoo.load_url(model_urls['densenet161'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
-def densenet201(pretrained=False, **kwargs):
-    """Densenet-201 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 48, 32), **kwargs)
-    if pretrained:
-        pattern = re.compile(
-            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
-            )
-        state_dict = model_zoo.load_url(model_urls['densenet201'])
         for key in list(state_dict.keys()):
             res = pattern.match(key)
             if res:
@@ -909,6 +861,54 @@ def densenet169(pretrained=False, **kwargs):
     return model
 
 
+def densenet121(pretrained=False, **kwargs):
+    """Densenet-121 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
+        12, 24, 16), **kwargs)
+    if pretrained:
+        pattern = re.compile(
+            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
+            )
+        state_dict = model_zoo.load_url(model_urls['densenet121'])
+        for key in list(state_dict.keys()):
+            res = pattern.match(key)
+            if res:
+                new_key = res.group(1) + res.group(2)
+                state_dict[new_key] = state_dict[key]
+                del state_dict[key]
+        model.load_state_dict(state_dict)
+    return model
+
+
+def densenet201(pretrained=False, **kwargs):
+    """Densenet-201 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
+        12, 48, 32), **kwargs)
+    if pretrained:
+        pattern = re.compile(
+            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
+            )
+        state_dict = model_zoo.load_url(model_urls['densenet201'])
+        for key in list(state_dict.keys()):
+            res = pattern.match(key)
+            if res:
+                new_key = res.group(1) + res.group(2)
+                state_dict[new_key] = state_dict[key]
+                del state_dict[key]
+        model.load_state_dict(state_dict)
+    return model
+
+
 def load_denseNet(net_type):
     if net_type == 'densenet121':
         return densenet121(pretrained=True)
@@ -921,6 +921,11 @@ def load_denseNet(net_type):
     else:
         msg = 'invalid denset net type'
         sys.exit(msg)
+
+
+def _create_hourglass_net():
+    return HourGlass(nStack=2, nBlockCount=4, nResidualEachBlock=1,
+        nMidChannels=128, nChannels=256, nJointCount=1, bUseBn=True)
 
 
 class ThetaRegressor(LinearModel):
@@ -955,9 +960,19 @@ class ThetaRegressor(LinearModel):
         return thetas
 
 
-def _create_hourglass_net():
-    return HourGlass(nStack=2, nBlockCount=4, nResidualEachBlock=1,
-        nMidChannels=128, nChannels=256, nJointCount=1, bUseBn=True)
+_global_config['beta_count'] = 4
+
+
+_global_config['encoder_network'] = 4
+
+
+_global_config['smpl_mean_theta_path'] = 4
+
+
+_global_config['feature_count'] = 4
+
+
+_global_config['joint_count'] = 4
 
 
 _global_config['smpl_model'] = 4
@@ -966,31 +981,16 @@ _global_config['smpl_model'] = 4
 _global_config['allowed_encoder_net'] = 4
 
 
-_global_config['feature_count'] = 4
-
-
-_global_config['smpl_mean_theta_path'] = 4
-
-
-_global_config['crop_size'] = 4
-
-
-_global_config['joint_count'] = 4
-
-
 _global_config['encoder_feature_count'] = 4
-
-
-_global_config['encoder_network'] = 4
 
 
 _global_config['enable_inter_supervision'] = 4
 
 
-_global_config['beta_count'] = 4
-
-
 _global_config['total_theta_count'] = 4
+
+
+_global_config['crop_size'] = 4
 
 
 class HMRNetBase(nn.Module):

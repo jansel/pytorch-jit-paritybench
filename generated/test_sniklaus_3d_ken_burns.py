@@ -417,38 +417,6 @@ class Upsample(torch.nn.Module):
         return self.moduleMain(tenInput)
 
 
-def spatial_filter(tenInput, strType):
-    tenOutput = None
-    if strType == 'laplacian':
-        tenLaplacian = tenInput.new_zeros(tenInput.shape[1], tenInput.shape
-            [1], 3, 3)
-        for intKernel in range(tenInput.shape[1]):
-            tenLaplacian[intKernel, intKernel, 0, 1] = -1.0
-            tenLaplacian[intKernel, intKernel, 0, 2] = -1.0
-            tenLaplacian[intKernel, intKernel, 1, 1] = 4.0
-            tenLaplacian[intKernel, intKernel, 1, 0] = -1.0
-            tenLaplacian[intKernel, intKernel, 2, 0] = -1.0
-        tenOutput = torch.nn.functional.pad(input=tenInput, pad=[1, 1, 1, 1
-            ], mode='replicate')
-        tenOutput = torch.nn.functional.conv2d(input=tenOutput, weight=
-            tenLaplacian)
-    elif strType == 'median-3':
-        tenOutput = torch.nn.functional.pad(input=tenInput, pad=[1, 1, 1, 1
-            ], mode='reflect')
-        tenOutput = tenOutput.unfold(2, 3, 1).unfold(3, 3, 1)
-        tenOutput = tenOutput.contiguous().view(tenOutput.shape[0],
-            tenOutput.shape[1], tenOutput.shape[2], tenOutput.shape[3], 3 * 3)
-        tenOutput = tenOutput.median(-1, False)[0]
-    elif strType == 'median-5':
-        tenOutput = torch.nn.functional.pad(input=tenInput, pad=[2, 2, 2, 2
-            ], mode='reflect')
-        tenOutput = tenOutput.unfold(2, 5, 1).unfold(3, 5, 1)
-        tenOutput = tenOutput.contiguous().view(tenOutput.shape[0],
-            tenOutput.shape[1], tenOutput.shape[2], tenOutput.shape[3], 5 * 5)
-        tenOutput = tenOutput.median(-1, False)[0]
-    return tenOutput
-
-
 def depth_to_points(tenDepth, fltFocal):
     tenHorizontal = torch.linspace(-0.5 * tenDepth.shape[3] + 0.5, 0.5 *
         tenDepth.shape[3] - 0.5, tenDepth.shape[3]).view(1, 1, 1, tenDepth.
@@ -462,6 +430,9 @@ def depth_to_points(tenDepth, fltFocal):
     tenVertical = tenVertical.type_as(tenDepth)
     return torch.cat([tenDepth * tenHorizontal, tenDepth * tenVertical,
         tenDepth], 1)
+
+
+objCommon = {}
 
 
 import torch

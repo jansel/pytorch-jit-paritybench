@@ -175,6 +175,28 @@ class Discriminator(nn.Module):
         return loss
 
 
+def get_body_basis(motion_3d):
+    """
+    Get the unit vectors for vector rectangular coordinates for given 3D motion
+    :param motion_3d: 3D motion from 3D joints positions, shape (B, n_joints, 3, seq_len).
+    :param angles: (K, 3), Rotation angles around each axis.
+    :return: unit vectors for vector rectangular coordinates's , shape (B, 3, 3).
+    """
+    B = motion_3d.size(0)
+    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] -
+        motion_3d[:, (12)]) / 2
+    horizontal = horizontal.mean(dim=-1)
+    horizontal = horizontal / horizontal.norm(dim=-1).unsqueeze(-1)
+    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype
+        =motion_3d.dtype).unsqueeze(0).repeat(B, 1)
+    vector_y = torch.cross(horizontal, vector_z)
+    vector_y = vector_y / vector_y.norm(dim=-1).unsqueeze(-1)
+    vector_x = torch.cross(vector_y, vector_z)
+    vectors = torch.stack([vector_x, vector_y, vector_z], dim=2)
+    vectors = vectors.detach()
+    return vectors
+
+
 def change_of_basis(motion_3d, basis_vectors=None, project_2d=False):
     if basis_vectors is None:
         motion_proj = motion_3d[:, :, ([0, 2]), :]
@@ -224,28 +246,6 @@ def rotate_basis_euler(basis_vectors, angles):
     basis_vectors = basis_vectors.unsqueeze(1).unsqueeze(2)
     basis_vectors = basis_vectors @ mat33_x.transpose(-1, -2) @ mat33_z
     return basis_vectors
-
-
-def get_body_basis(motion_3d):
-    """
-    Get the unit vectors for vector rectangular coordinates for given 3D motion
-    :param motion_3d: 3D motion from 3D joints positions, shape (B, n_joints, 3, seq_len).
-    :param angles: (K, 3), Rotation angles around each axis.
-    :return: unit vectors for vector rectangular coordinates's , shape (B, 3, 3).
-    """
-    B = motion_3d.size(0)
-    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] -
-        motion_3d[:, (12)]) / 2
-    horizontal = horizontal.mean(dim=-1)
-    horizontal = horizontal / horizontal.norm(dim=-1).unsqueeze(-1)
-    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype
-        =motion_3d.dtype).unsqueeze(0).repeat(B, 1)
-    vector_y = torch.cross(horizontal, vector_z)
-    vector_y = vector_y / vector_y.norm(dim=-1).unsqueeze(-1)
-    vector_x = torch.cross(vector_y, vector_z)
-    vectors = torch.stack([vector_x, vector_y, vector_z], dim=2)
-    vectors = vectors.detach()
-    return vectors
 
 
 def rotate_and_maybe_project(X, angles=None, body_reference=True,
@@ -376,33 +376,6 @@ class Autoencoder3f(nn.Module):
         return batch_out
 
 
-def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
-        ] == 'constant':
-        scheduler = None
-    elif hyperparameters['lr_policy'] == 'step':
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=
-            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
-            last_epoch=iterations)
-    else:
-        return NotImplementedError(
-            'learning rate policy [%s] is not implemented', hyperparameters
-            ['lr_policy'])
-    return scheduler
-
-
-def get_model_list(dirname, key):
-    if os.path.exists(dirname) is False:
-        return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
-    if gen_models is None:
-        return None
-    gen_models.sort()
-    last_model_name = gen_models[-1]
-    return last_model_name
-
-
 def weights_init(init_type='gaussian'):
 
     def init_fun(m):
@@ -424,6 +397,33 @@ def weights_init(init_type='gaussian'):
             if hasattr(m, 'bias') and m.bias is not None:
                 init.constant_(m.bias.data, 0.0)
     return init_fun
+
+
+def get_model_list(dirname, key):
+    if os.path.exists(dirname) is False:
+        return None
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
+        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    if gen_models is None:
+        return None
+    gen_models.sort()
+    last_model_name = gen_models[-1]
+    return last_model_name
+
+
+def get_scheduler(optimizer, hyperparameters, iterations=-1):
+    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
+        ] == 'constant':
+        scheduler = None
+    elif hyperparameters['lr_policy'] == 'step':
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=
+            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
+            last_epoch=iterations)
+    else:
+        return NotImplementedError(
+            'learning rate policy [%s] is not implemented', hyperparameters
+            ['lr_policy'])
+    return scheduler
 
 
 class BaseTrainer(nn.Module):

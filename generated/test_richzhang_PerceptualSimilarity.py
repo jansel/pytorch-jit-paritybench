@@ -103,15 +103,15 @@ class PerceptualLoss(torch.nn.Module):
         return self.model.forward(target, pred)
 
 
+def spatial_average(in_tens, keepdim=True):
+    return in_tens.mean([2, 3], keepdim=keepdim)
+
+
 def upsample(in_tens, out_H=64):
     in_H = in_tens.shape[2]
     scale_factor = 1.0 * out_H / in_H
     return nn.Upsample(scale_factor=scale_factor, mode='bilinear',
         align_corners=False)(in_tens)
-
-
-def spatial_average(in_tens, keepdim=True):
-    return in_tens.mean([2, 3], keepdim=keepdim)
 
 
 class PNetLin(nn.Module):

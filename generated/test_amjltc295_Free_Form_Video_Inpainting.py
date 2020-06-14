@@ -1500,52 +1500,6 @@ class BaseModule(nn.Module):
             self.DeconvBlock = VanillaDeconv
 
 
-class UpSampleModule(BaseModule):
-
-    def __init__(self, nc_in, nc_out, nf, use_bias, norm, conv_by,
-        conv_type, use_skip_connection=False):
-        super().__init__(conv_type)
-        self.deconv1 = self.DeconvBlock(nc_in * 2 if use_skip_connection else
-            nc_in, nf * 2, kernel_size=(3, 3, 3), stride=1, padding=1, bias
-            =use_bias, norm=norm, conv_by=conv_by)
-        self.conv9 = self.ConvBlock(nf * 2, nf * 2, kernel_size=(3, 3, 3),
-            stride=(1, 1, 1), padding=1, bias=use_bias, norm=norm, conv_by=
-            conv_by)
-        self.deconv2 = self.DeconvBlock(nf * 4 if use_skip_connection else 
-            nf * 2, nf * 1, kernel_size=(3, 3, 3), stride=1, padding=1,
-            bias=use_bias, norm=norm, conv_by=conv_by)
-        self.conv10 = self.ConvBlock(nf * 1, nf // 2, kernel_size=(3, 3, 3),
-            stride=(1, 1, 1), padding=1, bias=use_bias, norm=norm, conv_by=
-            conv_by)
-        self.conv11 = self.ConvBlock(nf // 2, nc_out, kernel_size=(3, 3, 3),
-            stride=(1, 1, 1), padding=1, bias=use_bias, norm=None,
-            activation=None, conv_by=conv_by)
-        self.use_skip_connection = use_skip_connection
-
-    def concat_feature(self, ca, cb):
-        if self.conv_type == 'partial':
-            ca_feature, ca_mask = ca
-            cb_feature, cb_mask = cb
-            feature_cat = torch.cat((ca_feature, cb_feature), 1)
-            return feature_cat, ca_mask
-        else:
-            return torch.cat((ca, cb), 1)
-
-    def forward(self, inp):
-        c8, c4, c2 = inp
-        if self.use_skip_connection:
-            d1 = self.deconv1(self.concat_feature(c8, c4))
-            c9 = self.conv9(d1)
-            d2 = self.deconv2(self.concat_feature(c9, c2))
-        else:
-            d1 = self.deconv1(c8)
-            c9 = self.conv9(d1)
-            d2 = self.deconv2(c9)
-        c10 = self.conv10(d2)
-        c11 = self.conv11(c10)
-        return c11
-
-
 class DownSampleModule(BaseModule):
 
     def __init__(self, nc_in, nf, use_bias, norm, conv_by, conv_type):
@@ -1600,6 +1554,52 @@ class DownSampleModule(BaseModule):
         c7 = self.conv7(a4)
         c8 = self.conv8(c7)
         return c8, c4, c2
+
+
+class UpSampleModule(BaseModule):
+
+    def __init__(self, nc_in, nc_out, nf, use_bias, norm, conv_by,
+        conv_type, use_skip_connection=False):
+        super().__init__(conv_type)
+        self.deconv1 = self.DeconvBlock(nc_in * 2 if use_skip_connection else
+            nc_in, nf * 2, kernel_size=(3, 3, 3), stride=1, padding=1, bias
+            =use_bias, norm=norm, conv_by=conv_by)
+        self.conv9 = self.ConvBlock(nf * 2, nf * 2, kernel_size=(3, 3, 3),
+            stride=(1, 1, 1), padding=1, bias=use_bias, norm=norm, conv_by=
+            conv_by)
+        self.deconv2 = self.DeconvBlock(nf * 4 if use_skip_connection else 
+            nf * 2, nf * 1, kernel_size=(3, 3, 3), stride=1, padding=1,
+            bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv10 = self.ConvBlock(nf * 1, nf // 2, kernel_size=(3, 3, 3),
+            stride=(1, 1, 1), padding=1, bias=use_bias, norm=norm, conv_by=
+            conv_by)
+        self.conv11 = self.ConvBlock(nf // 2, nc_out, kernel_size=(3, 3, 3),
+            stride=(1, 1, 1), padding=1, bias=use_bias, norm=None,
+            activation=None, conv_by=conv_by)
+        self.use_skip_connection = use_skip_connection
+
+    def concat_feature(self, ca, cb):
+        if self.conv_type == 'partial':
+            ca_feature, ca_mask = ca
+            cb_feature, cb_mask = cb
+            feature_cat = torch.cat((ca_feature, cb_feature), 1)
+            return feature_cat, ca_mask
+        else:
+            return torch.cat((ca, cb), 1)
+
+    def forward(self, inp):
+        c8, c4, c2 = inp
+        if self.use_skip_connection:
+            d1 = self.deconv1(self.concat_feature(c8, c4))
+            c9 = self.conv9(d1)
+            d2 = self.deconv2(self.concat_feature(c9, c2))
+        else:
+            d1 = self.deconv1(c8)
+            c9 = self.conv9(d1)
+            d2 = self.deconv2(c9)
+        c10 = self.conv10(d2)
+        c11 = self.conv11(c10)
+        return c11
 
 
 class CoarseNet(nn.Module):

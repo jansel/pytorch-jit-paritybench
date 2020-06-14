@@ -261,6 +261,12 @@ class NGramLanguageModeler(nn.Module):
         return log_probs
 
 
+START_TAG = '<START>'
+
+
+STOP_TAG = '<STOP>'
+
+
 def to_scalar(var):
     return var.view(-1).data.tolist()[0]
 
@@ -275,12 +281,6 @@ def log_sum_exp(vec):
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
     return max_score + torch.log(torch.sum(torch.exp(vec -
         max_score_broadcast)))
-
-
-STOP_TAG = '<STOP>'
-
-
-START_TAG = '<START>'
 
 
 class BiLSTM_CRF(nn.Module):

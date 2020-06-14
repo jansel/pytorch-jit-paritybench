@@ -279,15 +279,6 @@ class ParameterServer(nn.Module):
         return param_rrefs
 
 
-def call_method(method, rref, *args, **kwargs):
-    return method(rref.local_value(), *args, **kwargs)
-
-
-def remote_method(method, rref, *args, **kwargs):
-    args = [method, rref] + list(args)
-    return rpc.rpc_sync(rref.owner(), call_method, args=args, kwargs=kwargs)
-
-
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
@@ -326,31 +317,6 @@ class ResNetBase(nn.Module):
         return nn.Sequential(*layers)
 
 
-num_classes = 1000
-
-
-class ResNetPart2(ResNetBase):
-    """
-    The second part of ResNet.
-    """
-
-    def __init__(self, device, *args, **kwargs):
-        super(ResNetPart2, self).__init__(Bottleneck, 512, *args,
-            num_classes=num_classes, **kwargs)
-        self.device = device
-        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self.
-            _make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1))).to(
-            self.device)
-        self.fc = nn.Linear(512 * self._block.expansion, num_classes).to(self
-            .device)
-
-    def forward(self, x_rref):
-        x = x_rref.to_here().to(self.device)
-        with self._lock:
-            out = self.fc(torch.flatten(self.seq(x), 1))
-        return out.cpu()
-
-
 def _call_method(method, rref, *args, **kwargs):
     """
     a helper function to call a method on the given RRef
@@ -367,15 +333,7 @@ def _async_on_rref(method, rref, *args, **kwargs):
         list(args), kwargs=kwargs)
 
 
-def _parameter_rrefs(module):
-    """
-    Create one RRef for each parameter in the given local module, and return a
-    list of RRefs.
-    """
-    param_rrefs = []
-    for param in module.parameters():
-        param_rrefs.append(RRef(param))
-    return param_rrefs
+num_classes = 1000
 
 
 class ResNetPart1(ResNetBase):
@@ -404,6 +362,39 @@ class ResNetPart1(ResNetBase):
         x = x_rref.to_here().to(self.device)
         with self._lock:
             out = self.seq(x)
+        return out.cpu()
+
+
+def _parameter_rrefs(module):
+    """
+    Create one RRef for each parameter in the given local module, and return a
+    list of RRefs.
+    """
+    param_rrefs = []
+    for param in module.parameters():
+        param_rrefs.append(RRef(param))
+    return param_rrefs
+
+
+class ResNetPart2(ResNetBase):
+    """
+    The second part of ResNet.
+    """
+
+    def __init__(self, device, *args, **kwargs):
+        super(ResNetPart2, self).__init__(Bottleneck, 512, *args,
+            num_classes=num_classes, **kwargs)
+        self.device = device
+        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self.
+            _make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1))).to(
+            self.device)
+        self.fc = nn.Linear(512 * self._block.expansion, num_classes).to(self
+            .device)
+
+    def forward(self, x_rref):
+        x = x_rref.to_here().to(self.device)
+        with self._lock:
+            out = self.fc(torch.flatten(self.seq(x), 1))
         return out.cpu()
 
 

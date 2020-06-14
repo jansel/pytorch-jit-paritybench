@@ -367,20 +367,6 @@ class SobelOperator(nn.Module):
         return x
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -405,6 +391,20 @@ class FutureResult(object):
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class SyncMaster(object):
@@ -480,11 +480,6 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
@@ -492,6 +487,11 @@ def _sum_ft(tensor):
 
 _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])

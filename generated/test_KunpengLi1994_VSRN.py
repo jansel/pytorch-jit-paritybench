@@ -408,12 +408,6 @@ class EncoderText(nn.Module):
         return out
 
 
-def cosine_sim(im, s):
-    """Cosine similarity between all the image and sentence pairs
-    """
-    return im.mm(s.t())
-
-
 def order_sim(im, s):
     """Order embeddings similarity measure $max(0, s-im)$
     """
@@ -421,6 +415,12 @@ def order_sim(im, s):
         ) - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1))
     score = -YmX.clamp(min=0).pow(2).sum(2).sqrt().t()
     return score
+
+
+def cosine_sim(im, s):
+    """Cosine similarity between all the image and sentence pairs
+    """
+    return im.mm(s.t())
 
 
 class ContrastiveLoss(nn.Module):

@@ -230,6 +230,9 @@ class LayerNormLayer(nn.Module):
         return self.__class__.__name__ + param_str
 
 
+DEBUG = False
+
+
 def resize_activations(v, so):
     """
     Resize activation tensor 'v' of shape 'si' to match shape 'so'.
@@ -254,9 +257,6 @@ def resize_activations(v, so):
         z = torch.zeros((v.shape[0], so[1] - si[1]) + so[2:])
         v = torch.cat([v, z], 1)
     return v
-
-
-DEBUG = False
 
 
 class GSelectLayer(nn.Module):

@@ -234,15 +234,35 @@ class FocalLossSoftmax(nn.Module):
         return loss
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -287,37 +307,6 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
-
-
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
@@ -351,6 +340,17 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -468,6 +468,18 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_c
 
 
+def center_size(boxes):
+    """ Convert prior_boxes to (cx, cy, w, h)
+    representation for comparison to center-size form ground truth data.
+    Args:
+        boxes: (tensor) point_form boxes
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
+        boxes[:, :2]], 1)
+
+
 def decode(loc, priors, variances):
     """Decode locations from predictions using priors to undo
     the encoding we did for offset regression at train time.
@@ -485,18 +497,6 @@ def decode(loc, priors, variances):
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
-
-
-def center_size(boxes):
-    """ Convert prior_boxes to (cx, cy, w, h)
-    representation for comparison to center-size form ground truth data.
-    Args:
-        boxes: (tensor) point_form boxes
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
 
 
 def refine_match(threshold, truths, priors, variances, labels, loc_t,
@@ -1040,11 +1040,6 @@ class L2Norm(nn.Module):
         return out
 
 
-extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
-    'S', 256]}
-
-
 def vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
@@ -1066,6 +1061,11 @@ def vgg(cfg, i, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
+
+
+extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
+    'S', 256]}
 
 
 base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
@@ -1344,6 +1344,25 @@ class MobileNet2(nn.Module):
         return sources
 
 
+def get_func(func_name):
+    """Helper to return a function object by name. func_name must identify a
+    function in this module or the path to a function relative to the base
+    'modeling' module.
+    """
+    if func_name == '':
+        return None
+    try:
+        parts = func_name.split('.')
+        if len(parts) == 1:
+            return globals()[parts[0]]
+        module_name = 'models.' + '.'.join(parts[:-1])
+        module = importlib.import_module(module_name)
+        return getattr(module, parts[-1])
+    except Exception:
+        print('Failed to find function: %s', func_name)
+        raise
+
+
 class PriorBox(object):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
@@ -1401,25 +1420,6 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
-
-
-def get_func(func_name):
-    """Helper to return a function object by name. func_name must identify a
-    function in this module or the path to a function relative to the base
-    'modeling' module.
-    """
-    if func_name == '':
-        return None
-    try:
-        parts = func_name.split('.')
-        if len(parts) == 1:
-            return globals()[parts[0]]
-        module_name = 'models.' + '.'.join(parts[:-1])
-        module = importlib.import_module(module_name)
-        return getattr(module, parts[-1])
-    except Exception:
-        print('Failed to find function: %s', func_name)
-        raise
 
 
 class SSD(nn.Module):
@@ -1536,6 +1536,13 @@ class SSD(nn.Module):
         return output
 
 
+def up_layers(fpn_num):
+    layers = []
+    for i in range(fpn_num - 1):
+        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
+    return layers
+
+
 def trans_layers(block, fpn_num):
     layers = list()
     for i in range(fpn_num):
@@ -1549,13 +1556,6 @@ def latent_layers(fpn_num):
     layers = []
     for i in range(fpn_num):
         layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-    return layers
-
-
-def up_layers(fpn_num):
-    layers = []
-    for i in range(fpn_num - 1):
-        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
     return layers
 
 
@@ -1675,19 +1675,8 @@ class WeaveBlock(nn.Module):
         return out
 
 
-def adaptive_pool(x, size):
-    return F.adaptive_max_pool2d(x, size)
-
-
-def trans_layers_2(raw_channels, inner_channels):
-    layers = list()
-    fpn_num = len(raw_channels)
-    for i in range(fpn_num):
-        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
-            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
-            stride=1, padding=1))]
-    return layers
+def adaptive_upsample(x, size):
+    return F.upsample(x, size, mode='bilinear')
 
 
 def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
@@ -1706,6 +1695,10 @@ def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
     return layers
 
 
+def adaptive_pool(x, size):
+    return F.adaptive_max_pool2d(x, size)
+
+
 def weave_layers_2(raw_channels, weave_add_channels):
     layers = list()
     num = 2
@@ -1719,8 +1712,15 @@ def weave_layers_2(raw_channels, weave_add_channels):
     return layers
 
 
-def adaptive_upsample(x, size):
-    return F.upsample(x, size, mode='bilinear')
+def trans_layers_2(raw_channels, inner_channels):
+    layers = list()
+    fpn_num = len(raw_channels)
+    for i in range(fpn_num):
+        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
+            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
+            stride=1, padding=1))]
+    return layers
 
 
 class WeaveAdapter2(nn.Module):

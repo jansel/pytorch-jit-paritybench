@@ -536,43 +536,104 @@ class AnchorGenerator(object):
         return valid
 
 
-def multi_apply(func, *args, **kwargs):
-    pfunc = partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
+class Registry(object):
+
+    def __init__(self, name):
+        self._name = name
+        self._module_dict = dict()
+
+    def __repr__(self):
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
+            self._name, list(self._module_dict.keys()))
+        return format_str
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def module_dict(self):
+        return self._module_dict
+
+    def get(self, key):
+        return self._module_dict.get(key, None)
+
+    def _register_module(self, module_class, force=False):
+        """Register a module.
+
+        Args:
+            module (:obj:`nn.Module`): Module to be registered.
+        """
+        if not inspect.isclass(module_class):
+            raise TypeError('module must be a class, but got {}'.format(
+                type(module_class)))
+        module_name = module_class.__name__
+        if not force and module_name in self._module_dict:
+            raise KeyError('{} is already registered in {}'.format(
+                module_name, self.name))
+        self._module_dict[module_name] = module_class
+
+    def register_module(self, cls=None, force=False):
+        if cls is None:
+            return partial(self.register_module, force=force)
+        self._register_module(cls, force=force)
+        return cls
 
 
-def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+HEADS = Registry('head')
+
+
+def bias_init_with_prob(prior_prob):
+    """ initialize conv/fc bias value according to giving probablity"""
+    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
+    return bias_init
+
+
+LOSSES = Registry('loss')
+
+
+def build_from_cfg(cfg, registry, default_args=None):
+    """Build a module from config dict.
+
+    Args:
+        cfg (dict): Config dict. It should at least contain the key "type".
+        registry (:obj:`Registry`): The registry to search the type from.
+        default_args (dict, optional): Default initialization arguments.
+
+    Returns:
+        obj: The constructed object.
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    assert isinstance(default_args, dict) or default_args is None
+    args = cfg.copy()
+    obj_type = args.pop('type')
+    if mmcv.is_str(obj_type):
+        obj_cls = registry.get(obj_type)
+        if obj_cls is None:
+            raise KeyError('{} is not in the {} registry'.format(obj_type,
+                registry.name))
+    elif inspect.isclass(obj_type):
+        obj_cls = obj_type
     else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
+        raise TypeError('type must be a str or valid type, but got {}'.
+            format(type(obj_type)))
+    if default_args is not None:
+        for name, value in default_args.items():
+            args.setdefault(name, value)
+    return obj_cls(**args)
 
 
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
+def build(cfg, registry, default_args=None):
+    if isinstance(cfg, list):
+        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
+            ]
+        return nn.Sequential(*modules)
+    else:
+        return build_from_cfg(cfg, registry, default_args)
+
+
+def build_loss(cfg):
+    return build(cfg, LOSSES)
 
 
 def dice_loss(input, target):
@@ -630,58 +691,10 @@ def matrix_nms(seg_masks, cate_labels, cate_scores, kernel='gaussian',
     return cate_scores_update
 
 
-def points_nms(heat, kernel=2):
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=1
-        )
-    keep = (hmax[:, :, :-1, :-1] == heat).float()
-    return heat * keep
-
-
-class Registry(object):
-
-    def __init__(self, name):
-        self._name = name
-        self._module_dict = dict()
-
-    def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
-        return format_str
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
-
-    def get(self, key):
-        return self._module_dict.get(key, None)
-
-    def _register_module(self, module_class, force=False):
-        """Register a module.
-
-        Args:
-            module (:obj:`nn.Module`): Module to be registered.
-        """
-        if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
-        module_name = module_class.__name__
-        if not force and module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
-        self._module_dict[module_name] = module_class
-
-    def register_module(self, cls=None, force=False):
-        if cls is None:
-            return partial(self.register_module, force=force)
-        self._register_module(cls, force=force)
-        return cls
-
-
-HEADS = Registry('head')
+def multi_apply(func, *args, **kwargs):
+    pfunc = partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
 
 
 def normal_init(module, mean=0, std=1, bias=0):
@@ -690,57 +703,11 @@ def normal_init(module, mean=0, std=1, bias=0):
         nn.init.constant_(module.bias, bias)
 
 
-def bias_init_with_prob(prior_prob):
-    """ initialize conv/fc bias value according to giving probablity"""
-    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
-    return bias_init
-
-
-def build_from_cfg(cfg, registry, default_args=None):
-    """Build a module from config dict.
-
-    Args:
-        cfg (dict): Config dict. It should at least contain the key "type".
-        registry (:obj:`Registry`): The registry to search the type from.
-        default_args (dict, optional): Default initialization arguments.
-
-    Returns:
-        obj: The constructed object.
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    assert isinstance(default_args, dict) or default_args is None
-    args = cfg.copy()
-    obj_type = args.pop('type')
-    if mmcv.is_str(obj_type):
-        obj_cls = registry.get(obj_type)
-        if obj_cls is None:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
-    elif inspect.isclass(obj_type):
-        obj_cls = obj_type
-    else:
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
-    if default_args is not None:
-        for name, value in default_args.items():
-            args.setdefault(name, value)
-    return obj_cls(**args)
-
-
-def build(cfg, registry, default_args=None):
-    if isinstance(cfg, list):
-        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
-            ]
-        return nn.Sequential(*modules)
-    else:
-        return build_from_cfg(cfg, registry, default_args)
-
-
-LOSSES = Registry('loss')
-
-
-def build_loss(cfg):
-    return build(cfg, LOSSES)
+def points_nms(heat, kernel=2):
+    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=1
+        )
+    keep = (hmax[:, :, :-1, :-1] == heat).float()
+    return heat * keep
 
 
 @HEADS.register_module
@@ -1443,6 +1410,9 @@ class DecoupledSOLOLightHead(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
+INF = 100000000.0
+
+
 def distance2bbox(points, distance, max_shape=None):
     """Decode distance prediction to bounding box.
 
@@ -1465,65 +1435,6 @@ def distance2bbox(points, distance, max_shape=None):
         x2 = x2.clamp(min=0, max=max_shape[1] - 1)
         y2 = y2.clamp(min=0, max=max_shape[0] - 1)
     return torch.stack([x1, y1, x2, y2], -1)
-
-
-INF = 100000000.0
-
-
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
-    -1, score_factors=None):
-    """NMS for multi-class bboxes.
-
-    Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class), where the 0th column
-            contains scores of the background class, but this will be ignored.
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-        score_factors (Tensor): The factors multiplied to scores before
-            applying NMS
-
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
-            are 0-based.
-    """
-    num_classes = multi_scores.shape[1]
-    bboxes, labels = [], []
-    nms_cfg_ = nms_cfg.copy()
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = getattr(nms_wrapper, nms_type)
-    for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
-        if not cls_inds.any():
-            continue
-        if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
-        else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
-        _scores = multi_scores[cls_inds, i]
-        if score_factors is not None:
-            _scores *= score_factors[cls_inds]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
-        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
-        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
-            dtype=torch.long)
-        bboxes.append(cls_dets)
-        labels.append(cls_labels)
-    if bboxes:
-        bboxes = torch.cat(bboxes)
-        labels = torch.cat(labels)
-        if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
-            inds = inds[:max_num]
-            bboxes = bboxes[inds]
-            labels = labels[inds]
-    else:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-    return bboxes, labels
 
 
 def cast_tensor_type(inputs, src_type, dst_type):
@@ -1609,6 +1520,62 @@ def force_fp32(apply_to=None, out_fp16=False):
             return output
         return new_func
     return force_fp32_wrapper
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
+    -1, score_factors=None):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class), where the 0th column
+            contains scores of the background class, but this will be ignored.
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+        score_factors (Tensor): The factors multiplied to scores before
+            applying NMS
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
+            are 0-based.
+    """
+    num_classes = multi_scores.shape[1]
+    bboxes, labels = [], []
+    nms_cfg_ = nms_cfg.copy()
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = getattr(nms_wrapper, nms_type)
+    for i in range(1, num_classes):
+        cls_inds = multi_scores[:, (i)] > score_thr
+        if not cls_inds.any():
+            continue
+        if multi_bboxes.shape[1] == 4:
+            _bboxes = multi_bboxes[(cls_inds), :]
+        else:
+            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+        _scores = multi_scores[cls_inds, i]
+        if score_factors is not None:
+            _scores *= score_factors[cls_inds]
+        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
+        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
+            dtype=torch.long)
+        bboxes.append(cls_dets)
+        labels.append(cls_labels)
+    if bboxes:
+        bboxes = torch.cat(bboxes)
+        labels = torch.cat(labels)
+        if bboxes.shape[0] > max_num:
+            _, inds = bboxes[:, (-1)].sort(descending=True)
+            inds = inds[:max_num]
+            bboxes = bboxes[inds]
+            labels = labels[inds]
+    else:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+    return bboxes, labels
 
 
 @HEADS.register_module
@@ -2209,6 +2176,64 @@ class FeatureAdaption(nn.Module):
         return x
 
 
+class PointGenerator(object):
+
+    def _meshgrid(self, x, y, row_major=True):
+        xx = x.repeat(len(y))
+        yy = y.view(-1, 1).repeat(1, len(x)).view(-1)
+        if row_major:
+            return xx, yy
+        else:
+            return yy, xx
+
+    def grid_points(self, featmap_size, stride=16, device='cuda'):
+        feat_h, feat_w = featmap_size
+        shift_x = torch.arange(0.0, feat_w, device=device) * stride
+        shift_y = torch.arange(0.0, feat_h, device=device) * stride
+        shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
+        stride = shift_x.new_full((shift_xx.shape[0],), stride)
+        shifts = torch.stack([shift_xx, shift_yy, stride], dim=-1)
+        all_points = shifts.to(device)
+        return all_points
+
+    def valid_flags(self, featmap_size, valid_size, device='cuda'):
+        feat_h, feat_w = featmap_size
+        valid_h, valid_w = valid_size
+        assert valid_h <= feat_h and valid_w <= feat_w
+        valid_x = torch.zeros(feat_w, dtype=torch.uint8, device=device)
+        valid_y = torch.zeros(feat_h, dtype=torch.uint8, device=device)
+        valid_x[:valid_w] = 1
+        valid_y[:valid_h] = 1
+        valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
+        valid = valid_xx & valid_yy
+        return valid
+
+
+def images_to_levels(target, num_level_anchors):
+    """Convert targets by image to targets by feature level.
+
+    [target_img0, target_img1] -> [target_level0, target_level1, ...]
+    """
+    target = torch.stack(target, 0)
+    level_targets = []
+    start = 0
+    for n in num_level_anchors:
+        end = start + n
+        level_targets.append(target[:, start:end].squeeze(0))
+        start = end
+    return level_targets
+
+
+def build_assigner(cfg, **kwargs):
+    if isinstance(cfg, assigners.BaseAssigner):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
 def build_sampler(cfg, **kwargs):
     if isinstance(cfg, samplers.BaseSampler):
         return cfg
@@ -2294,21 +2319,6 @@ def point_target_single(flat_proposals, valid_flags, gt_bboxes,
         proposals_weights, pos_inds, neg_inds)
 
 
-def images_to_levels(target, num_level_anchors):
-    """Convert targets by image to targets by feature level.
-
-    [target_img0, target_img1] -> [target_level0, target_level1, ...]
-    """
-    target = torch.stack(target, 0)
-    level_targets = []
-    start = 0
-    for n in num_level_anchors:
-        end = start + n
-        level_targets.append(target[:, start:end].squeeze(0))
-        start = end
-    return level_targets
-
-
 def point_target(proposals_list, valid_flag_list, gt_bboxes_list, img_metas,
     cfg, gt_bboxes_ignore_list=None, gt_labels_list=None, label_channels=1,
     sampling=True, unmap_outputs=True):
@@ -2354,39 +2364,6 @@ def point_target(proposals_list, valid_flag_list, gt_bboxes_list, img_metas,
         num_level_proposals)
     return (labels_list, label_weights_list, bbox_gt_list, proposals_list,
         proposal_weights_list, num_total_pos, num_total_neg)
-
-
-class PointGenerator(object):
-
-    def _meshgrid(self, x, y, row_major=True):
-        xx = x.repeat(len(y))
-        yy = y.view(-1, 1).repeat(1, len(x)).view(-1)
-        if row_major:
-            return xx, yy
-        else:
-            return yy, xx
-
-    def grid_points(self, featmap_size, stride=16, device='cuda'):
-        feat_h, feat_w = featmap_size
-        shift_x = torch.arange(0.0, feat_w, device=device) * stride
-        shift_y = torch.arange(0.0, feat_h, device=device) * stride
-        shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
-        stride = shift_x.new_full((shift_xx.shape[0],), stride)
-        shifts = torch.stack([shift_xx, shift_yy, stride], dim=-1)
-        all_points = shifts.to(device)
-        return all_points
-
-    def valid_flags(self, featmap_size, valid_size, device='cuda'):
-        feat_h, feat_w = featmap_size
-        valid_h, valid_w = valid_size
-        assert valid_h <= feat_h and valid_w <= feat_w
-        valid_x = torch.zeros(feat_w, dtype=torch.uint8, device=device)
-        valid_y = torch.zeros(feat_h, dtype=torch.uint8, device=device)
-        valid_x[:valid_w] = 1
-        valid_y[:valid_h] = 1
-        valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
-        valid = valid_xx & valid_yy
-        return valid
 
 
 @HEADS.register_module
@@ -3146,6 +3123,89 @@ class SOLOHead(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
+class DeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1,
+        groups=1, deformable_groups=1, im2col_step=64):
+        if input is not None and input.dim() != 4:
+            raise ValueError(
+                'Expected 4D tensor as input, got {}D tensor instead.'.
+                format(input.dim()))
+        ctx.stride = _pair(stride)
+        ctx.padding = _pair(padding)
+        ctx.dilation = _pair(dilation)
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.im2col_step = im2col_step
+        ctx.save_for_backward(input, offset, weight)
+        output = input.new_empty(DeformConvFunction._output_size(input,
+            weight, ctx.padding, ctx.dilation, ctx.stride))
+        ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0
+                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset,
+                output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.
+                size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.
+                padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups,
+                ctx.deformable_groups, cur_im2col_step)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, offset, weight = ctx.saved_tensors
+        grad_input = grad_offset = grad_weight = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0
+                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+                grad_input = torch.zeros_like(input)
+                grad_offset = torch.zeros_like(offset)
+                deform_conv_cuda.deform_conv_backward_input_cuda(input,
+                    offset, grad_output, grad_input, grad_offset, weight,
+                    ctx.bufs_[0], weight.size(3), weight.size(2), ctx.
+                    stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0
+                    ], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.
+                    deformable_groups, cur_im2col_step)
+            if ctx.needs_input_grad[2]:
+                grad_weight = torch.zeros_like(weight)
+                deform_conv_cuda.deform_conv_backward_parameters_cuda(input,
+                    offset, grad_output, grad_weight, ctx.bufs_[0], ctx.
+                    bufs_[1], weight.size(3), weight.size(2), ctx.stride[1],
+                    ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.
+                    dilation[1], ctx.dilation[0], ctx.groups, ctx.
+                    deformable_groups, 1, cur_im2col_step)
+        return (grad_input, grad_offset, grad_weight, None, None, None,
+            None, None)
+
+    @staticmethod
+    def _output_size(input, weight, padding, dilation, stride):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = padding[d]
+            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride_ = stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError(
+                'convolution input is too small (output would be {})'.
+                format('x'.join(map(str, output_size))))
+        return output_size
+
+
+deform_conv = DeformConvFunction.apply
+
+
 def get_root_logger(log_file=None, log_level=logging.INFO):
     """Get the root logger.
 
@@ -3206,70 +3266,7 @@ def print_log(msg, logger=None, level=logging.INFO):
             .format(logger))
 
 
-class ModulatedDeformConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1):
-        ctx.stride = stride
-        ctx.padding = padding
-        ctx.dilation = dilation
-        ctx.groups = groups
-        ctx.deformable_groups = deformable_groups
-        ctx.with_bias = bias is not None
-        if not ctx.with_bias:
-            bias = input.new_empty(1)
-        if not input.is_cuda:
-            raise NotImplementedError
-        if (weight.requires_grad or mask.requires_grad or offset.
-            requires_grad or input.requires_grad):
-            ctx.save_for_backward(input, offset, mask, weight, bias)
-        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
-            ctx, input, weight))
-        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
-        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
-            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
-            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
-            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
-            deformable_groups, ctx.with_bias)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        input, offset, mask, weight, bias = ctx.saved_tensors
-        grad_input = torch.zeros_like(input)
-        grad_offset = torch.zeros_like(offset)
-        grad_mask = torch.zeros_like(mask)
-        grad_weight = torch.zeros_like(weight)
-        grad_bias = torch.zeros_like(bias)
-        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
-            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
-            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
-            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
-            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
-            ctx.deformable_groups, ctx.with_bias)
-        if not ctx.with_bias:
-            grad_bias = None
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None, None)
-
-    @staticmethod
-    def _infer_shape(ctx, input, weight):
-        n = input.size(0)
-        channels_out = weight.size(0)
-        height, width = input.shape[2:4]
-        kernel_h, kernel_w = weight.shape[2:4]
-        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
-            1) + 1)) // ctx.stride + 1
-        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
-            1) + 1)) // ctx.stride + 1
-        return n, channels_out, height_out, width_out
-
-
-modulated_deform_conv = ModulatedDeformConvFunction.apply
+BACKBONES = Registry('backbone')
 
 
 norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
@@ -3470,6 +3467,19 @@ class Bottleneck(nn.Module):
         return out
 
 
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
     groups=1, base_width=4, style='pytorch', with_cp=False, conv_cfg=None,
     norm_cfg=dict(type='BN'), dcn=None, gcb=None):
@@ -3490,22 +3500,6 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
             style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg,
             dcn=dcn, gcb=gcb))
     return nn.Sequential(*layers)
-
-
-BACKBONES = Registry('backbone')
-
-
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
 
 
 @BACKBONES.register_module
@@ -3713,44 +3707,6 @@ def accuracy(pred, target, topk=1):
     return res[0] if return_single else res
 
 
-def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
-    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
-    1.0, 1.0, 1.0]):
-    num_pos = pos_bboxes.size(0)
-    num_neg = neg_bboxes.size(0)
-    num_samples = num_pos + num_neg
-    labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
-    label_weights = pos_bboxes.new_zeros(num_samples)
-    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
-    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
-    if num_pos > 0:
-        labels[:num_pos] = pos_gt_labels
-        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
-        label_weights[:num_pos] = pos_weight
-        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
-            target_means, target_stds)
-        bbox_targets[:num_pos, :] = pos_bbox_targets
-        bbox_weights[:num_pos, :] = 1
-    if num_neg > 0:
-        label_weights[-num_neg:] = 1.0
-    return labels, label_weights, bbox_targets, bbox_weights
-
-
-def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
-    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
-    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
-    labels, label_weights, bbox_targets, bbox_weights = multi_apply(
-        bbox_target_single, pos_bboxes_list, neg_bboxes_list,
-        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
-        reg_classes, target_means=target_means, target_stds=target_stds)
-    if concat:
-        labels = torch.cat(labels, 0)
-        label_weights = torch.cat(label_weights, 0)
-        bbox_targets = torch.cat(bbox_targets, 0)
-        bbox_weights = torch.cat(bbox_weights, 0)
-    return labels, label_weights, bbox_targets, bbox_weights
-
-
 def auto_fp16(apply_to=None, out_fp32=False):
     """Decorator to enable fp16 training automatically.
 
@@ -3816,6 +3772,67 @@ def auto_fp16(apply_to=None, out_fp32=False):
             return output
         return new_func
     return auto_fp16_wrapper
+
+
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
+
+
+def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
+    cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
+    1.0, 1.0, 1.0]):
+    num_pos = pos_bboxes.size(0)
+    num_neg = neg_bboxes.size(0)
+    num_samples = num_pos + num_neg
+    labels = pos_bboxes.new_zeros(num_samples, dtype=torch.long)
+    label_weights = pos_bboxes.new_zeros(num_samples)
+    bbox_targets = pos_bboxes.new_zeros(num_samples, 4)
+    bbox_weights = pos_bboxes.new_zeros(num_samples, 4)
+    if num_pos > 0:
+        labels[:num_pos] = pos_gt_labels
+        pos_weight = 1.0 if cfg.pos_weight <= 0 else cfg.pos_weight
+        label_weights[:num_pos] = pos_weight
+        pos_bbox_targets = bbox2delta(pos_bboxes, pos_gt_bboxes,
+            target_means, target_stds)
+        bbox_targets[:num_pos, :] = pos_bbox_targets
+        bbox_weights[:num_pos, :] = 1
+    if num_neg > 0:
+        label_weights[-num_neg:] = 1.0
+    return labels, label_weights, bbox_targets, bbox_weights
+
+
+def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
+    pos_gt_labels_list, cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 
+    0.0], target_stds=[1.0, 1.0, 1.0, 1.0], concat=True):
+    labels, label_weights, bbox_targets, bbox_weights = multi_apply(
+        bbox_target_single, pos_bboxes_list, neg_bboxes_list,
+        pos_gt_bboxes_list, pos_gt_labels_list, cfg=cfg, reg_classes=
+        reg_classes, target_means=target_means, target_stds=target_stds)
+    if concat:
+        labels = torch.cat(labels, 0)
+        label_weights = torch.cat(label_weights, 0)
+        bbox_targets = torch.cat(bbox_targets, 0)
+        bbox_weights = torch.cat(bbox_weights, 0)
+    return labels, label_weights, bbox_targets, bbox_weights
 
 
 def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
@@ -4474,24 +4491,6 @@ class BalancedL1Loss(nn.Module):
         return loss_bbox
 
 
-def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
-    loss = F.cross_entropy(pred, label, reduction='none')
-    if weight is not None:
-        weight = weight.float()
-    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
-        avg_factor=avg_factor)
-    return loss
-
-
-def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
-    assert reduction == 'mean' and avg_factor is None
-    num_rois = pred.size()[0]
-    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
-    pred_slice = pred[inds, label].squeeze(1)
-    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
-        ='mean')[None]
-
-
 def _expand_binary_labels(labels, label_weights, label_channels):
     bin_labels = labels.new_full((labels.size(0), label_channels), 0)
     inds = torch.nonzero(labels >= 1).squeeze()
@@ -4512,6 +4511,24 @@ def binary_cross_entropy(pred, label, weight=None, reduction='mean',
         reduction='none')
     loss = weight_reduce_loss(loss, reduction=reduction, avg_factor=avg_factor)
     return loss
+
+
+def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
+    loss = F.cross_entropy(pred, label, reduction='none')
+    if weight is not None:
+        weight = weight.float()
+    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
+        avg_factor=avg_factor)
+    return loss
+
+
+def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
+    assert reduction == 'mean' and avg_factor is None
+    num_rois = pred.size()[0]
+    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
+    pred_slice = pred[inds, label].squeeze(1)
+    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
+        ='mean')[None]
 
 
 @LOSSES.register_module
@@ -5683,6 +5700,9 @@ class MaskIoUHead(nn.Module):
             num_classes - 1)]
 
 
+NECKS = Registry('neck')
+
+
 def xavier_init(module, gain=1, bias=0, distribution='normal'):
     assert distribution in ['uniform', 'normal']
     if distribution == 'uniform':
@@ -5691,9 +5711,6 @@ def xavier_init(module, gain=1, bias=0, distribution='normal'):
         nn.init.xavier_normal_(module.weight, gain=gain)
     if hasattr(module, 'bias'):
         nn.init.constant_(module.bias, bias)
-
-
-NECKS = Registry('neck')
 
 
 @NECKS.register_module
@@ -5957,12 +5974,6 @@ class MergingCell(nn.Module):
         return x
 
 
-class SumCell(MergingCell):
-
-    def _binary_op(self, x1, x2):
-        return x1 + x2
-
-
 class GPCell(MergingCell):
 
     def __init__(self, *args, **kwargs):
@@ -5972,6 +5983,12 @@ class GPCell(MergingCell):
     def _binary_op(self, x1, x2):
         x2_att = self.global_pool(x2).sigmoid()
         return x2 + x2_att * x1
+
+
+class SumCell(MergingCell):
+
+    def _binary_op(self, x1, x2):
+        return x1 + x2
 
 
 @NECKS.register_module
@@ -6725,89 +6742,6 @@ class ContextBlock(nn.Module):
         return out
 
 
-class DeformConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1,
-        groups=1, deformable_groups=1, im2col_step=64):
-        if input is not None and input.dim() != 4:
-            raise ValueError(
-                'Expected 4D tensor as input, got {}D tensor instead.'.
-                format(input.dim()))
-        ctx.stride = _pair(stride)
-        ctx.padding = _pair(padding)
-        ctx.dilation = _pair(dilation)
-        ctx.groups = groups
-        ctx.deformable_groups = deformable_groups
-        ctx.im2col_step = im2col_step
-        ctx.save_for_backward(input, offset, weight)
-        output = input.new_empty(DeformConvFunction._output_size(input,
-            weight, ctx.padding, ctx.dilation, ctx.stride))
-        ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset,
-                output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.
-                size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.
-                padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups,
-                ctx.deformable_groups, cur_im2col_step)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        input, offset, weight = ctx.saved_tensors
-        grad_input = grad_offset = grad_weight = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
-                grad_input = torch.zeros_like(input)
-                grad_offset = torch.zeros_like(offset)
-                deform_conv_cuda.deform_conv_backward_input_cuda(input,
-                    offset, grad_output, grad_input, grad_offset, weight,
-                    ctx.bufs_[0], weight.size(3), weight.size(2), ctx.
-                    stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0
-                    ], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, cur_im2col_step)
-            if ctx.needs_input_grad[2]:
-                grad_weight = torch.zeros_like(weight)
-                deform_conv_cuda.deform_conv_backward_parameters_cuda(input,
-                    offset, grad_output, grad_weight, ctx.bufs_[0], ctx.
-                    bufs_[1], weight.size(3), weight.size(2), ctx.stride[1],
-                    ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.
-                    dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, 1, cur_im2col_step)
-        return (grad_input, grad_offset, grad_weight, None, None, None,
-            None, None)
-
-    @staticmethod
-    def _output_size(input, weight, padding, dilation, stride):
-        channels = weight.size(0)
-        output_size = input.size(0), channels
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = padding[d]
-            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
-            stride_ = stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'convolution input is too small (output would be {})'.
-                format('x'.join(map(str, output_size))))
-        return output_size
-
-
-deform_conv = DeformConvFunction.apply
-
-
 class DeformConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
@@ -6842,6 +6776,72 @@ class DeformConv(nn.Module):
     def forward(self, x, offset):
         return deform_conv(x, offset, self.weight, self.stride, self.
             padding, self.dilation, self.groups, self.deformable_groups)
+
+
+class ModulatedDeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
+        padding=0, dilation=1, groups=1, deformable_groups=1):
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.dilation = dilation
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.with_bias = bias is not None
+        if not ctx.with_bias:
+            bias = input.new_empty(1)
+        if not input.is_cuda:
+            raise NotImplementedError
+        if (weight.requires_grad or mask.requires_grad or offset.
+            requires_grad or input.requires_grad):
+            ctx.save_for_backward(input, offset, mask, weight, bias)
+        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
+            ctx, input, weight))
+        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
+        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
+            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
+            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
+            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
+            deformable_groups, ctx.with_bias)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        input, offset, mask, weight, bias = ctx.saved_tensors
+        grad_input = torch.zeros_like(input)
+        grad_offset = torch.zeros_like(offset)
+        grad_mask = torch.zeros_like(mask)
+        grad_weight = torch.zeros_like(weight)
+        grad_bias = torch.zeros_like(bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
+            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
+            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
+            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
+            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
+            ctx.deformable_groups, ctx.with_bias)
+        if not ctx.with_bias:
+            grad_bias = None
+        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
+            None, None, None, None, None)
+
+    @staticmethod
+    def _infer_shape(ctx, input, weight):
+        n = input.size(0)
+        channels_out = weight.size(0)
+        height, width = input.shape[2:4]
+        kernel_h, kernel_w = weight.shape[2:4]
+        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
+            1) + 1)) // ctx.stride + 1
+        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
+            1) + 1)) // ctx.stride + 1
+        return n, channels_out, height_out, width_out
+
+
+modulated_deform_conv = ModulatedDeformConvFunction.apply
 
 
 class ModulatedDeformConv(nn.Module):

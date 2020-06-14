@@ -123,19 +123,6 @@ def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
         out_planes), nn.ReLU())
 
 
-class block8(block):
-
-    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block8, self).__init__(in_planes, scale, activation)
-        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
-            in_planes, 192, 1))]))
-        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
-            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
-            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
-            3, 1), padding=(1, 0)))]))
-        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
-
-
 class block17(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
@@ -162,6 +149,19 @@ class block35(block):
             conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3,
             padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
         self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
+
+
+class block8(block):
+
+    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
+        super(block8, self).__init__(in_planes, scale, activation)
+        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
+            in_planes, 192, 1))]))
+        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
+            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
+            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
+            3, 1), padding=(1, 0)))]))
+        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
 
 
 class InceptionResnetV2(nn.Module):
@@ -478,16 +478,16 @@ class MobileNet(nn.Module):
         return x
 
 
-NUM_BITS_GRAD = 8
-
-
-NUM_BITS_WEIGHT = 8
+BIPRECISION = True
 
 
 NUM_BITS = 8
 
 
-BIPRECISION = True
+NUM_BITS_GRAD = 8
+
+
+NUM_BITS_WEIGHT = 8
 
 
 class DepthwiseSeparableFusedConv2d(nn.Module):

@@ -264,25 +264,8 @@ class MLCriterionNLL(nn.Module):
         return logp, target_d
 
 
-def truncated_max(tensor, src_lengths, track=False, *args):
-    """
-    Max-pooling up to effective legth
-    """
-    Pool = []
-    Attention = []
-    for n in range(tensor.size(0)):
-        X = tensor[n]
-        xpool, attn = X[:, :, :src_lengths[n]].max(dim=2)
-        if track:
-            targets = torch.arange(src_lengths[n])
-            align = targets.apply_(lambda k: sum(attn[:, (-1)] == k))
-            align = align / align.sum()
-            Attention.append(align.unsqueeze(0))
-        Pool.append(xpool.unsqueeze(0))
-    result = torch.cat(Pool, dim=0)
-    if track:
-        return result, torch.cat(Attention, dim=0).cuda()
-    return result
+def average_code(tensor, *args):
+    return tensor.mean(dim=3)
 
 
 def max_code(tensor, src_lengths=None, track=False):
@@ -309,6 +292,27 @@ def max_code(tensor, src_lengths=None, track=False):
         return tensor.max(dim=3)[0]
 
 
+def truncated_max(tensor, src_lengths, track=False, *args):
+    """
+    Max-pooling up to effective legth
+    """
+    Pool = []
+    Attention = []
+    for n in range(tensor.size(0)):
+        X = tensor[n]
+        xpool, attn = X[:, :, :src_lengths[n]].max(dim=2)
+        if track:
+            targets = torch.arange(src_lengths[n])
+            align = targets.apply_(lambda k: sum(attn[:, (-1)] == k))
+            align = align / align.sum()
+            Attention.append(align.unsqueeze(0))
+        Pool.append(xpool.unsqueeze(0))
+    result = torch.cat(Pool, dim=0)
+    if track:
+        return result, torch.cat(Attention, dim=0).cuda()
+    return result
+
+
 def truncated_mean(tensor, src_lengths, *args):
     """
     Average-pooling up to effective legth
@@ -322,10 +326,6 @@ def truncated_mean(tensor, src_lengths, *args):
         Pool.append(xpool.unsqueeze(0))
     result = torch.cat(Pool, dim=0)
     return result
-
-
-def average_code(tensor, *args):
-    return tensor.mean(dim=3)
 
 
 class Aggregator(nn.Module):
@@ -388,6 +388,141 @@ class Aggregator(nn.Module):
             if self.add_lin:
                 proj = self.lin(proj)
             return proj, attn
+
+
+class Beam(object):
+    """
+    Class for managing the internals of the beam search process.
+    Takes care of beams, back pointers, and scores.
+
+    Args:
+       size (int): beam size
+       pad, bos, eos (int): indices of padding, beginning, and ending.
+       n_best (int): nbest size to use
+       cuda (bool): use gpu
+       global_scorer (:obj:`GlobalScorer`)
+    """
+
+    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False,
+        global_scorer=None, min_length=0, stepwise_penalty=False,
+        block_ngram_repeat=0, exclusion_tokens=set()):
+        self.size = size
+        self.tt = torch.cuda if cuda else torch
+        self.scores = self.tt.FloatTensor(size).zero_()
+        self.all_scores = []
+        self.prev_ks = []
+        self.next_ys = [self.tt.LongTensor(size).fill_(pad)]
+        self.next_ys[0][0] = bos
+        self._eos = eos
+        self.eos_top = False
+        self.attn = []
+        self.finished = []
+        self.n_best = n_best
+        self.global_scorer = global_scorer
+        self.global_state = {}
+        self.min_length = min_length
+        self.stepwise_penalty = stepwise_penalty
+        self.block_ngram_repeat = block_ngram_repeat
+        self.exclusion_tokens = exclusion_tokens
+
+    def get_current_state(self):
+        """Get the outputs for the current timestep."""
+        return self.next_ys[-1]
+
+    def get_current_origin(self):
+        """Get the backpointers for the current timestep."""
+        return self.prev_ks[-1]
+
+    def advance(self, word_probs, attn_out):
+        """
+        Given prob over words for every last beam `wordLk` and attention
+        `attn_out`: Compute and update the beam search.
+
+        Parameters:
+
+        * `word_probs`- probs of advancing from the last step (K x words)
+        * `attn_out`- attention at the last step
+
+        Returns: True if beam search is complete.
+        """
+        num_words = word_probs.size(1)
+        if self.stepwise_penalty:
+            self.global_scorer.update_score(self, attn_out)
+        cur_len = len(self.next_ys)
+        if cur_len < self.min_length:
+            for k in range(len(word_probs)):
+                word_probs[k][self._eos] = -1e+20
+        if len(self.prev_ks) > 0:
+            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(
+                word_probs)
+            for i in range(self.next_ys[-1].size(0)):
+                if self.next_ys[-1][i] == self._eos:
+                    beam_scores[i] = -1e+20
+            if self.block_ngram_repeat > 0:
+                ngrams = []
+                le = len(self.next_ys)
+                for j in range(self.next_ys[-1].size(0)):
+                    hyp, _ = self.get_hyp(le - 1, j)
+                    ngrams = set()
+                    fail = False
+                    gram = []
+                    for i in range(le - 1):
+                        gram = (gram + [hyp[i]])[-self.block_ngram_repeat:]
+                        if set(gram) & self.exclusion_tokens:
+                            continue
+                        if tuple(gram) in ngrams:
+                            fail = True
+                        ngrams.add(tuple(gram))
+                    if fail:
+                        beam_scores[j] = -1e+21
+        else:
+            beam_scores = word_probs[0]
+        flat_beam_scores = beam_scores.view(-1)
+        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, 
+            True, True)
+        self.all_scores.append(self.scores)
+        self.scores = best_scores
+        prev_k = best_scores_id / num_words
+        self.prev_ks.append(prev_k)
+        self.next_ys.append(best_scores_id - prev_k * num_words)
+        self.attn.append(attn_out.index_select(0, prev_k))
+        self.global_scorer.update_global_state(self)
+        for i in range(self.next_ys[-1].size(0)):
+            if self.next_ys[-1][i] == self._eos:
+                global_scores = self.global_scorer.score(self, self.scores)
+                s = global_scores[i]
+                self.finished.append((s, len(self.next_ys) - 1, i))
+        if self.next_ys[-1][0] == self._eos:
+            self.all_scores.append(self.scores)
+            self.eos_top = True
+        return self.done()
+
+    def done(self):
+        return self.eos_top and len(self.finished) >= self.n_best
+
+    def sort_finished(self, minimum=None):
+        if minimum is not None:
+            i = 0
+            while len(self.finished) < minimum:
+                global_scores = self.global_scorer.score(self, self.scores)
+                s = global_scores[i]
+                self.finished.append((s, len(self.next_ys) - 1, i))
+                i += 1
+        self.finished.sort(key=lambda a: -a[0])
+        scores = [sc for sc, _, _ in self.finished]
+        ks = [(t, k) for _, t, k in self.finished]
+        return scores, ks
+
+    def get_hyp(self, timestep, k):
+        """
+        Walk back to construct the full hypothesis.
+        """
+        hyp, attn = [], []
+        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
+            hyp.append(self.next_ys[j + 1][k])
+            attn.append(self.attn[j][k])
+            k = self.prev_ks[j][k]
+        return hyp[::-1], torch.stack(attn[::-1])
 
 
 class MaskedConv1d(nn.Conv1d):
@@ -657,20 +792,6 @@ def _setup_conv(num_input_features, kernel_size, params, first=False):
     return conv1, conv2
 
 
-class DenseLayer_midDP(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace
-            =True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.
-            ReLU(inplace=True), conv2)
-
-
 class DenseLayer(_MainDenseLayer):
     """
     BN > ReLU > Conv(1) > BN > ReLU > Conv(k)
@@ -682,20 +803,6 @@ class DenseLayer(_MainDenseLayer):
         self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
             ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
             growth_rate), nn.ReLU(inplace=True), conv2)
-
-
-class DenseLayer_noBN(_MainDenseLayer):
-    """
-    ReLU > Conv(1) > ReLU > Conv(k)
-    #TODO: check activ' var
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params,
-            first=first)
-        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(
-            inplace=True), conv2)
 
 
 def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
@@ -764,6 +871,34 @@ class DenseLayer_Dil(_MainDenseLayer):
             ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
             growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self
             .bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
+
+
+class DenseLayer_midDP(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
+            ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace
+            =True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.
+            ReLU(inplace=True), conv2)
+
+
+class DenseLayer_noBN(_MainDenseLayer):
+    """
+    ReLU > Conv(1) > ReLU > Conv(k)
+    #TODO: check activ' var
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params,
+            first=first)
+        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(
+            inplace=True), conv2)
 
 
 class DenseBlock(nn.Sequential):
@@ -1897,141 +2032,6 @@ def _expand(tensor, dim, reps):
         return tensor.repeat(1, 1, reps, 1)
     else:
         raise NotImplementedError
-
-
-class Beam(object):
-    """
-    Class for managing the internals of the beam search process.
-    Takes care of beams, back pointers, and scores.
-
-    Args:
-       size (int): beam size
-       pad, bos, eos (int): indices of padding, beginning, and ending.
-       n_best (int): nbest size to use
-       cuda (bool): use gpu
-       global_scorer (:obj:`GlobalScorer`)
-    """
-
-    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False,
-        global_scorer=None, min_length=0, stepwise_penalty=False,
-        block_ngram_repeat=0, exclusion_tokens=set()):
-        self.size = size
-        self.tt = torch.cuda if cuda else torch
-        self.scores = self.tt.FloatTensor(size).zero_()
-        self.all_scores = []
-        self.prev_ks = []
-        self.next_ys = [self.tt.LongTensor(size).fill_(pad)]
-        self.next_ys[0][0] = bos
-        self._eos = eos
-        self.eos_top = False
-        self.attn = []
-        self.finished = []
-        self.n_best = n_best
-        self.global_scorer = global_scorer
-        self.global_state = {}
-        self.min_length = min_length
-        self.stepwise_penalty = stepwise_penalty
-        self.block_ngram_repeat = block_ngram_repeat
-        self.exclusion_tokens = exclusion_tokens
-
-    def get_current_state(self):
-        """Get the outputs for the current timestep."""
-        return self.next_ys[-1]
-
-    def get_current_origin(self):
-        """Get the backpointers for the current timestep."""
-        return self.prev_ks[-1]
-
-    def advance(self, word_probs, attn_out):
-        """
-        Given prob over words for every last beam `wordLk` and attention
-        `attn_out`: Compute and update the beam search.
-
-        Parameters:
-
-        * `word_probs`- probs of advancing from the last step (K x words)
-        * `attn_out`- attention at the last step
-
-        Returns: True if beam search is complete.
-        """
-        num_words = word_probs.size(1)
-        if self.stepwise_penalty:
-            self.global_scorer.update_score(self, attn_out)
-        cur_len = len(self.next_ys)
-        if cur_len < self.min_length:
-            for k in range(len(word_probs)):
-                word_probs[k][self._eos] = -1e+20
-        if len(self.prev_ks) > 0:
-            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(
-                word_probs)
-            for i in range(self.next_ys[-1].size(0)):
-                if self.next_ys[-1][i] == self._eos:
-                    beam_scores[i] = -1e+20
-            if self.block_ngram_repeat > 0:
-                ngrams = []
-                le = len(self.next_ys)
-                for j in range(self.next_ys[-1].size(0)):
-                    hyp, _ = self.get_hyp(le - 1, j)
-                    ngrams = set()
-                    fail = False
-                    gram = []
-                    for i in range(le - 1):
-                        gram = (gram + [hyp[i]])[-self.block_ngram_repeat:]
-                        if set(gram) & self.exclusion_tokens:
-                            continue
-                        if tuple(gram) in ngrams:
-                            fail = True
-                        ngrams.add(tuple(gram))
-                    if fail:
-                        beam_scores[j] = -1e+21
-        else:
-            beam_scores = word_probs[0]
-        flat_beam_scores = beam_scores.view(-1)
-        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, 
-            True, True)
-        self.all_scores.append(self.scores)
-        self.scores = best_scores
-        prev_k = best_scores_id / num_words
-        self.prev_ks.append(prev_k)
-        self.next_ys.append(best_scores_id - prev_k * num_words)
-        self.attn.append(attn_out.index_select(0, prev_k))
-        self.global_scorer.update_global_state(self)
-        for i in range(self.next_ys[-1].size(0)):
-            if self.next_ys[-1][i] == self._eos:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-        if self.next_ys[-1][0] == self._eos:
-            self.all_scores.append(self.scores)
-            self.eos_top = True
-        return self.done()
-
-    def done(self):
-        return self.eos_top and len(self.finished) >= self.n_best
-
-    def sort_finished(self, minimum=None):
-        if minimum is not None:
-            i = 0
-            while len(self.finished) < minimum:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-                i += 1
-        self.finished.sort(key=lambda a: -a[0])
-        scores = [sc for sc, _, _ in self.finished]
-        ks = [(t, k) for _, t, k in self.finished]
-        return scores, ks
-
-    def get_hyp(self, timestep, k):
-        """
-        Walk back to construct the full hypothesis.
-        """
-        hyp, attn = [], []
-        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
-            hyp.append(self.next_ys[j + 1][k])
-            attn.append(self.attn[j][k])
-            k = self.prev_ks[j][k]
-        return hyp[::-1], torch.stack(attn[::-1])
 
 
 class Pervasive(nn.Module):

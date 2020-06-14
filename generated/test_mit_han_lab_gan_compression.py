@@ -166,12 +166,12 @@ from torch.nn import init
 from torch.optim import lr_scheduler
 
 
+BatchNorm = nn.BatchNorm2d
+
+
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=padding, bias=False, dilation=dilation)
-
-
-BatchNorm = nn.BatchNorm2d
 
 
 class BasicBlock(nn.Module):
@@ -891,11 +891,6 @@ class SPADE(nn.Module):
         return out
 
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
@@ -903,6 +898,11 @@ def _sum_ft(tensor):
 
 _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class SubMobileSPADE(nn.Module):
@@ -1137,23 +1137,6 @@ class SuperSeparableConv2d(nn.Module):
         return x
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1178,6 +1161,20 @@ class FutureResult(object):
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class SyncMaster(object):
@@ -1259,6 +1256,9 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

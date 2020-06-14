@@ -475,10 +475,10 @@ class FirstResBlockDiscriminator(nn.Module):
         return self.model(x) + self.bypass(x)
 
 
-GEN_SIZE = 128
-
-
 channels = 3
+
+
+GEN_SIZE = 128
 
 
 class Generator(nn.Module):
@@ -1331,17 +1331,6 @@ class PreActBottleneck(nn.Module):
         return out
 
 
-def per_image_standardization(x):
-    y = x.view(-1, x.shape[1] * x.shape[2] * x.shape[3])
-    mean = y.mean(dim=1, keepdim=True).expand_as(y)
-    std = y.std(dim=1, keepdim=True).expand_as(y)
-    adjusted_std = torch.max(std, 1.0 / torch.sqrt(torch.cuda.FloatTensor([
-        x.shape[1] * x.shape[2] * x.shape[3]])))
-    y = (y - mean) / adjusted_std
-    standarized_input = y.view(x.shape[0], x.shape[1], x.shape[2], x.shape[3])
-    return standarized_input
-
-
 def mixup_data(x, y, alpha):
     """Compute the mixup data. Return mixed inputs, pairs of targets, and lambda"""
     if alpha > 0.0:
@@ -1353,6 +1342,17 @@ def mixup_data(x, y, alpha):
     mixed_x = lam * x + (1 - lam) * x[(index), :]
     y_a, y_b = y, y[index]
     return mixed_x, y_a, y_b, lam
+
+
+def per_image_standardization(x):
+    y = x.view(-1, x.shape[1] * x.shape[2] * x.shape[3])
+    mean = y.mean(dim=1, keepdim=True).expand_as(y)
+    std = y.std(dim=1, keepdim=True).expand_as(y)
+    adjusted_std = torch.max(std, 1.0 / torch.sqrt(torch.cuda.FloatTensor([
+        x.shape[1] * x.shape[2] * x.shape[3]])))
+    y = (y - mean) / adjusted_std
+    standarized_input = y.view(x.shape[0], x.shape[1], x.shape[2], x.shape[3])
+    return standarized_input
 
 
 class PreActResNet(nn.Module):
@@ -1532,13 +1532,6 @@ class PreActBottleneck(nn.Module):
         return out
 
 
-def to_one_hot(inp, num_classes):
-    y_onehot = torch.FloatTensor(inp.size(0), num_classes)
-    y_onehot.zero_()
-    y_onehot.scatter_(1, inp.unsqueeze(1).data.cpu(), 1)
-    return y_onehot
-
-
 def mixup_process(out, target_reweighted, lam):
     indices = np.random.permutation(out.size(0))
     out = out * lam + out[indices] * (1 - lam)
@@ -1555,6 +1548,13 @@ def get_lambda(alpha=1.0):
     else:
         lam = 1.0
     return lam
+
+
+def to_one_hot(inp, num_classes):
+    y_onehot = torch.FloatTensor(inp.size(0), num_classes)
+    y_onehot.zero_()
+    y_onehot.scatter_(1, inp.unsqueeze(1).data.cpu(), 1)
+    return y_onehot
 
 
 class PreActResNet(nn.Module):

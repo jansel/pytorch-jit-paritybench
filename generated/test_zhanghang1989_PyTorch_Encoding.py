@@ -849,6 +849,16 @@ _model_sha1 = {name: checksum for checksum, name in [(
     }
 
 
+def short_hash(name):
+    if name not in _model_sha1:
+        raise ValueError('Pretrained model for {name} is not available.'.
+            format(name=name))
+    return _model_sha1[name][:8]
+
+
+encoding_repo_url = 'https://hangzh.s3-us-west-1.amazonaws.com/'
+
+
 def check_sha1(filename, sha1_hash):
     """Check whether the sha1 hash of the file content matches the expected hash.
     Parameters
@@ -870,13 +880,6 @@ def check_sha1(filename, sha1_hash):
                 break
             sha1.update(data)
     return sha1.hexdigest() == sha1_hash
-
-
-def short_hash(name):
-    if name not in _model_sha1:
-        raise ValueError('Pretrained model for {name} is not available.'.
-            format(name=name))
-    return _model_sha1[name][:8]
 
 
 def download(url, path=None, overwrite=False, sha1_hash=None):
@@ -935,9 +938,6 @@ def download(url, path=None, overwrite=False, sha1_hash=None):
 
 
 _url_format = 'https://hangzh.s3.amazonaws.com/encoding/models/{}-{}.pth'
-
-
-encoding_repo_url = 'https://hangzh.s3-us-west-1.amazonaws.com/'
 
 
 class GlobalPooling(nn.Module):
@@ -1018,6 +1018,24 @@ class ATTENHead(nn.Module):
         return attn
 
 
+def batch_pix_accuracy(output, target):
+    """Batch Pixel Accuracy
+    Args:
+        predict: input 4D tensor
+        target: label 3D tensor
+    """
+    _, predict = torch.max(output, 1)
+    predict = predict.cpu().numpy().astype('int64') + 1
+    target = target.cpu().numpy().astype('int64') + 1
+    pixel_labeled = np.sum(target > 0)
+    pixel_correct = np.sum((predict == target) * (target > 0))
+    assert pixel_correct <= pixel_labeled, 'Correct area should be smaller than Labeled'
+    return pixel_correct, pixel_labeled
+
+
+up_kwargs = {'mode': 'bilinear', 'align_corners': True}
+
+
 def batch_intersection_union(output, target, nclass):
     """Batch Intersection of Union
     Args:
@@ -1042,22 +1060,14 @@ def batch_intersection_union(output, target, nclass):
     return area_inter, area_union
 
 
-up_kwargs = {'mode': 'bilinear', 'align_corners': True}
-
-
-def batch_pix_accuracy(output, target):
-    """Batch Pixel Accuracy
-    Args:
-        predict: input 4D tensor
-        target: label 3D tensor
-    """
-    _, predict = torch.max(output, 1)
-    predict = predict.cpu().numpy().astype('int64') + 1
-    target = target.cpu().numpy().astype('int64') + 1
-    pixel_labeled = np.sum(target > 0)
-    pixel_correct = np.sum((predict == target) * (target > 0))
-    assert pixel_correct <= pixel_labeled, 'Correct area should be smaller than Labeled'
-    return pixel_correct, pixel_labeled
+def resnest101(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest101', root=
+            root)), strict=True)
+    return model
 
 
 def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
@@ -1073,16 +1083,50 @@ def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def resnet50(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNet-50 model.
+def resnest50(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=32, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest50', root=
+            root)), strict=True)
+    return model
+
+
+def wideresnet50(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a WideResNet-50 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
+    model = WideResNet([3, 3, 6, 6, 3, 1], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('wideresnet50',
+            root=root)), strict=False)
+    return model
+
+
+def resnet50s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-50 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet50', root=
+        model.load_state_dict(torch.load(get_model_file('resnet50s', root=
             root)), strict=False)
+    return model
+
+
+def resnest269(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 30, 48, 8], radix=2, groups=1,
+        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
+        avd=True, avd_first=False, **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnest269', root=
+            root)), strict=True)
     return model
 
 
@@ -1112,23 +1156,43 @@ def resnext50_32x4d(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def resnest50(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=32, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest50', root=
-            root)), strict=True)
-    return model
-
-
-def resnest101(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 4, 23, 3], radix=2, groups=1,
+def resnest200(pretrained=False, root='~/.encoding/models', **kwargs):
+    model = ResNet(Bottleneck, [3, 24, 36, 3], radix=2, groups=1,
         bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
         avd=True, avd_first=False, **kwargs)
     if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest101', root=
-            root)), strict=True)
+        model.load_state_dict(torch.load(get_model_file('resnest200', root=
+            root)), strict=False)
+    return model
+
+
+def wideresnet38(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a WideResNet-38 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = WideResNet([3, 3, 6, 3, 1, 1], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('wideresnet38',
+            root=root)), strict=False)
+    return model
+
+
+def resnext101_32x8d(pretrained=False, root='~/.encoding/models', **kwargs):
+    """ResNeXt-101 32x8d model from
+    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    kwargs['groups'] = 32
+    kwargs['bottleneck_width'] = 8
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnext101_32x8d',
+            root=root)), strict=False)
     return model
 
 
@@ -1158,26 +1222,6 @@ def xception65(pretrained=False, **kwargs):
     return model
 
 
-def resnest200(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 24, 36, 3], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest200', root=
-            root)), strict=False)
-    return model
-
-
-def resnest269(pretrained=False, root='~/.encoding/models', **kwargs):
-    model = ResNet(Bottleneck, [3, 30, 48, 8], radix=2, groups=1,
-        bottleneck_width=64, deep_stem=True, stem_width=64, avg_down=True,
-        avd=True, avd_first=False, **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnest269', root=
-            root)), strict=True)
-    return model
-
-
 def resnet101s(pretrained=False, root='~/.encoding/models', **kwargs):
     """Constructs a ResNetS-101 model as in PSPNet.
 
@@ -1192,60 +1236,16 @@ def resnet101s(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def wideresnet50(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a WideResNet-50 model.
+def resnet50(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNet-50 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = WideResNet([3, 3, 6, 6, 3, 1], **kwargs)
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(torch.load(get_model_file('wideresnet50',
-            root=root)), strict=False)
-    return model
-
-
-def resnet152s(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNetS-152 model as in PSPNet.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    kwargs['deep_stem'] = True
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet152s', root=
+        model.load_state_dict(torch.load(get_model_file('resnet50', root=
             root)), strict=False)
-    return model
-
-
-def resnext101_32x8d(pretrained=False, root='~/.encoding/models', **kwargs):
-    """ResNeXt-101 32x8d model from
-    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['groups'] = 32
-    kwargs['bottleneck_width'] = 8
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnext101_32x8d',
-            root=root)), strict=False)
-    return model
-
-
-def wideresnet38(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a WideResNet-38 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = WideResNet([3, 3, 6, 3, 1, 1], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('wideresnet38',
-            root=root)), strict=False)
     return model
 
 
@@ -1322,8 +1322,24 @@ class BaseNet(nn.Module):
         return correct, labeled, inter, union
 
 
-def crop_image(img, h0, h1, w0, w1):
-    return img[:, :, h0:h1, w0:w1]
+def flip_image(img):
+    assert img.dim() == 4
+    with torch.cuda.device_of(img):
+        idx = torch.arange(img.size(3) - 1, -1, -1).type_as(img).long()
+    return img.index_select(3, idx)
+
+
+def module_inference(module, image, flip=True):
+    output = module.evaluate(image)
+    if flip:
+        fimg = flip_image(image)
+        foutput = module.evaluate(fimg)
+        output += flip_image(foutput)
+    return output.exp()
+
+
+def resize_image(img, h, w, **up_kwargs):
+    return F.interpolate(img, (h, w), **up_kwargs)
 
 
 def pad_image(img, mean, std, crop_size):
@@ -1340,24 +1356,8 @@ def pad_image(img, mean, std, crop_size):
     return img_pad
 
 
-def resize_image(img, h, w, **up_kwargs):
-    return F.interpolate(img, (h, w), **up_kwargs)
-
-
-def flip_image(img):
-    assert img.dim() == 4
-    with torch.cuda.device_of(img):
-        idx = torch.arange(img.size(3) - 1, -1, -1).type_as(img).long()
-    return img.index_select(3, idx)
-
-
-def module_inference(module, image, flip=True):
-    output = module.evaluate(image)
-    if flip:
-        fimg = flip_image(image)
-        foutput = module.evaluate(fimg)
-        output += flip_image(foutput)
-    return output.exp()
+def crop_image(img, h0, h1, w0, w1):
+    return img[:, :, h0:h1, w0:w1]
 
 
 class MultiEvalModule(DataParallel):
@@ -2010,6 +2010,45 @@ class DropBlock2D(nn.Module):
             step_size)
 
 
+class _scaled_l2(Function):
+
+    @staticmethod
+    def forward(ctx, X, C, S):
+        if X.is_cuda:
+            SL = lib.gpu.scaled_l2_forward(X, C, S)
+        else:
+            SL = lib.cpu.scaled_l2_forward(X, C, S)
+        ctx.save_for_backward(X, C, S, SL)
+        return SL
+
+    @staticmethod
+    def backward(ctx, gradSL):
+        X, C, S, SL = ctx.saved_variables
+        if X.is_cuda:
+            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C,
+                S, SL)
+        else:
+            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C,
+                S, SL)
+        return gradX, gradC, gradS
+
+
+def scaled_l2(X, C, S):
+    """ scaled_l2 distance
+
+    .. math::
+        sl_{ik} = s_k \\|x_i-c_k\\|^2
+
+    Shape:
+        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
+          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
+          (where :math:`B` is batch, :math:`N` is total number of features,
+          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
+        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
+    """
+    return _scaled_l2.apply(X, C, S)
+
+
 class _aggregate(Function):
 
     @staticmethod
@@ -2055,45 +2094,6 @@ def aggregate(A, X, C):
         >>> E = func(A, X, C)
     """
     return _aggregate.apply(A, X, C)
-
-
-class _scaled_l2(Function):
-
-    @staticmethod
-    def forward(ctx, X, C, S):
-        if X.is_cuda:
-            SL = lib.gpu.scaled_l2_forward(X, C, S)
-        else:
-            SL = lib.cpu.scaled_l2_forward(X, C, S)
-        ctx.save_for_backward(X, C, S, SL)
-        return SL
-
-    @staticmethod
-    def backward(ctx, gradSL):
-        X, C, S, SL = ctx.saved_variables
-        if X.is_cuda:
-            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C,
-                S, SL)
-        else:
-            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C,
-                S, SL)
-        return gradX, gradC, gradS
-
-
-def scaled_l2(X, C, S):
-    """ scaled_l2 distance
-
-    .. math::
-        sl_{ik} = s_k \\|x_i-c_k\\|^2
-
-    Shape:
-        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
-          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
-          (where :math:`B` is batch, :math:`N` is total number of features,
-          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
-        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
-    """
-    return _scaled_l2.apply(X, C, S)
 
 
 class Encoding(Module):
@@ -2883,6 +2883,19 @@ class DataParallelModel(DataParallel):
         return modules
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
+
+
 torch_ver = torch.__version__[:3]
 
 
@@ -2934,19 +2947,6 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):

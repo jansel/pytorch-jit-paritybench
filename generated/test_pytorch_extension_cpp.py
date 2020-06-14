@@ -42,15 +42,15 @@ import torch
 import torch.nn.functional as F
 
 
-def d_sigmoid(z):
-    s = torch.sigmoid(z)
-    return (1 - s) * s
-
-
 def d_elu(z, alpha=1.0):
     e = z.exp()
     mask = alpha * (e - 1) < 0
     return (z > 0).type_as(z) + mask.type_as(z) * (alpha * e)
+
+
+def d_sigmoid(z):
+    s = torch.sigmoid(z)
+    return (1 - s) * s
 
 
 def d_tanh(z):

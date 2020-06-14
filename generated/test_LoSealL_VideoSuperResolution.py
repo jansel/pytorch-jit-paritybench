@@ -688,6 +688,29 @@ class DnCnn(nn.Module):
         return self.net(x) + x
 
 
+def _pop_shape(x, shape):
+    if shape == 2:
+        return x[0, ..., 0]
+    elif shape == 3:
+        return x[0]
+    elif shape == 4:
+        return x
+    else:
+        raise ValueError('Unsupported shape! Must be 2/3/4')
+
+
+def _push_shape_4d(x):
+    dim = x.dim()
+    if dim == 2:
+        return x.unsqueeze(0).unsqueeze(1), 2
+    elif dim == 3:
+        return x.unsqueeze(0), 3
+    elif dim == 4:
+        return x, 4
+    else:
+        raise ValueError('Unsupported tensor! Must be 2D/3D/4D')
+
+
 def bicubic_filter(x, a=-0.5):
     if x < 0:
         x = -x
@@ -724,29 +747,6 @@ def weights_upsample(scale_factor):
         for j in range(len(w)):
             kernels.append(np.matmul(w[i].transpose(), w[j]))
     return kernels, ss
-
-
-def _pop_shape(x, shape):
-    if shape == 2:
-        return x[0, ..., 0]
-    elif shape == 3:
-        return x[0]
-    elif shape == 4:
-        return x
-    else:
-        raise ValueError('Unsupported shape! Must be 2/3/4')
-
-
-def _push_shape_4d(x):
-    dim = x.dim()
-    if dim == 2:
-        return x.unsqueeze(0).unsqueeze(1), 2
-    elif dim == 3:
-        return x.unsqueeze(0), 3
-    elif dim == 4:
-        return x, 4
-    else:
-        raise ValueError('Unsupported tensor! Must be 2D/3D/4D')
 
 
 def upsample(img, scale, border='reflect'):
@@ -2423,20 +2423,6 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
-def pad(pad_type, padding):
-    pad_type = pad_type.lower()
-    if padding == 0:
-        return None
-    if pad_type == 'reflect':
-        layer = nn.ReflectionPad2d(padding)
-    elif pad_type == 'replicate':
-        layer = nn.ReplicationPad2d(padding)
-    else:
-        raise NotImplementedError('padding layer [%s] is not implemented' %
-            pad_type)
-    return layer
-
-
 def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     act_type = act_type.lower()
     if act_type == 'relu':
@@ -2449,22 +2435,6 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
         raise NotImplementedError('activation layer [%s] is not found' %
             act_type)
     return layer
-
-
-def sequential(*args):
-    if len(args) == 1:
-        if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
-        return args[0]
-    modules = []
-    for module in args:
-        if isinstance(module, nn.Sequential):
-            for submodule in module.children():
-                modules.append(submodule)
-        elif isinstance(module, nn.Module):
-            modules.append(module)
-    return nn.Sequential(*modules)
 
 
 def get_valid_padding(kernel_size, dilation):
@@ -2483,6 +2453,36 @@ def norm(norm_type, nc):
         raise NotImplementedError('normalization layer [%s] is not found' %
             norm_type)
     return layer
+
+
+def pad(pad_type, padding):
+    pad_type = pad_type.lower()
+    if padding == 0:
+        return None
+    if pad_type == 'reflect':
+        layer = nn.ReflectionPad2d(padding)
+    elif pad_type == 'replicate':
+        layer = nn.ReplicationPad2d(padding)
+    else:
+        raise NotImplementedError('padding layer [%s] is not implemented' %
+            pad_type)
+    return layer
+
+
+def sequential(*args):
+    if len(args) == 1:
+        if isinstance(args[0], OrderedDict):
+            raise NotImplementedError(
+                'sequential does not support OrderedDict input.')
+        return args[0]
+    modules = []
+    for module in args:
+        if isinstance(module, nn.Sequential):
+            for submodule in module.children():
+                modules.append(submodule)
+        elif isinstance(module, nn.Module):
+            modules.append(module)
+    return nn.Sequential(*modules)
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,

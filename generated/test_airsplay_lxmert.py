@@ -80,48 +80,36 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import DataLoader
 
 
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self, input_ids, input_mask, segment_ids, lm_label_ids,
-        visual_feats, obj_labels, is_matched, ans):
-        self.input_ids = input_ids
-        self.input_mask = input_mask
-        self.segment_ids = segment_ids
-        self.lm_label_ids = lm_label_ids
-        self.visual_feats = visual_feats
-        self.obj_labels = obj_labels
-        self.is_matched = is_matched
-        self.ans = ans
+def _is_control(char):
+    """Checks whether `chars` is a control character."""
+    if char == '\t' or char == '\n' or char == '\r':
+        return False
+    cat = unicodedata.category(char)
+    if cat.startswith('C'):
+        return True
+    return False
 
 
-def convert_sents_to_features(sents, max_seq_length, tokenizer):
-    """Loads a data file into a list of `InputBatch`s."""
-    features = []
-    for i, sent in enumerate(sents):
-        tokens_a = tokenizer.tokenize(sent.strip())
-        if len(tokens_a) > max_seq_length - 2:
-            tokens_a = tokens_a[:max_seq_length - 2]
-        tokens = ['[CLS]'] + tokens_a + ['[SEP]']
-        segment_ids = [0] * len(tokens)
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        input_mask = [1] * len(input_ids)
-        padding = [0] * (max_seq_length - len(input_ids))
-        input_ids += padding
-        input_mask += padding
-        segment_ids += padding
-        assert len(input_ids) == max_seq_length
-        assert len(input_mask) == max_seq_length
-        assert len(segment_ids) == max_seq_length
-        features.append(InputFeatures(input_ids=input_ids, input_mask=
-            input_mask, segment_ids=segment_ids))
-    return features
+def _is_punctuation(char):
+    """Checks whether `chars` is a punctuation character."""
+    cp = ord(char)
+    if (cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <=
+        96 or cp >= 123 and cp <= 126):
+        return True
+    cat = unicodedata.category(char)
+    if cat.startswith('P'):
+        return True
+    return False
 
 
-PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512,
-    'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 
-    512, 'bert-base-multilingual-uncased': 512,
-    'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
+def _is_whitespace(char):
+    """Checks whether `chars` is a whitespace character."""
+    if char == ' ' or char == '\t' or char == '\n' or char == '\r':
+        return True
+    cat = unicodedata.category(char)
+    if cat == 'Zs':
+        return True
+    return False
 
 
 def whitespace_tokenize(text):
@@ -131,6 +119,127 @@ def whitespace_tokenize(text):
         return []
     tokens = text.split()
     return tokens
+
+
+class BasicTokenizer(object):
+    """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
+
+    def __init__(self, do_lower_case=True, never_split=('[UNK]', '[SEP]',
+        '[PAD]', '[CLS]', '[MASK]')):
+        """Constructs a BasicTokenizer.
+
+        Args:
+          do_lower_case: Whether to lower case the input.
+        """
+        self.do_lower_case = do_lower_case
+        self.never_split = never_split
+
+    def tokenize(self, text):
+        """Tokenizes a piece of text."""
+        text = self._clean_text(text)
+        text = self._tokenize_chinese_chars(text)
+        orig_tokens = whitespace_tokenize(text)
+        split_tokens = []
+        for token in orig_tokens:
+            if self.do_lower_case and token not in self.never_split:
+                token = token.lower()
+                token = self._run_strip_accents(token)
+            split_tokens.extend(self._run_split_on_punc(token))
+        output_tokens = whitespace_tokenize(' '.join(split_tokens))
+        return output_tokens
+
+    def _run_strip_accents(self, text):
+        """Strips accents from a piece of text."""
+        text = unicodedata.normalize('NFD', text)
+        output = []
+        for char in text:
+            cat = unicodedata.category(char)
+            if cat == 'Mn':
+                continue
+            output.append(char)
+        return ''.join(output)
+
+    def _run_split_on_punc(self, text):
+        """Splits punctuation on a piece of text."""
+        if text in self.never_split:
+            return [text]
+        chars = list(text)
+        i = 0
+        start_new_word = True
+        output = []
+        while i < len(chars):
+            char = chars[i]
+            if _is_punctuation(char):
+                output.append([char])
+                start_new_word = True
+            else:
+                if start_new_word:
+                    output.append([])
+                start_new_word = False
+                output[-1].append(char)
+            i += 1
+        return [''.join(x) for x in output]
+
+    def _tokenize_chinese_chars(self, text):
+        """Adds whitespace around any CJK character."""
+        output = []
+        for char in text:
+            cp = ord(char)
+            if self._is_chinese_char(cp):
+                output.append(' ')
+                output.append(char)
+                output.append(' ')
+            else:
+                output.append(char)
+        return ''.join(output)
+
+    def _is_chinese_char(self, cp):
+        """Checks whether CP is the codepoint of a CJK character."""
+        if (cp >= 19968 and cp <= 40959 or cp >= 13312 and cp <= 19903 or 
+            cp >= 131072 and cp <= 173791 or cp >= 173824 and cp <= 177983 or
+            cp >= 177984 and cp <= 178207 or cp >= 178208 and cp <= 183983 or
+            cp >= 63744 and cp <= 64255 or cp >= 194560 and cp <= 195103):
+            return True
+        return False
+
+    def _clean_text(self, text):
+        """Performs invalid character removal and whitespace cleanup on text."""
+        output = []
+        for char in text:
+            cp = ord(char)
+            if cp == 0 or cp == 65533 or _is_control(char):
+                continue
+            if _is_whitespace(char):
+                output.append(' ')
+            else:
+                output.append(char)
+        return ''.join(output)
+
+
+PRETRAINED_VOCAB_ARCHIVE_MAP = {'bert-base-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'
+    , 'bert-large-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased-vocab.txt'
+    , 'bert-base-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased-vocab.txt'
+    , 'bert-large-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased-vocab.txt'
+    , 'bert-base-multilingual-uncased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased-vocab.txt'
+    , 'bert-base-multilingual-cased':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased-vocab.txt'
+    , 'bert-base-chinese':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt'
+    }
+
+
+PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512,
+    'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 
+    512, 'bert-base-multilingual-uncased': 512,
+    'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
+
+
+VOCAB_NAME = 'vocab.txt'
 
 
 class WordpieceTokenizer(object):
@@ -202,32 +311,7 @@ def http_get(url, temp_file):
     progress.close()
 
 
-def url_to_filename(url, etag=None):
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
+logger = logging.getLogger(__name__)
 
 
 def s3_request(func):
@@ -246,6 +330,18 @@ def s3_request(func):
             else:
                 raise
     return wrapper
+
+
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
 
 
 def gelu(x):
@@ -670,67 +766,6 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
-def load_tf_weights_in_bert(model, tf_checkpoint_path):
-    """ Load tf checkpoints in a pytorch model
-    """
-    try:
-        import re
-        import numpy as np
-        import tensorflow as tf
-    except Importtokenization:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
-        raise
-    tf_path = os.path.abspath(tf_checkpoint_path)
-    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
-    init_vars = tf.train.list_variables(tf_path)
-    names = []
-    arrays = []
-    for name, shape in init_vars:
-        print('Loading TF weight {} with shape {}'.format(name, shape))
-        array = tf.train.load_variable(tf_path, name)
-        names.append(name)
-        arrays.append(array)
-    for name, array in zip(names, arrays):
-        name = name.split('/')
-        if any(n in ['adam_v', 'adam_m'] for n in name):
-            print('Skipping {}'.format('/'.join(name)))
-            continue
-        pointer = model
-        for m_name in name:
-            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
-                l = re.split('_(\\d+)', m_name)
-            else:
-                l = [m_name]
-            if l[0] == 'kernel' or l[0] == 'gamma':
-                pointer = getattr(pointer, 'weight')
-            elif l[0] == 'output_bias' or l[0] == 'beta':
-                pointer = getattr(pointer, 'bias')
-            elif l[0] == 'output_weights':
-                pointer = getattr(pointer, 'weight')
-            else:
-                pointer = getattr(pointer, l[0])
-            if len(l) >= 2:
-                num = int(l[1])
-                pointer = pointer[num]
-        if m_name[-11:] == '_embeddings':
-            pointer = getattr(pointer, 'weight')
-        elif m_name == 'kernel':
-            array = np.transpose(array)
-        try:
-            assert pointer.shape == array.shape
-        except AssertionError as e:
-            e.args += pointer.shape, array.shape
-            raise
-        print('Initialize PyTorch weight {}'.format(name))
-        pointer.data = torch.from_numpy(array)
-    return model
-
-
 class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
@@ -816,6 +851,9 @@ class BertConfig(object):
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
 
 
+CONFIG_NAME = 'bert_config.json'
+
+
 PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
     'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
     , 'bert-large-uncased':
@@ -836,10 +874,65 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
 TF_WEIGHTS_NAME = 'model.ckpt'
 
 
-CONFIG_NAME = 'bert_config.json'
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
-logger = logging.getLogger(__name__)
+def load_tf_weights_in_bert(model, tf_checkpoint_path):
+    """ Load tf checkpoints in a pytorch model
+    """
+    try:
+        import re
+        import numpy as np
+        import tensorflow as tf
+    except Importtokenization:
+        print(
+            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
+            )
+        raise
+    tf_path = os.path.abspath(tf_checkpoint_path)
+    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
+    init_vars = tf.train.list_variables(tf_path)
+    names = []
+    arrays = []
+    for name, shape in init_vars:
+        print('Loading TF weight {} with shape {}'.format(name, shape))
+        array = tf.train.load_variable(tf_path, name)
+        names.append(name)
+        arrays.append(array)
+    for name, array in zip(names, arrays):
+        name = name.split('/')
+        if any(n in ['adam_v', 'adam_m'] for n in name):
+            print('Skipping {}'.format('/'.join(name)))
+            continue
+        pointer = model
+        for m_name in name:
+            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
+                l = re.split('_(\\d+)', m_name)
+            else:
+                l = [m_name]
+            if l[0] == 'kernel' or l[0] == 'gamma':
+                pointer = getattr(pointer, 'weight')
+            elif l[0] == 'output_bias' or l[0] == 'beta':
+                pointer = getattr(pointer, 'bias')
+            elif l[0] == 'output_weights':
+                pointer = getattr(pointer, 'weight')
+            else:
+                pointer = getattr(pointer, l[0])
+            if len(l) >= 2:
+                num = int(l[1])
+                pointer = pointer[num]
+        if m_name[-11:] == '_embeddings':
+            pointer = getattr(pointer, 'weight')
+        elif m_name == 'kernel':
+            array = np.transpose(array)
+        try:
+            assert pointer.shape == array.shape
+        except AssertionError as e:
+            e.args += pointer.shape, array.shape
+            raise
+        print('Initialize PyTorch weight {}'.format(name))
+        pointer.data = torch.from_numpy(array)
+    return model
 
 
 class BertPreTrainedModel(nn.Module):

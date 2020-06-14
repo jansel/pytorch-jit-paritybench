@@ -656,6 +656,17 @@ class MobileNetV2(nn.Module):
         None
 
 
+def create_decoder(dec_type):
+    if dec_type == 'unet_scse':
+        return DecoderUnetSCSE
+    elif dec_type == 'unet_seibn':
+        return DecoderUnetSEIBN
+    elif dec_type == 'unet_oc':
+        return DecoderUnetOC
+    else:
+        raise NotImplementedError
+
+
 def se_net(name, pretrained=False):
     if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
         'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
@@ -792,17 +803,6 @@ class SegmentatorTTA(object):
             return seg_sum / ((len(scales) + 1) * 2)
 
 
-def create_decoder(dec_type):
-    if dec_type == 'unet_scse':
-        return DecoderUnetSCSE
-    elif dec_type == 'unet_seibn':
-        return DecoderUnetSEIBN
-    elif dec_type == 'unet_oc':
-        return DecoderUnetOC
-    else:
-        raise NotImplementedError
-
-
 class EncoderDecoderNet(nn.Module, SegmentatorTTA):
 
     def __init__(self, output_channels=19, enc_type='resnet50', dec_type=
@@ -864,23 +864,6 @@ class EncoderDecoderNet(nn.Module, SegmentatorTTA):
         return logits
 
 
-def create_mspp(dec_type):
-    if dec_type == 'spp':
-        return SPP(320, 256)
-    elif dec_type == 'aspp':
-        return ASPP(320, 256, 8)
-    elif dec_type == 'oc_base':
-        return BaseOC(320, 256)
-    elif dec_type == 'oc_asp':
-        return ASPOC(320, 256, 8)
-    elif dec_type == 'maspp':
-        return MobileASPP()
-    elif dec_type == 'maspp_dec':
-        return MobileASPP(), SPPDecoder(24, reduced_layer_num=12)
-    else:
-        raise NotImplementedError
-
-
 def create_spp(dec_type, in_channels=2048, middle_channels=256, output_stride=8
     ):
     if dec_type == 'spp':
@@ -894,6 +877,23 @@ def create_spp(dec_type, in_channels=2048, middle_channels=256, output_stride=8
     elif dec_type in 'oc_asp':
         return ASPOC(in_channels, middle_channels, output_stride), SPPDecoder(
             middle_channels)
+    else:
+        raise NotImplementedError
+
+
+def create_mspp(dec_type):
+    if dec_type == 'spp':
+        return SPP(320, 256)
+    elif dec_type == 'aspp':
+        return ASPP(320, 256, 8)
+    elif dec_type == 'oc_base':
+        return BaseOC(320, 256)
+    elif dec_type == 'oc_asp':
+        return ASPOC(320, 256, 8)
+    elif dec_type == 'maspp':
+        return MobileASPP()
+    elif dec_type == 'maspp_dec':
+        return MobileASPP(), SPPDecoder(24, reduced_layer_num=12)
     else:
         raise NotImplementedError
 

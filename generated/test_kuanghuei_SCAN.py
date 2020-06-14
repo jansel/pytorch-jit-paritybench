@@ -210,6 +210,46 @@ def func_attention(query, context, opt, smooth, eps=1e-08):
     return weightedContext, attnT
 
 
+def xattn_score_i2t(images, captions, cap_lens, opt):
+    """
+    Images: (batch_size, n_regions, d) matrix of images
+    Captions: (batch_size, max_n_words, d) matrix of captions
+    CapLens: (batch_size) array of caption lengths
+    """
+    similarities = []
+    n_image = images.size(0)
+    n_caption = captions.size(0)
+    n_region = images.size(1)
+    for i in range(n_caption):
+        n_word = cap_lens[i]
+        cap_i = captions[(i), :n_word, :].unsqueeze(0).contiguous()
+        cap_i_expand = cap_i.repeat(n_image, 1, 1)
+        """
+            word(query): (n_image, n_word, d)
+            image(context): (n_image, n_region, d)
+            weiContext: (n_image, n_region, d)
+            attn: (n_image, n_word, n_region)
+        """
+        weiContext, attn = func_attention(images, cap_i_expand, opt, smooth
+            =opt.lambda_softmax)
+        row_sim = cosine_similarity(images, weiContext, dim=2)
+        if opt.agg_func == 'LogSumExp':
+            row_sim.mul_(opt.lambda_lse).exp_()
+            row_sim = row_sim.sum(dim=1, keepdim=True)
+            row_sim = torch.log(row_sim) / opt.lambda_lse
+        elif opt.agg_func == 'Max':
+            row_sim = row_sim.max(dim=1, keepdim=True)[0]
+        elif opt.agg_func == 'Sum':
+            row_sim = row_sim.sum(dim=1, keepdim=True)
+        elif opt.agg_func == 'Mean':
+            row_sim = row_sim.mean(dim=1, keepdim=True)
+        else:
+            raise ValueError('unknown aggfunc: {}'.format(opt.agg_func))
+        similarities.append(row_sim)
+    similarities = torch.cat(similarities, 1)
+    return similarities
+
+
 def xattn_score_t2i(images, captions, cap_lens, opt):
     """
     Images: (n_image, n_regions, d) matrix of images
@@ -234,46 +274,6 @@ def xattn_score_t2i(images, captions, cap_lens, opt):
         cap_i_expand = cap_i_expand.contiguous()
         weiContext = weiContext.contiguous()
         row_sim = cosine_similarity(cap_i_expand, weiContext, dim=2)
-        if opt.agg_func == 'LogSumExp':
-            row_sim.mul_(opt.lambda_lse).exp_()
-            row_sim = row_sim.sum(dim=1, keepdim=True)
-            row_sim = torch.log(row_sim) / opt.lambda_lse
-        elif opt.agg_func == 'Max':
-            row_sim = row_sim.max(dim=1, keepdim=True)[0]
-        elif opt.agg_func == 'Sum':
-            row_sim = row_sim.sum(dim=1, keepdim=True)
-        elif opt.agg_func == 'Mean':
-            row_sim = row_sim.mean(dim=1, keepdim=True)
-        else:
-            raise ValueError('unknown aggfunc: {}'.format(opt.agg_func))
-        similarities.append(row_sim)
-    similarities = torch.cat(similarities, 1)
-    return similarities
-
-
-def xattn_score_i2t(images, captions, cap_lens, opt):
-    """
-    Images: (batch_size, n_regions, d) matrix of images
-    Captions: (batch_size, max_n_words, d) matrix of captions
-    CapLens: (batch_size) array of caption lengths
-    """
-    similarities = []
-    n_image = images.size(0)
-    n_caption = captions.size(0)
-    n_region = images.size(1)
-    for i in range(n_caption):
-        n_word = cap_lens[i]
-        cap_i = captions[(i), :n_word, :].unsqueeze(0).contiguous()
-        cap_i_expand = cap_i.repeat(n_image, 1, 1)
-        """
-            word(query): (n_image, n_word, d)
-            image(context): (n_image, n_region, d)
-            weiContext: (n_image, n_region, d)
-            attn: (n_image, n_word, n_region)
-        """
-        weiContext, attn = func_attention(images, cap_i_expand, opt, smooth
-            =opt.lambda_softmax)
-        row_sim = cosine_similarity(images, weiContext, dim=2)
         if opt.agg_func == 'LogSumExp':
             row_sim.mul_(opt.lambda_lse).exp_()
             row_sim = row_sim.sum(dim=1, keepdim=True)

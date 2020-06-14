@@ -165,14 +165,14 @@ class Model(nn.Module):
         return dist.Normal(self.mu, self.sigma)
 
 
+EPSILON = 1e-08
+
+
 def linear_init(module):
     if isinstance(module, nn.Linear):
         nn.init.xavier_uniform_(module.weight)
         module.bias.data.zero_()
     return module
-
-
-EPSILON = 1e-08
 
 
 class DiagNormalPolicy(nn.Module):

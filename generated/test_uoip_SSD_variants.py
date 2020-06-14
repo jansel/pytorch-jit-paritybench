@@ -318,6 +318,11 @@ class L2Norm(nn.Module):
         return out
 
 
+def conv_relu(in_channels, out_channels, kernel_size, stride=1, padding=0):
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
+        stride, padding), nn.ReLU(inplace=True))
+
+
 def deconv_relu(in_channels, out_channels, in_size, out_size):
     if out_size == 2 * in_size:
         dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4,
@@ -331,11 +336,6 @@ def deconv_relu(in_channels, out_channels, in_size, out_size):
     else:
         raise ValueError('invalid size')
     return nn.Sequential(dconv, nn.ReLU(inplace=True))
-
-
-def conv_relu(in_channels, out_channels, kernel_size, stride=1, padding=0):
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding), nn.ReLU(inplace=True))
 
 
 class TwoWay(nn.Module):

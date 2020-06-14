@@ -81,26 +81,6 @@ import functools
 from torch.nn import init
 
 
-def perspective(points, calibrations, transforms=None):
-    """
-    Compute the perspective projections of 3D points into the image plane by given projection matrix
-    :param points: [Bx3xN] Tensor of 3D points
-    :param calibrations: [Bx3x4] Tensor of projection matrix
-    :param transforms: [Bx2x3] Tensor of image transform matrix
-    :return: xy: [Bx2xN] Tensor of xy coordinates in the image plane
-    """
-    rot = calibrations[:, :3, :3]
-    trans = calibrations[:, :3, 3:4]
-    homo = torch.baddbmm(trans, rot, points)
-    xy = homo[:, :2, :] / homo[:, 2:3, :]
-    if transforms is not None:
-        scale = transforms[:2, :2]
-        shift = transforms[:2, 2:3]
-        xy = torch.baddbmm(shift, scale, xy)
-    xyz = torch.cat([xy, homo[:, 2:3, :]], 1)
-    return xyz
-
-
 def index(feat, uv):
     """
 
@@ -130,6 +110,26 @@ def orthogonal(points, calibrations, transforms=None):
         shift = transforms[:2, 2:3]
         pts[:, :2, :] = torch.baddbmm(shift, scale, pts[:, :2, :])
     return pts
+
+
+def perspective(points, calibrations, transforms=None):
+    """
+    Compute the perspective projections of 3D points into the image plane by given projection matrix
+    :param points: [Bx3xN] Tensor of 3D points
+    :param calibrations: [Bx3x4] Tensor of projection matrix
+    :param transforms: [Bx2x3] Tensor of image transform matrix
+    :return: xy: [Bx2xN] Tensor of xy coordinates in the image plane
+    """
+    rot = calibrations[:, :3, :3]
+    trans = calibrations[:, :3, 3:4]
+    homo = torch.baddbmm(trans, rot, points)
+    xy = homo[:, :2, :] / homo[:, 2:3, :]
+    if transforms is not None:
+        scale = transforms[:2, :2]
+        shift = transforms[:2, 2:3]
+        xy = torch.baddbmm(shift, scale, xy)
+    xyz = torch.cat([xy, homo[:, 2:3, :]], 1)
+    return xyz
 
 
 class BasePIFuNet(nn.Module):

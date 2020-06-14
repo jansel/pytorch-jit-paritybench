@@ -244,20 +244,20 @@ class ResNeXt(nn.Module):
         return x
 
 
-def conv7x7(in_, out, bias=True):
-    return nn.Conv2d(in_, out, 7, padding=3, bias=bias)
+def conv1x1(in_, out, bias=True):
+    return nn.Conv2d(in_, out, 1, padding=0, bias=bias)
 
 
 def conv3x3(in_, out, bias=True):
     return nn.Conv2d(in_, out, 3, padding=1, bias=bias)
 
 
-def conv1x1(in_, out, bias=True):
-    return nn.Conv2d(in_, out, 1, padding=0, bias=bias)
-
-
 def conv5x5(in_, out, bias=True):
     return nn.Conv2d(in_, out, 5, padding=2, bias=bias)
+
+
+def conv7x7(in_, out, bias=True):
+    return nn.Conv2d(in_, out, 7, padding=3, bias=bias)
 
 
 class ConvRelu(nn.Module):
@@ -491,18 +491,6 @@ class model34_DeepSupervion(nn.Module):
         return center_fc, x_no_empty, x_final
 
 
-def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'
-        ], 'num_classes should be {}, but is {}'.format(settings[
-        'num_classes'], num_classes)
-    model.load_state_dict(model_zoo.load_url(settings['url']))
-    model.input_space = settings['input_space']
-    model.input_size = settings['input_size']
-    model.input_range = settings['input_range']
-    model.mean = settings['mean']
-    model.std = settings['std']
-
-
 class SEResNeXtBottleneck(Bottleneck):
     """
     ResNeXt bottleneck type C with a Squeeze-and-Excitation module.
@@ -525,6 +513,18 @@ class SEResNeXtBottleneck(Bottleneck):
         self.se_module = SEModule(planes * 4, reduction=reduction)
         self.downsample = downsample
         self.stride = stride
+
+
+def initialize_pretrained_model(model, num_classes, settings):
+    assert num_classes == settings['num_classes'
+        ], 'num_classes should be {}, but is {}'.format(settings[
+        'num_classes'], num_classes)
+    model.load_state_dict(model_zoo.load_url(settings['url']))
+    model.input_space = settings['input_space']
+    model.input_size = settings['input_size']
+    model.input_range = settings['input_range']
+    model.mean = settings['mean']
+    model.std = settings['std']
 
 
 pretrained_settings = {'senet154': {'imagenet': {'url':

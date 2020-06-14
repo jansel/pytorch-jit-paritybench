@@ -69,13 +69,13 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 
+_global_config['ANs_select_rate'] = 4
+
+
 _global_config['device'] = 4
 
 
 _global_config['ANs_size'] = 4
-
-
-_global_config['ANs_select_rate'] = 4
 
 
 class ANsDiscovery(nn.Module):
@@ -270,10 +270,10 @@ class NonParametricClassifierOP(Function):
         return gradInput, None, None, None, None
 
 
-_global_config['npc_temperature'] = 4
-
-
 _global_config['npc_momentum'] = 4
+
+
+_global_config['npc_temperature'] = 4
 
 
 class NonParametricClassifier(nn.Module):

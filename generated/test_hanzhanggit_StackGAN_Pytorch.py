@@ -75,10 +75,10 @@ class ResBlock(nn.Module):
 _global_config['CUDA'] = 4
 
 
-_global_config['GAN'] = 4
-
-
 _global_config['TEXT'] = 4
+
+
+_global_config['GAN'] = 4
 
 
 class CA_NET(nn.Module):

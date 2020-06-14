@@ -1554,16 +1554,16 @@ class SqueezeAndExcite(nn.Module):
         return out * x
 
 
-def VarGConv(in_channels, out_channels, kernel_size, stride, S):
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding=kernel_size // 2, groups=in_channels // S, bias=
-        False), nn.BatchNorm2d(out_channels), nn.PReLU())
-
-
 def VarGPointConv(in_channels, out_channels, stride, S, isRelu):
     return nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, stride,
         padding=0, groups=in_channels // S, bias=False), nn.BatchNorm2d(
         out_channels), nn.PReLU() if isRelu else nn.Sequential())
+
+
+def VarGConv(in_channels, out_channels, kernel_size, stride, S):
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
+        stride, padding=kernel_size // 2, groups=in_channels // S, bias=
+        False), nn.BatchNorm2d(out_channels), nn.PReLU())
 
 
 class VarGBlock_S1(nn.Module):
@@ -3081,14 +3081,14 @@ class ExitBottleneck(nn.Module):
         return out + x
 
 
-def ConvBNRelu(in_channels, out_channels, kernel_size, stride):
-    return nn.Sequential(ConvBN(in_channels, out_channels, kernel_size,
-        stride), nn.ReLU6(inplace=True))
-
-
 def SeparableConvolutionRelu(in_channels, out_channels):
     return nn.Sequential(SeparableConvolution(in_channels, out_channels),
         nn.ReLU6(inplace=True))
+
+
+def ConvBNRelu(in_channels, out_channels, kernel_size, stride):
+    return nn.Sequential(ConvBN(in_channels, out_channels, kernel_size,
+        stride), nn.ReLU6(inplace=True))
 
 
 class Xception(nn.Module):

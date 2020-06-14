@@ -247,6 +247,21 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     return iou
 
 
+def clip_by_tensor(t, t_min, t_max):
+    t = t.float()
+    result = (t >= t_min).float() * t + (t < t_min).float() * t_min
+    result = (result <= t_max).float() * result + (result > t_max).float(
+        ) * t_max
+    return result
+
+
+def BCELoss(pred, target):
+    epsilon = 1e-07
+    pred = clip_by_tensor(pred, epsilon, 1.0 - epsilon)
+    output = -target * torch.log(pred) - (1.0 - target) * torch.log(1.0 - pred)
+    return output
+
+
 def jaccard(_box_a, _box_b):
     b1_x1, b1_x2 = _box_a[:, (0)] - _box_a[:, (2)] / 2, _box_a[:, (0)
         ] + _box_a[:, (2)] / 2
@@ -276,21 +291,6 @@ def jaccard(_box_a, _box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def clip_by_tensor(t, t_min, t_max):
-    t = t.float()
-    result = (t >= t_min).float() * t + (t < t_min).float() * t_min
-    result = (result <= t_max).float() * result + (result > t_max).float(
-        ) * t_max
-    return result
-
-
-def BCELoss(pred, target):
-    epsilon = 1e-07
-    pred = clip_by_tensor(pred, epsilon, 1.0 - epsilon)
-    output = -target * torch.log(pred) - (1.0 - target) * torch.log(1.0 - pred)
-    return output
 
 
 class YOLOLoss(nn.Module):

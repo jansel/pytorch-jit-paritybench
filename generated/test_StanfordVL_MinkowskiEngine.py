@@ -149,6 +149,99 @@ class MinkowskiModuleBase(Module):
     pass
 
 
+class OperationType(Enum):
+    ADDITION = 0
+    MULTIPLICATION = 1
+
+
+op_to_int = {i: i.value for i in OperationType}
+
+
+def operation_type_to_int(op):
+    assert isinstance(op, OperationType)
+    return op_to_int[op]
+
+
+def get_postfix(tensor: torch.Tensor):
+    postfix = 'GPU' if tensor.is_cuda else 'CPU'
+    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.
+        cuda.DoubleTensor):
+        postfix += 'd'
+    else:
+        postfix += 'f'
+    return postfix
+
+
+def get_minkowski_function(name, variable):
+    fn_name = name + get_postfix(variable)
+    if hasattr(MEB, fn_name):
+        return getattr(MEB, fn_name)
+    elif variable.is_cuda:
+        raise ValueError(
+            f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.'
+            )
+    else:
+        raise ValueError(f'Function {fn_name} not available.')
+
+
+class MinkowskiBroadcastFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, input_features_global, operation_type,
+        in_coords_key, glob_coords_key, coords_manager):
+        assert input_features.shape[1] == input_features_global.shape[1]
+        assert input_features.type() == input_features_global.type()
+        assert isinstance(operation_type, OperationType)
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        if not input_features_global.is_contiguous():
+            input_features_global = input_features_global.contiguous()
+        ctx.op = operation_type_to_int(operation_type)
+        ctx.in_feat = input_features
+        ctx.in_feat_glob = input_features_global
+        ctx.in_coords_key = in_coords_key
+        ctx.glob_coords_key = glob_coords_key
+        ctx.coords_manager = coords_manager
+        fw_fn = get_minkowski_function('BroadcastForward', input_features)
+        out_feat = fw_fn(ctx.in_feat, ctx.in_feat_glob, ctx.op, ctx.
+            in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey,
+            ctx.coords_manager.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        grad_in_feat_glob = grad_out_feat.new()
+        bw_fn = get_minkowski_function('BroadcastBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, ctx.in_feat_glob,
+            grad_in_feat_glob, grad_out_feat, ctx.op, ctx.in_coords_key.
+            CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.
+            coords_manager.CPPCoordsManager)
+        return grad_in_feat, grad_in_feat_glob, None, None, None, None
+
+
+def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor],
+    dimension: int):
+    if isinstance(arg, list):
+        assert len(arg) == dimension
+        return arg
+    if isinstance(arg, (Sequence, np.ndarray, torch.Tensor)):
+        tmp = [i for i in arg]
+        assert len(tmp) == dimension
+    elif np.isscalar(arg):
+        tmp = [int(arg) for i in range(dimension)]
+    else:
+        raise ValueError('Input must be a scalar or a sequence')
+    return tmp
+
+
+COORDS_MAN_DIFFERENT_ERROR = (
+    'SparseTensors must share the same coordinate manager for this operation. Please refer to the SparseTensor creation API (https://stanfordvl.github.io/MinkowskiEngine/sparse_tensor.html) to share the coordinate manager, or set the sparse tensor operation mode with `set_sparse_tensor_operation_mode` to share it by default.'
+    )
+
+
 class SparseTensorOperationMode(Enum):
     """
     `SEPARATE_COORDS_MANAGER`: always create a new coordinate manager.
@@ -156,6 +249,15 @@ class SparseTensorOperationMode(Enum):
     """
     SEPARATE_COORDS_MANAGER = 0
     SHARE_COORDS_MANAGER = 1
+
+
+class SparseTensorQuantizationMode(Enum):
+    """
+    `RANDOM_SUBSAMPLE`: Subsample one coordinate per each quantization block randomly.
+    `UNWEIGHTED_AVERAGE`: average all features within a quantization block equally.
+    """
+    RANDOM_SUBSAMPLE = 0
+    UNWEIGHTED_AVERAGE = 1
 
 
 def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
@@ -323,19 +425,22 @@ class MinkowskiBatchNorm(Module):
         return self.__class__.__name__ + s
 
 
-def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor],
-    dimension: int):
-    if isinstance(arg, list):
-        assert len(arg) == dimension
-        return arg
-    if isinstance(arg, (Sequence, np.ndarray, torch.Tensor)):
-        tmp = [i for i in arg]
-        assert len(tmp) == dimension
-    elif np.isscalar(arg):
-        tmp = [int(arg) for i in range(dimension)]
-    else:
-        raise ValueError('Input must be a scalar or a sequence')
-    return tmp
+class GlobalPoolingMode(Enum):
+    """
+    Define the global pooling mode
+    """
+    AUTO = 0, 'AUTO'
+    INDEX_SELECT = 1, 'INDEX_SELECT'
+    SPARSE = 2, 'SPARSE'
+
+    def __new__(cls, value, name):
+        member = object.__new__(cls)
+        member._value_ = value
+        member.fullname = name
+        return member
+
+    def __int__(self):
+        return self.value
 
 
 class CoordsKey:
@@ -367,46 +472,6 @@ class CoordsKey:
     def __eq__(self, other):
         assert isinstance(other, CoordsKey)
         return self.getKey() == other.getKey()
-
-
-class GlobalPoolingMode(Enum):
-    """
-    Define the global pooling mode
-    """
-    AUTO = 0, 'AUTO'
-    INDEX_SELECT = 1, 'INDEX_SELECT'
-    SPARSE = 2, 'SPARSE'
-
-    def __new__(cls, value, name):
-        member = object.__new__(cls)
-        member._value_ = value
-        member.fullname = name
-        return member
-
-    def __int__(self):
-        return self.value
-
-
-def get_postfix(tensor: torch.Tensor):
-    postfix = 'GPU' if tensor.is_cuda else 'CPU'
-    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.
-        cuda.DoubleTensor):
-        postfix += 'd'
-    else:
-        postfix += 'f'
-    return postfix
-
-
-def get_minkowski_function(name, variable):
-    fn_name = name + get_postfix(variable)
-    if hasattr(MEB, fn_name):
-        return getattr(MEB, fn_name)
-    elif variable.is_cuda:
-        raise ValueError(
-            f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.'
-            )
-    else:
-        raise ValueError(f'Function {fn_name} not available.')
 
 
 class MinkowskiGlobalPoolingFunction(Function):
@@ -478,19 +543,6 @@ class MinkowskiGlobalPooling(MinkowskiModuleBase):
 
     def __repr__(self):
         return self.__class__.__name__ + '(average=' + str(self.average) + ')'
-
-
-class OperationType(Enum):
-    ADDITION = 0
-    MULTIPLICATION = 1
-
-
-op_to_int = {i: i.value for i in OperationType}
-
-
-def operation_type_to_int(op):
-    assert isinstance(op, OperationType)
-    return op_to_int[op]
 
 
 class MinkowskiInstanceNormFunction(Function):

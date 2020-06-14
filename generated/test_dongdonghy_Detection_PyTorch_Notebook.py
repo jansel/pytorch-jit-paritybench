@@ -528,16 +528,16 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['POOLING_MODE'] = 4
 
 
-_global_config['TRAIN'] = 4
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 _global_config['POOLING_SIZE'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 class _fasterRCNN(nn.Module):
@@ -1230,16 +1230,16 @@ class Depth3DGridGen_with_mask(Module):
 defines = []
 
 
+extra_objects = ['src/nms_cuda_kernel.cu.o']
+
+
 headers = []
-
-
-with_cuda = False
 
 
 sources = []
 
 
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+with_cuda = False
 
 
 class RoIPoolFunction(Function):
@@ -1298,6 +1298,61 @@ class _RoIPooling(Module):
     def forward(self, features, rois):
         return RoIPoolFunction(self.pooled_height, self.pooled_width, self.
             spatial_scale)(features, rois)
+
+
+def bbox_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
+        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
+            ) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
+            ) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
+            gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
+            expand_as(gt_heights))
+    elif ex_rois.dim() == 3:
+        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
+        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths)
+        targets_dh = torch.log(gt_heights / ex_heights)
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
+    return targets
+
+
+def _compute_targets_batch(ex_rois, gt_rois):
+    """Compute bounding-box regression targets for an image."""
+    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
+
+
+def _unmap(data, count, inds, batch_size, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 2:
+        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
+        ret[:, (inds)] = data
+    else:
+        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
+            ).type_as(data)
+        ret[:, (inds), :] = data
+    return ret
 
 
 def bbox_overlaps_batch(anchors, gt_boxes):
@@ -1374,59 +1429,16 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     return overlaps
 
 
-def bbox_transform_batch(ex_rois, gt_rois):
-    if ex_rois.dim() == 2:
-        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
-        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
-            ) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
-            gt_widths))
-        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
-            expand_as(gt_heights))
-    elif ex_rois.dim() == 3:
-        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
-        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths)
-        targets_dh = torch.log(gt_heights / ex_heights)
-    else:
-        raise ValueError('ex_roi input dimension is not correct.')
-    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
-    return targets
-
-
-def _compute_targets_batch(ex_rois, gt_rois):
-    """Compute bounding-box regression targets for an image."""
-    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
-
-
-def _unmap(data, count, inds, batch_size, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 2:
-        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
-        ret[:, (inds)] = data
-    else:
-        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
-            ).type_as(data)
-        ret[:, (inds), :] = data
-    return ret
+def _mkanchors(ws, hs, x_ctr, y_ctr):
+    """
+    Given a vector of widths (ws) and heights (hs) around a center
+    (x_ctr, y_ctr), output a set of anchors (windows).
+    """
+    ws = ws[:, (np.newaxis)]
+    hs = hs[:, (np.newaxis)]
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
+        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    return anchors
 
 
 def _whctrs(anchor):
@@ -1438,18 +1450,6 @@ def _whctrs(anchor):
     x_ctr = anchor[0] + 0.5 * (w - 1)
     y_ctr = anchor[1] + 0.5 * (h - 1)
     return w, h, x_ctr, y_ctr
-
-
-def _mkanchors(ws, hs, x_ctr, y_ctr):
-    """
-    Given a vector of widths (ws) and heights (hs) around a center
-    (x_ctr, y_ctr), output a set of anchors (windows).
-    """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
-        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
-    return anchors
 
 
 def _ratio_enum(anchor, ratios):
@@ -1620,15 +1620,6 @@ class _AnchorTargetLayer(nn.Module):
         pass
 
 
-def clip_boxes(boxes, im_shape, batch_size):
-    for i in range(batch_size):
-        boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 1::4].clamp_(0, im_shape[i, 0] - 1)
-        boxes[(i), :, 2::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 3::4].clamp_(0, im_shape[i, 0] - 1)
-    return boxes
-
-
 def bbox_transform_inv(boxes, deltas, batch_size):
     widths = boxes[:, :, (2)] - boxes[:, :, (0)] + 1.0
     heights = boxes[:, :, (3)] - boxes[:, :, (1)] + 1.0
@@ -1648,6 +1639,15 @@ def bbox_transform_inv(boxes, deltas, batch_size):
     pred_boxes[:, :, 2::4] = pred_ctr_x + 0.5 * pred_w
     pred_boxes[:, :, 3::4] = pred_ctr_y + 0.5 * pred_h
     return pred_boxes
+
+
+def clip_boxes(boxes, im_shape, batch_size):
+    for i in range(batch_size):
+        boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[(i), :, 1::4].clamp_(0, im_shape[i, 0] - 1)
+        boxes[(i), :, 2::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[(i), :, 3::4].clamp_(0, im_shape[i, 0] - 1)
+    return boxes
 
 
 def nms_cpu(dets, thresh):
@@ -1930,13 +1930,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
-_global_config['FEAT_STRIDE'] = 4
-
-
 _global_config['ANCHOR_RATIOS'] = 4
 
 
 _global_config['ANCHOR_SCALES'] = 4
+
+
+_global_config['FEAT_STRIDE'] = 4
 
 
 class _RPN(nn.Module):
@@ -2037,105 +2037,25 @@ def log_sum_exp(x):
     return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
-def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+def _make_layers(in_channels, net_cfg):
+    layers = []
+    if len(net_cfg) > 0 and isinstance(net_cfg[0], list):
+        for sub_cfg in net_cfg:
+            layer, in_channels = _make_layers(in_channels, sub_cfg)
+            layers.append(layer)
+    else:
+        for item in net_cfg:
+            if item == 'M':
+                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+            else:
+                out_channels, ksize = item
+                layers.append(net_utils.Conv2d_BatchNorm(in_channels,
+                    out_channels, ksize, same_padding=True))
+                in_channels = out_channels
+    return nn.Sequential(*layers), in_channels
 
 
-def jaccard(box_a, box_b):
-    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
-    is simply the intersection over union of two boxes.  Here we operate on
-    ground truth boxes and default boxes.
-    E.g.:
-        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-    Return:
-        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
-    """
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
-    union = area_a + area_b - inter
-    return inter / union
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    """
-
-    def __init__(self, cfg):
-        super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-
-    def forward(self):
-        mean = []
-        for k, f in enumerate(self.feature_maps):
-            for i, j in product(range(f), repeat=2):
-                f_k = self.image_size / self.steps[k]
-                cx = (j + 0.5) / f_k
-                cy = (i + 0.5) / f_k
-                s_k = self.min_sizes[k] / self.image_size
-                mean += [cx, cy, s_k, s_k]
-                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
-                mean += [cx, cy, s_k_prime, s_k_prime]
-                for ar in self.aspect_ratios[k]:
-                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
-                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
-
-
-_global_config['coord_scale'] = 1.0
-
-
-_global_config['iou_thresh'] = 4
-
-
-_global_config['class_scale'] = 1.0
-
-
-_global_config['multi_scale_out_size'] = 1.0
-
-
-_global_config['multi_scale_inp_size'] = 1.0
-
-
-_global_config['num_classes'] = 4
+_global_config['noobject_scale'] = 1.0
 
 
 _global_config['object_scale'] = 1.0
@@ -2144,7 +2064,22 @@ _global_config['object_scale'] = 1.0
 _global_config['anchors'] = 4
 
 
-_global_config['noobject_scale'] = 1.0
+_global_config['num_classes'] = 4
+
+
+_global_config['multi_scale_inp_size'] = 1.0
+
+
+_global_config['coord_scale'] = 1.0
+
+
+_global_config['multi_scale_out_size'] = 1.0
+
+
+_global_config['iou_thresh'] = 4
+
+
+_global_config['class_scale'] = 1.0
 
 
 def _process_batch(data, size_index):
@@ -2211,24 +2146,6 @@ def _process_batch(data, size_index):
         _class_mask[(cell_ind), (a), :] = cfg.class_scale
         _classes[cell_ind, a, gt_classes[i]] = 1.0
     return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
-
-
-def _make_layers(in_channels, net_cfg):
-    layers = []
-    if len(net_cfg) > 0 and isinstance(net_cfg[0], list):
-        for sub_cfg in net_cfg:
-            layer, in_channels = _make_layers(in_channels, sub_cfg)
-            layers.append(layer)
-    else:
-        for item in net_cfg:
-            if item == 'M':
-                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
-            else:
-                out_channels, ksize = item
-                layers.append(net_utils.Conv2d_BatchNorm(in_channels,
-                    out_channels, ksize, same_padding=True))
-                in_channels = out_channels
-    return nn.Sequential(*layers), in_channels
 
 
 _global_config['num_anchors'] = 4
@@ -2556,13 +2473,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 

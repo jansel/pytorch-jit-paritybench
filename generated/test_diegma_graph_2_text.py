@@ -761,11 +761,6 @@ class StackedCNN(nn.Module):
         return x
 
 
-def shape_transform(x):
-    """ Tranform the size of the tensors to fit for conv input. """
-    return torch.unsqueeze(torch.transpose(x, 1, 2), 3)
-
-
 class CNNDecoderState(DecoderState):
 
     def __init__(self, memory_bank, enc_hidden):
@@ -787,6 +782,11 @@ class CNNDecoderState(DecoderState):
         """ Repeat beam_size times along batch dimension. """
         self.init_src = Variable(self.init_src.data.repeat(1, beam_size, 1),
             volatile=True)
+
+
+def shape_transform(x):
+    """ Tranform the size of the tensors to fit for conv input. """
+    return torch.unsqueeze(torch.transpose(x, 1, 2), 3)
 
 
 class CNNDecoder(nn.Module):

@@ -208,6 +208,12 @@ class EDSRDec(nn.Module):
         return x
 
 
+_NUM_PARAMS_OTHER = 3
+
+
+_LOG_SCALES_MIN = -7.0
+
+
 _NUM_PARAMS_RGB = 4
 
 
@@ -222,12 +228,6 @@ class CDFOut(NamedTuple):
     log_scales_c: torch.Tensor
     K: int
     targets: torch.Tensor
-
-
-_NUM_PARAMS_OTHER = 3
-
-
-_LOG_SCALES_MIN = -7.0
 
 
 class DiscretizedMixLogisticLoss(nn.Module):

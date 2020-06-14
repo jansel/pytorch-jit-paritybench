@@ -181,18 +181,16 @@ class CrossEntropyLabelSmooth(torch.nn.Module):
         return loss
 
 
-def get_condconv_initializer(initializer, num_experts, expert_shape):
+def _ntuple(n):
 
-    def condconv_initializer(weight):
-        """CondConv initializer function."""
-        num_params = np.prod(expert_shape)
-        if len(weight.shape) != 2 or weight.shape[0
-            ] != num_experts or weight.shape[1] != num_params:
-            raise ValueError(
-                'CondConv variables must have shape [num_experts, num_params]')
-        for i in range(num_experts):
-            initializer(weight[i].view(expert_shape))
-    return condconv_initializer
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+
+_pair = _ntuple(2)
 
 
 def _calc_same_pad(i: int, k: int, s: int, d: int):
@@ -210,6 +208,20 @@ def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
         x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - 
             pad_h // 2])
     return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
+
+
+def get_condconv_initializer(initializer, num_experts, expert_shape):
+
+    def condconv_initializer(weight):
+        """CondConv initializer function."""
+        num_params = np.prod(expert_shape)
+        if len(weight.shape) != 2 or weight.shape[0
+            ] != num_experts or weight.shape[1] != num_params:
+            raise ValueError(
+                'CondConv variables must have shape [num_experts, num_params]')
+        for i in range(num_experts):
+            initializer(weight[i].view(expert_shape))
+    return condconv_initializer
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
@@ -236,18 +248,6 @@ def get_padding_value(padding, kernel_size, **kwargs):
         else:
             padding = _get_padding(kernel_size, **kwargs)
     return padding, dynamic
-
-
-def _ntuple(n):
-
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-
-
-_pair = _ntuple(2)
 
 
 class CondConv2d(nn.Module):
@@ -486,18 +486,15 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish()
 
 
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
+    return params_dict[model_name]
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
@@ -569,6 +566,12 @@ class BlockDecoder(object):
         return block_strings
 
 
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=
     1000, condconv_num_expert=1):
@@ -591,17 +594,6 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
         depth_coefficient, depth_divisor=8, min_depth=None, image_size=
         image_size)
     return blocks_args, global_params
-
-
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
-    return params_dict[model_name]
 
 
 def get_model_params(model_name, override_params, condconv_num_expert=1):
@@ -666,6 +658,14 @@ def round_filters(filters, global_params):
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
 
 
 class EfficientNet(nn.Module):

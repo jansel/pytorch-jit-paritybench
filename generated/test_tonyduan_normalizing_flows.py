@@ -313,13 +313,13 @@ class OneByOneConv(nn.Module):
         return x, log_det
 
 
-DEFAULT_MIN_DERIVATIVE = 0.001
+DEFAULT_MIN_BIN_HEIGHT = 0.001
 
 
 DEFAULT_MIN_BIN_WIDTH = 0.001
 
 
-DEFAULT_MIN_BIN_HEIGHT = 0.001
+DEFAULT_MIN_DERIVATIVE = 0.001
 
 
 def searchsorted(bin_locations, inputs, eps=1e-06):

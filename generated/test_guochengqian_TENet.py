@@ -329,6 +329,18 @@ def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False
         kernel_size // 2, stride=stride, bias=bias)
 
 
+def norm_layer(norm_type, nc):
+    norm_type = norm_type.lower()
+    if norm_type == 'batch':
+        layer = nn.BatchNorm2d(nc, affine=True)
+    elif norm_type == 'instance':
+        layer = nn.InstanceNorm2d(nc, affine=False)
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' %
+            norm_type)
+    return layer
+
+
 def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
     act_type = act_type.lower()
     if act_type == 'relu':
@@ -340,18 +352,6 @@ def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
     else:
         raise NotImplementedError('activation layer [%s] is not found' %
             act_type)
-    return layer
-
-
-def norm_layer(norm_type, nc):
-    norm_type = norm_type.lower()
-    if norm_type == 'batch':
-        layer = nn.BatchNorm2d(nc, affine=True)
-    elif norm_type == 'instance':
-        layer = nn.InstanceNorm2d(nc, affine=False)
-    else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
     return layer
 
 

@@ -210,6 +210,19 @@ class DataParallelModel(Module):
             len(replicas)])
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, *gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput[0])
+
+
 def get_a_var(obj):
     if isinstance(obj, torch.tensor):
         return obj
@@ -271,19 +284,6 @@ def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, *gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput[0])
 
 
 class DataParallelCriterion(Module):

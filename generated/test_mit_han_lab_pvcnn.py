@@ -102,25 +102,6 @@ import functools
 import torch.nn.functional as F
 
 
-def create_pointnet_components(blocks, in_channels, with_se=False,
-    normalize=True, eps=0, width_multiplier=1, voxel_resolution_multiplier=1):
-    r, vr = width_multiplier, voxel_resolution_multiplier
-    layers, concat_channels = [], 0
-    for out_channels, num_blocks, voxel_resolution in blocks:
-        out_channels = int(r * out_channels)
-        if voxel_resolution is None:
-            block = SharedMLP
-        else:
-            block = functools.partial(PVConv, kernel_size=3, resolution=int
-                (vr * voxel_resolution), with_se=with_se, normalize=
-                normalize, eps=eps)
-        for _ in range(num_blocks):
-            layers.append(block(in_channels, out_channels))
-            in_channels = out_channels
-            concat_channels += out_channels
-    return layers, in_channels, concat_channels
-
-
 def _linear_bn_relu(in_channels, out_channels):
     return nn.Sequential(nn.Linear(in_channels, out_channels), nn.
         BatchNorm1d(out_channels), nn.ReLU(True))
@@ -158,6 +139,25 @@ def create_mlp_components(in_channels, out_channels, classifier=False, dim=
         layers.append(SharedMLP(in_channels, int(r * out_channels[-1])))
     return layers, out_channels[-1] if classifier else int(r * out_channels[-1]
         )
+
+
+def create_pointnet_components(blocks, in_channels, with_se=False,
+    normalize=True, eps=0, width_multiplier=1, voxel_resolution_multiplier=1):
+    r, vr = width_multiplier, voxel_resolution_multiplier
+    layers, concat_channels = [], 0
+    for out_channels, num_blocks, voxel_resolution in blocks:
+        out_channels = int(r * out_channels)
+        if voxel_resolution is None:
+            block = SharedMLP
+        else:
+            block = functools.partial(PVConv, kernel_size=3, resolution=int
+                (vr * voxel_resolution), with_se=with_se, normalize=
+                normalize, eps=eps)
+        for _ in range(num_blocks):
+            layers.append(block(in_channels, out_channels))
+            in_channels = out_channels
+            concat_channels += out_channels
+    return layers, in_channels, concat_channels
 
 
 class BoxEstimationNet(nn.Module):

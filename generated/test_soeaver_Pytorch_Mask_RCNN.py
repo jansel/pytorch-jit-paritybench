@@ -461,69 +461,6 @@ class build_fpn_mask_graph(nn.Module):
         return x
 
 
-def apply_box_deltas_graph(boxes, deltas):
-    """Applies the given deltas to the given boxes.
-    boxes: [N, 4] where each row is y1, x1, y2, x2
-    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
-    """
-    height = boxes[:, :, (2)] - boxes[:, :, (0)]
-    width = boxes[:, :, (3)] - boxes[:, :, (1)]
-    center_y = boxes[:, :, (0)] + 0.5 * height
-    center_x = boxes[:, :, (1)] + 0.5 * width
-    center_y += deltas[:, :, (0)] * height
-    center_x += deltas[:, :, (1)] * width
-    height *= torch.exp(deltas[:, :, (2)])
-    width *= torch.exp(deltas[:, :, (3)])
-    y1 = center_y - 0.5 * height
-    x1 = center_x - 0.5 * width
-    y2 = y1 + height
-    x2 = x1 + width
-    result = [y1, x1, y2, x2]
-    return result
-
-
-def rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox, config):
-    """Return the RPN bounding box loss graph.
-
-    config: the model config object.
-    target_bbox: [batch, max positive anchors, (dy, dx, log(dh), log(dw))].
-        Uses 0 padding to fill in unsed bbox deltas.
-    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
-               -1=negative, 0=neutral anchor.
-    rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
-    """
-    indices = torch.eq(rpn_match, 1)
-    rpn_bbox = torch.masked_select(rpn_bbox, indices)
-    batch_counts = torch.sum(indices.float(), dim=1)
-    outputs = []
-    for i in range(config.IMAGES_PER_GPU):
-        outputs.append(target_bbox[torch.cuda.LongTensor([i]), torch.arange
-            (int(batch_counts[i].cpu().data.numpy()[0])).type(torch.cuda.
-            LongTensor)])
-    target_bbox = torch.cat(outputs, dim=0)
-    loss = F.smooth_l1_loss(rpn_bbox, target_bbox, size_average=True)
-    return loss
-
-
-def mrcnn_class_loss(target_class_ids, pred_class_logits, active_class_ids,
-    config):
-    """Loss for the classifier head of Mask RCNN.
-    target_class_ids: [batch, num_rois]. Integer class IDs. Uses zero
-        padding to fill in the array.
-    pred_class_logits: [batch, num_rois, num_classes]
-    active_class_ids: [batch, num_classes]. Has a value of 1 for
-        classes that are in the dataset of the image, and 0
-        for classes that are not in the dataset.
-    """
-    pred_class_logits = pred_class_logits.contiguous().view(-1, config.
-        NUM_CLASSES)
-    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.
-        cuda.LongTensor)
-    loss = F.cross_entropy(pred_class_logits, target_class_ids, weight=None,
-        size_average=True)
-    return loss
-
-
 def pth_nms(dets, thresh):
     """
   dets has to be a tensor
@@ -561,6 +498,58 @@ def nms(dets, thresh):
     return pth_nms(dets, thresh)
 
 
+def clip_boxes_graph(boxes, window):
+    """
+    boxes: [N, 4] each row is y1, x1, y2, x2
+    window: [4] in the form y1, x1, y2, x2
+    """
+    wy1, wx1, wy2, wx2 = window
+    y1, x1, y2, x2 = boxes
+    y1 = torch.max(torch.min(y1, wy2), wy1)
+    x1 = torch.max(torch.min(x1, wx2), wx1)
+    y2 = torch.max(torch.min(y2, wy2), wy1)
+    x2 = torch.max(torch.min(x2, wx2), wx1)
+    clipped = torch.stack([x1, y1, x2, y2], dim=2)
+    return clipped
+
+
+def rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox, config):
+    """Return the RPN bounding box loss graph.
+
+    config: the model config object.
+    target_bbox: [batch, max positive anchors, (dy, dx, log(dh), log(dw))].
+        Uses 0 padding to fill in unsed bbox deltas.
+    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
+               -1=negative, 0=neutral anchor.
+    rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
+    """
+    indices = torch.eq(rpn_match, 1)
+    rpn_bbox = torch.masked_select(rpn_bbox, indices)
+    batch_counts = torch.sum(indices.float(), dim=1)
+    outputs = []
+    for i in range(config.IMAGES_PER_GPU):
+        outputs.append(target_bbox[torch.cuda.LongTensor([i]), torch.arange
+            (int(batch_counts[i].cpu().data.numpy()[0])).type(torch.cuda.
+            LongTensor)])
+    target_bbox = torch.cat(outputs, dim=0)
+    loss = F.smooth_l1_loss(rpn_bbox, target_bbox, size_average=True)
+    return loss
+
+
+def mrcnn_mask_loss(target_masks, target_class_ids, pred_masks_logits):
+    """Mask binary cross-entropy loss for the masks head.
+
+    target_masks: [batch, num_rois, height, width].
+        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
+    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
+    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
+                with values from 0 to 1.
+    """
+    target_class_ids = target_class_ids.view(-1)
+    loss = F.binary_cross_entropy_with_logits(pred_masks_logits, target_masks)
+    return loss
+
+
 def to_variable(numpy_data, volatile=False):
     numpy_data = numpy_data.astype(np.float32)
     torch_data = torch.from_numpy(numpy_data).float()
@@ -586,6 +575,26 @@ def mrcnn_bbox_loss(target_bbox, target_class_ids, pred_bbox):
     return loss
 
 
+def compute_iou(box, boxes, box_area, boxes_area):
+    """Calculates IoU of the given box with the array of the given boxes.
+    box: 1D vector [y1, x1, y2, x2]
+    boxes: [boxes_count, (y1, x1, y2, x2)]
+    box_area: float. the area of 'box'
+    boxes_area: array of length boxes_count.
+
+    Note: the areas are passed in rather than calculated here for
+          efficency. Calculate once in the caller to avoid duplicate work.
+    """
+    y1 = np.maximum(box[0], boxes[:, (0)])
+    y2 = np.minimum(box[2], boxes[:, (2)])
+    x1 = np.maximum(box[1], boxes[:, (1)])
+    x2 = np.minimum(box[3], boxes[:, (3)])
+    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+    union = box_area + boxes_area[:] - intersection[:]
+    iou = intersection / union
+    return iou
+
+
 def box_refinement(box, gt_box):
     """Compute refinement needed to transform box to gt_box.
     box and gt_box are [N, (y1, x1, y2, x2)]. (y2, x2) is
@@ -606,26 +615,6 @@ def box_refinement(box, gt_box):
     dh = np.log(gt_height / height)
     dw = np.log(gt_width / width)
     return np.stack([dy, dx, dh, dw], axis=1)
-
-
-def compute_iou(box, boxes, box_area, boxes_area):
-    """Calculates IoU of the given box with the array of the given boxes.
-    box: 1D vector [y1, x1, y2, x2]
-    boxes: [boxes_count, (y1, x1, y2, x2)]
-    box_area: float. the area of 'box'
-    boxes_area: array of length boxes_count.
-
-    Note: the areas are passed in rather than calculated here for
-          efficency. Calculate once in the caller to avoid duplicate work.
-    """
-    y1 = np.maximum(box[0], boxes[:, (0)])
-    y2 = np.minimum(box[2], boxes[:, (2)])
-    x1 = np.maximum(box[1], boxes[:, (1)])
-    x2 = np.minimum(box[3], boxes[:, (3)])
-    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
-    union = box_area + boxes_area[:] - intersection[:]
-    iou = intersection / union
-    return iou
 
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config
@@ -758,39 +747,6 @@ def stage2_target(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
         batch_mrcnn_mask)
 
 
-def clip_boxes_graph(boxes, window):
-    """
-    boxes: [N, 4] each row is y1, x1, y2, x2
-    window: [4] in the form y1, x1, y2, x2
-    """
-    wy1, wx1, wy2, wx2 = window
-    y1, x1, y2, x2 = boxes
-    y1 = torch.max(torch.min(y1, wy2), wy1)
-    x1 = torch.max(torch.min(x1, wx2), wx1)
-    y2 = torch.max(torch.min(y2, wy2), wy1)
-    x2 = torch.max(torch.min(x2, wx2), wx1)
-    clipped = torch.stack([x1, y1, x2, y2], dim=2)
-    return clipped
-
-
-def rpn_class_loss(rpn_match, rpn_class_logits):
-    """RPN anchor classifier loss.
-
-    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
-               -1=negative, 0=neutral anchor.
-    rpn_class_logits: [batch, anchors, 2]. RPN classifier logits for FG/BG.
-    """
-    anchor_class = torch.eq(rpn_match, 1)
-    indices = torch.ne(rpn_match, 0.0)
-    rpn_class_logits = torch.masked_select(rpn_class_logits, indices)
-    anchor_class = torch.masked_select(anchor_class, indices)
-    rpn_class_logits = rpn_class_logits.contiguous().view(-1, 2)
-    anchor_class = anchor_class.contiguous().view(-1).type(torch.cuda.
-        LongTensor)
-    loss = F.cross_entropy(rpn_class_logits, anchor_class, weight=None)
-    return loss
-
-
 def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
     """
     scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
@@ -837,17 +793,61 @@ def generate_pyramid_anchors(scales, ratios, feature_shapes,
     return np.concatenate(anchors, axis=0)
 
 
-def mrcnn_mask_loss(target_masks, target_class_ids, pred_masks_logits):
-    """Mask binary cross-entropy loss for the masks head.
-
-    target_masks: [batch, num_rois, height, width].
-        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
-    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
-    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
-                with values from 0 to 1.
+def apply_box_deltas_graph(boxes, deltas):
+    """Applies the given deltas to the given boxes.
+    boxes: [N, 4] where each row is y1, x1, y2, x2
+    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
     """
-    target_class_ids = target_class_ids.view(-1)
-    loss = F.binary_cross_entropy_with_logits(pred_masks_logits, target_masks)
+    height = boxes[:, :, (2)] - boxes[:, :, (0)]
+    width = boxes[:, :, (3)] - boxes[:, :, (1)]
+    center_y = boxes[:, :, (0)] + 0.5 * height
+    center_x = boxes[:, :, (1)] + 0.5 * width
+    center_y += deltas[:, :, (0)] * height
+    center_x += deltas[:, :, (1)] * width
+    height *= torch.exp(deltas[:, :, (2)])
+    width *= torch.exp(deltas[:, :, (3)])
+    y1 = center_y - 0.5 * height
+    x1 = center_x - 0.5 * width
+    y2 = y1 + height
+    x2 = x1 + width
+    result = [y1, x1, y2, x2]
+    return result
+
+
+def rpn_class_loss(rpn_match, rpn_class_logits):
+    """RPN anchor classifier loss.
+
+    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
+               -1=negative, 0=neutral anchor.
+    rpn_class_logits: [batch, anchors, 2]. RPN classifier logits for FG/BG.
+    """
+    anchor_class = torch.eq(rpn_match, 1)
+    indices = torch.ne(rpn_match, 0.0)
+    rpn_class_logits = torch.masked_select(rpn_class_logits, indices)
+    anchor_class = torch.masked_select(anchor_class, indices)
+    rpn_class_logits = rpn_class_logits.contiguous().view(-1, 2)
+    anchor_class = anchor_class.contiguous().view(-1).type(torch.cuda.
+        LongTensor)
+    loss = F.cross_entropy(rpn_class_logits, anchor_class, weight=None)
+    return loss
+
+
+def mrcnn_class_loss(target_class_ids, pred_class_logits, active_class_ids,
+    config):
+    """Loss for the classifier head of Mask RCNN.
+    target_class_ids: [batch, num_rois]. Integer class IDs. Uses zero
+        padding to fill in the array.
+    pred_class_logits: [batch, num_rois, num_classes]
+    active_class_ids: [batch, num_classes]. Has a value of 1 for
+        classes that are in the dataset of the image, and 0
+        for classes that are not in the dataset.
+    """
+    pred_class_logits = pred_class_logits.contiguous().view(-1, config.
+        NUM_CLASSES)
+    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.
+        cuda.LongTensor)
+    loss = F.cross_entropy(pred_class_logits, target_class_ids, weight=None,
+        size_average=True)
     return loss
 
 

@@ -122,98 +122,93 @@ from torch._utils import _unflatten_dense_tensors
 from torch.nn.utils import clip_grad_norm_
 
 
-def center_to_minmax_2d_0_5(centers, dims):
-    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
-
-
-def corners_nd(dims, origin=0.5):
-    """generate relative box corners based on length per dim and
-    origin point.
-
+def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9, 
+    1.56),), rotations=(0, np.pi / 2), dtype=np.float32):
+    """
     Args:
-        dims (float array, shape=[N, ndim]): array of length per dim
-        origin (list or array or float): origin point relate to smallest point.
+        feature_size: list [D, H, W](zyx)
+        sizes: [N, 3] list of list or array, size of anchors, xyz
 
     Returns:
-        float array, shape=[N, 2 ** ndim, ndim]: returned corners.
-        point layout example: (2d) x0y0, x0y1, x1y0, x1y1;
-            (3d) x0y0z0, x0y0z1, x0y1z0, x0y1z1, x1y0z0, x1y0z1, x1y1z0, x1y1z1
-            where x0 < x1, y0 < y1, z0 < z1
+        anchors: [*feature_size, num_sizes, num_rots, 7] tensor.
     """
-    ndim = int(dims.shape[1])
-    corners_norm = np.stack(np.unravel_index(np.arange(2 ** ndim), [2] *
-        ndim), axis=1).astype(dims.dtype)
-    if ndim == 2:
-        corners_norm = corners_norm[[0, 1, 3, 2]]
-    elif ndim == 3:
-        corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
-    corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
-    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2 **
-        ndim, ndim])
-    return corners
+    anchor_range = np.array(anchor_range, dtype)
+    z_centers = np.linspace(anchor_range[2], anchor_range[5], feature_size[
+        0], dtype=dtype)
+    y_centers = np.linspace(anchor_range[1], anchor_range[4], feature_size[
+        1], dtype=dtype)
+    x_centers = np.linspace(anchor_range[0], anchor_range[3], feature_size[
+        2], dtype=dtype)
+    sizes = np.reshape(np.array(sizes, dtype=dtype), [-1, 3])
+    rotations = np.array(rotations, dtype=dtype)
+    rets = np.meshgrid(x_centers, y_centers, z_centers, rotations, indexing
+        ='ij')
+    tile_shape = [1] * 5
+    tile_shape[-2] = int(sizes.shape[0])
+    for i in range(len(rets)):
+        rets[i] = np.tile(rets[i][(...), (np.newaxis), :], tile_shape)
+        rets[i] = rets[i][..., np.newaxis]
+    sizes = np.reshape(sizes, [1, 1, 1, -1, 1, 3])
+    tile_size_shape = list(rets[0].shape)
+    tile_size_shape[3] = 1
+    sizes = np.tile(sizes, tile_size_shape)
+    rets.insert(3, sizes)
+    ret = np.concatenate(rets, axis=-1)
+    return np.transpose(ret, [2, 1, 0, 3, 4, 5])
 
 
-def rotation_2d(points, angles):
-    """rotation 2d points based on origin point clockwise when angle positive.
+class AnchorGeneratorRange(object):
 
-    Args:
-        points (float array, shape=[N, point_size, 2]): points to be rotated.
-        angles (float array, shape=[N]): rotation angle.
+    def __init__(self, anchor_ranges, sizes=((1.6, 3.9, 1.56),), rotations=
+        (0, np.pi / 2), class_name=None, match_threshold=-1,
+        unmatch_threshold=-1, custom_values=None, dtype=np.float32,
+        feature_map_size=None):
+        self._sizes = sizes
+        self._anchor_ranges = anchor_ranges
+        self._rotations = rotations
+        self._dtype = dtype
+        self._class_name = class_name
+        self._match_threshold = match_threshold
+        self._unmatch_threshold = unmatch_threshold
+        self._custom_values = custom_values
+        self._feature_map_size = feature_map_size
 
-    Returns:
-        float array: same shape as points
-    """
-    rot_sin = np.sin(angles)
-    rot_cos = np.cos(angles)
-    rot_mat_T = np.stack([[rot_cos, -rot_sin], [rot_sin, rot_cos]])
-    return np.einsum('aij,jka->aik', points, rot_mat_T)
+    @property
+    def class_name(self):
+        return self._class_name
 
+    @property
+    def match_threshold(self):
+        return self._match_threshold
 
-def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
-    """convert kitti locations, dimensions and angles to corners.
-    format: center(xy), dims(xy), angles(clockwise when positive)
+    @property
+    def unmatch_threshold(self):
+        return self._unmatch_threshold
 
-    Args:
-        centers (float array, shape=[N, 2]): locations in kitti label file.
-        dims (float array, shape=[N, 2]): dimensions in kitti label file.
-        angles (float array, shape=[N]): rotation_y in kitti label file.
+    @property
+    def custom_values(self):
+        return self.custom_values
 
-    Returns:
-        [type]: [description]
-    """
-    corners = corners_nd(dims, origin=origin)
-    if angles is not None:
-        corners = rotation_2d(corners, angles)
-    corners += centers.reshape([-1, 1, 2])
-    return corners
+    @property
+    def feature_map_size(self):
+        return self._feature_map_size
 
+    @property
+    def num_anchors_per_localization(self):
+        num_rot = len(self._rotations)
+        num_size = np.array(self._sizes).reshape([-1, 3]).shape[0]
+        return num_rot * num_size
 
-def center_to_minmax_2d(centers, dims, origin=0.5):
-    if origin == 0.5:
-        return center_to_minmax_2d_0_5(centers, dims)
-    corners = center_to_corner_box2d(centers, dims, origin=origin)
-    return corners[:, ([0, 2])].reshape([-1, 4])
-
-
-def rbbox2d_to_near_bbox(rbboxes):
-    """convert rotated bbox to nearest 'standing' or 'lying' bbox.
-    Args:
-        rbboxes: [N, 5(x, y, xdim, ydim, rad)] rotated bboxes
-    Returns:
-        bboxes: [N, 4(xmin, ymin, xmax, ymax)] bboxes
-    """
-    rots = rbboxes[..., -1]
-    rots_0_pi_div_2 = np.abs(common_utils.limit_period(rots, 0.5, np.pi))
-    cond = (rots_0_pi_div_2 > np.pi / 4)[..., np.newaxis]
-    bboxes_center = np.where(cond, rbboxes[:, ([0, 1, 3, 2])], rbboxes[:, :4])
-    bboxes = center_to_minmax_2d(bboxes_center[:, :2], bboxes_center[:, 2:])
-    return bboxes
-
-
-_global_config['LOCAL_RANK'] = 4
-
-
-_global_config['MODEL'] = 4
+    def generate(self, feature_map_size):
+        anchors = create_anchors_3d_range(feature_map_size, self.
+            _anchor_ranges, self._sizes, self._rotations, self._dtype)
+        if self._custom_values is not None:
+            custom_values = np.zeros((*anchors.shape[:-1], len(self.
+                _custom_values)), dtype=self._dtype)
+            for k in range(len(self._custom_values)):
+                custom_values[..., k] = self._custom_values[k]
+            anchors = np.concatenate((anchors, custom_values), axis=-1)
+        return anchors
 
 
 class Empty(torch.nn.Module):
@@ -574,6 +569,9 @@ def proposal_target_layer(input_dict, roi_sampler_cfg):
         batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois,
         'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
     return output_dict
+
+
+_global_config['MODEL'] = 4
 
 
 class RCNNHead(nn.Module):

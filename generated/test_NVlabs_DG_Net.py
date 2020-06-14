@@ -1198,39 +1198,6 @@ class PCB_test(nn.Module):
         return y
 
 
-def load_network(network, name):
-    save_path = os.path.join('./models', name, 'net_last.pth')
-    network.load_state_dict(torch.load(save_path))
-    return network
-
-
-def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
-        ] == 'constant':
-        scheduler = None
-    elif hyperparameters['lr_policy'] == 'step':
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=
-            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
-            last_epoch=iterations)
-    elif hyperparameters['lr_policy'] == 'multistep':
-        step = hyperparameters['step_size']
-        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[step, 
-            step + step // 2, step + step // 2 + step // 4], gamma=
-            hyperparameters['gamma'], last_epoch=iterations)
-    else:
-        return NotImplementedError(
-            'learning rate policy [%s] is not implemented', hyperparameters
-            ['lr_policy'])
-    return scheduler
-
-
-def scale2(x):
-    if x.size(2) > 128:
-        return x
-    x = torch.nn.functional.upsample(x, scale_factor=2, mode='nearest')
-    return x
-
-
 class RandomErasing(object):
     """ Randomly selects a rectangle region in an image and erases its pixels.
         'Random Erasing Data Augmentation' by Zhong et al.
@@ -1274,6 +1241,38 @@ class RandomErasing(object):
         return img.detach()
 
 
+def get_model_list(dirname, key):
+    if os.path.exists(dirname) is False:
+        return None
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
+        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    if gen_models is None:
+        return None
+    gen_models.sort()
+    last_model_name = gen_models[-1]
+    return last_model_name
+
+
+def get_scheduler(optimizer, hyperparameters, iterations=-1):
+    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
+        ] == 'constant':
+        scheduler = None
+    elif hyperparameters['lr_policy'] == 'step':
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=
+            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
+            last_epoch=iterations)
+    elif hyperparameters['lr_policy'] == 'multistep':
+        step = hyperparameters['step_size']
+        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[step, 
+            step + step // 2, step + step // 2 + step // 4], gamma=
+            hyperparameters['gamma'], last_epoch=iterations)
+    else:
+        return NotImplementedError(
+            'learning rate policy [%s] is not implemented', hyperparameters
+            ['lr_policy'])
+    return scheduler
+
+
 def load_config(name):
     config_path = os.path.join('./models', name, 'opts.yaml')
     with open(config_path, 'r') as stream:
@@ -1281,10 +1280,29 @@ def load_config(name):
     return config
 
 
-parser = argparse.ArgumentParser()
+def load_network(network, name):
+    save_path = os.path.join('./models', name, 'net_last.pth')
+    network.load_state_dict(torch.load(save_path))
+    return network
 
 
-opt = parser.parse_args()
+def load_vgg16(model_dir):
+    """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
+        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
+            os.system(
+                'wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O '
+                 + os.path.join(model_dir, 'vgg16.t7'))
+        vgglua = load_lua(os.path.join(model_dir, 'vgg16.t7'))
+        vgg = Vgg16()
+        for src, dst in zip(vgglua.parameters()[0], vgg.parameters()):
+            dst.data[:] = src
+        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
+    vgg = Vgg16()
+    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
+    return vgg
 
 
 def fliplr(img):
@@ -1292,6 +1310,12 @@ def fliplr(img):
     inv_idx = torch.arange(img.size(3) - 1, -1, -1).long().cuda()
     img_flip = img.index_select(3, inv_idx)
     return img_flip
+
+
+parser = argparse.ArgumentParser()
+
+
+opt = parser.parse_args()
 
 
 def predict_label(teacher_models, inputs, num_class, alabel, slabel,
@@ -1362,39 +1386,11 @@ def predict_label(teacher_models, inputs, num_class, alabel, slabel,
     return outputs_t
 
 
-def load_vgg16(model_dir):
-    """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
-        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
-            os.system(
-                'wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O '
-                 + os.path.join(model_dir, 'vgg16.t7'))
-        vgglua = load_lua(os.path.join(model_dir, 'vgg16.t7'))
-        vgg = Vgg16()
-        for src, dst in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
-    vgg = Vgg16()
-    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
-    return vgg
-
-
-def to_gray(half=False):
-
-    def forward(x):
-        x = torch.mean(x, dim=1, keepdim=True)
-        if half:
-            x = x.half()
+def scale2(x):
+    if x.size(2) > 128:
         return x
-    return forward
-
-
-def train_bn(m):
-    classname = m.__class__.__name__
-    if classname.find('BatchNorm') != -1:
-        m.train()
+    x = torch.nn.functional.upsample(x, scale_factor=2, mode='nearest')
+    return x
 
 
 def recover(inp):
@@ -1423,16 +1419,20 @@ def to_edge(x):
     return out.cuda()
 
 
-def get_model_list(dirname, key):
-    if os.path.exists(dirname) is False:
-        return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
-    if gen_models is None:
-        return None
-    gen_models.sort()
-    last_model_name = gen_models[-1]
-    return last_model_name
+def to_gray(half=False):
+
+    def forward(x):
+        x = torch.mean(x, dim=1, keepdim=True)
+        if half:
+            x = x.half()
+        return x
+    return forward
+
+
+def train_bn(m):
+    classname = m.__class__.__name__
+    if classname.find('BatchNorm') != -1:
+        m.train()
 
 
 def vgg_preprocess(batch):

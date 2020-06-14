@@ -239,6 +239,11 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
+def conv_bn(inp, oup, kernels, stride, pad):
+    return nn.Sequential(nn.Conv2d(inp, oup, kernels, stride, pad, bias=
+        False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+
+
 def weights_init_reg(m):
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
         n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -252,11 +257,6 @@ def weights_init_reg(m):
         n = m.weight.size(1)
         m.weight.data.normal_(0, 0.01)
         m.bias.data.zero_()
-
-
-def conv_bn(inp, oup, kernels, stride, pad):
-    return nn.Sequential(nn.Conv2d(inp, oup, kernels, stride, pad, bias=
-        False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2REG(nn.Module):
@@ -459,6 +459,25 @@ class ResnetGenerator(nn.Module):
             return self.model(input)
 
 
+def weights_init_xavier(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        init.xavier_normal(m.weight.data, gain=1)
+    elif classname.find('Linear') != -1:
+        init.xavier_normal(m.weight.data, gain=1)
+    elif classname.find('BatchNorm2d') != -1:
+        init.uniform(m.weight.data, 1.0, 0.02)
+        init.constant(m.bias.data, 0.0)
+
+
+def define_G(gpu_ids=[]):
+    netG = ResnetGenerator(gpu_ids=gpu_ids)
+    if len(gpu_ids) > 0:
+        netG.cuda(gpu_ids[0])
+    netG.apply(weights_init_xavier)
+    return netG
+
+
 def find_tensor_peak_batch(heatmap, radius, downsample, threshold=1e-06):
     assert heatmap.dim(
         ) == 3, 'The dimension of the heatmap is wrong : {}'.format(heatmap
@@ -501,25 +520,6 @@ def find_tensor_peak_batch(heatmap, radius, downsample, threshold=1e-06):
     x = x * downsample + downsample / 2.0 - 0.5
     y = y * downsample + downsample / 2.0 - 0.5
     return torch.stack([x, y], 1), score
-
-
-def weights_init_xavier(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        init.xavier_normal(m.weight.data, gain=1)
-    elif classname.find('Linear') != -1:
-        init.xavier_normal(m.weight.data, gain=1)
-    elif classname.find('BatchNorm2d') != -1:
-        init.uniform(m.weight.data, 1.0, 0.02)
-        init.constant(m.bias.data, 0.0)
-
-
-def define_G(gpu_ids=[]):
-    netG = ResnetGenerator(gpu_ids=gpu_ids)
-    if len(gpu_ids) > 0:
-        netG.cuda(gpu_ids[0])
-    netG.apply(weights_init_xavier)
-    return netG
 
 
 def get_parameters(model, bias):
@@ -1286,42 +1286,4 @@ class TeacherNet(nn.Module):
 
     def forward(self, inputs):
         return self.model(inputs)
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_D_X_Y_landmark_detection(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(HourglassNet(*[], **{'nStack': 4, 'nModules': 4, 'nFeats': 4, 'nJoints': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(MobileNetV2REG(*[], **{'input_dim': 4, 'input_channel': 4, 'width_mult': 4, 'pts_num': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_008(self):
-        self._check(Residual(*[], **{'numIn': 4, 'numOut': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(TeacherNet(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 

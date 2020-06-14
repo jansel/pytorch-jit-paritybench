@@ -341,10 +341,6 @@ class Encoder(nn.Module):
         return m, v
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
 def reduce_tensor(tensor, world_size=None):
     rt = tensor.clone()
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)

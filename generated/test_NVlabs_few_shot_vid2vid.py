@@ -1209,12 +1209,6 @@ class FlowNet2CSS(nn.Module):
         return flownets2_flow
 
 
-def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
-
-
 def predict_flow(in_planes):
     return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
         =True)
@@ -1230,6 +1224,12 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
         return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
             kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
             bias=True), nn.LeakyReLU(0.1, inplace=True))
+
+
+def deconv(in_planes, out_planes):
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
+        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
+        inplace=True))
 
 
 class FlowNetC(nn.Module):
@@ -1867,20 +1867,6 @@ class SPADE(nn.Module):
         return out
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1905,6 +1891,20 @@ class FutureResult(object):
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class SyncMaster(object):
@@ -1982,11 +1982,6 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
@@ -1994,6 +1989,11 @@ def _sum_ft(tensor):
 
 _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])

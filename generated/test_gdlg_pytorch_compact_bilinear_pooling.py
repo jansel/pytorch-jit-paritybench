@@ -31,6 +31,15 @@ import torch.nn as nn
 from torch.autograd import Function
 
 
+def CountSketchFn_backward(h, s, x_size, grad_output):
+    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
+    s = s.view(s_view)
+    h = h.view(s_view).expand(x_size)
+    grad_x = grad_output.gather(-1, h)
+    grad_x = grad_x * s
+    return grad_x
+
+
 def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     x_size = tuple(x.size())
     s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
@@ -44,15 +53,6 @@ def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     else:
         out = x.new(*out_size).zero_()
         return out.scatter_add_(-1, h, xs)
-
-
-def CountSketchFn_backward(h, s, x_size, grad_output):
-    s_view = (1,) * (len(x_size) - 1) + (x_size[-1],)
-    s = s.view(s_view)
-    h = h.view(s_view).expand(x_size)
-    grad_x = grad_output.gather(-1, h)
-    grad_x = grad_x * s
-    return grad_x
 
 
 class CountSketchFn(Function):

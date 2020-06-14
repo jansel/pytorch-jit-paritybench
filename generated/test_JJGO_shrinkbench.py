@@ -294,16 +294,16 @@ class LeNet(nn.Module):
         return x
 
 
-def _same_device(x_mask, x):
-    if x.device != x_mask.device:
-        return x_mask.to(x.device)
-    return x_mask
-
-
 def _same_shape(x_mask, x):
     if isinstance(x, torch.Tensor):
         x = x.cpu().detach().numpy()
     return x.shape == x_mask.shape
+
+
+def _same_device(x_mask, x):
+    if x.device != x_mask.device:
+        return x_mask.to(x.device)
+    return x_mask
 
 
 def _ensure_tensor(x):

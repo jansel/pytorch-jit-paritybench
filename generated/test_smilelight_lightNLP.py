@@ -218,12 +218,12 @@ class ColoredFormatter(logging.Formatter):
         return message
 
 
+STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
 STDOUT_LOG_FMT = (
     '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
     )
-
-
-STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
 FILE_LOG_FMT = (
@@ -462,122 +462,110 @@ class MLP(nn.Module):
         return x
 
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+class Metric(object):
+
+    def __lt__(self, other):
+        return self.score < other
+
+    def __le__(self, other):
+        return self.score <= other
+
+    def __eq__(self, other):
+        return self.score == other
+
+    def __ge__(self, other):
+        return self.score >= other
+
+    def __gt__(self, other):
+        return self.score > other
+
+    def __ne__(self, other):
+        return self.score != other
+
+    @property
+    def score(self):
+        raise AttributeError
 
 
-def adjust_learning_rate(optimizer, new_lr):
-    """
-    Shrinks learning rate by a specified factor.
+class AttachmentMethod(Metric):
 
-    :param optimizer: optimizer whose learning rates must be decayed
-    :param new_lr: new learning rate
-    """
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
+    def __init__(self, eps=1e-05):
+        super(AttachmentMethod, self).__init__()
+        self.eps = eps
+        self.total = 0.0
+        self.correct_arcs = 0.0
+        self.correct_rels = 0.0
+
+    def __call__(self, pred_arcs, pred_rels, gold_arcs, gold_rels):
+        arc_mask = pred_arcs.eq(gold_arcs)
+        rel_mask = pred_rels.eq(gold_rels) & arc_mask
+        self.total += len(arc_mask)
+        self.correct_arcs += arc_mask.sum().item()
+        self.correct_rels += rel_mask.sum().item()
+
+    def __repr__(self):
+        return f'UAS: {self.uas:.2%} LAS: {self.las:.2%}'
+
+    @property
+    def score(self):
+        return self.las
+
+    @property
+    def uas(self):
+        return self.correct_arcs / (self.total + self.eps)
+
+    @property
+    def las(self):
+        return self.correct_rels / (self.total + self.eps)
 
 
 DEFAULT_CONFIG = {'save_path': './saves'}
 
 
-class BiLstmCrf(BaseModel):
+class BaseConfig(object):
 
-    def __init__(self, args):
-        super(BiLstmCrf, self).__init__(args)
-        self.args = args
-        self.hidden_dim = 300
-        self.tag_num = args.tag_num
-        self.batch_size = args.batch_size
-        self.bidirectional = True
-        self.num_layers = args.num_layers
-        self.pad_index = args.pad_index
-        self.dropout = args.dropout
-        self.save_path = args.save_path
-        vocabulary_size = args.vocabulary_size
-        embedding_dimension = args.embedding_dim
-        pos_size = args.pos_size
-        pos_dim = args.pos_dim
-        self.word_embedding = nn.Embedding(vocabulary_size, embedding_dimension
-            ).to(DEVICE)
-        if args.static:
-            logger.info('logging word vectors from {}'.format(args.vector_path)
-                )
-            vectors = Vectors(args.vector_path).vectors
-            self.word_embedding = nn.Embedding.from_pretrained(vectors,
-                freeze=not args.non_static).to(DEVICE)
-        self.pos_embedding = nn.Embedding(pos_size, pos_dim).to(DEVICE)
-        self.lstm = nn.LSTM(embedding_dimension + pos_dim + 1, self.
-            hidden_dim // 2, bidirectional=self.bidirectional, num_layers=
-            self.num_layers, dropout=self.dropout).to(DEVICE)
-        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
-        self.crflayer = CRF(self.tag_num).to(DEVICE)
+    def __init__(self):
+        pass
 
-    def init_weight(self):
-        nn.init.xavier_normal_(self.embedding.weight)
-        for name, param in self.lstm.named_parameters():
-            if 'weight' in name:
-                nn.init.xavier_normal_(param)
-        nn.init.xavier_normal_(self.hidden2label.weight)
+    @staticmethod
+    def load(path=DEFAULT_CONFIG['save_path']):
+        config_path = os.path.join(path, 'config.pkl')
+        with open(config_path, 'rb') as f:
+            config = pickle.load(f)
+        logger.info('loadding config from {}'.format(config_path))
+        config.save_path = path
+        return config
 
-    def init_hidden(self, batch_size=None):
-        if batch_size is None:
-            batch_size = self.batch_size
-        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
-        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
-        return h0, c0
-
-    def loss(self, x, sent_lengths, pos, rel, y):
-        mask = torch.ne(x, self.pad_index)
-        emissions = self.lstm_forward(x, pos, rel, sent_lengths)
-        return self.crflayer(emissions, y, mask=mask)
-
-    def forward(self, x, poses, rels, sent_lengths):
-        mask = torch.ne(x, self.pad_index)
-        emissions = self.lstm_forward(x, poses, rels, sent_lengths)
-        return self.crflayer.decode(emissions, mask=mask)
-
-    def lstm_forward(self, sentence, poses, rels, sent_lengths):
-        word = self.word_embedding(sentence.to(DEVICE)).to(DEVICE)
-        pos = self.pos_embedding(poses.to(DEVICE)).to(DEVICE)
-        rels = rels.view(rels.size(0), rels.size(1), 1).float().to(DEVICE)
-        x = torch.cat((word, pos, rels), dim=2)
-        x = pack_padded_sequence(x, sent_lengths)
-        self.hidden = self.init_hidden(batch_size=len(sent_lengths))
-        lstm_out, self.hidden = self.lstm(x, self.hidden)
-        lstm_out, new_batch_size = pad_packed_sequence(lstm_out)
-        assert torch.equal(sent_lengths, new_batch_size.to(DEVICE))
-        y = self.hidden2label(lstm_out.to(DEVICE))
-        return y.to(DEVICE)
+    def save(self, path=None):
+        if not hasattr(self, 'save_path'):
+            raise AttributeError(
+                'config object must init save_path attr in init method!')
+        path = path if path else self.save_path
+        if not os.path.isdir(path):
+            os.mkdir(path)
+        config_path = os.path.join(path, 'config.pkl')
+        with open(os.path.join(path, 'config.pkl'), 'wb') as f:
+            pickle.dump(self, f)
+        logger.info('saved config to {}'.format(config_path))
 
 
-def bis_pos(words, tags):
-    assert len(words) == len(tags)
-    poses = []
-    for i, tag in enumerate(tags):
-        if tag.split('-')[0] in ['B', 'S']:
-            begin = i
-            temp_type = tag.split('-')[1]
-        if i == len(tags) - 1:
-            poses.append((''.join(words[begin:i + 1]), temp_type))
-        elif tags[i + 1].split('-')[0] != 'I' or tags[i + 1].split('-')[1
-            ] != temp_type:
-            poses.append((''.join(words[begin:i + 1]), temp_type))
-            begin = i + 1
-            temp_type = tags[i + 1].split('-')[1]
-    return poses
+class Config(BaseConfig):
+
+    def __init__(self, word_vocab, **kwargs):
+        super(Config, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        for name, value in kwargs.items():
+            setattr(self, name, value)
 
 
-def get_free_tcp_port():
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind(('', 0))
-    addr, port = tcp.getsockname()
-    tcp.close()
-    return port
+ROOT = '<ROOT>'
 
 
-def light_tokenize(sequence: str):
-    return [sequence]
+def post_process(arr, _):
+    return [[int(item) for item in arr_item] for arr_item in arr]
 
 
 class Actions:
@@ -587,6 +575,9 @@ class Actions:
     REDUCE_R = 2
     NUM_ACTIONS = 3
     action_to_ix = {'SHIFT': SHIFT, 'REDUCE_L': REDUCE_L, 'REDUCE_R': REDUCE_R}
+
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class ActionChooserNetwork(nn.Module):
@@ -715,7 +706,27 @@ class BiLSTMWordEmbeddingLookup(nn.Module):
         self.hidden = self.init_hidden()
 
 
-ROOT_TOK = '<ROOT>'
+def adjust_learning_rate(optimizer, new_lr):
+    """
+    Shrinks learning rate by a specified factor.
+
+    :param optimizer: optimizer whose learning rates must be decayed
+    :param new_lr: new learning rate
+    """
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+
+
+def light_tokenize(sequence: str):
+    return [sequence]
+
+
+def get_free_tcp_port():
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(('', 0))
+    addr, port = tcp.getsockname()
+    tcp.close()
+    return port
 
 
 class TextCNN(BaseModel):
@@ -943,6 +954,87 @@ class Seq2Seq(nn.Module):
             top1 = output.data.max(1)[1]
             decoder_input = top1.to(DEVICE)
         return outputs
+
+
+class CBSeq2Seq(BaseModel):
+
+    def __init__(self, args):
+        super(CBSeq2Seq, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.embedding_dim
+        self.vocabulary_size = args.vocabulary_size
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        self.teacher_forcing_ratio = args.teacher_forcing_ratio
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        encoder = Encoder(vocabulary_size, embedding_dimension, self.
+            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
+        decoder = Decoder(self.hidden_dim, embedding_dimension,
+            vocabulary_size, self.num_layers, self.dropout, args.method).to(
+            DEVICE)
+        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
+
+    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        return self.seq2seq(src, trg, teacher_forcing_ratio)
+
+    def predict(self, src, src_lens, sos, max_len):
+        return self.seq2seq.predict(src, src_lens, sos, max_len)
+
+
+class RNNLM(BaseModel):
+
+    def __init__(self, args):
+        super(RNNLM, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.embedding_dim
+        self.vocabulary_size = args.vocabulary_size
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        self.embedding = nn.Embedding(vocabulary_size, embedding_dimension).to(
+            DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.embedding = self.embedding.from_pretrained(vectors, freeze
+                =not args.non_static).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension, self.hidden_dim,
+            num_layers=self.num_layers, dropout=self.dropout).to(DEVICE)
+        self.bath_norm = nn.BatchNorm1d(embedding_dimension).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim, self.vocabulary_size
+            ).to(DEVICE)
+
+    def init_weight(self):
+        nn.init.xavier_normal_(self.embedding.weight)
+        for name, param in self.lstm.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_normal_(param)
+                nn.init.xavier_normal_(self.hidden2label.weight)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
+            DEVICE)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
+            DEVICE)
+        return h0, c0
+
+    def forward(self, sentence):
+        x = self.embedding(sentence.to(DEVICE)).to(DEVICE)
+        self.hidden = self.init_hidden(batch_size=sentence.size(1))
+        lstm_out, self.hidden = self.lstm(x, self.hidden)
+        lstm_out = lstm_out.view(-1, lstm_out.size(2))
+        lstm_out = self.bath_norm(lstm_out)
+        y = self.hidden2label(lstm_out.to(DEVICE))
+        return y.to(DEVICE)
 
 
 class Attention(nn.Module):
@@ -1241,26 +1333,32 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
-class CBOWBase(BaseModel):
+class TSSeq2Seq(BaseModel):
 
     def __init__(self, args):
-        super(CBOWBase, self).__init__(args)
+        super(TSSeq2Seq, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.embedding_dim
         self.vocabulary_size = args.vocabulary_size
-        self.embedding_dimension = args.embedding_dim
-        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
-        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
-            ).to(DEVICE)
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        self.teacher_forcing_ratio = args.teacher_forcing_ratio
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        encoder = Encoder(vocabulary_size, embedding_dimension, self.
+            hidden_dim, self.num_layers, self.dropout).to(DEVICE)
+        decoder = Decoder(self.hidden_dim, embedding_dimension,
+            vocabulary_size, self.num_layers, self.dropout, args.method).to(
+            DEVICE)
+        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
 
-    def forward(self, context):
-        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
-        target_embedding = self.linear(context_embedding)
-        return target_embedding
+    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        return self.seq2seq(src, trg, teacher_forcing_ratio)
 
-    def loss(self, context, target):
-        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
-        target_embedding = self.linear(context_embedding)
-        return F.cross_entropy(target_embedding, target.view(-1))
+    def predict(self, src, src_lens, sos, max_len):
+        return self.seq2seq.predict(src, src_lens, sos, max_len)
 
 
 def default_tokenize(sentence):
@@ -1283,9 +1381,6 @@ class CBOWDataset(Dataset):
                         ], words[i]
                     examples.append(Example.fromlist(example, fields))
         super(CBOWDataset, self).__init__(examples, fields, **kwargs)
-
-
-ROOT = '<ROOT>'
 
 
 class SkipGramDataset(Dataset):

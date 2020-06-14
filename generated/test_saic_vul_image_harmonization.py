@@ -1250,19 +1250,6 @@ def _safe_state_dict_filtering(orig_dict, model_dict_keys):
     return filtered_orig_dict
 
 
-def resnet152_v1s(pretrained=False, **kwargs):
-    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True,
-        stem_width=64, **kwargs)
-    if pretrained:
-        model_dict = model.state_dict()
-        filtered_orig_dict = _safe_state_dict_filtering(torch.hub.load(
-            GLUON_RESNET_TORCH_HUB, 'gluon_resnet152_v1s', pretrained=True)
-            .state_dict(), model_dict.keys())
-        model_dict.update(filtered_orig_dict)
-        model.load_state_dict(model_dict)
-    return model
-
-
 def resnet101_v1s(pretrained=False, **kwargs):
     model = ResNetV1b(BottleneckV1b, [3, 4, 23, 3], deep_stem=True,
         stem_width=64, **kwargs)
@@ -1276,18 +1263,6 @@ def resnet101_v1s(pretrained=False, **kwargs):
     return model
 
 
-def resnet34_v1b(pretrained=False, **kwargs):
-    model = ResNetV1b(BasicBlockV1b, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model_dict = model.state_dict()
-        filtered_orig_dict = _safe_state_dict_filtering(torch.hub.load(
-            GLUON_RESNET_TORCH_HUB, 'gluon_resnet34_v1b', pretrained=True).
-            state_dict(), model_dict.keys())
-        model_dict.update(filtered_orig_dict)
-        model.load_state_dict(model_dict)
-    return model
-
-
 def resnet50_v1s(pretrained=False, **kwargs):
     model = ResNetV1b(BottleneckV1b, [3, 4, 6, 3], deep_stem=True,
         stem_width=64, **kwargs)
@@ -1295,6 +1270,31 @@ def resnet50_v1s(pretrained=False, **kwargs):
         model_dict = model.state_dict()
         filtered_orig_dict = _safe_state_dict_filtering(torch.hub.load(
             GLUON_RESNET_TORCH_HUB, 'gluon_resnet50_v1s', pretrained=True).
+            state_dict(), model_dict.keys())
+        model_dict.update(filtered_orig_dict)
+        model.load_state_dict(model_dict)
+    return model
+
+
+def resnet152_v1s(pretrained=False, **kwargs):
+    model = ResNetV1b(BottleneckV1b, [3, 8, 36, 3], deep_stem=True,
+        stem_width=64, **kwargs)
+    if pretrained:
+        model_dict = model.state_dict()
+        filtered_orig_dict = _safe_state_dict_filtering(torch.hub.load(
+            GLUON_RESNET_TORCH_HUB, 'gluon_resnet152_v1s', pretrained=True)
+            .state_dict(), model_dict.keys())
+        model_dict.update(filtered_orig_dict)
+        model.load_state_dict(model_dict)
+    return model
+
+
+def resnet34_v1b(pretrained=False, **kwargs):
+    model = ResNetV1b(BasicBlockV1b, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model_dict = model.state_dict()
+        filtered_orig_dict = _safe_state_dict_filtering(torch.hub.load(
+            GLUON_RESNET_TORCH_HUB, 'gluon_resnet34_v1b', pretrained=True).
             state_dict(), model_dict.keys())
         model_dict.update(filtered_orig_dict)
         model.load_state_dict(model_dict)

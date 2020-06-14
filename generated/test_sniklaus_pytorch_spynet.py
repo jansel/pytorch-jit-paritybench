@@ -26,9 +26,6 @@ import math
 import numpy
 
 
-arguments_strModel = 'sintel-final'
-
-
 backwarp_tenGrid = {}
 
 
@@ -47,6 +44,9 @@ def backwarp(tenInput, tenFlow):
     return torch.nn.functional.grid_sample(input=tenInput, grid=(
         backwarp_tenGrid[str(tenFlow.size())] + tenFlow).permute(0, 2, 3, 1
         ), mode='bilinear', padding_mode='border', align_corners=True)
+
+
+arguments_strModel = 'sintel-final'
 
 
 class Network(torch.nn.Module):

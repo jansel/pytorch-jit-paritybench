@@ -576,7 +576,65 @@ class Wide(nn.Module):
         return out
 
 
-LRScheduler = _LRScheduler
+def _get_current_time():
+    return datetime.datetime.now().strftime('%B %d, %Y - %I:%M%p')
+
+
+class CallbackContainer(object):
+    """
+    Container holding a list of callbacks.
+    """
+
+    def __init__(self, callbacks: Optional[List]=None, queue_length: int=10):
+        instantiated_callbacks = []
+        if callbacks is not None:
+            for callback in callbacks:
+                if isinstance(callback, type):
+                    instantiated_callbacks.append(callback())
+                else:
+                    instantiated_callbacks.append(callback)
+        self.callbacks = [c for c in instantiated_callbacks]
+        self.queue_length = queue_length
+
+    def set_params(self, params):
+        for callback in self.callbacks:
+            callback.set_params(params)
+
+    def set_model(self, model: Any):
+        self.model = model
+        for callback in self.callbacks:
+            callback.set_model(model)
+
+    def on_epoch_begin(self, epoch: int, logs: Optional[Dict]=None):
+        logs = logs or {}
+        for callback in self.callbacks:
+            callback.on_epoch_begin(epoch, logs)
+
+    def on_epoch_end(self, epoch: int, logs: Optional[Dict]=None):
+        logs = logs or {}
+        for callback in self.callbacks:
+            callback.on_epoch_end(epoch, logs)
+
+    def on_batch_begin(self, batch: int, logs: Optional[Dict]=None):
+        logs = logs or {}
+        for callback in self.callbacks:
+            callback.on_batch_begin(batch, logs)
+
+    def on_batch_end(self, batch: int, logs: Optional[Dict]=None):
+        logs = logs or {}
+        for callback in self.callbacks:
+            callback.on_batch_end(batch, logs)
+
+    def on_train_begin(self, logs: Optional[Dict]=None):
+        logs = logs or {}
+        logs['start_time'] = _get_current_time()
+        for callback in self.callbacks:
+            callback.on_train_begin(logs)
+
+    def on_train_end(self, logs: Optional[Dict]=None):
+        logs = logs or {}
+        for callback in self.callbacks:
+            callback.on_train_end(logs)
 
 
 class TestDeepText(nn.Module):

@@ -145,18 +145,6 @@ def init_lstm_states(lstm, batch_size, device):
     return states
 
 
-def reorder_sequence(sequence_emb, order, batch_first=False):
-    """
-    sequence_emb: [T, B, D] if not batch_first
-    order: list of sequence length
-    """
-    batch_dim = 0 if batch_first else 1
-    assert len(order) == sequence_emb.size()[batch_dim]
-    order = torch.LongTensor(order).to(sequence_emb.device)
-    sorted_ = sequence_emb.index_select(index=order, dim=batch_dim)
-    return sorted_
-
-
 def reorder_lstm_states(lstm_states, order):
     """
     lstm_states: (H, C) of tensor [layer, batch, hidden]
@@ -170,6 +158,18 @@ def reorder_lstm_states(lstm_states, order):
     sorted_states = lstm_states[0].index_select(index=order, dim=1
         ), lstm_states[1].index_select(index=order, dim=1)
     return sorted_states
+
+
+def reorder_sequence(sequence_emb, order, batch_first=False):
+    """
+    sequence_emb: [T, B, D] if not batch_first
+    order: list of sequence length
+    """
+    batch_dim = 0 if batch_first else 1
+    assert len(order) == sequence_emb.size()[batch_dim]
+    order = torch.LongTensor(order).to(sequence_emb.device)
+    sorted_ = sequence_emb.index_select(index=order, dim=batch_dim)
+    return sorted_
 
 
 def lstm_encoder(sequence, lstm, seq_lens=None, init_states=None, embedding
@@ -315,19 +315,6 @@ class ExtractSumm(nn.Module):
 
     def set_embedding(self, embedding):
         self._sent_enc.set_embedding(embedding)
-
-
-def len_mask(lens, device):
-    """ users are resposible for shaping
-    Return: tensor_type [B, T]
-    """
-    max_len = max(lens)
-    batch_size = len(lens)
-    mask = torch.ByteTensor(batch_size, max_len).to(device)
-    mask.fill_(0)
-    for i, l in enumerate(lens):
-        mask[(i), :l].fill_(1)
-    return mask
 
 
 class PtrExtractSumm(nn.Module):
@@ -618,6 +605,12 @@ class StackedLSTMCells(nn.Module):
         return self._cells[0].bidirectional
 
 
+def attention_aggregate(value, score):
+    """[B, Tv, D], [(Bs), B, Tq, Tv] -> [(Bs), B, Tq, D]"""
+    output = score.matmul(value)
+    return output
+
+
 def dot_attention_score(key, query):
     """[B, Tk, D], [(Bs), B, Tq, D] -> [(Bs), B, Tq, Tk]"""
     return query.matmul(key.transpose(1, 2))
@@ -629,12 +622,6 @@ def prob_normalize(score, mask):
     score = score.masked_fill(mask == 0, -1e+18)
     norm_score = F.softmax(score, dim=-1)
     return norm_score
-
-
-def attention_aggregate(value, score):
-    """[B, Tv, D], [(Bs), B, Tq, Tv] -> [(Bs), B, Tq, D]"""
-    output = score.matmul(value)
-    return output
 
 
 def step_attention(query, key, value, mem_mask=None):
@@ -685,6 +672,19 @@ class AttentionalLSTMDecoder(object):
         logit, states, score = self._step(tok, states, attention)
         out = torch.max(logit, dim=1, keepdim=True)[1]
         return out, states, score
+
+
+def len_mask(lens, device):
+    """ users are resposible for shaping
+    Return: tensor_type [B, T]
+    """
+    max_len = max(lens)
+    batch_size = len(lens)
+    mask = torch.ByteTensor(batch_size, max_len).to(device)
+    mask.fill_(0)
+    for i, l in enumerate(lens):
+        mask[(i), :l].fill_(1)
+    return mask
 
 
 class Seq2SeqSumm(nn.Module):

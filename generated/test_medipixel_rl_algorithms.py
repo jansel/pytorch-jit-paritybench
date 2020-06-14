@@ -264,14 +264,14 @@ class Bottleneck(nn.Module):
         return out
 
 
+HEADS = Registry('heads')
+
+
 def init_layer_uniform(layer: nn.Linear, init_w: float=0.003) ->nn.Linear:
     """Init uniform parameters on the single layer"""
     layer.weight.data.uniform_(-init_w, init_w)
     layer.bias.data.uniform_(-init_w, init_w)
     return layer
-
-
-HEADS = Registry('heads')
 
 
 class NoisyLinear(nn.Module):

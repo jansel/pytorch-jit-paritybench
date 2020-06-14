@@ -45,12 +45,6 @@ import math
 import numpy as np
 
 
-def norm_col_init(weights, std=1.0):
-    x = torch.randn(weights.size())
-    x *= std / torch.sqrt((x ** 2).sum(1, keepdim=True))
-    return x
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -67,6 +61,12 @@ def weights_init(m):
         w_bound = np.sqrt(6.0 / (fan_in + fan_out))
         m.weight.data.uniform_(-w_bound, w_bound)
         m.bias.data.fill_(0)
+
+
+def norm_col_init(weights, std=1.0):
+    x = torch.randn(weights.size())
+    x *= std / torch.sqrt((x ** 2).sum(1, keepdim=True))
+    return x
 
 
 class A3C_CONV(torch.nn.Module):

@@ -96,61 +96,6 @@ class Generator(nn.Module):
         return img
 
 
-def unique_simplices(faces, dim):
-    """
-    obtain unique simplices up to dimension dim from faces
-    """
-    simplices = [[] for k in range(dim + 1)]
-    for face in faces:
-        for k in range(dim + 1):
-            for s in combinations(face, k + 1):
-                simplices[k].append(np.sort(list(s)))
-    s = SimplicialComplex()
-    for k in range(dim + 1):
-        kcells = np.unique(simplices[k], axis=0)
-        for cell in kcells:
-            s.append(cell)
-    return s
-
-
-def init_tri_complex(width, height):
-    """
-    initialize 2d complex in dumbest possible way
-    """
-    axis_x = np.arange(0, width)
-    axis_y = np.arange(0, height)
-    grid_axes = np.array(np.meshgrid(axis_x, axis_y))
-    grid_axes = np.transpose(grid_axes, (1, 2, 0))
-    tri = Delaunay(grid_axes.reshape([-1, 2]))
-    return unique_simplices(tri.simplices, 2)
-
-
-def init_freudenthal_2d(width, height):
-    """
-    Freudenthal triangulation of 2d grid
-    """
-    s = d.Filtration()
-    for i in range(height):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind]))
-    for i in range(height):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + 1]))
-    for i in range(height - 1):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width]))
-    for i in range(height - 1):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
-    return s
-
-
 def init_grid_2d(width, height):
     """
     initialize 2d grid with diagonal and anti-diagonal
@@ -181,6 +126,61 @@ def init_grid_2d(width, height):
             s.append([ind + 1, ind + width, ind + width + 1])
             s.append([ind, ind + 1, ind + width])
     return s
+
+
+def init_freudenthal_2d(width, height):
+    """
+    Freudenthal triangulation of 2d grid
+    """
+    s = d.Filtration()
+    for i in range(height):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind]))
+    for i in range(height):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + 1]))
+    for i in range(height - 1):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width]))
+    for i in range(height - 1):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
+    return s
+
+
+def unique_simplices(faces, dim):
+    """
+    obtain unique simplices up to dimension dim from faces
+    """
+    simplices = [[] for k in range(dim + 1)]
+    for face in faces:
+        for k in range(dim + 1):
+            for s in combinations(face, k + 1):
+                simplices[k].append(np.sort(list(s)))
+    s = SimplicialComplex()
+    for k in range(dim + 1):
+        kcells = np.unique(simplices[k], axis=0)
+        for cell in kcells:
+            s.append(cell)
+    return s
+
+
+def init_tri_complex(width, height):
+    """
+    initialize 2d complex in dumbest possible way
+    """
+    axis_x = np.arange(0, width)
+    axis_y = np.arange(0, height)
+    grid_axes = np.array(np.meshgrid(axis_x, axis_y))
+    grid_axes = np.transpose(grid_axes, (1, 2, 0))
+    tri = Delaunay(grid_axes.reshape([-1, 2]))
+    return unique_simplices(tri.simplices, 2)
 
 
 class TopLoss(nn.Module):
@@ -292,6 +292,23 @@ class TopLoss2(nn.Module):
         return self.topfn(dgminfo)
 
 
+def delaunay_complex(x, maxdim=2):
+    """
+    compute Delaunay triangulation
+    fill in simplices as appropriate
+
+    if x is 1-dimensional, defaults to 1D Delaunay
+    inputs:
+        x - pointcloud
+        maxdim - maximal simplex dimension (default = 2)
+    """
+    if x.shape[1] == 1:
+        x = x.flatten()
+        return alpha_complex_1d(x)
+    tri = Delaunay(x)
+    return unique_simplices(tri.simplices, maxdim)
+
+
 def delaunay_complex_1d(x):
     """
     returns Delaunay complex on 1D space
@@ -344,23 +361,6 @@ class FlagDiagram(Function):
         grad_ret = [gd.cpu() for gd in grad_dgms]
         grad_y = persistenceBackwardFlag(X, ycpu, grad_ret)
         return None, grad_y.to(device), None, None
-
-
-def delaunay_complex(x, maxdim=2):
-    """
-    compute Delaunay triangulation
-    fill in simplices as appropriate
-
-    if x is 1-dimensional, defaults to 1D Delaunay
-    inputs:
-        x - pointcloud
-        maxdim - maximal simplex dimension (default = 2)
-    """
-    if x.shape[1] == 1:
-        x = x.flatten()
-        return alpha_complex_1d(x)
-    tri = Delaunay(x)
-    return unique_simplices(tri.simplices, maxdim)
 
 
 class AlphaLayer(nn.Module):

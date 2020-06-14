@@ -1747,33 +1747,37 @@ class Test_hendrycks_robustness(_paritybench_base):
     def test_002(self):
         self._check(CondenseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CondenseNet(*[], **{'args': _mock_config(stages=[4, 4], growth=[4, 4], data=4, group_1x1=4, group_3x3=4, bottleneck=4, num_classes=4)}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_004(self):
-        self._check(DownsamplingShortcut(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
+        self._check(DownsamplingShortcut(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(LearnedGroupConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(_DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(_Transition(*[], **{'in_channels': 4, 'args': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
 

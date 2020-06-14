@@ -109,6 +109,27 @@ import functools
 from torch.nn.parallel.data_parallel import DataParallel
 
 
+def build_feature_connector(t_channel, s_channel):
+    C = [nn.Conv2d(s_channel, t_channel, kernel_size=1, stride=1, padding=0,
+        bias=False), nn.BatchNorm2d(t_channel)]
+    for m in C:
+        if isinstance(m, nn.Conv2d):
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+    return nn.Sequential(*C)
+
+
+def distillation_loss(source, target, margin):
+    loss = (source - margin) ** 2 * ((source > margin) & (target <= margin)
+        ).float() + (source - target) ** 2 * ((source > target) & (target >
+        margin) & (target <= 0)).float() + (source - target) ** 2 * (target > 0
+        ).float()
+    return torch.abs(loss).sum()
+
+
 def get_margin_from_BN(bn):
     margin = []
     std = bn.weight.data
@@ -122,27 +143,6 @@ def get_margin_from_BN(bn):
         else:
             margin.append(-3 * s)
     return torch.FloatTensor(margin).to(std.device)
-
-
-def distillation_loss(source, target, margin):
-    loss = (source - margin) ** 2 * ((source > margin) & (target <= margin)
-        ).float() + (source - target) ** 2 * ((source > target) & (target >
-        margin) & (target <= 0)).float() + (source - target) ** 2 * (target > 0
-        ).float()
-    return torch.abs(loss).sum()
-
-
-def build_feature_connector(t_channel, s_channel):
-    C = [nn.Conv2d(s_channel, t_channel, kernel_size=1, stride=1, padding=0,
-        bias=False), nn.BatchNorm2d(t_channel)]
-    for m in C:
-        if isinstance(m, nn.Conv2d):
-            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-            m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-    return nn.Sequential(*C)
 
 
 class Distiller(nn.Module):
@@ -1885,6 +1885,10 @@ class Decoder(nn.Module):
                 m.bias.data.zero_()
 
 
+def build_aspp(backbone, output_stride, BatchNorm):
+    return ASPP(backbone, output_stride, BatchNorm)
+
+
 def build_backbone(backbone, output_stride, BatchNorm):
     if backbone == 'resnet101':
         return resnet.ResNet101(output_stride, BatchNorm)
@@ -1902,10 +1906,6 @@ def build_backbone(backbone, output_stride, BatchNorm):
 
 def build_decoder(num_classes, backbone, BatchNorm):
     return Decoder(num_classes, backbone, BatchNorm)
-
-
-def build_aspp(backbone, output_stride, BatchNorm):
-    return ASPP(backbone, output_stride, BatchNorm)
 
 
 class DeepLab(nn.Module):
@@ -1985,20 +1985,6 @@ class DeepLab(nn.Module):
         return feats, x
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -2020,6 +2006,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -2098,9 +2098,11 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _sum_ft(tensor):
@@ -2108,11 +2110,9 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
-
-
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

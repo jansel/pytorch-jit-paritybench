@@ -353,17 +353,14 @@ class eSEModule(nn.Module):
         return input * x
 
 
-def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
-    kernel_size=3, padding=1):
-    """3x3 convolution with padding"""
-    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
-        padding=padding, groups=out_channels, bias=False)), (
-        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
-        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
-        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
-        module_name, postfix), nn.ReLU(inplace=True))]
+def conv1x1(in_channels, out_channels, module_name, postfix, stride=1,
+    groups=1, kernel_size=1, padding=0):
+    """1x1 convolution with padding"""
+    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels,
+        out_channels, kernel_size=kernel_size, stride=stride, padding=
+        padding, groups=groups, bias=False)), (
+        f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
+        f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
 
 
 def conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
@@ -376,14 +373,17 @@ def conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
         f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
 
 
-def conv1x1(in_channels, out_channels, module_name, postfix, stride=1,
-    groups=1, kernel_size=1, padding=0):
-    """1x1 convolution with padding"""
-    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels,
-        out_channels, kernel_size=kernel_size, stride=stride, padding=
-        padding, groups=groups, bias=False)), (
-        f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
-        f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
+def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
+    kernel_size=3, padding=1):
+    """3x3 convolution with padding"""
+    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
+        padding=padding, groups=out_channels, bias=False)), (
+        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
+        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
+        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
+        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
+        module_name, postfix), nn.ReLU(inplace=True))]
 
 
 class _OSA_module(nn.Module):
@@ -585,6 +585,38 @@ def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
     return keypoint_loss
 
 
+def assign_boxes_to_levels(box_lists, min_level, max_level,
+    canonical_box_size, canonical_level):
+    """
+    Map each box in `box_lists` to a feature map level index and return the assignment
+    vector.
+
+    Args:
+        box_lists (list[Boxes] | list[RotatedBoxes]): A list of N Boxes or N RotatedBoxes,
+            where N is the number of images in the batch.
+        min_level (int): Smallest feature map level index. The input is considered index 0,
+            the output of stage 1 is index 1, and so.
+        max_level (int): Largest feature map level index.
+        canonical_box_size (int): A canonical box size in pixels (sqrt(box area)).
+        canonical_level (int): The feature map level index on which a canonically-sized box
+            should be placed.
+
+    Returns:
+        A tensor of length M, where M is the total number of boxes aggregated over all
+            N batch images. The memory layout corresponds to the concatenation of boxes
+            from all images. Each element is the feature map index, as an offset from
+            `self.min_level`, for the corresponding box (so value i means the box is at
+            `self.min_level + i`).
+    """
+    eps = sys.float_info.epsilon
+    box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
+    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes /
+        canonical_box_size + eps))
+    level_assignments = torch.clamp(level_assignments, min=min_level, max=
+        max_level)
+    return level_assignments.to(torch.int64) - min_level
+
+
 def _img_area(instance):
     device = instance.pred_classes.device
     image_size = instance.image_size
@@ -624,38 +656,6 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level,
     img_areas = cat([_img_area(instance_i) for instance_i in instances])
     level_assignments = torch.ceil(max_level - torch.log2(img_areas /
         box_areas + eps))
-    level_assignments = torch.clamp(level_assignments, min=min_level, max=
-        max_level)
-    return level_assignments.to(torch.int64) - min_level
-
-
-def assign_boxes_to_levels(box_lists, min_level, max_level,
-    canonical_box_size, canonical_level):
-    """
-    Map each box in `box_lists` to a feature map level index and return the assignment
-    vector.
-
-    Args:
-        box_lists (list[Boxes] | list[RotatedBoxes]): A list of N Boxes or N RotatedBoxes,
-            where N is the number of images in the batch.
-        min_level (int): Smallest feature map level index. The input is considered index 0,
-            the output of stage 1 is index 1, and so.
-        max_level (int): Largest feature map level index.
-        canonical_box_size (int): A canonical box size in pixels (sqrt(box area)).
-        canonical_level (int): The feature map level index on which a canonically-sized box
-            should be placed.
-
-    Returns:
-        A tensor of length M, where M is the total number of boxes aggregated over all
-            N batch images. The memory layout corresponds to the concatenation of boxes
-            from all images. Each element is the feature map index, as an offset from
-            `self.min_level`, for the corresponding box (so value i means the box is at
-            `self.min_level + i`).
-    """
-    eps = sys.float_info.epsilon
-    box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
-    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes /
-        canonical_box_size + eps))
     level_assignments = torch.clamp(level_assignments, min=min_level, max=
         max_level)
     return level_assignments.to(torch.int64) - min_level
@@ -861,15 +861,6 @@ class Scale(nn.Module):
 INF = 100000000
 
 
-def reduce_sum(tensor):
-    world_size = get_world_size()
-    if world_size < 2:
-        return tensor
-    tensor = tensor.clone()
-    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-    return tensor
-
-
 def compute_ctrness_targets(reg_targets):
     if len(reg_targets) == 0:
         return reg_targets.new_zeros(len(reg_targets))
@@ -878,6 +869,15 @@ def compute_ctrness_targets(reg_targets):
     ctrness = left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (
         top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
     return torch.sqrt(ctrness)
+
+
+def reduce_sum(tensor):
+    world_size = get_world_size()
+    if world_size < 2:
+        return tensor
+    tensor = tensor.clone()
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    return tensor
 
 
 def fcos_losses(labels, reg_targets, logits_pred, reg_pred, ctrness_pred,

@@ -113,39 +113,6 @@ class Decoder(nn.Module):
         return x
 
 
-def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.ConvTranspose2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1)
-        m.bias.data.zero_()
-
-
-class UpConv(Decoder):
-
-    def upconv_module(self, in_channels):
-        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(
-            in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2,
-            kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm',
-            nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
-        return upconv
-
-    def __init__(self, in_channels):
-        super(UpConv, self).__init__()
-        self.layer1 = self.upconv_module(in_channels)
-        self.layer2 = self.upconv_module(in_channels // 2)
-        self.layer3 = self.upconv_module(in_channels // 4)
-        self.layer4 = self.upconv_module(in_channels // 8)
-
-
 class DeConv(Decoder):
 
     def __init__(self, in_channels, kernel_size):
@@ -168,6 +135,23 @@ class DeConv(Decoder):
         self.layer2 = convt(in_channels // 2)
         self.layer3 = convt(in_channels // 2 ** 2)
         self.layer4 = convt(in_channels // 2 ** 3)
+
+
+class UpConv(Decoder):
+
+    def upconv_module(self, in_channels):
+        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(
+            in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2,
+            kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm',
+            nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
+        return upconv
+
+    def __init__(self, in_channels):
+        super(UpConv, self).__init__()
+        self.layer1 = self.upconv_module(in_channels)
+        self.layer2 = self.upconv_module(in_channels // 2)
+        self.layer3 = self.upconv_module(in_channels // 4)
+        self.layer4 = self.upconv_module(in_channels // 8)
 
 
 class UpProj(Decoder):
@@ -219,6 +203,22 @@ def choose_decoder(decoder, in_channels):
         return UpConv(in_channels)
     else:
         assert False, 'invalid option for decoder: {}'.format(decoder)
+
+
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.ConvTranspose2d):
+        n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
+        m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1)
+        m.bias.data.zero_()
 
 
 class ResNet(nn.Module):

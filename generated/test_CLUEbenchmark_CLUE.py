@@ -1847,7 +1847,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+CONFIG_NAME = 'bert_config.json'
 
 
 class Conv1D(nn.Module):
@@ -3304,7 +3304,7 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
     }
 
 
-CONFIG_NAME = 'bert_config.json'
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 logger = logging.getLogger(__name__)

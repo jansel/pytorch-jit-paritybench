@@ -112,10 +112,10 @@ def truncated_normal_(tensor, mean=0, std=1):
 _global_config['gen_init'] = 4
 
 
-_global_config['start_letter'] = 4
-
-
 _global_config['batch_size'] = 4
+
+
+_global_config['start_letter'] = 4
 
 
 class LeakGAN_G(nn.Module):

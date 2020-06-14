@@ -81,10 +81,10 @@ from torch.nn import Module
 from torch.nn import Parameter
 
 
-eps = 1e-06
-
-
 momentum = 0.9
+
+
+eps = 1e-06
 
 
 class CNN(nn.Module):
@@ -291,10 +291,10 @@ class CNN(nn.Module):
         return out
 
 
-drop_in = 0.0
-
-
 drop_hid = 0.0
+
+
+drop_in = 0.0
 
 
 class MLP(nn.Module):
@@ -579,23 +579,6 @@ class MLP(nn.Module):
         return out
 
 
-def topk(x, k):
-    """ Proof-of-concept implementation of topk.
-    """
-    original_size = None
-    if x.dim() > 2:
-        original_size = x.size()
-        x = x.view(x.size(0), -1)
-    ax = torch.abs(x.data)
-    topk, _ = ax.topk(k)
-    topk = topk[:, (-1)]
-    y = x.clone()
-    y[ax < topk.repeat(x.size(-1), 1).transpose(0, 1)] = 0
-    if original_size:
-        y = y.view(original_size)
-    return y
-
-
 def simplified_topk(x, k):
     """ Proof-of-concept implementation of simplified topk
     Note all we neend the k-th largest vaule, thus an algorithm of log(n) complexity exists.
@@ -609,6 +592,23 @@ def simplified_topk(x, k):
     y = x.clone()
     for id in ids:
         y[:, (id)] = 0
+    if original_size:
+        y = y.view(original_size)
+    return y
+
+
+def topk(x, k):
+    """ Proof-of-concept implementation of topk.
+    """
+    original_size = None
+    if x.dim() > 2:
+        original_size = x.size()
+        x = x.view(x.size(0), -1)
+    ax = torch.abs(x.data)
+    topk, _ = ax.topk(k)
+    topk = topk[:, (-1)]
+    y = x.clone()
+    y[ax < topk.repeat(x.size(-1), 1).transpose(0, 1)] = 0
     if original_size:
         y = y.view(original_size)
     return y
@@ -827,6 +827,147 @@ class LSTMCell(RNNCellBase):
         return h, c
 
 
+class IndRNNCell(RNNCellBase):
+    """
+    References:
+    Li et al. [Independently Recurrent Neural Network (IndRNN): Building A Longer and Deeper RNN](https://arxiv.org/abs/1803.04831).
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
+        super(IndRNNCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, h):
+        output = F.linear(input, self.weight_ih, self.bias
+            ) + h * self.weight_hh
+        if self.grad_clip:
+            output = clip_grad(output, -self.grad_clip, self.grad_clip)
+        output = F.relu(output)
+        return output
+
+
+class RNNCell(RNNCellBase):
+
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
+        super(RNNCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, h):
+        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h,
+            self.weight_hh)
+        if self.grad_clip:
+            output = clip_grad(output, -self.grad_clip, self.grad_clip)
+        output = F.relu(output)
+        return output
+
+
+class LSTMPCell(RNNCellBase):
+
+    def __init__(self, input_size, hidden_size, recurrent_size, bias=True,
+        grad_clip=None):
+        super(LSTMPCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.recurrent_size = recurrent_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size,
+            recurrent_size))
+        self.weight_rec = Parameter(torch.Tensor(recurrent_size, hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(4 * hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, hx):
+        h, c = hx
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
+            .weight_hh)
+        if self.grad_clip:
+            pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
+        i = F.sigmoid(pre[:, :self.hidden_size])
+        f = F.sigmoid(pre[:, self.hidden_size:self.hidden_size * 2])
+        g = F.tanh(pre[:, self.hidden_size * 2:self.hidden_size * 3])
+        o = F.sigmoid(pre[:, self.hidden_size * 3:])
+        c = f * c + i * g
+        h = o * F.tanh(c)
+        h = F.linear(h, self.weight_rec)
+        return h, c
+
+
+class GRUCell(RNNCellBase):
+
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
+        super(GRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.grad_clip = grad_clip
+        self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
+        self.weight_hh_rz = Parameter(torch.Tensor(2 * hidden_size,
+            hidden_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(3 * hidden_size))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, h):
+        ih = F.linear(input, self.weight_ih, self.bias)
+        hh_rz = F.linear(h, self.weight_hh_rz)
+        if self.grad_clip:
+            ih = clip_grad(ih, -self.grad_clip, self.grad_clip)
+            hh_rz = clip_grad(hh_rz, -self.grad_clip, self.grad_clip)
+        r = F.sigmoid(ih[:, :self.hidden_size] + hh_rz[:, :self.hidden_size])
+        i = F.sigmoid(ih[:, self.hidden_size:self.hidden_size * 2] + hh_rz[
+            :, self.hidden_size:])
+        hhr = F.linear(h * r, self.weight_hh)
+        if self.grad_clip:
+            hhr = clip_grad(hhr, -self.grad_clip, self.grad_clip)
+        n = F.relu(ih[:, self.hidden_size * 2:] + hhr)
+        h = (1 - i) * n + i * h
+        return h
+
+
 def cumax(logits, dim=-1):
     return torch.cumsum(F.softmax(logits, dim), dim=dim)
 
@@ -871,147 +1012,6 @@ class LSTMONCell(RNNCellBase):
         i = i * w + (ii - w)
         c = f * c + i * g
         h = o * F.tanh(c)
-        return h, c
-
-
-class RNNCell(RNNCellBase):
-
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
-        super(RNNCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, h):
-        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h,
-            self.weight_hh)
-        if self.grad_clip:
-            output = clip_grad(output, -self.grad_clip, self.grad_clip)
-        output = F.relu(output)
-        return output
-
-
-class IndRNNCell(RNNCellBase):
-    """
-    References:
-    Li et al. [Independently Recurrent Neural Network (IndRNN): Building A Longer and Deeper RNN](https://arxiv.org/abs/1803.04831).
-    """
-
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
-        super(IndRNNCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, h):
-        output = F.linear(input, self.weight_ih, self.bias
-            ) + h * self.weight_hh
-        if self.grad_clip:
-            output = clip_grad(output, -self.grad_clip, self.grad_clip)
-        output = F.relu(output)
-        return output
-
-
-class GRUCell(RNNCellBase):
-
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None):
-        super(GRUCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
-        self.weight_hh_rz = Parameter(torch.Tensor(2 * hidden_size,
-            hidden_size))
-        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(3 * hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, h):
-        ih = F.linear(input, self.weight_ih, self.bias)
-        hh_rz = F.linear(h, self.weight_hh_rz)
-        if self.grad_clip:
-            ih = clip_grad(ih, -self.grad_clip, self.grad_clip)
-            hh_rz = clip_grad(hh_rz, -self.grad_clip, self.grad_clip)
-        r = F.sigmoid(ih[:, :self.hidden_size] + hh_rz[:, :self.hidden_size])
-        i = F.sigmoid(ih[:, self.hidden_size:self.hidden_size * 2] + hh_rz[
-            :, self.hidden_size:])
-        hhr = F.linear(h * r, self.weight_hh)
-        if self.grad_clip:
-            hhr = clip_grad(hhr, -self.grad_clip, self.grad_clip)
-        n = F.relu(ih[:, self.hidden_size * 2:] + hhr)
-        h = (1 - i) * n + i * h
-        return h
-
-
-class LSTMPCell(RNNCellBase):
-
-    def __init__(self, input_size, hidden_size, recurrent_size, bias=True,
-        grad_clip=None):
-        super(LSTMPCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.recurrent_size = recurrent_size
-        self.grad_clip = grad_clip
-        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size,
-            recurrent_size))
-        self.weight_rec = Parameter(torch.Tensor(recurrent_size, hidden_size))
-        if bias:
-            self.bias = Parameter(torch.Tensor(4 * hidden_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, hx):
-        h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
-        if self.grad_clip:
-            pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
-        i = F.sigmoid(pre[:, :self.hidden_size])
-        f = F.sigmoid(pre[:, self.hidden_size:self.hidden_size * 2])
-        g = F.tanh(pre[:, self.hidden_size * 2:self.hidden_size * 3])
-        o = F.sigmoid(pre[:, self.hidden_size * 3:])
-        c = f * c + i * g
-        h = o * F.tanh(c)
-        h = F.linear(h, self.weight_rec)
         return h, c
 
 

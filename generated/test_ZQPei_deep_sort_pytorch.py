@@ -451,19 +451,6 @@ def print_cfg(blocks):
             print('unknown type %s' % block['type'])
 
 
-def convert2cpu(gpu_matrix):
-    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
-
-
-def save_conv(fp, conv_model):
-    if conv_model.bias.is_cuda:
-        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        conv_model.bias.data.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
-
-
 def parse_cfg(cfgfile):
     blocks = []
     fp = open(cfgfile)
@@ -495,16 +482,25 @@ def parse_cfg(cfgfile):
     return blocks
 
 
-def load_conv(buf, start, conv_model):
+def load_conv_bn(buf, start, conv_model, bn_model):
     num_w = conv_model.weight.numel()
-    num_b = conv_model.bias.numel()
-    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]).
-        view_as(conv_model.bias.data))
+    num_b = bn_model.bias.numel()
+    bn_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.running_mean.copy_(torch.from_numpy(buf[start:start + num_b]))
+    start = start + num_b
+    bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]))
     start = start + num_b
     conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
         .view_as(conv_model.weight.data))
     start = start + num_w
     return start
+
+
+def convert2cpu(gpu_matrix):
+    return torch.FloatTensor(gpu_matrix.size()).copy_(gpu_matrix)
 
 
 def save_conv_bn(fp, conv_model, bn_model):
@@ -522,9 +518,30 @@ def save_conv_bn(fp, conv_model, bn_model):
         conv_model.weight.data.numpy().tofile(fp)
 
 
+def load_conv(buf, start, conv_model):
+    num_w = conv_model.weight.numel()
+    num_b = conv_model.bias.numel()
+    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]).
+        view_as(conv_model.bias.data))
+    start = start + num_b
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
+        .view_as(conv_model.weight.data))
+    start = start + num_w
+    return start
+
+
 def save_fc(fp, fc_model):
     fc_model.bias.data.numpy().tofile(fp)
     fc_model.weight.data.numpy().tofile(fp)
+
+
+def save_conv(fp, conv_model):
+    if conv_model.bias.is_cuda:
+        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
+        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
+    else:
+        conv_model.bias.data.numpy().tofile(fp)
+        conv_model.weight.data.numpy().tofile(fp)
 
 
 def load_fc(buf, start, fc_model):
@@ -533,23 +550,6 @@ def load_fc(buf, start, fc_model):
     fc_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
     start = start + num_b
     fc_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]))
-    start = start + num_w
-    return start
-
-
-def load_conv_bn(buf, start, conv_model, bn_model):
-    num_w = conv_model.weight.numel()
-    num_b = bn_model.bias.numel()
-    bn_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    bn_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    bn_model.running_mean.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]))
-    start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
-        .view_as(conv_model.weight.data))
     start = start + num_w
     return start
 
@@ -913,6 +913,34 @@ class Darknet(nn.Module):
         fp.close()
 
 
+def multi_bbox_ious(boxes1, boxes2, x1y1x2y2=True):
+    if x1y1x2y2:
+        x1_min = torch.min(boxes1[0], boxes2[0])
+        x2_max = torch.max(boxes1[2], boxes2[2])
+        y1_min = torch.min(boxes1[1], boxes2[1])
+        y2_max = torch.max(boxes1[3], boxes2[3])
+        w1, h1 = boxes1[2] - boxes1[0], boxes1[3] - boxes1[1]
+        w2, h2 = boxes2[2] - boxes2[0], boxes2[3] - boxes2[1]
+    else:
+        w1, h1 = boxes1[2], boxes1[3]
+        w2, h2 = boxes2[2], boxes2[3]
+        x1_min = torch.min(boxes1[0] - w1 / 2.0, boxes2[0] - w2 / 2.0)
+        x2_max = torch.max(boxes1[0] + w1 / 2.0, boxes2[0] + w2 / 2.0)
+        y1_min = torch.min(boxes1[1] - h1 / 2.0, boxes2[1] - h2 / 2.0)
+        y2_max = torch.max(boxes1[1] + h1 / 2.0, boxes2[1] + h2 / 2.0)
+    w_union = x2_max - x1_min
+    h_union = y2_max - y1_min
+    w_cross = w1 + w2 - w_union
+    h_cross = h1 + h2 - h_union
+    mask = (w_cross <= 0) + (h_cross <= 0) > 0
+    area1 = w1 * h1
+    area2 = w2 * h2
+    carea = w_cross * h_cross
+    carea[mask] = 0
+    uarea = area1 + area2 - carea
+    return carea / uarea
+
+
 def bbox_iou(box1, box2, x1y1x2y2=True):
     if x1y1x2y2:
         x1_min = min(box1[0], box2[0])
@@ -940,34 +968,6 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     carea = w_cross * h_cross
     uarea = area1 + area2 - carea
     return float(carea / uarea)
-
-
-def multi_bbox_ious(boxes1, boxes2, x1y1x2y2=True):
-    if x1y1x2y2:
-        x1_min = torch.min(boxes1[0], boxes2[0])
-        x2_max = torch.max(boxes1[2], boxes2[2])
-        y1_min = torch.min(boxes1[1], boxes2[1])
-        y2_max = torch.max(boxes1[3], boxes2[3])
-        w1, h1 = boxes1[2] - boxes1[0], boxes1[3] - boxes1[1]
-        w2, h2 = boxes2[2] - boxes2[0], boxes2[3] - boxes2[1]
-    else:
-        w1, h1 = boxes1[2], boxes1[3]
-        w2, h2 = boxes2[2], boxes2[3]
-        x1_min = torch.min(boxes1[0] - w1 / 2.0, boxes2[0] - w2 / 2.0)
-        x2_max = torch.max(boxes1[0] + w1 / 2.0, boxes2[0] + w2 / 2.0)
-        y1_min = torch.min(boxes1[1] - h1 / 2.0, boxes2[1] - h2 / 2.0)
-        y2_max = torch.max(boxes1[1] + h1 / 2.0, boxes2[1] + h2 / 2.0)
-    w_union = x2_max - x1_min
-    h_union = y2_max - y1_min
-    w_cross = w1 + w2 - w_union
-    h_cross = h1 + h2 - h_union
-    mask = (w_cross <= 0) + (h_cross <= 0) > 0
-    area1 = w1 * h1
-    area2 = w2 * h2
-    carea = w_cross * h_cross
-    carea[mask] = 0
-    uarea = area1 + area2 - carea
-    return carea / uarea
 
 
 class RegionLayer(nn.Module):

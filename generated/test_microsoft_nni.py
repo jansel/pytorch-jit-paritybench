@@ -1032,6 +1032,9 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
+_logger = logging.getLogger(__name__)
+
+
 def global_mutable_counting():
     """
     A program level counter starting from 1.
@@ -1039,9 +1042,6 @@ def global_mutable_counting():
     global _counter
     _counter += 1
     return _counter
-
-
-_logger = logging.getLogger(__name__)
 
 
 class Mutable(Model):
@@ -4282,6 +4282,13 @@ class PrunerModuleWrapper(torch.nn.Module):
         return self.module(*inputs)
 
 
+def _check_weight(module):
+    try:
+        return isinstance(module.weight.data, torch.Tensor)
+    except AttributeError:
+        return False
+
+
 class QuantType:
     """
     Enum class for quantization type.
@@ -4289,13 +4296,6 @@ class QuantType:
     QUANT_INPUT = 0
     QUANT_WEIGHT = 1
     QUANT_OUTPUT = 2
-
-
-def _check_weight(module):
-    try:
-        return isinstance(module.weight.data, torch.Tensor)
-    except AttributeError:
-        return False
 
 
 class QuantizerModuleWrapper(torch.nn.Module):
@@ -4351,23 +4351,11 @@ class QuantizerModuleWrapper(torch.nn.Module):
         return result
 
 
-class ramp(torch.autograd.Function):
-    """
-    Ensures input is between 0 and 1
-    """
-
-    @staticmethod
-    def forward(ctx, input_data):
-        ctx.save_for_backward(input_data)
-        return input_data.clamp(min=0, max=1)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_data, = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input[input_data < 0] = 0.01
-        grad_input[input_data > 1] = -0.01
-        return grad_input
+def triudl(X, l):
+    Zl = torch.zeros_like(X, requires_grad=False)
+    U = X * l
+    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
+    return Zl
 
 
 class safesqrt(torch.autograd.Function):
@@ -4389,11 +4377,23 @@ class safesqrt(torch.autograd.Function):
         return grad_input
 
 
-def triudl(X, l):
-    Zl = torch.zeros_like(X, requires_grad=False)
-    U = X * l
-    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
-    return Zl
+class ramp(torch.autograd.Function):
+    """
+    Ensures input is between 0 and 1
+    """
+
+    @staticmethod
+    def forward(ctx, input_data):
+        ctx.save_for_backward(input_data)
+        return input_data.clamp(min=0, max=1)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_data, = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad_input[input_data < 0] = 0.01
+        grad_input[input_data > 1] = -0.01
+        return grad_input
 
 
 def revcumsum(U):
@@ -4408,39 +4408,6 @@ def triudr(X, r):
     U = X * r
     Zr[:-1] = X[:-1] * revcumsum(U)[1:]
     return Zr
-
-
-class MutableScope(Mutable):
-    """
-    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
-
-    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
-    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
-    look like "sub-search-space" in the scope. Scopes can be nested.
-
-    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
-    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
-    the forward method of the class inheriting mutable scope.
-
-    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
-    to appear in the dict of choices.
-
-    Parameters
-    ----------
-    key : str
-        Key of mutable scope.
-    """
-
-    def __init__(self, key):
-        super().__init__(key=key)
-
-    def __call__(self, *args, **kwargs):
-        try:
-            self._check_built()
-            self.mutator.enter_mutable_scope(self)
-            return super().__call__(*args, **kwargs)
-        finally:
-            self.mutator.exit_mutable_scope(self)
 
 
 class StructuredMutableTreeNode:
@@ -4511,6 +4478,39 @@ class StructuredMutableTreeNode:
                 if not deduplicate or self.mutable.key not in memo:
                     memo.add(self.mutable.key)
                     yield self.mutable
+
+
+class MutableScope(Mutable):
+    """
+    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
+
+    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
+    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
+    look like "sub-search-space" in the scope. Scopes can be nested.
+
+    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
+    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
+    the forward method of the class inheriting mutable scope.
+
+    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
+    to appear in the dict of choices.
+
+    Parameters
+    ----------
+    key : str
+        Key of mutable scope.
+    """
+
+    def __init__(self, key):
+        super().__init__(key=key)
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self._check_built()
+            self.mutator.enter_mutable_scope(self)
+            return super().__call__(*args, **kwargs)
+        finally:
+            self.mutator.exit_mutable_scope(self)
 
 
 class BaseMutator(nn.Module):
@@ -5071,14 +5071,6 @@ class MixedOp(nn.Module):
             self.ap_path_alpha.data[idx] -= offset
 
 
-def set_stub_weight_to_torch(stub_layer, torch_layer):
-    stub_layer.export_weights(torch_layer)
-
-
-def set_torch_weight_to_stub(torch_layer, stub_layer):
-    stub_layer.import_weights(torch_layer)
-
-
 class StubLayer:
     """
     StubLayer Module. Base Module.
@@ -5189,6 +5181,14 @@ class StubConcatenate(StubAggregateLayer):
 
     def to_real_layer(self):
         return TorchConcatenate()
+
+
+def set_torch_weight_to_stub(torch_layer, stub_layer):
+    stub_layer.import_weights(torch_layer)
+
+
+def set_stub_weight_to_torch(stub_layer, torch_layer):
+    stub_layer.export_weights(torch_layer)
 
 
 class TorchModel(torch.nn.Module):

@@ -26,6 +26,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _get_anchor_negative_triplet_mask(labels):
+    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
+    mask = labels_equal ^ 1
+    return mask
+
+
+def _get_anchor_positive_triplet_mask(labels):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    indices_not_equal = torch.eye(labels.shape[0]).to(device).byte() ^ 1
+    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
+    mask = indices_not_equal * labels_equal
+    return mask
+
+
 def _get_triplet_mask(labels):
     """Return a 3D mask where mask[a, p, n] is True iff the triplet (a, p, n) is valid.
 
@@ -48,12 +62,6 @@ def _get_triplet_mask(labels):
     return mask
 
 
-def _get_anchor_negative_triplet_mask(labels):
-    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
-    mask = labels_equal ^ 1
-    return mask
-
-
 def _pairwise_distance(x, squared=False, eps=1e-16):
     cor_mat = torch.matmul(x, x.t())
     norm_mat = cor_mat.diag()
@@ -65,14 +73,6 @@ def _pairwise_distance(x, squared=False, eps=1e-16):
         distances = torch.sqrt(distances)
         distances = distances * (1.0 - mask)
     return distances
-
-
-def _get_anchor_positive_triplet_mask(labels):
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    indices_not_equal = torch.eye(labels.shape[0]).to(device).byte() ^ 1
-    labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
-    mask = indices_not_equal * labels_equal
-    return mask
 
 
 class HardTripletLoss(nn.Module):

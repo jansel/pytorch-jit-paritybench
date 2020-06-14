@@ -2181,13 +2181,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
@@ -4355,18 +4355,17 @@ class MultiWay(nn.Module):
         return out
 
 
-class InceptionResNetA2Way(MultiWay):
-
-    def __init__(self, scale):
-        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
-            num_blocks=2)
-
-
 class InceptionResNetC2Way(MultiWay):
 
     def __init__(self, scale):
         super(InceptionResNetC2Way, self).__init__(scale, block_cls=BlockC,
             num_blocks=2)
+
+
+class InceptionResNetBPoly3(InceptionResNetBPoly):
+
+    def __init__(self, scale):
+        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
 
 
 class InceptionResNetCPoly3(InceptionResNetCPoly):
@@ -4375,10 +4374,11 @@ class InceptionResNetCPoly3(InceptionResNetCPoly):
         super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
 
 
-class InceptionResNetBPoly3(InceptionResNetBPoly):
+class InceptionResNetA2Way(MultiWay):
 
     def __init__(self, scale):
-        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
+        super(InceptionResNetA2Way, self).__init__(scale, block_cls=BlockA,
+            num_blocks=2)
 
 
 class InceptionResNetB2Way(MultiWay):
@@ -6032,3 +6032,13 @@ class Xception(nn.Module):
         x = self.features(input)
         x = self.logits(x)
         return x
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+

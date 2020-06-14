@@ -243,23 +243,6 @@ class Conv1d(nn.Conv1d):
         self._linearized_weight = None
 
 
-def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
-    if speaker_embed is None:
-        return None
-    ss = speaker_embed.size()
-    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc
-        .size(tdim), ss[-1])
-    return speaker_embed_btc
-
-
-def Linear(in_features, out_features, dropout=0):
-    """Weight-normalized Linear layer (input: N x T x C)"""
-    m = nn.Linear(in_features, out_features)
-    m.weight.data.normal_(mean=0, std=math.sqrt((1 - dropout) / in_features))
-    m.bias.data.zero_()
-    return nn.utils.weight_norm(m)
-
-
 class GradMultiply(torch.autograd.Function):
 
     @staticmethod
@@ -272,6 +255,23 @@ class GradMultiply(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad):
         return grad * ctx.scale, None
+
+
+def Linear(in_features, out_features, dropout=0):
+    """Weight-normalized Linear layer (input: N x T x C)"""
+    m = nn.Linear(in_features, out_features)
+    m.weight.data.normal_(mean=0, std=math.sqrt((1 - dropout) / in_features))
+    m.bias.data.zero_()
+    return nn.utils.weight_norm(m)
+
+
+def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
+    if speaker_embed is None:
+        return None
+    ss = speaker_embed.size()
+    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc
+        .size(tdim), ss[-1])
+    return speaker_embed_btc
 
 
 class Encoder(nn.Module):
@@ -389,6 +389,14 @@ class AttentionLayer(nn.Module):
         return x, attn_scores
 
 
+def _clear_modules(modules):
+    for m in modules:
+        try:
+            m.clear_buffer()
+        except AttributeError as e:
+            pass
+
+
 def get_mask_from_lengths(memory, memory_lengths):
     """Get mask tensor from list of length
     Args:
@@ -400,14 +408,6 @@ def get_mask_from_lengths(memory, memory_lengths):
         ) < torch.tensor(memory_lengths).unsqueeze(-1)
     mask = mask.to(memory.device)
     return ~mask
-
-
-def _clear_modules(modules):
-    for m in modules:
-        try:
-            m.clear_buffer()
-        except AttributeError as e:
-            pass
 
 
 class Decoder(nn.Module):
@@ -730,13 +730,6 @@ class Converter(nn.Module):
         return torch.sigmoid(x)
 
 
-def sinusoidal_encode(x, w):
-    y = w * x
-    y[1:, 0::2] = torch.sin(y[1:, 0::2].clone())
-    y[1:, 1::2] = torch.cos(y[1:, 1::2].clone())
-    return y
-
-
 def position_encoding_init(n_position, d_pos_vec, position_rate=1.0,
     sinusoidal=True):
     """ Init the sinusoid position encoding table """
@@ -748,6 +741,13 @@ def position_encoding_init(n_position, d_pos_vec, position_rate=1.0,
         position_enc[1:, 0::2] = torch.sin(position_enc[1:, 0::2])
         position_enc[1:, 1::2] = torch.cos(position_enc[1:, 1::2])
     return position_enc
+
+
+def sinusoidal_encode(x, w):
+    y = w * x
+    y[1:, 0::2] = torch.sin(y[1:, 0::2].clone())
+    y[1:, 1::2] = torch.cos(y[1:, 1::2].clone())
+    return y
 
 
 class SinusoidalEncoding(nn.Embedding):

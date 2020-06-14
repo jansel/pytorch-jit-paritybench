@@ -99,15 +99,15 @@ class InputTransition(nn.Module):
         return out
 
 
-def passthrough(x, **kwargs):
-    return x
-
-
 def _make_nConv(nchan, depth, elu):
     layers = []
     for _ in range(depth):
         layers.append(LUConv(nchan, elu))
     return nn.Sequential(*layers)
+
+
+def passthrough(x, **kwargs):
+    return x
 
 
 class DownTransition(nn.Module):

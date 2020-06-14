@@ -626,16 +626,16 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-defines = []
+with_cuda = False
 
 
 headers = []
 
 
-with_cuda = False
-
-
 sources = []
+
+
+defines = []
 
 
 extra_objects = ['src/nms_cuda_kernel.cu.o']
@@ -692,10 +692,10 @@ class _RoIPooling(Module):
             spatial_scale)(features, rois)
 
 
-HIGHEST_BACKBONE_LVL = 5
-
-
 LOWEST_BACKBONE_LVL = 2
+
+
+HIGHEST_BACKBONE_LVL = 5
 
 
 _global_config['FPN'] = 4
@@ -1048,44 +1048,7 @@ class fpn_rpn_outputs(nn.Module):
         return return_dict
 
 
-def freeze_params(m):
-    """Freeze all the weights by setting requires_grad to False
-    """
-    for p in m.parameters():
-        p.requires_grad = False
-
-
 _global_config['RESNETS'] = 4
-
-
-def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
-    """Return a residual block module, including residual connection, """
-    if stride != 1 or inplanes != outplanes:
-        shortcut_func = globals()[cfg.RESNETS.SHORTCUT_FUNC]
-        downsample = shortcut_func(inplanes, outplanes, stride)
-    else:
-        downsample = None
-    trans_func = globals()[cfg.RESNETS.TRANS_FUNC]
-    res_block = trans_func(inplanes, outplanes, innerplanes, stride,
-        dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
-    return res_block
-
-
-def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
-    stride_init=2):
-    """Make a stage consist of `nblocks` residual blocks.
-    Returns:
-        - stage module: an nn.Sequentail module of residual blocks
-        - final output dimension
-    """
-    res_blocks = []
-    stride = stride_init
-    for _ in range(nblocks):
-        res_blocks.append(add_residual_block(inplanes, outplanes,
-            innerplanes, dilation, stride))
-        inplanes = outplanes
-        stride = 1
-    return nn.Sequential(*res_blocks), outplanes
 
 
 def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
@@ -1121,6 +1084,43 @@ def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
             mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
                 '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
     return mapping_to_detectron, orphan_in_detectron
+
+
+def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
+    """Return a residual block module, including residual connection, """
+    if stride != 1 or inplanes != outplanes:
+        shortcut_func = globals()[cfg.RESNETS.SHORTCUT_FUNC]
+        downsample = shortcut_func(inplanes, outplanes, stride)
+    else:
+        downsample = None
+    trans_func = globals()[cfg.RESNETS.TRANS_FUNC]
+    res_block = trans_func(inplanes, outplanes, innerplanes, stride,
+        dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
+    return res_block
+
+
+def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
+    stride_init=2):
+    """Make a stage consist of `nblocks` residual blocks.
+    Returns:
+        - stage module: an nn.Sequentail module of residual blocks
+        - final output dimension
+    """
+    res_blocks = []
+    stride = stride_init
+    for _ in range(nblocks):
+        res_blocks.append(add_residual_block(inplanes, outplanes,
+            innerplanes, dilation, stride))
+        inplanes = outplanes
+        stride = 1
+    return nn.Sequential(*res_blocks), outplanes
+
+
+def freeze_params(m):
+    """Freeze all the weights by setting requires_grad to False
+    """
+    for p in m.parameters():
+        p.requires_grad = False
 
 
 class ResNet_convX_body(nn.Module):
@@ -2134,10 +2134,10 @@ def check_inference(net_func):
     return wrapper
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class Generalized_RCNN(nn.Module):

@@ -79,6 +79,9 @@ class ProposalNet(nn.Module):
         return torch.cat((t1, t2, t3), dim=1)
 
 
+CAT_NUM = 4
+
+
 INPUT_SIZE = 448, 448
 
 
@@ -142,9 +145,6 @@ def generate_default_anchor_maps(anchors_setting=None, input_shape=INPUT_SIZE):
                 anchor_areas = np.concatenate((anchor_areas,
                     anchor_area_map.reshape(-1)))
     return center_anchors, edge_anchors, anchor_areas
-
-
-CAT_NUM = 4
 
 
 def hard_nms(cdds, topn=10, iou_thresh=0.25):

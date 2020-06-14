@@ -2302,17 +2302,17 @@ class SEModule(nn.Module):
         return input * x
 
 
+def conv1x1(in_planes, out_planes, stride=1, bias=False):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
+        bias=bias)
+
+
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1, groups=
     1, bias=False):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=padding, dilation=dilation, groups=groups, bias=bias)
-
-
-def conv1x1(in_planes, out_planes, stride=1, bias=False):
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=bias)
 
 
 class FPEBlock(nn.Module):
@@ -2935,14 +2935,6 @@ class DownsamplerBlock(nn.Module):
         return output
 
 
-def Split(x):
-    c = int(x.size()[1])
-    c1 = round(c * 0.5)
-    x1 = x[:, :c1, :, :].contiguous()
-    x2 = x[:, c1:, :, :].contiguous()
-    return x1, x2
-
-
 def Channel_shuffle(x, groups):
     batchsize, num_channels, height, width = x.data.size()
     channels_per_group = num_channels // groups
@@ -2954,6 +2946,14 @@ def Channel_shuffle(x, groups):
 
 def Merge(x1, x2):
     return torch.cat((x1, x2), 1)
+
+
+def Split(x):
+    c = int(x.size()[1])
+    c1 = round(c * 0.5)
+    x1 = x[:, :c1, :, :].contiguous()
+    x2 = x[:, c1:, :, :].contiguous()
+    return x1, x2
 
 
 class SS_nbt_module_paper(nn.Module):
@@ -3940,6 +3940,21 @@ def flatten_probas(probas, labels, ignore=None):
     return vprobas, vlabels
 
 
+def lovasz_grad(gt_sorted):
+    """
+    Computes gradient of the Lovasz extension w.r.t sorted errors
+    See Alg. 1 in paper
+    """
+    p = len(gt_sorted)
+    gts = gt_sorted.sum()
+    intersection = gts - gt_sorted.float().cumsum(0)
+    union = gts + (1 - gt_sorted).float().cumsum(0)
+    jaccard = 1.0 - intersection / union
+    if p > 1:
+        jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
+    return jaccard
+
+
 def isnan(x):
     return x != x
 
@@ -3963,21 +3978,6 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
-
-
-def lovasz_grad(gt_sorted):
-    """
-    Computes gradient of the Lovasz extension w.r.t sorted errors
-    See Alg. 1 in paper
-    """
-    p = len(gt_sorted)
-    gts = gt_sorted.sum()
-    intersection = gts - gt_sorted.float().cumsum(0)
-    union = gts + (1 - gt_sorted).float().cumsum(0)
-    jaccard = 1.0 - intersection / union
-    if p > 1:
-        jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
-    return jaccard
 
 
 def lovasz_softmax_flat(probas, labels, classes='present'):

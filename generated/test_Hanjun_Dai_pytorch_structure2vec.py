@@ -99,17 +99,6 @@ def gnn_spmm(sp_mat, dense_mat):
     return MySpMM.apply(sp_mat, dense_mat)
 
 
-def get_torch_version():
-    return float('.'.join(torch.__version__.split('.')[0:2]))
-
-
-def is_cuda_float(mat):
-    version = get_torch_version()
-    if version >= 0.4:
-        return mat.is_cuda
-    return type(mat) is torch.cuda.FloatTensor
-
-
 def glorot_uniform(t):
     if len(t.size()) == 2:
         fan_in, fan_out = t.size()
@@ -141,6 +130,17 @@ def weights_init(m):
     for name, p in m.named_parameters():
         if not '.' in name:
             _param_init(p)
+
+
+def get_torch_version():
+    return float('.'.join(torch.__version__.split('.')[0:2]))
+
+
+def is_cuda_float(mat):
+    version = get_torch_version()
+    if version >= 0.4:
+        return mat.is_cuda
+    return type(mat) is torch.cuda.FloatTensor
 
 
 class EmbedMeanField(nn.Module):

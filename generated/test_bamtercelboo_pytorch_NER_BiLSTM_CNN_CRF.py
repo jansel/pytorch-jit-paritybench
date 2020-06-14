@@ -90,6 +90,25 @@ import torch.optim as optim
 import torch.nn.utils as utils
 
 
+def init_embedding(input_embedding, seed=666):
+    """初始化embedding层权重
+    """
+    torch.manual_seed(seed)
+    scope = np.sqrt(3.0 / input_embedding.size(1))
+    nn.init.uniform_(input_embedding, -scope, scope)
+
+
+def init_linear(input_linear, seed=1337):
+    """初始化全连接层权重
+    """
+    torch.manual_seed(seed)
+    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.
+        weight.size(1)))
+    nn.init.uniform_(input_linear.weight, -scope, scope)
+    if input_linear.bias is not None:
+        input_linear.bias.data.zero_()
+
+
 cpu_device = 'cpu'
 
 
@@ -110,25 +129,6 @@ def prepare_pack_padded_sequence(inputs_words, seq_lengths, device='cpu',
     sorted_inputs_words = inputs_words[indices]
     return sorted_inputs_words, sorted_seq_lengths.cpu().numpy(
         ), desorted_indices
-
-
-def init_linear(input_linear, seed=1337):
-    """初始化全连接层权重
-    """
-    torch.manual_seed(seed)
-    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.
-        weight.size(1)))
-    nn.init.uniform_(input_linear.weight, -scope, scope)
-    if input_linear.bias is not None:
-        input_linear.bias.data.zero_()
-
-
-def init_embedding(input_embedding, seed=666):
-    """初始化embedding层权重
-    """
-    torch.manual_seed(seed)
-    scope = np.sqrt(3.0 / input_embedding.size(1))
-    nn.init.uniform_(input_embedding, -scope, scope)
 
 
 class BiLSTM(nn.Module):
@@ -180,6 +180,13 @@ class BiLSTM(nn.Module):
         return logit
 
 
+def init_embed(input_embedding, seed=656):
+    """初始化embedding层权重
+    """
+    torch.manual_seed(seed)
+    nn.init.xavier_uniform_(input_embedding)
+
+
 def init_linear_weight_bias(input_linear, seed=1337):
     """
     :param input_linear:
@@ -191,13 +198,6 @@ def init_linear_weight_bias(input_linear, seed=1337):
     scope = np.sqrt(6.0 / (input_linear.weight.size(0) + 1))
     if input_linear.bias is not None:
         input_linear.bias.data.uniform_(-scope, scope)
-
-
-def init_embed(input_embedding, seed=656):
-    """初始化embedding层权重
-    """
-    torch.manual_seed(seed)
-    nn.init.xavier_uniform_(input_embedding)
 
 
 class BiLSTM_CNN(nn.Module):

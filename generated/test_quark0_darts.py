@@ -68,16 +68,6 @@ import math
 from collections import namedtuple
 
 
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
-            bernoulli_(keep_prob))
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
     count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
@@ -94,6 +84,16 @@ OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1),
     stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C,
     affine=affine))}
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
+            bernoulli_(keep_prob))
+        x.div_(keep_prob)
+        x.mul_(mask)
+    return x
 
 
 class Cell(nn.Module):
@@ -534,6 +534,9 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
+INITRANGE = 0.04
+
+
 STEPS = 8
 
 
@@ -543,9 +546,6 @@ def mask2d(B, D, keep_prob, cuda=True):
     if cuda:
         m = m.cuda()
     return m
-
-
-INITRANGE = 0.04
 
 
 class DARTSCell(nn.Module):

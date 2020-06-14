@@ -228,6 +228,13 @@ from itertools import chain
 from itertools import combinations
 
 
+def prod(xs):
+    p = 1
+    for x in xs:
+        p *= x
+    return p
+
+
 class NBEATSBlock(nn.Module):
 
     def __init__(self, units, thetas_dim, num_block_layers=4,
@@ -263,28 +270,6 @@ def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
     return b_ls, f_ls
 
 
-class NBEATSTrendBlock(NBEATSBlock):
-
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5, nb_harmonics=None):
-        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length, share_thetas=True
-            )
-        backcast_linspace, forecast_linspace = linspace(backcast_length,
-            forecast_length)
-        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace **
-            i) for i in range(thetas_dim)]).float())
-        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace **
-            i) for i in range(thetas_dim)]).float())
-
-    def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
-        x = super().forward(x)
-        backcast = self.theta_b_fc(x).mm(self.T_backcast)
-        forecast = self.theta_f_fc(x).mm(self.T_forecast)
-        return backcast, forecast
-
-
 class NBEATSSeasonalBlock(NBEATSBlock):
 
     def __init__(self, units, thetas_dim=None, num_block_layers=4,
@@ -317,6 +302,28 @@ class NBEATSSeasonalBlock(NBEATSBlock):
         x = super().forward(x)
         backcast = self.theta_b_fc(x).mm(self.S_backcast)
         forecast = self.theta_f_fc(x).mm(self.S_forecast)
+        return backcast, forecast
+
+
+class NBEATSTrendBlock(NBEATSBlock):
+
+    def __init__(self, units, thetas_dim, num_block_layers=4,
+        backcast_length=10, forecast_length=5, nb_harmonics=None):
+        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=
+            thetas_dim, num_block_layers=num_block_layers, backcast_length=
+            backcast_length, forecast_length=forecast_length, share_thetas=True
+            )
+        backcast_linspace, forecast_linspace = linspace(backcast_length,
+            forecast_length)
+        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace **
+            i) for i in range(thetas_dim)]).float())
+        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace **
+            i) for i in range(thetas_dim)]).float())
+
+    def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
+        x = super().forward(x)
+        backcast = self.theta_b_fc(x).mm(self.T_backcast)
+        forecast = self.theta_f_fc(x).mm(self.T_forecast)
         return backcast, forecast
 
 
@@ -419,11 +426,22 @@ class NBEATSNetwork(nn.Module):
             ) * torch.logical_not(flag) / (seasonal_error + flag)
 
 
-def prod(xs):
-    p = 1
-    for x in xs:
-        p *= x
-    return p
+def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
+    None, dim=None):
+    if weights is not None:
+        weighted_tensor = tensor * weights
+        if dim is not None:
+            sum_weights = torch.sum(weights, dim)
+            sum_weighted_tensor = torch.sum(weighted_tensor, dim)
+        else:
+            sum_weights = weights.sum()
+            sum_weighted_tensor = weighted_tensor.sum()
+        sum_weights = torch.max(torch.ones_like(sum_weights), sum_weights)
+        return sum_weighted_tensor / sum_weights
+    elif dim is not None:
+        return torch.mean(tensor, dim=dim)
+    else:
+        return tensor.mean()
 
 
 class ArgProj(nn.Module):

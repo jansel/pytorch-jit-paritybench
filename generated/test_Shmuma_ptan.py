@@ -463,13 +463,13 @@ class DuelingDQN(nn.Module):
         return val + adv - adv.mean()
 
 
-Vmin = -10
-
-
 N_ATOMS = 51
 
 
 Vmax = 10
+
+
+Vmin = -10
 
 
 DELTA_Z = (Vmax - Vmin) / (N_ATOMS - 1)

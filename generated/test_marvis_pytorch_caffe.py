@@ -510,41 +510,9 @@ class PriorBox(nn.Module):
             return Variable(output)
 
 
-def print_prototxt(net_info):
-
-    def format_value(value):
-        if is_number(value):
-            return value
-        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
-            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
-            'LANCZOS4', 'CENTER', 'LMDB']:
-            return value
-        else:
-            return '"%s"' % value
-
-    def print_block(block_info, prefix, indent):
-        blanks = ''.join([' '] * indent)
-        print('%s%s {' % (blanks, prefix))
-        for key, value in list(block_info.items()):
-            if type(value) == OrderedDict:
-                print_block(value, key, indent + 4)
-            elif type(value) == list:
-                for v in value:
-                    print('%s    %s: %s' % (blanks, key, format_value(v)))
-            else:
-                print('%s    %s: %s' % (blanks, key, format_value(value)))
-        print('%s}' % blanks)
-    props = net_info['props']
-    layers = net_info['layers']
-    print('name: "%s"' % props['name'])
-    print('input: "%s"' % props['input'])
-    print('input_dim: %s' % props['input_dim'][0])
-    print('input_dim: %s' % props['input_dim'][1])
-    print('input_dim: %s' % props['input_dim'][2])
-    print('input_dim: %s' % props['input_dim'][3])
-    print('')
-    for layer in layers:
-        print_block(layer, 'layer', 0)
+SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
+    'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss',
+    'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
 
 
 def parse_caffemodel(caffemodel):
@@ -626,9 +594,41 @@ def parse_prototxt(protofile):
         return props
 
 
-SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
-    'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss',
-    'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
+def print_prototxt(net_info):
+
+    def format_value(value):
+        if is_number(value):
+            return value
+        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
+            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
+            'LANCZOS4', 'CENTER', 'LMDB']:
+            return value
+        else:
+            return '"%s"' % value
+
+    def print_block(block_info, prefix, indent):
+        blanks = ''.join([' '] * indent)
+        print('%s%s {' % (blanks, prefix))
+        for key, value in list(block_info.items()):
+            if type(value) == OrderedDict:
+                print_block(value, key, indent + 4)
+            elif type(value) == list:
+                for v in value:
+                    print('%s    %s: %s' % (blanks, key, format_value(v)))
+            else:
+                print('%s    %s: %s' % (blanks, key, format_value(value)))
+        print('%s}' % blanks)
+    props = net_info['props']
+    layers = net_info['layers']
+    print('name: "%s"' % props['name'])
+    print('input: "%s"' % props['input'])
+    print('input_dim: %s' % props['input_dim'][0])
+    print('input_dim: %s' % props['input_dim'][1])
+    print('input_dim: %s' % props['input_dim'][2])
+    print('input_dim: %s' % props['input_dim'][3])
+    print('')
+    for layer in layers:
+        print_block(layer, 'layer', 0)
 
 
 class CaffeNet(nn.Module):
@@ -1287,6 +1287,37 @@ class CaffeNet(nn.Module):
         return models
 
 
+def center_size(boxes):
+    """ Convert prior_boxes to (cx, cy, w, h)
+    representation for comparison to center-size form ground truth data.
+    Args:
+        boxes: (tensor) point_form boxes
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
+        boxes[:, :2]], 1)
+
+
+def decode(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
+    """
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
+        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes
+
+
 def nms(boxes, scores, overlap=0.5, top_k=200):
     """Apply non-maximum suppression at test time to avoid detecting too many
     overlapping bounding boxes for a given object.
@@ -1342,37 +1373,6 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
         IoU = inter / union
         idx = idx[IoU.le(overlap)]
     return keep, count
-
-
-def decode(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-    return boxes
-
-
-def center_size(boxes):
-    """ Convert prior_boxes to (cx, cy, w, h)
-    representation for comparison to center-size form ground truth data.
-    Args:
-        boxes: (tensor) point_form boxes
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
 
 
 class Detection(nn.Module):
@@ -1482,6 +1482,25 @@ def log_sum_exp(x):
     return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
 
 
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
+
+
 def intersect(box_a, box_b):
     """ We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
@@ -1522,25 +1541,6 @@ def jaccard(box_a, box_b):
         ).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
-
-
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def point_form(boxes):

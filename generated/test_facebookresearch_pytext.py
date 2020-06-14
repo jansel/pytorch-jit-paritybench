@@ -2498,12 +2498,6 @@ class ResidualMLP(nn.Module):
         return input + bias
 
 
-def remove_state_keys(state, keys_regex):
-    """Remove keys from state that match a regex"""
-    regex = re.compile(keys_regex)
-    return {k: v for k, v in state.items() if not regex.findall(k)}
-
-
 def merge_input_projection(state):
     """
     New checkpoints of fairseq multihead attention split in_projections into
@@ -2535,6 +2529,12 @@ def merge_input_projection(state):
     for key, value in items_to_add.items():
         state[key] = value
     return state
+
+
+def remove_state_keys(state, keys_regex):
+    """Remove keys from state that match a regex"""
+    regex = re.compile(keys_regex)
+    return {k: v for k, v in state.items() if not regex.findall(k)}
 
 
 def rename_state_keys(state, keys_regex, replacement):
@@ -2602,16 +2602,16 @@ class TransformerLayer(nn.Module):
         return self.final_layer_norm(biased)
 
 
-DEFAULT_VOCAB_SIZE = 50265
-
-
 DEFAULT_MAX_SEQUENCE_LENGTH = 514
+
+
+DEFAULT_NUM_LAYERS = 12
 
 
 DEFAULT_PADDING_IDX = 1
 
 
-DEFAULT_NUM_LAYERS = 12
+DEFAULT_VOCAB_SIZE = 50265
 
 
 class Transformer(nn.Module):

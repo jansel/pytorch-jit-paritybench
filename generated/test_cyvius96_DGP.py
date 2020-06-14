@@ -436,10 +436,10 @@ class ResNetBase(nn.Module):
         return x
 
 
-def make_resnet34_base(**kwargs):
-    """Constructs a ResNet-34 model.
+def make_resnet101_base(**kwargs):
+    """Constructs a ResNet-101 model.
     """
-    model = ResNetBase(BasicBlock, [3, 4, 6, 3], **kwargs)
+    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
     return model
 
 
@@ -450,13 +450,6 @@ def make_resnet152_base(**kwargs):
     return model
 
 
-def make_resnet50_base(**kwargs):
-    """Constructs a ResNet-50 model.
-    """
-    model = ResNetBase(Bottleneck, [3, 4, 6, 3], **kwargs)
-    return model
-
-
 def make_resnet18_base(**kwargs):
     """Constructs a ResNet-18 model.
     """
@@ -464,10 +457,17 @@ def make_resnet18_base(**kwargs):
     return model
 
 
-def make_resnet101_base(**kwargs):
-    """Constructs a ResNet-101 model.
+def make_resnet34_base(**kwargs):
+    """Constructs a ResNet-34 model.
     """
-    model = ResNetBase(Bottleneck, [3, 4, 23, 3], **kwargs)
+    model = ResNetBase(BasicBlock, [3, 4, 6, 3], **kwargs)
+    return model
+
+
+def make_resnet50_base(**kwargs):
+    """Constructs a ResNet-50 model.
+    """
+    model = ResNetBase(Bottleneck, [3, 4, 6, 3], **kwargs)
     return model
 
 

@@ -1435,6 +1435,9 @@ class LstmCellWithProjection(torch.nn.Module):
         return output_accumulator, final_state
 
 
+RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+
+
 RnnStateStorage = Tuple[torch.Tensor, ...]
 
 
@@ -1474,9 +1477,6 @@ def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
     restoration_indices = index_range.index_select(0, reverse_mapping)
     return (sorted_tensor, sorted_sequence_lengths, restoration_indices,
         permutation_index)
-
-
-RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
 
 
 class _EncoderBase(torch.nn.Module):

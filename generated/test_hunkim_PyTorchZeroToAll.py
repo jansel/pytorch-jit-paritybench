@@ -247,19 +247,19 @@ class Net(nn.Module):
 input_size = 5
 
 
-num_layers = 1
+num_classes = 5
 
 
 sequence_length = 6
-
-
-num_classes = 5
 
 
 batch_size = 1
 
 
 hidden_size = 100
+
+
+num_layers = 1
 
 
 class Model(nn.Module):

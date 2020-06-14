@@ -34,18 +34,18 @@ import torch.nn.functional as F
 from torch import nn
 
 
+STOP_TAG = 'STOP'
+
+
+START_TAG = 'START'
+
+
 def log_sum_exp(vec):
     max_score = torch.max(vec, 0)[0].unsqueeze(0)
     max_score_broadcast = max_score.expand(vec.size(1), vec.size(1))
     result = max_score + torch.log(torch.sum(torch.exp(vec -
         max_score_broadcast), 0)).unsqueeze(0)
     return result.squeeze(1)
-
-
-STOP_TAG = 'STOP'
-
-
-START_TAG = 'START'
 
 
 class BiLSTMCRF(nn.Module):

@@ -286,6 +286,12 @@ def downBlock(in_planes, out_planes):
     return block
 
 
+def Block3x3_leakRelu(in_planes, out_planes):
+    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
+        out_planes), nn.LeakyReLU(0.2, inplace=True))
+    return block
+
+
 def encode_parent_and_child_img(ndf, in_c=3):
     encode_img = nn.Sequential(nn.Conv2d(in_c, ndf, 4, 2, 1, bias=False),
         nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1,
@@ -295,12 +301,6 @@ def encode_parent_and_child_img(ndf, in_c=3):
         ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn
         .LeakyReLU(0.2, inplace=True))
     return encode_img
-
-
-def Block3x3_leakRelu(in_planes, out_planes):
-    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
-        out_planes), nn.LeakyReLU(0.2, inplace=True))
-    return block
 
 
 class Encoder(nn.Module):

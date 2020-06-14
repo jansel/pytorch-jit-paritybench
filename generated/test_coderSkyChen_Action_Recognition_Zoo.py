@@ -249,12 +249,12 @@ import numpy as np
 from torch.nn import functional as F
 
 
-LAYER_BUILDER_DICT = dict()
-
-
 def parse_expr(expr):
     parts = expr.split('<=')
     return parts[0].split(','), parts[1], parts[2].split(',')
+
+
+LAYER_BUILDER_DICT = dict()
 
 
 def get_basic_layer(info, channels=None, conv_bias=False):

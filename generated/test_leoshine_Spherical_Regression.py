@@ -146,6 +146,74 @@ from torch.nn.parameter import Parameter
 from torch.nn.functional import *
 
 
+class down(nn.Module):
+
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
+        ):
+        super(down, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
+                    return_indices=True)]
+            else:
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        self.conv = nn.Sequential(*layers)
+        if block_cfg[0] == 'M':
+            self.pool = layers[0]
+            self.conv = nn.Sequential(*layers[1:])
+        else:
+            self.pool = None
+            self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.pool is not None:
+            x, poolInd = self.pool(x)
+            x = self.conv(x)
+            return x, poolInd
+        else:
+            x = self.conv(x)
+            return x
+
+
+class up(nn.Module):
+
+    def __init__(self, block_cfg, in_channels, batch_norm=True):
+        super(up, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
+            else:
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
+                    padding=1, bias=True)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        if block_cfg[-1] == 'M':
+            self.deconv = nn.Sequential(*layers[:-1])
+            self.uppool = layers[-1]
+        else:
+            self.deconv = nn.Sequential(*layers)
+
+    def forward(self, x1, poolInd=None, x2=None):
+        """First deconv and then do uppool,cat if needed."""
+        x1 = self.deconv(x1)
+        if x2 is not None:
+            x1 = self.uppool(x1, poolInd, output_size=x2.size())
+            x1 = torch.cat([x2, x1], dim=1)
+        return x1
+
+
 def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
     kaiming_normal=True, silent=False):
     """ Note: gaussian_std is fully connected layer (nn.Linear) only.
@@ -178,140 +246,85 @@ def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
     return nn_module_or_seq
 
 
-class down(nn.Module):
+_global_config['torchmodel'] = 4
 
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
-        super(down, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+
+def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
+    strict=True, src2dsts=None):
+    from torch.nn.parameter import Parameter
+    print('-----------------------')
+    print('[Info] Copy from  %s ' % pretrained_type)
+    print('-----------------------')
+    src_state = model_zoo.load_url(cfg.torchmodel[pretrained_type].model_url)
+    not_copied = list(own_state.keys())
+    if src2dsts is not None:
+        for src, dsts in src2dsts.items():
+            if not isinstance(dsts, list):
+                dsts = [dsts]
+            for dst in dsts:
+                if dst in own_state.keys():
+                    own_state[dst].copy_(src_state[src])
+                    not_copied.remove(dst)
+                    print('%-20s  -->  %-20s' % (src, dst))
                 else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        self.conv = nn.Sequential(*layers)
-        if block_cfg[0] == 'M':
-            self.pool = layers[0]
-            self.conv = nn.Sequential(*layers[1:])
-        else:
-            self.pool = None
-            self.conv = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.pool is not None:
-            x, poolInd = self.pool(x)
-            x = self.conv(x)
-            return x, poolInd
-        else:
-            x = self.conv(x)
-            return x
-
-
-class up(nn.Module):
-
-    def __init__(self, block_cfg, in_channels, batch_norm=True):
-        super(up, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
+                    dst_w_name, src_w_name = ('%s.weight' % dst, 
+                        '%s.weight' % src)
+                    dst_b_name, src_b_name = '%s.bias' % dst, '%s.bias' % src
+                    if (dst_w_name not in own_state.keys() or dst_b_name not in
+                        own_state.keys()) and not strict:
+                        print('%-20s  -->  %-20s   [ignored] Missing dst.' %
+                            (src, dst))
+                        continue
+                    print('%-20s  -->  %-20s' % (src, dst))
+                    assert own_state[dst_w_name].shape == src_state[src_w_name
+                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name,
+                        own_state[dst_w_name].shape, src_state[src_w_name].
+                        shape)
+                    own_state[dst_w_name].copy_(src_state[src_w_name])
+                    not_copied.remove(dst_w_name)
+                    assert own_state[dst_b_name].shape == src_state[src_b_name
+                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name,
+                        own_state[dst_b_name].shape, src_state[src_b_name].
+                        shape)
+                    own_state[dst_b_name].copy_(src_state[src_b_name])
+                    not_copied.remove(dst_b_name)
+    else:
+        for name, param in src_state.items():
+            if name in own_state:
+                if isinstance(param, Parameter):
+                    param = param.data
+                try:
+                    print('%-30s  -->  %-30s' % (name, name))
+                    own_state[name].copy_(param)
+                    not_copied.remove(name)
+                except Exception:
+                    raise RuntimeError(
+                        'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
+                        .format(name, own_state[name].size(), param.size()))
+            elif strict:
+                raise KeyError('unexpected key "{}" in state_dict'.format(name)
+                    )
             else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        if block_cfg[-1] == 'M':
-            self.deconv = nn.Sequential(*layers[:-1])
-            self.uppool = layers[-1]
+                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name,
+                    name))
+    for name in not_copied:
+        if name.endswith('.weight'):
+            own_state[name].normal_(mean=0.0, std=0.005)
+            print('%-20s  -->  %-20s' % ('[filler] gaussian005', name))
+        elif name.endswith('.bias'):
+            own_state[name].fill_(0)
+            print('%-30s  -->  %-30s' % ('[filler] 0', name))
+        elif name.endswith('.running_mean') or name.endswith('.running_var'
+            ) or name.endswith('num_batches_tracked'):
+            print('*************************** pass', name)
         else:
-            self.deconv = nn.Sequential(*layers)
-
-    def forward(self, x1, poolInd=None, x2=None):
-        """First deconv and then do uppool,cat if needed."""
-        x1 = self.deconv(x1)
-        if x2 is not None:
-            x1 = self.uppool(x1, poolInd, output_size=x2.size())
-            x1 = torch.cat([x2, x1], dim=1)
-        return x1
-
-
-class down(nn.Module):
-
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
-        super(down, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        self.conv = nn.Sequential(*layers)
-        if block_cfg[0] == 'M':
-            self.pool = layers[0]
-            self.conv = nn.Sequential(*layers[1:])
-        else:
-            self.pool = None
-            self.conv = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.pool is not None:
-            x, poolInd = self.pool(x)
-            x = self.conv(x)
-            return x, poolInd
-        else:
-            x = self.conv(x)
-            return x
-
-
-class up(nn.Module):
-
-    def __init__(self, block_cfg, in_channels, batch_norm=True):
-        super(up, self).__init__()
-        layers = []
-        for v in block_cfg:
-            if v == 'M':
-                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
-            else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        if block_cfg[-1] == 'M':
-            self.deconv = nn.Sequential(*layers[:-1])
-            self.uppool = layers[-1]
-        else:
-            self.deconv = nn.Sequential(*layers)
-
-    def forward(self, x1, poolInd=None, x2=None):
-        """First deconv and then do uppool,cat if needed."""
-        x1 = self.deconv(x1)
-        if x2 is not None:
-            x1 = self.uppool(x1, poolInd, output_size=x2.size())
-            x1 = torch.cat([x2, x1], dim=1)
-        return x1
+            print('Unknow parameter type: ', name)
+            raise NotImplementedError
+    if strict:
+        missing = set(own_state.keys()) - set(src_state.keys())
+        if len(missing) > 0:
+            raise KeyError('missing keys in state_dict: "{}"'.format(missing))
+    print('-----------------------')
 
 
 def get_weights_from_caffesnapeshot(proto_file, model_file):
@@ -401,87 +414,6 @@ def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
     print('-----------------------')
 
 
-_global_config['torchmodel'] = 4
-
-
-def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
-    strict=True, src2dsts=None):
-    from torch.nn.parameter import Parameter
-    print('-----------------------')
-    print('[Info] Copy from  %s ' % pretrained_type)
-    print('-----------------------')
-    src_state = model_zoo.load_url(cfg.torchmodel[pretrained_type].model_url)
-    not_copied = list(own_state.keys())
-    if src2dsts is not None:
-        for src, dsts in src2dsts.items():
-            if not isinstance(dsts, list):
-                dsts = [dsts]
-            for dst in dsts:
-                if dst in own_state.keys():
-                    own_state[dst].copy_(src_state[src])
-                    not_copied.remove(dst)
-                    print('%-20s  -->  %-20s' % (src, dst))
-                else:
-                    dst_w_name, src_w_name = ('%s.weight' % dst, 
-                        '%s.weight' % src)
-                    dst_b_name, src_b_name = '%s.bias' % dst, '%s.bias' % src
-                    if (dst_w_name not in own_state.keys() or dst_b_name not in
-                        own_state.keys()) and not strict:
-                        print('%-20s  -->  %-20s   [ignored] Missing dst.' %
-                            (src, dst))
-                        continue
-                    print('%-20s  -->  %-20s' % (src, dst))
-                    assert own_state[dst_w_name].shape == src_state[src_w_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name,
-                        own_state[dst_w_name].shape, src_state[src_w_name].
-                        shape)
-                    own_state[dst_w_name].copy_(src_state[src_w_name])
-                    not_copied.remove(dst_w_name)
-                    assert own_state[dst_b_name].shape == src_state[src_b_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name,
-                        own_state[dst_b_name].shape, src_state[src_b_name].
-                        shape)
-                    own_state[dst_b_name].copy_(src_state[src_b_name])
-                    not_copied.remove(dst_b_name)
-    else:
-        for name, param in src_state.items():
-            if name in own_state:
-                if isinstance(param, Parameter):
-                    param = param.data
-                try:
-                    print('%-30s  -->  %-30s' % (name, name))
-                    own_state[name].copy_(param)
-                    not_copied.remove(name)
-                except Exception:
-                    raise RuntimeError(
-                        'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                        .format(name, own_state[name].size(), param.size()))
-            elif strict:
-                raise KeyError('unexpected key "{}" in state_dict'.format(name)
-                    )
-            else:
-                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name,
-                    name))
-    for name in not_copied:
-        if name.endswith('.weight'):
-            own_state[name].normal_(mean=0.0, std=0.005)
-            print('%-20s  -->  %-20s' % ('[filler] gaussian005', name))
-        elif name.endswith('.bias'):
-            own_state[name].fill_(0)
-            print('%-30s  -->  %-30s' % ('[filler] 0', name))
-        elif name.endswith('.running_mean') or name.endswith('.running_var'
-            ) or name.endswith('num_batches_tracked'):
-            print('*************************** pass', name)
-        else:
-            print('Unknow parameter type: ', name)
-            raise NotImplementedError
-    if strict:
-        missing = set(own_state.keys()) - set(src_state.keys())
-        if len(missing) > 0:
-            raise KeyError('missing keys in state_dict: "{}"'.format(missing))
-    print('-----------------------')
-
-
 def copy_weights(own_state, pretrained_type, **kwargs):
     """ Usage example:
             copy_weights(own_state, 'torchmodel.alexnet',  strict=False)
@@ -520,6 +452,74 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
         dtype=np.float64)
     weight[(range(in_channels)), (range(out_channels)), :, :] = filt
     return torch.from_numpy(weight).float()
+
+
+class down(nn.Module):
+
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
+        ):
+        super(down, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
+                    return_indices=True)]
+            else:
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        self.conv = nn.Sequential(*layers)
+        if block_cfg[0] == 'M':
+            self.pool = layers[0]
+            self.conv = nn.Sequential(*layers[1:])
+        else:
+            self.pool = None
+            self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.pool is not None:
+            x, poolInd = self.pool(x)
+            x = self.conv(x)
+            return x, poolInd
+        else:
+            x = self.conv(x)
+            return x
+
+
+class up(nn.Module):
+
+    def __init__(self, block_cfg, in_channels, batch_norm=True):
+        super(up, self).__init__()
+        layers = []
+        for v in block_cfg:
+            if v == 'M':
+                layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
+            else:
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
+                    padding=1, bias=True)
+                if batch_norm:
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
+                        ]
+                else:
+                    layers += [conv2d, nn.ReLU(inplace=True)]
+                in_channels = v
+        if block_cfg[-1] == 'M':
+            self.deconv = nn.Sequential(*layers[:-1])
+            self.uppool = layers[-1]
+        else:
+            self.deconv = nn.Sequential(*layers)
+
+    def forward(self, x1, poolInd=None, x2=None):
+        """First deconv and then do uppool,cat if needed."""
+        x1 = self.deconv(x1)
+        if x2 is not None:
+            x1 = self.uppool(x1, poolInd, output_size=x2.size())
+            x1 = torch.cat([x2, x1], dim=1)
+        return x1
 
 
 class VGG16_Trunk(nn.Module):
@@ -1299,6 +1299,12 @@ class nnAdd(nn.Module):
         return x0 + x1
 
 
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
 def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
     """ E.g.
          Fixed BN:   xNorm='BN', affine=False
@@ -1311,12 +1317,6 @@ def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
         return nn.InstanceNorm2d(num_channels, **kwargs)
     elif xNorm == 'LN':
         raise NotImplementedError
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -1531,6 +1531,34 @@ class Test_Net(nn.Module):
         return Pred
 
 
+def make_layers(cfg, batch_norm=False):
+    layers = []
+    in_channels = 3
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
+
+
+def make_layers_vggm():
+    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=
+        True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3),
+        (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2),
+        (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 
+        2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d
+        (256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.
+        Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn
+        .Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True),
+        nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
+
+
 def get_caffeSrc2Dst(net_arch='vgg16'):
     if net_arch == 'vgg16':
         return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
@@ -1558,41 +1586,13 @@ def get_caffeSrc2Dst(net_arch='vgg16'):
         raise NotImplementedError
 
 
-def make_layers_vggm():
-    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=
-        True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3),
-        (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2),
-        (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 
-        2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d
-        (256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.
-        Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn
-        .Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True),
-        nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
+_global_config['D'] = 4
 
 
 _global_config['E'] = 4
 
 
-_global_config['D'] = 4
-
-
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])
-
-
-def make_layers(cfg, batch_norm=False):
-    layers = []
-    in_channels = 3
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    return nn.Sequential(*layers)
 
 
 class _VGG_Trunk(nn.Module):

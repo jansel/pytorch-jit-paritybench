@@ -175,6 +175,25 @@ def calc_iou(a, b):
     return IoU
 
 
+def display(preds, imgs, obj_list, imshow=True, imwrite=False):
+    for i in range(len(imgs)):
+        if len(preds[i]['rois']) == 0:
+            continue
+        for j in range(len(preds[i]['rois'])):
+            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
+            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
+            obj = obj_list[preds[i]['class_ids'][j]]
+            score = float(preds[i]['scores'][j])
+            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 +
+                10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        if imshow:
+            cv2.imshow('img', imgs[i])
+            cv2.waitKey(0)
+        if imwrite:
+            os.makedirs('test/', exist_ok=True)
+            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
+
+
 def postprocess(x, anchors, regression, classification, regressBoxes,
     clipBoxes, threshold, iou_threshold):
     transformed_anchors = regressBoxes(anchors, regression)
@@ -205,25 +224,6 @@ def postprocess(x, anchors, regression, classification, regressBoxes,
             out.append({'rois': np.array(()), 'class_ids': np.array(()),
                 'scores': np.array(())})
     return out
-
-
-def display(preds, imgs, obj_list, imshow=True, imwrite=False):
-    for i in range(len(imgs)):
-        if len(preds[i]['rois']) == 0:
-            continue
-        for j in range(len(preds[i]['rois'])):
-            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
-            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
-            obj = obj_list[preds[i]['class_ids'][j]]
-            score = float(preds[i]['scores'][j])
-            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 +
-                10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-        if imshow:
-            cv2.imshow('img', imgs[i])
-            cv2.waitKey(0)
-        if imwrite:
-            os.makedirs('test/', exist_ok=True)
-            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
 
 
 class FocalLoss(nn.Module):
@@ -914,18 +914,16 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
+        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    return params_dict[model_name]
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
@@ -996,6 +994,12 @@ class BlockDecoder(object):
         return block_strings
 
 
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=1000
     ):
@@ -1012,18 +1016,6 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
         depth_coefficient, depth_divisor=8, min_depth=None, image_size=
         image_size)
     return blocks_args, global_params
-
-
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
-        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
-    return params_dict[model_name]
 
 
 def get_model_params(model_name, override_params):
@@ -1111,6 +1103,14 @@ def round_filters(filters, global_params):
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
 
 
 class EfficientNet(nn.Module):
@@ -1385,23 +1385,6 @@ class ModelWithLoss(nn.Module):
         return cls_loss, reg_loss
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
-
-
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1423,6 +1406,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -1509,9 +1506,11 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _sum_ft(tensor):
@@ -1519,8 +1518,9 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

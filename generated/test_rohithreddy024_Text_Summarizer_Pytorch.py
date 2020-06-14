@@ -45,15 +45,6 @@ from torch.distributions import Categorical
 from numpy import random
 
 
-_global_config['trunc_norm_init_std'] = 4
-
-
-def init_linear_wt(linear):
-    linear.weight.data.normal_(std=config.trunc_norm_init_std)
-    if linear.bias is not None:
-        linear.bias.data.normal_(std=config.trunc_norm_init_std)
-
-
 _global_config['rand_unif_init_mag'] = 4
 
 
@@ -71,10 +62,19 @@ def init_lstm_wt(lstm):
             bias.data[start:end].fill_(1.0)
 
 
-_global_config['emb_dim'] = 4
+_global_config['trunc_norm_init_std'] = 4
+
+
+def init_linear_wt(linear):
+    linear.weight.data.normal_(std=config.trunc_norm_init_std)
+    if linear.bias is not None:
+        linear.bias.data.normal_(std=config.trunc_norm_init_std)
 
 
 _global_config['hidden_dim'] = 4
+
+
+_global_config['emb_dim'] = 4
 
 
 class Encoder(nn.Module):

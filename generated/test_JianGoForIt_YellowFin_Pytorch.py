@@ -98,20 +98,6 @@ class RNN_LSTM(nn.Module):
         return model_name, model_log
 
 
-def batch_matmul(seq, weight, nonlinearity=''):
-    s = None
-    for i in range(seq.size(0)):
-        _s = torch.mm(seq[i], weight)
-        if nonlinearity == 'tanh':
-            _s = torch.tanh(_s)
-        _s = _s.unsqueeze(0)
-        if s is None:
-            s = _s
-        else:
-            s = torch.cat((s, _s), 0)
-    return s.squeeze()
-
-
 def attention_mul(rnn_outputs, att_weights):
     attn_vectors = None
     for i in range(rnn_outputs.size(0)):
@@ -124,6 +110,20 @@ def attention_mul(rnn_outputs, att_weights):
         else:
             attn_vectors = torch.cat((attn_vectors, h_i), 0)
     return torch.sum(attn_vectors, 0)
+
+
+def batch_matmul(seq, weight, nonlinearity=''):
+    s = None
+    for i in range(seq.size(0)):
+        _s = torch.mm(seq[i], weight)
+        if nonlinearity == 'tanh':
+            _s = torch.tanh(_s)
+        _s = _s.unsqueeze(0)
+        if s is None:
+            s = _s
+        else:
+            s = torch.cat((s, _s), 0)
+    return s.squeeze()
 
 
 def batch_matmul_bias(seq, weight, bias, nonlinearity=''):

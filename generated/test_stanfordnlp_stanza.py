@@ -391,13 +391,13 @@ class BaseVocab:
         return len(self)
 
 
+EOS = '<EOS>'
+
+
 PAD = '<PAD>'
 
 
 SOS = '<SOS>'
-
-
-EOS = '<EOS>'
 
 
 VOCAB_PREFIX = [PAD, UNK, SOS, EOS]
@@ -968,9 +968,6 @@ class LSTMwRecDropout(nn.Module):
         return input, tuple(torch.cat(x, 0) for x in all_states)
 
 
-logger = logging.getLogger('stanza')
-
-
 class Beam(object):
 
     def __init__(self, size, cuda=False):
@@ -1056,6 +1053,9 @@ class Beam(object):
             if cidx >= 0:
                 hyp[i] = -(cidx + 1)
         return hyp
+
+
+logger = logging.getLogger('stanza')
 
 
 class Seq2SeqModel(nn.Module):

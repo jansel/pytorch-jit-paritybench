@@ -2008,6 +2008,11 @@ class Decoder(nn.Module):
                     nn.init.constant_(ly.bias, 0)
 
 
+def build_aspp(backbone, output_stride, BatchNorm, args, separate):
+    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5,
+        BatchNorm, separate)
+
+
 def get_default_cell():
     cell = np.zeros((10, 2))
     cell[0] = [0, 7]
@@ -2053,11 +2058,6 @@ def build_backbone(backbone, output_stride, BatchNorm, args):
 
 def build_decoder(num_classes, backbone, BatchNorm, args, separate):
     return Decoder(num_classes, backbone, BatchNorm, args, separate)
-
-
-def build_aspp(backbone, output_stride, BatchNorm, args, separate):
-    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5,
-        BatchNorm, separate)
 
 
 class DeepLab(nn.Module):
@@ -2118,13 +2118,13 @@ class DeepLab(nn.Module):
                             yield p
 
 
-ACT_RELU = 'relu'
+ACT_ELU = 'elu'
 
 
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
-ACT_ELU = 'elu'
+ACT_RELU = 'relu'
 
 
 class ABN(nn.Module):
@@ -2221,20 +2221,6 @@ class SingleGPU(nn.Module):
         return self.module(input)
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -2256,6 +2242,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -2334,9 +2334,11 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 def _sum_ft(tensor):
@@ -2344,11 +2346,9 @@ def _sum_ft(tensor):
     return tensor.sum(dim=0).sum(dim=-1)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
-
-
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 class _SynchronizedBatchNorm(_BatchNorm):

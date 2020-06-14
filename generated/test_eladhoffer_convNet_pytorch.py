@@ -491,18 +491,6 @@ class AuxiliaryHeadImageNet(nn.Module):
         return x
 
 
-def modify_drop_path_rate(model, value, log=True):
-    if log and model.drop_path != value:
-        logging.debug('Modified drop-path rate from %s to %s' % (model.
-            drop_path, value))
-    model.drop_path = value
-
-
-def cosine_anneal_lr(epoch, base_lr=0.025, T_max=600.0, eta_min=0.0):
-    return eta_min + (base_lr - eta_min) * (1 + math.cos(math.pi * epoch /
-        T_max)) / 2
-
-
 Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
 
 
@@ -657,19 +645,6 @@ def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
         out_planes), nn.ReLU())
 
 
-class block8(block):
-
-    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block8, self).__init__(in_planes, scale, activation)
-        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
-            in_planes, 192, 1))]))
-        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
-            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
-            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
-            3, 1), padding=(1, 0)))]))
-        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
-
-
 class block17(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
@@ -696,6 +671,19 @@ class block35(block):
             conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3,
             padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
         self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
+
+
+class block8(block):
+
+    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
+        super(block8, self).__init__(in_planes, scale, activation)
+        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(
+            in_planes, 192, 1))]))
+        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1',
+            conv_bn(in_planes, 192, 1)), ('Conv2d_0b_1x7', conv_bn(192, 224,
+            (1, 3), padding=(0, 1))), ('Conv2d_0c_7x1', conv_bn(224, 256, (
+            3, 1), padding=(1, 0)))]))
+        self.Conv2d_1x1 = conv_bn(448, in_planes, 1)
 
 
 class InceptionResnetV2(nn.Module):
@@ -1349,15 +1337,6 @@ class FactorizedReduce(nn.Module):
         return out
 
 
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = x.new(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
 OPS = {'avg_pool_3x3': lambda channels, stride, affine: nn.AvgPool2d(3,
     stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda
     channels, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1),
@@ -1375,6 +1354,15 @@ OPS = {'avg_pool_3x3': lambda channels, stride, affine: nn.AvgPool2d(3,
     Conv2d(channels, channels, (1, 7), stride=(1, stride), padding=(0, 3),
     bias=False), nn.Conv2d(channels, channels, (7, 1), stride=(stride, 1),
     padding=(3, 0), bias=False), nn.BatchNorm2d(channels, affine=affine))}
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        mask = x.new(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
+        x.div_(keep_prob)
+        x.mul_(mask)
+    return x
 
 
 class Cell(nn.Module):
@@ -1780,15 +1768,15 @@ class L1BatchNorm2d(nn.Module):
         return out
 
 
+QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
+
+
 _DEFAULT_FLATTEN = 1, -1
 
 
 def _deflatten_as(x, x_full):
     shape = list(x.shape) + [1] * (x_full.dim() - x.dim())
     return x.view(*shape)
-
-
-QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
 
 def calculate_qparams(x, num_bits, flatten_dims=_DEFAULT_FLATTEN,

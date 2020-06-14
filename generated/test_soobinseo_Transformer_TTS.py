@@ -100,9 +100,6 @@ class Conv(nn.Module):
         return x
 
 
-_pad = '_'
-
-
 class FFN(nn.Module):
     """
     Positionwise Feed-Forward Network

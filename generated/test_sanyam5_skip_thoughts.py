@@ -33,13 +33,13 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-USE_CUDA = True
-
-
 DEVICES = [2]
 
 
 CUDA_DEVICE = DEVICES[0]
+
+
+USE_CUDA = True
 
 
 VOCAB_SIZE = 20000

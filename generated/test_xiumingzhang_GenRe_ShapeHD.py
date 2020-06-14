@@ -103,21 +103,6 @@ from torch.autograd import Variable
 from torch.nn import Module
 
 
-def gen_sph_grid(res=128):
-    pi = np.pi
-    phi = np.linspace(0, 180, res * 2 + 1)[1::2]
-    theta = np.linspace(0, 360, res + 1)[:-1]
-    grid = np.zeros([res, res, 3])
-    for idp, p in enumerate(phi):
-        for idt, t in enumerate(theta):
-            grid[idp, idt, 2] = np.cos(p * pi / 180)
-            proj = np.sin(p * pi / 180)
-            grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
-            grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
-    grid = np.reshape(grid, (1, 1, res, res, 3))
-    return torch.from_numpy(grid).float()
-
-
 class Net(nn.Module):
     """
        MarrNet-1    MarrNet-2
@@ -205,13 +190,13 @@ def batchnorm3d(n_feat):
     return nn.BatchNorm3d(n_feat, eps=1e-05, momentum=0.1, affine=True)
 
 
-def deconv3d_add3(n_ch_in, n_ch_out, bias):
-    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=1, padding=0,
+def deconv3d_2x(n_ch_in, n_ch_out, bias):
+    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
         dilation=1, groups=1, bias=bias)
 
 
-def deconv3d_2x(n_ch_in, n_ch_out, bias):
-    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
+def deconv3d_add3(n_ch_in, n_ch_out, bias):
+    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=1, padding=0,
         dilation=1, groups=1, bias=bias)
 
 
@@ -616,73 +601,3 @@ class Net_inpaint(nn.Module):
                     x = torch.cat((x, feat_map), dim=1)
             outputs[layer_name] = x
         return outputs
-
-
-class spherical_backprojection(nn.Module):
-
-    def __init__(self, grid, vox_res=128):
-        super(camera_backprojection, self).__init__()
-        self.vox_res = vox_res
-        self.backprojection_layer = SphericalBackProjection()
-        assert type(grid) == torch.FloatTensor
-        self.grid = Variable(grid)
-
-    def forward(self, spherical):
-        return self.backprojection_layer(spherical, self.grid, self.vox_res)
-
-
-class Camera_back_projection_layer(nn.Module):
-
-    def __init__(self, res=128):
-        super(Camera_back_projection_layer, self).__init__()
-        assert res == 128
-        self.res = 128
-
-    def forward(self, depth_t, fl=418.3, cam_dist=2.2, shift=True):
-        n = depth_t.size(0)
-        if type(fl) == float:
-            fl_v = fl
-            fl = torch.FloatTensor(n, 1)
-            fl.fill_(fl_v)
-        if type(cam_dist) == float:
-            cmd_v = cam_dist
-            cam_dist = torch.FloatTensor(n, 1)
-            cam_dist.fill_(cmd_v)
-        df = CameraBackProjection.apply(depth_t, fl, cam_dist, self.res)
-        return self.shift_tdf(df) if shift else df
-
-    @staticmethod
-    def shift_tdf(input_tdf, res=128):
-        out_tdf = 1 - res * input_tdf
-        return out_tdf
-
-
-class camera_backprojection(nn.Module):
-
-    def __init__(self, vox_res=128):
-        super(camera_backprojection, self).__init__()
-        self.vox_res = vox_res
-        self.backprojection_layer = CameraBackProjection()
-
-    def forward(self, depth, fl, camdist):
-        return self.backprojection_layer(depth, fl, camdist, self.voxel_res)
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Conv3d_block(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
-    def test_001(self):
-        self._check(Deconv3d_skip(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {})
-
-    def test_002(self):
-        self._check(RevBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-

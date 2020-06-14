@@ -586,16 +586,6 @@ class CifarResNeXt(nn.Module):
         return self.classifier(x)
 
 
-def channel_split(x, split):
-    """split a tensor into two pieces along channel dimension
-    Args:
-        x: input tensor
-        split:(int) channel size for each pieces
-    """
-    assert x.size(1) == split * 2
-    return torch.split(x, split, dim=1)
-
-
 def channel_shuffle(x, groups):
     """channel shuffle operation
     Args:
@@ -608,6 +598,16 @@ def channel_shuffle(x, groups):
     x = x.transpose(1, 2).contiguous()
     x = x.view(batch_size, -1, height, width)
     return x
+
+
+def channel_split(x, split):
+    """split a tensor into two pieces along channel dimension
+    Args:
+        x: input tensor
+        split:(int) channel size for each pieces
+    """
+    assert x.size(1) == split * 2
+    return torch.split(x, split, dim=1)
 
 
 class ShuffleUnit(nn.Module):

@@ -219,6 +219,11 @@ class Inception(nn.Module):
         return output
 
 
+def Linear(in_dim, out_dim):
+    l = torch.nn.Linear(in_dim, out_dim)
+    return l
+
+
 class Lambda(LambdaBase):
 
     def forward(self, input):
@@ -234,11 +239,6 @@ def CrossMapLRN(size, alpha, beta, k=1.0, gpuDevice=0):
     else:
         n = nn.LocalResponseNorm(size, alpha, beta, k).cuda(gpuDevice)
     return n
-
-
-def Linear(in_dim, out_dim):
-    l = torch.nn.Linear(in_dim, out_dim)
-    return l
 
 
 class netOpenFace(nn.Module):

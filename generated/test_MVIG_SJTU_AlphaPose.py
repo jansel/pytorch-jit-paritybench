@@ -1687,6 +1687,44 @@ class AnchorLabeler(nn.Module):
         return cls_targets_dict, box_targets_dict, num_positives
 
 
+MAX_DETECTION_POINTS = 5000
+
+
+def _post_process(config, cls_outputs, box_outputs):
+    """Selects top-k predictions.
+
+    Post-proc code adapted from Tensorflow version at: https://github.com/google/automl/tree/master/efficientdet
+    and optimized for PyTorch.
+
+    Args:
+        config: a parameter dictionary that includes `min_level`, `max_level`,  `batch_size`, and `num_classes`.
+
+        cls_outputs: an OrderDict with keys representing levels and values
+            representing logits in [batch_size, height, width, num_anchors].
+
+        box_outputs: an OrderDict with keys representing levels and values
+            representing box regression targets in [batch_size, height, width, num_anchors * 4].
+    """
+    batch_size = cls_outputs[0].shape[0]
+    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).
+        reshape([batch_size, -1, config.num_classes]) for level in range(
+        config.num_levels)], 1)
+    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).
+        reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
+    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size,
+        -1), dim=1, k=MAX_DETECTION_POINTS)
+    indices_all = cls_topk_indices_all / config.num_classes
+    classes_all = cls_topk_indices_all % config.num_classes
+    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1,
+        indices_all.unsqueeze(2).expand(-1, -1, 4))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1,
+        indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2,
+        classes_all.unsqueeze(2))
+    return (cls_outputs_all_after_topk, box_outputs_all_after_topk,
+        indices_all, classes_all)
+
+
 def decode_box_outputs(rel_codes, anchors, output_xyxy=False):
     """Transforms relative regression coordinates to absolute positions.
 
@@ -1775,44 +1813,6 @@ def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
             top_detection_idx), 6), device=detections.device, dtype=
             detections.dtype)], dim=0)
     return detections
-
-
-MAX_DETECTION_POINTS = 5000
-
-
-def _post_process(config, cls_outputs, box_outputs):
-    """Selects top-k predictions.
-
-    Post-proc code adapted from Tensorflow version at: https://github.com/google/automl/tree/master/efficientdet
-    and optimized for PyTorch.
-
-    Args:
-        config: a parameter dictionary that includes `min_level`, `max_level`,  `batch_size`, and `num_classes`.
-
-        cls_outputs: an OrderDict with keys representing levels and values
-            representing logits in [batch_size, height, width, num_anchors].
-
-        box_outputs: an OrderDict with keys representing levels and values
-            representing box regression targets in [batch_size, height, width, num_anchors * 4].
-    """
-    batch_size = cls_outputs[0].shape[0]
-    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, config.num_classes]) for level in range(
-        config.num_levels)], 1)
-    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
-    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size,
-        -1), dim=1, k=MAX_DETECTION_POINTS)
-    indices_all = cls_topk_indices_all / config.num_classes
-    classes_all = cls_topk_indices_all % config.num_classes
-    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, 4))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2,
-        classes_all.unsqueeze(2))
-    return (cls_outputs_all_after_topk, box_outputs_all_after_topk,
-        indices_all, classes_all)
 
 
 class DetBenchEval(nn.Module):
@@ -1998,17 +1998,17 @@ def bifpn_sum_config(base_reduction=8):
     return p
 
 
-def bifpn_attn_config():
-    """BiFPN config with fast weighted sum."""
-    p = bifpn_sum_config()
-    p.weight_method = 'attn'
-    return p
-
-
 def bifpn_fa_config():
     """BiFPN config with fast weighted sum."""
     p = bifpn_sum_config()
     p.weight_method = 'fastattn'
+    return p
+
+
+def bifpn_attn_config():
+    """BiFPN config with fast weighted sum."""
+    p = bifpn_sum_config()
+    p.weight_method = 'attn'
     return p
 
 
@@ -2128,53 +2128,6 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
     return tconf, tbox, tid
 
 
-def create_grids(self, img_size, nGh, nGw):
-    self.stride = img_size[0] / nGw
-    assert self.stride == img_size[1] / nGh
-    grid_x = torch.arange(nGw).repeat((nGh, 1)).view((1, 1, nGh, nGw)).float()
-    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1,
-        nGh, nGw)).float()
-    self.grid_xy = torch.stack((grid_x, grid_y), 4)
-    self.anchor_vec = self.anchors / self.stride
-    self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
-
-
-def decode_delta(delta, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
-        ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
-    dx, dy, dw, dh = delta[:, (0)], delta[:, (1)], delta[:, (2)], delta[:, (3)]
-    gx = pw * dx + px
-    gy = ph * dy + py
-    gw = pw * torch.exp(dw)
-    gh = ph * torch.exp(dh)
-    return torch.stack([gx, gy, gw, gh], dim=1)
-
-
-def generate_anchor(nGh, nGw, anchor_wh):
-    nA = len(anchor_wh)
-    yy, xx = torch.meshgrid(torch.arange(nGh), torch.arange(nGw))
-    mesh = torch.stack([xx, yy], dim=0).to(anchor_wh)
-    mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()
-    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1,
-        nGh, nGw)
-    anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)
-    return anchor_mesh
-
-
-def decode_delta_map(delta_map, anchors):
-    """
-    :param: delta_map, shape (nB, nA, nGh, nGw, 4)
-    :param: anchors, shape (nA,4)
-    """
-    nB, nA, nGh, nGw, _ = delta_map.shape
-    anchor_mesh = generate_anchor(nGh, nGw, anchors)
-    anchor_mesh = anchor_mesh.permute(0, 2, 3, 1).contiguous()
-    anchor_mesh = anchor_mesh.unsqueeze(0).repeat(nB, 1, 1, 1, 1)
-    pred_list = decode_delta(delta_map.view(-1, 4), anchor_mesh.view(-1, 4))
-    pred_map = pred_list.view(nB, nA, nGh, nGw, 4)
-    return pred_map
-
-
 def bbox_iou(box1, box2, x1y1x2y2=False):
     """
     Returns the IoU of two bounding boxes
@@ -2204,6 +2157,17 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
     b1_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1)).view(-1, 1).expand(N, M)
     b2_area = ((b2_x2 - b2_x1) * (b2_y2 - b2_y1)).view(1, -1).expand(N, M)
     return inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
+
+def generate_anchor(nGh, nGw, anchor_wh):
+    nA = len(anchor_wh)
+    yy, xx = torch.meshgrid(torch.arange(nGh), torch.arange(nGw))
+    mesh = torch.stack([xx, yy], dim=0).to(anchor_wh)
+    mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()
+    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1,
+        nGh, nGw)
+    anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)
+    return anchor_mesh
 
 
 def encode_delta(gt_box_list, fg_anchor_list):
@@ -2264,6 +2228,42 @@ def build_targets_thres(target, anchor_wh, nA, nC, nGh, nGw):
             delta_target = encode_delta(gt_box_list, fg_anchor_list)
             tbox[b][fg_index] = delta_target
     return tconf, tbox, tid
+
+
+def decode_delta(delta, fg_anchor_list):
+    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
+        ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
+    dx, dy, dw, dh = delta[:, (0)], delta[:, (1)], delta[:, (2)], delta[:, (3)]
+    gx = pw * dx + px
+    gy = ph * dy + py
+    gw = pw * torch.exp(dw)
+    gh = ph * torch.exp(dh)
+    return torch.stack([gx, gy, gw, gh], dim=1)
+
+
+def decode_delta_map(delta_map, anchors):
+    """
+    :param: delta_map, shape (nB, nA, nGh, nGw, 4)
+    :param: anchors, shape (nA,4)
+    """
+    nB, nA, nGh, nGw, _ = delta_map.shape
+    anchor_mesh = generate_anchor(nGh, nGw, anchors)
+    anchor_mesh = anchor_mesh.permute(0, 2, 3, 1).contiguous()
+    anchor_mesh = anchor_mesh.unsqueeze(0).repeat(nB, 1, 1, 1, 1)
+    pred_list = decode_delta(delta_map.view(-1, 4), anchor_mesh.view(-1, 4))
+    pred_map = pred_list.view(nB, nA, nGh, nGw, 4)
+    return pred_map
+
+
+def create_grids(self, img_size, nGh, nGw):
+    self.stride = img_size[0] / nGw
+    assert self.stride == img_size[1] / nGh
+    grid_x = torch.arange(nGw).repeat((nGh, 1)).view((1, 1, nGh, nGw)).float()
+    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1,
+        nGh, nGw)).float()
+    self.grid_xy = torch.stack((grid_x, grid_y), 4)
+    self.anchor_vec = self.anchors / self.stride
+    self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
 
 
 class YOLOLayer(nn.Module):
@@ -2348,26 +2348,6 @@ class YOLOLayer(nn.Module):
                 )
             p[(...), :4] *= self.stride
             return p.view(nB, -1, p.shape[-1])
-
-
-def parse_model_cfg(path):
-    """Parses the yolo-v3 layer configuration file and returns module definitions"""
-    file = open(path, 'r')
-    lines = file.read().split('\n')
-    lines = [x for x in lines if x and not x.startswith('#')]
-    lines = [x.rstrip().lstrip() for x in lines]
-    module_defs = []
-    for line in lines:
-        if line.startswith('['):
-            module_defs.append({})
-            module_defs[-1]['type'] = line[1:-1].rstrip()
-            if module_defs[-1]['type'] == 'convolutional':
-                module_defs[-1]['batch_normalize'] = 0
-        else:
-            key, value = line.split('=')
-            value = value.strip()
-            module_defs[-1][key.rstrip()] = value.strip()
-    return module_defs
 
 
 def create_modules(blocks):
@@ -2466,6 +2446,26 @@ def create_modules(blocks):
         output_filters.append(filters)
         index += 1
     return net_info, module_list
+
+
+def parse_model_cfg(path):
+    """Parses the yolo-v3 layer configuration file and returns module definitions"""
+    file = open(path, 'r')
+    lines = file.read().split('\n')
+    lines = [x for x in lines if x and not x.startswith('#')]
+    lines = [x.rstrip().lstrip() for x in lines]
+    module_defs = []
+    for line in lines:
+        if line.startswith('['):
+            module_defs.append({})
+            module_defs[-1]['type'] = line[1:-1].rstrip()
+            if module_defs[-1]['type'] == 'convolutional':
+                module_defs[-1]['batch_normalize'] = 0
+        else:
+            key, value = line.split('=')
+            value = value.strip()
+            module_defs[-1][key.rstrip()] = value.strip()
+    return module_defs
 
 
 class Darknet(nn.Module):

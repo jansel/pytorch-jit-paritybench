@@ -80,36 +80,6 @@ from torch.nn.functional import one_hot
 import torch.nn.parallel
 
 
-def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
-    """Generates mapping from output level to a list of anchor configurations.
-
-    A configuration is a tuple of (num_anchors, scale, aspect_ratio).
-
-    Args:
-        min_level: integer number of minimum level of the output feature pyramid.
-
-        max_level: integer number of maximum level of the output feature pyramid.
-
-        num_scales: integer number representing intermediate scales added on each level.
-            For instances, num_scales=2 adds two additional anchor scales [2^0, 2^0.5] on each level.
-
-        aspect_ratios: list of tuples representing the aspect ratio anchors added on each level.
-            For instances, aspect_ratios = [(1, 1), (1.4, 0.7), (0.7, 1.4)] adds three anchors on each level.
-
-    Returns:
-        anchor_configs: a dictionary with keys as the levels of anchors and
-            values as a list of anchor configuration.
-    """
-    anchor_configs = {}
-    for level in range(min_level, max_level + 1):
-        anchor_configs[level] = []
-        for scale_octave in range(num_scales):
-            for aspect in aspect_ratios:
-                anchor_configs[level].append((2 ** level, scale_octave /
-                    float(num_scales), aspect))
-    return anchor_configs
-
-
 def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
     """Generates multiscale anchor boxes.
 
@@ -152,6 +122,36 @@ def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
         boxes_all.append(boxes_level.reshape([-1, 4]))
     anchor_boxes = np.vstack(boxes_all)
     return anchor_boxes
+
+
+def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
+    """Generates mapping from output level to a list of anchor configurations.
+
+    A configuration is a tuple of (num_anchors, scale, aspect_ratio).
+
+    Args:
+        min_level: integer number of minimum level of the output feature pyramid.
+
+        max_level: integer number of maximum level of the output feature pyramid.
+
+        num_scales: integer number representing intermediate scales added on each level.
+            For instances, num_scales=2 adds two additional anchor scales [2^0, 2^0.5] on each level.
+
+        aspect_ratios: list of tuples representing the aspect ratio anchors added on each level.
+            For instances, aspect_ratios = [(1, 1), (1.4, 0.7), (0.7, 1.4)] adds three anchors on each level.
+
+    Returns:
+        anchor_configs: a dictionary with keys as the levels of anchors and
+            values as a list of anchor configuration.
+    """
+    anchor_configs = {}
+    for level in range(min_level, max_level + 1):
+        anchor_configs[level] = []
+        for scale_octave in range(num_scales):
+            for aspect in aspect_ratios:
+                anchor_configs[level].append((2 ** level, scale_octave /
+                    float(num_scales), aspect))
+    return anchor_configs
 
 
 class Anchors(nn.Module):
@@ -207,42 +207,14 @@ class Anchors(nn.Module):
         return self.num_scales * len(self.aspect_ratios)
 
 
-MAX_DETECTION_POINTS = 5000
+MAX_DETECTIONS_PER_IMAGE = 100
 
 
-def _post_process(config, cls_outputs, box_outputs):
-    """Selects top-k predictions.
-
-    Post-proc code adapted from Tensorflow version at: https://github.com/google/automl/tree/master/efficientdet
-    and optimized for PyTorch.
-
-    Args:
-        config: a parameter dictionary that includes `min_level`, `max_level`,  `batch_size`, and `num_classes`.
-
-        cls_outputs: an OrderDict with keys representing levels and values
-            representing logits in [batch_size, height, width, num_anchors].
-
-        box_outputs: an OrderDict with keys representing levels and values
-            representing box regression targets in [batch_size, height, width, num_anchors * 4].
-    """
-    batch_size = cls_outputs[0].shape[0]
-    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, config.num_classes]) for level in range(
-        config.num_levels)], 1)
-    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
-    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size,
-        -1), dim=1, k=MAX_DETECTION_POINTS)
-    indices_all = cls_topk_indices_all / config.num_classes
-    classes_all = cls_topk_indices_all % config.num_classes
-    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, 4))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2,
-        classes_all.unsqueeze(2))
-    return (cls_outputs_all_after_topk, box_outputs_all_after_topk,
-        indices_all, classes_all)
+def clip_boxes_xyxy(boxes: torch.Tensor, size: torch.Tensor):
+    boxes = boxes.clamp(min=0)
+    size = torch.cat([size, size], dim=0)
+    boxes = boxes.min(size)
+    return boxes
 
 
 def decode_box_outputs(rel_codes, anchors, output_xyxy: bool=False):
@@ -278,16 +250,6 @@ def decode_box_outputs(rel_codes, anchors, output_xyxy: bool=False):
     else:
         out = torch.stack([ymin, xmin, ymax, xmax], dim=1)
     return out
-
-
-MAX_DETECTIONS_PER_IMAGE = 100
-
-
-def clip_boxes_xyxy(boxes: torch.Tensor, size: torch.Tensor):
-    boxes = boxes.clamp(min=0)
-    size = torch.cat([size, size], dim=0)
-    boxes = boxes.min(size)
-    return boxes
 
 
 def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
@@ -496,24 +458,6 @@ def get_fpn_config(fpn_name):
     return name_to_config[fpn_name]
 
 
-def _init_weight_alt(m, n=''):
-    """ Weight initialization alternative, based on EfficientNet bacbkone init w/ class bias addition
-    NOTE: this will likely be removed after some experimentation
-    """
-    if isinstance(m, nn.Conv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        fan_out //= m.groups
-        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
-        if m.bias is not None:
-            if 'class_net.predict' in n:
-                m.bias.data.fill_(-math.log((1 - 0.01) / 0.01))
-            else:
-                m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-
-
 def _init_weight(m, n=''):
     """ Weight initialization as per Tensorflow official implementations.
     """
@@ -576,17 +520,57 @@ def _init_weight(m, n=''):
         m.bias.data.zero_()
 
 
-def load_pretrained(model, url, filter_fn=None, strict=True):
-    if not url:
-        logging.warning(
-            'Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?'
-            )
-        return
-    state_dict = load_state_dict_from_url(url, progress=False, map_location
-        ='cpu')
-    if filter_fn is not None:
-        state_dict = filter_fn(state_dict)
-    model.load_state_dict(state_dict, strict=strict)
+def _init_weight_alt(m, n=''):
+    """ Weight initialization alternative, based on EfficientNet bacbkone init w/ class bias addition
+    NOTE: this will likely be removed after some experimentation
+    """
+    if isinstance(m, nn.Conv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        fan_out //= m.groups
+        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+        if m.bias is not None:
+            if 'class_net.predict' in n:
+                m.bias.data.fill_(-math.log((1 - 0.01) / 0.01))
+            else:
+                m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+
+
+def default_detection_model_configs():
+    """Returns a default detection configs."""
+    h = OmegaConf.create()
+    h.name = 'tf_efficientdet_d1'
+    h.backbone_name = 'tf_efficientnet_b1'
+    h.backbone_args = None
+    h.image_size = 640
+    h.num_classes = 90
+    h.min_level = 3
+    h.max_level = 7
+    h.num_levels = h.max_level - h.min_level + 1
+    h.num_scales = 3
+    h.aspect_ratios = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
+    h.anchor_scale = 4.0
+    h.pad_type = 'same'
+    h.box_class_repeats = 3
+    h.fpn_cell_repeats = 3
+    h.fpn_channels = 88
+    h.separable_conv = True
+    h.apply_bn_for_resampling = True
+    h.conv_after_downsample = False
+    h.conv_bn_relu_pattern = False
+    h.use_native_resize_op = False
+    h.pooling_type = None
+    h.redundant_bias = True
+    h.fpn_name = None
+    h.fpn_config = None
+    h.fpn_drop_path_rate = 0.0
+    h.alpha = 0.25
+    h.gamma = 1.5
+    h.delta = 0.1
+    h.box_loss_weight = 50.0
+    return h
 
 
 efficientdet_model_param_dict = dict(efficientdet_d0=dict(name=
@@ -651,46 +635,24 @@ efficientdet_model_param_dict = dict(efficientdet_d0=dict(name=
     ))
 
 
-def default_detection_model_configs():
-    """Returns a default detection configs."""
-    h = OmegaConf.create()
-    h.name = 'tf_efficientdet_d1'
-    h.backbone_name = 'tf_efficientnet_b1'
-    h.backbone_args = None
-    h.image_size = 640
-    h.num_classes = 90
-    h.min_level = 3
-    h.max_level = 7
-    h.num_levels = h.max_level - h.min_level + 1
-    h.num_scales = 3
-    h.aspect_ratios = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
-    h.anchor_scale = 4.0
-    h.pad_type = 'same'
-    h.box_class_repeats = 3
-    h.fpn_cell_repeats = 3
-    h.fpn_channels = 88
-    h.separable_conv = True
-    h.apply_bn_for_resampling = True
-    h.conv_after_downsample = False
-    h.conv_bn_relu_pattern = False
-    h.use_native_resize_op = False
-    h.pooling_type = None
-    h.redundant_bias = True
-    h.fpn_name = None
-    h.fpn_config = None
-    h.fpn_drop_path_rate = 0.0
-    h.alpha = 0.25
-    h.gamma = 1.5
-    h.delta = 0.1
-    h.box_loss_weight = 50.0
-    return h
-
-
 def get_efficientdet_config(model_name='tf_efficientdet_d1'):
     """Get the default config for EfficientDet based on model name."""
     h = default_detection_model_configs()
     h.update(efficientdet_model_param_dict[model_name])
     return h
+
+
+def load_pretrained(model, url, filter_fn=None, strict=True):
+    if not url:
+        logging.warning(
+            'Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?'
+            )
+        return
+    state_dict = load_state_dict_from_url(url, progress=False, map_location
+        ='cpu')
+    if filter_fn is not None:
+        state_dict = filter_fn(state_dict)
+    model.load_state_dict(state_dict, strict=strict)
 
 
 def create_model(model_name, bench_task='', pretrained=False,

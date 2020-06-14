@@ -684,11 +684,6 @@ class TextRNN(nn.Module):
         return train_losses, val_accuracies
 
 
-def clones(module, N):
-    """Produce N identical layers."""
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
 def attention(query, key, value, mask=None, dropout=None):
     """Implementation of Scaled dot product attention"""
     d_k = query.size(-1)
@@ -699,6 +694,11 @@ def attention(query, key, value, mask=None, dropout=None):
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
+
+
+def clones(module, N):
+    """Produce N identical layers."""
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class MultiHeadedAttention(nn.Module):

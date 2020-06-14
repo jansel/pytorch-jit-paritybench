@@ -278,16 +278,16 @@ class SwishJit(nn.Module):
 
 
 @torch.jit.script
-def mish_jit_fwd(x):
-    return x.mul(torch.tanh(F.softplus(x)))
-
-
-@torch.jit.script
 def mish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     x_tanh_sp = F.softplus(x).tanh()
     return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
         x_tanh_sp))
+
+
+@torch.jit.script
+def mish_jit_fwd(x):
+    return x.mul(torch.tanh(F.softplus(x)))
 
 
 class MishJitAutoFn(torch.autograd.Function):
@@ -379,18 +379,10 @@ class Conv2dSameExport(nn.Conv2d):
             padding, self.dilation, self.groups)
 
 
-_SCRIPTABLE = False
-
-
-def is_scriptable():
-    return _SCRIPTABLE
-
-
-_EXPORTABLE = False
-
-
-def is_exportable():
-    return _EXPORTABLE
+def _split_channels(num_chan, num_groups):
+    split = [(num_chan // num_groups) for _ in range(num_groups)]
+    split[0] += num_chan - sum(split)
+    return split
 
 
 def _get_padding(kernel_size, stride=1, dilation=1, **_):
@@ -419,6 +411,20 @@ def get_padding_value(padding, kernel_size, **kwargs):
     return padding, dynamic
 
 
+_EXPORTABLE = False
+
+
+def is_exportable():
+    return _EXPORTABLE
+
+
+_SCRIPTABLE = False
+
+
+def is_scriptable():
+    return _SCRIPTABLE
+
+
 def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
     padding = kwargs.pop('padding', '')
     kwargs.setdefault('bias', False)
@@ -432,12 +438,6 @@ def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
     else:
         return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
             kwargs)
-
-
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
 
 
 class MixedConv2d(nn.ModuleDict):
@@ -471,6 +471,18 @@ class MixedConv2d(nn.ModuleDict):
         return x
 
 
+def _ntuple(n):
+
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+
+_pair = _ntuple(2)
+
+
 def get_condconv_initializer(initializer, num_experts, expert_shape):
 
     def condconv_initializer(weight):
@@ -483,18 +495,6 @@ def get_condconv_initializer(initializer, num_experts, expert_shape):
         for i in range(num_experts):
             initializer(weight[i].view(expert_shape))
     return condconv_initializer
-
-
-def _ntuple(n):
-
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-
-
-_pair = _ntuple(2)
 
 
 class CondConv2d(nn.Module):
@@ -569,16 +569,16 @@ class CondConv2d(nn.Module):
         return out
 
 
-def sigmoid(x, inplace: bool=False):
-    return x.sigmoid_() if inplace else x.sigmoid()
-
-
 def make_divisible(v: int, divisor: int=8, min_value: int=None):
     min_value = min_value or divisor
     new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
+
+
+def sigmoid(x, inplace: bool=False):
+    return x.sigmoid_() if inplace else x.sigmoid()
 
 
 class SqueezeExcite(nn.Module):
@@ -639,6 +639,18 @@ class ConvBnAct(nn.Module):
         return x
 
 
+def drop_connect(inputs, training: bool=False, drop_connect_rate: float=0.0):
+    """Apply drop connect."""
+    if not training:
+        return inputs
+    keep_prob = 1 - drop_connect_rate
+    random_tensor = keep_prob + torch.rand((inputs.size()[0], 1, 1, 1),
+        dtype=inputs.dtype, device=inputs.device)
+    random_tensor.floor_()
+    output = inputs.div(keep_prob) * random_tensor
+    return output
+
+
 _SE_ARGS_DEFAULT = dict(gate_fn=sigmoid, act_layer=None, reduce_mid=False,
     divisor=1)
 
@@ -653,18 +665,6 @@ def resolve_se_args(kwargs, in_chs, act_layer=None):
         assert act_layer is not None
         se_kwargs['act_layer'] = act_layer
     return se_kwargs
-
-
-def drop_connect(inputs, training: bool=False, drop_connect_rate: float=0.0):
-    """Apply drop connect."""
-    if not training:
-        return inputs
-    keep_prob = 1 - drop_connect_rate
-    random_tensor = keep_prob + torch.rand((inputs.size()[0], 1, 1, 1),
-        dtype=inputs.dtype, device=inputs.device)
-    random_tensor.floor_()
-    output = inputs.div(keep_prob) * random_tensor
-    return output
 
 
 class DepthwiseSeparableConv(nn.Module):
@@ -800,52 +800,6 @@ class EdgeResidual(nn.Module):
                 x = drop_connect(x, self.training, self.drop_connect_rate)
             x += residual
         return x
-
-
-def initialize_weight_default(m, n=''):
-    if isinstance(m, CondConv2d):
-        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
-            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
-            )
-        init_fn(m.weight)
-    elif isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
-
-
-def initialize_weight_goog(m, n='', fix_group_fanout=True):
-    if isinstance(m, CondConv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
-            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
-        init_weight_fn(m.weight)
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.Conv2d):
-        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        if fix_group_fanout:
-            fan_out //= m.groups
-        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        fan_out = m.weight.size(0)
-        fan_in = 0
-        if 'routing_fn' in n:
-            fan_in = m.weight.size(1)
-        init_range = 1.0 / math.sqrt(fan_in + fan_out)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
 
 
 class CondConvResidual(InvertedResidual):
@@ -990,6 +944,52 @@ class EfficientNetBuilder:
             stack = self._make_stack(stack)
             blocks.append(stack)
         return blocks
+
+
+def initialize_weight_default(m, n=''):
+    if isinstance(m, CondConv2d):
+        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
+            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
+            )
+        init_fn(m.weight)
+    elif isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
+            )
+
+
+def initialize_weight_goog(m, n='', fix_group_fanout=True):
+    if isinstance(m, CondConv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
+            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
+        init_weight_fn(m.weight)
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.Conv2d):
+        fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        if fix_group_fanout:
+            fan_out //= m.groups
+        m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+        if m.bias is not None:
+            m.bias.data.zero_()
+    elif isinstance(m, nn.BatchNorm2d):
+        m.weight.data.fill_(1.0)
+        m.bias.data.zero_()
+    elif isinstance(m, nn.Linear):
+        fan_out = m.weight.size(0)
+        fan_in = 0
+        if 'routing_fn' in n:
+            fan_in = m.weight.size(1)
+        init_range = 1.0 / math.sqrt(fan_in + fan_out)
+        m.weight.data.uniform_(-init_range, init_range)
+        m.bias.data.zero_()
 
 
 class GenEfficientNet(nn.Module):

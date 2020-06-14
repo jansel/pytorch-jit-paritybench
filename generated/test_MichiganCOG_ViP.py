@@ -435,15 +435,15 @@ class ResidualBlock(nn.Module):
         return self.layernorm(x[0] + self.dropout(self.layer(*x)))
 
 
-INF = 10000000000.0
-
-
 def matmul(x, y):
     if x.dim() == y.dim():
         return x @ y
     if x.dim() == y.dim() - 1:
         return (x.unsqueeze(-2) @ y).squeeze(-2)
     return (x @ y.unsqueeze(-2)).squeeze(-2)
+
+
+INF = 10000000000.0
 
 
 class Attention(nn.Module):
@@ -972,6 +972,29 @@ class PreprocessEvalSSD(object):
             return input_data, bbox_data
 
 
+def vgg(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        elif v == 'C':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
+    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
+        True)]
+    return layers
+
+
 class PriorBox(object):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
@@ -1011,6 +1034,22 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
+
+
+def add_extras(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    flag = False
+    for k, v in enumerate(cfg):
+        if in_channels != 'S':
+            if v == 'S':
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
+                    1, 3)[flag], stride=2, padding=1)]
+            else:
+                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
+            flag = not flag
+        in_channels = v
+    return layers
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -1141,46 +1180,6 @@ class Detect(Function):
         return output
 
 
-def multibox(vgg, extra_layers, cfg, num_classes):
-    loc_layers = []
-    conf_layers = []
-    vgg_source = [21, -2]
-    for k, v in enumerate(vgg_source):
-        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4,
-            kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
-    for k, v in enumerate(extra_layers[1::2], 2):
-        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3,
-            padding=1)]
-        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
-    return vgg, extra_layers, (loc_layers, conf_layers)
-
-
-def vgg(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        elif v == 'C':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
-    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
-    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
-    return layers
-
-
 class PreprocessTrainSSD(object):
     """
     Container for all transforms used to preprocess clips for training in this dataset.
@@ -1220,20 +1219,21 @@ class PreprocessTrainSSD(object):
             return input_data, bbox_data
 
 
-def add_extras(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    return layers
+def multibox(vgg, extra_layers, cfg, num_classes):
+    loc_layers = []
+    conf_layers = []
+    vgg_source = [21, -2]
+    for k, v in enumerate(vgg_source):
+        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4,
+            kernel_size=3, padding=1)]
+        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes,
+            kernel_size=3, padding=1)]
+    for k, v in enumerate(extra_layers[1::2], 2):
+        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3,
+            padding=1)]
+        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
+            kernel_size=3, padding=1)]
+    return vgg, extra_layers, (loc_layers, conf_layers)
 
 
 class SSD(nn.Module):
@@ -1369,15 +1369,35 @@ class L2Norm(nn.Module):
         return out
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
+def encode(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 4].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 4]
+    """
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    return torch.cat([g_cxcy, g_wh], 1)
 
 
 def intersect(box_a, box_b):
@@ -1422,37 +1442,6 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
-def encode(matched, priors, variances):
-    """Encode the variances from the priorbox layers into the ground truth boxes
-    we have matched (based on jaccard overlap) with the prior boxes.
-    Args:
-        matched: (tensor) Coords of ground truth for each prior in point-form
-            Shape: [num_priors, 4].
-        priors: (tensor) Prior boxes in center-offset form
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        encoded boxes (tensor), Shape: [num_priors, 4]
-    """
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    return torch.cat([g_cxcy, g_wh], 1)
-
-
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
-    Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
-
-
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
@@ -1486,6 +1475,17 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):

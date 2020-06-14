@@ -72,14 +72,6 @@ import math
 CHECKPOINT_FILE = 'checkpoint-{}.pt'
 
 
-def xavier_uniform_init(m):
-    """
-    Xavier initializer to be used with model.apply
-    """
-    if type(m) == nn.Linear:
-        nn.init.xavier_uniform_(m.weight.data)
-
-
 CHECKPOINT_GLOB = 'checkpoint-*.pt'
 
 
@@ -130,6 +122,14 @@ def prepare_model_dir(model_dir, clear=False):
                     break
             except:
                 pass
+
+
+def xavier_uniform_init(m):
+    """
+    Xavier initializer to be used with model.apply
+    """
+    if type(m) == nn.Linear:
+        nn.init.xavier_uniform_(m.weight.data)
 
 
 class Model(nn.Module):

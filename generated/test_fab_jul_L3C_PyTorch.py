@@ -202,6 +202,52 @@ class RGBHead(nn.Module):
 EncOut = namedtuple('EncOut', ['bn', 'bn_q', 'S', 'L', 'F'])
 
 
+def _tensor_to_image(t):
+    assert t.shape[0] == 3, t.shape
+    return Image.fromarray(t.permute(1, 2, 0).detach().cpu().numpy())
+
+
+def to_tensor_not_normalized(pic):
+    """ copied from PyTorch functional.to_tensor, removed final .float().div(255.) """
+    if isinstance(pic, np.ndarray):
+        img = torch.from_numpy(pic.transpose((2, 0, 1)))
+        return img
+    if pic.mode == 'I':
+        img = torch.from_numpy(np.array(pic, np.int32, copy=False))
+    elif pic.mode == 'I;16':
+        img = torch.from_numpy(np.array(pic, np.int16, copy=False))
+    elif pic.mode == 'F':
+        img = torch.from_numpy(np.array(pic, np.float32, copy=False))
+    elif pic.mode == '1':
+        img = 255 * torch.from_numpy(np.array(pic, np.uint8, copy=False))
+    else:
+        img = torch.ByteTensor(torch.ByteStorage.from_buffer(pic.tobytes()))
+    if pic.mode == 'YCbCr':
+        nchannel = 3
+    elif pic.mode == 'I;16':
+        nchannel = 1
+    else:
+        nchannel = len(pic.mode)
+    img = img.view(pic.size[1], pic.size[0], nchannel)
+    img = img.transpose(0, 1).transpose(0, 2).contiguous()
+    return img
+
+
+def resize_bicubic(t, fac):
+    img = _tensor_to_image(t)
+    h, w = img.size
+    img = img.resize((int(h * fac), int(w * fac)), Image.BICUBIC)
+    t = to_tensor_not_normalized(img)
+    return t
+
+
+def resize_bicubic_batch(t, fac):
+    assert len(t.shape) == 4
+    N = t.shape[0]
+    return torch.stack([resize_bicubic(t[n, ...], fac) for n in range(N)],
+        dim=0)
+
+
 DecOut = namedtuple('DecOut', ['F'])
 
 

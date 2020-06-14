@@ -776,13 +776,13 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
@@ -839,6 +839,14 @@ class MobileNetV2(nn.Module):
                 m.bias.data.zero_()
 
 
+def PSNR(img1, img2):
+    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
+    if mse == 0:
+        return 100
+    PIXEL_MAX = 1
+    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
+
+
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
         sigma ** 2)) for x in range(window_size)])
@@ -877,14 +885,6 @@ def SSIM(img1, img2):
     ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
         C1) * (sigma1_sq + sigma2_sq + C2))
     return ssim_map.mean()
-
-
-def PSNR(img1, img2):
-    mse = np.mean((img1 / 255.0 - img2 / 255.0) ** 2)
-    if mse == 0:
-        return 100
-    PIXEL_MAX = 1
-    return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))
 
 
 class DeblurModel(nn.Module):

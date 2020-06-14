@@ -276,10 +276,10 @@ class ZeroLsbTruncBitWidth(torch.jit.ScriptModule):
         return zero_hw_sentinel
 
 
-REMOVE_ZERO_BIT_WIDTH = 0.1
-
-
 NON_ZERO_EPSILON = 1e-06
+
+
+REMOVE_ZERO_BIT_WIDTH = 0.1
 
 
 _global_config['IGNORE_MISSING_KEYS'] = 4
@@ -323,6 +323,30 @@ class RemoveBitwidthParameter(torch.jit.ScriptModule):
             error_msgs)
         if config.IGNORE_MISSING_KEYS and bit_width_coeff_key in missing_keys:
             missing_keys.remove(bit_width_coeff_key)
+
+
+@torch.jit.script
+def tensor_clamp(x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor
+    ) ->torch.Tensor:
+    """
+
+    Parameters
+    ----------
+    x : Tensor
+        Tensor on which to apply the clamp operation
+    min_val : Tensor
+        Tensor containing the minimum values for the clamp operation. Must have the same shape of `x`
+    max_val : Tensor
+        Tensor containing the maximum values for the clamp operation. Must have the same shape of `x`
+
+    Returns
+    -------
+    Tensor
+        Tensor for which every element of `x` is clamped between the corresponding minimum and maximum values.
+    """
+    out = torch.where(x > max_val, max_val, x)
+    out = torch.where(out < min_val, min_val, out)
+    return out
 
 
 class IdentityQuant(torch.jit.ScriptModule):
@@ -391,30 +415,6 @@ class BinaryQuant(torch.jit.ScriptModule):
         scale = self.scaling_impl(zero_hw_sentinel)
         y = binary_sign_ste(x) * scale
         return y, scale, zero_hw_sentinel + self.bit_width
-
-
-@torch.jit.script
-def tensor_clamp(x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor
-    ) ->torch.Tensor:
-    """
-
-    Parameters
-    ----------
-    x : Tensor
-        Tensor on which to apply the clamp operation
-    min_val : Tensor
-        Tensor containing the minimum values for the clamp operation. Must have the same shape of `x`
-    max_val : Tensor
-        Tensor containing the maximum values for the clamp operation. Must have the same shape of `x`
-
-    Returns
-    -------
-    Tensor
-        Tensor for which every element of `x` is clamped between the corresponding minimum and maximum values.
-    """
-    out = torch.where(x > max_val, max_val, x)
-    out = torch.where(out < min_val, min_val, out)
-    return out
 
 
 class ClampedBinaryQuant(torch.jit.ScriptModule):
@@ -983,46 +983,14 @@ class Identity(torch.jit.ScriptModule):
         return identity(x)
 
 
-class FloorSte(torch.jit.ScriptModule):
+class LogTwo(torch.jit.ScriptModule):
 
     def __init__(self) ->None:
-        super(FloorSte, self).__init__()
+        super(LogTwo, self).__init__()
 
     @torch.jit.script_method
     def forward(self, x: torch.Tensor):
-        return floor_ste(x)
-
-
-class CeilSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(CeilSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return ceil_ste(x)
-
-
-class ClampMin(torch.jit.ScriptModule):
-    __constants__ = ['min_val']
-
-    def __init__(self, min_val: float) ->None:
-        super(ClampMin, self).__init__()
-        self.min_val = min_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return x.clamp_min(self.min_val)
-
-
-class RoundSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(RoundSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return round_ste(x)
+        return torch.log2(x)
 
 
 class PowerOfTwo(torch.jit.ScriptModule):
@@ -1035,14 +1003,36 @@ class PowerOfTwo(torch.jit.ScriptModule):
         return 2.0 ** x
 
 
-class LogTwo(torch.jit.ScriptModule):
+class CeilSte(torch.jit.ScriptModule):
 
     def __init__(self) ->None:
-        super(LogTwo, self).__init__()
+        super(CeilSte, self).__init__()
 
     @torch.jit.script_method
     def forward(self, x: torch.Tensor):
-        return torch.log2(x)
+        return ceil_ste(x)
+
+
+class RoundSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(RoundSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return round_ste(x)
+
+
+class ClampMin(torch.jit.ScriptModule):
+    __constants__ = ['min_val']
+
+    def __init__(self, min_val: float) ->None:
+        super(ClampMin, self).__init__()
+        self.min_val = min_val
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return x.clamp_min(self.min_val)
 
 
 class AffineRescaling(torch.jit.ScriptModule):
@@ -1068,6 +1058,9 @@ class AffineRescaling(torch.jit.ScriptModule):
             missing_keys.remove(affine_weight_key)
         if config.IGNORE_MISSING_KEYS and affine_bias_key in missing_keys:
             missing_keys.remove(affine_bias_key)
+
+
+SCALING_SCALAR_SHAPE = ()
 
 
 @torch.jit.script
@@ -1314,6 +1307,10 @@ class MeanSigmaStd(torch.jit.ScriptModule):
             missing_keys.remove(sigma_key)
 
 
+def pack_quant_tensor(tensor, scale, bit_width):
+    return QuantTensor._make([tensor, scale, bit_width])
+
+
 @torch.jit.script
 def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
     """ Compute the maximum unsigned integer representable
@@ -1341,8 +1338,97 @@ def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
     return value
 
 
-def pack_quant_tensor(tensor, scale, bit_width):
-    return QuantTensor._make([tensor, scale, bit_width])
+@torch.jit.script
+def over_output_channels(x):
+    return x.shape[0], -1
+
+
+class OverOutputChannelView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverOutputChannelView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_output_channels(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_batch_over_output_channels(x):
+    return x.shape[0], x.shape[1], -1
+
+
+class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverBatchOverOutputChannelView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_batch_over_output_channels(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_tensor(x):
+    return -1
+
+
+class OverTensorView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverTensorView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_tensor(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_batch_over_tensor(x):
+    return x.shape[0], -1
+
+
+class OverBatchOverTensorView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverBatchOverTensorView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_batch_over_tensor(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+class StatsInputViewShapeImpl(object):
+    OVER_TENSOR = OverTensorView
+    OVER_OUTPUT_CHANNELS = OverOutputChannelView
+    OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
+    OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
+
+
+OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
+
+
+ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
 
 
 class TensorClamp(torch.jit.ScriptModule):
@@ -1354,23 +1440,6 @@ class TensorClamp(torch.jit.ScriptModule):
     def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
         torch.Tensor):
         return tensor_clamp(x, min_val=min_val, max_val=max_val)
-
-
-OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
-
-
-SCALING_SCALAR_SHAPE = ()
-
-
-class TensorClampSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(TensorClampSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
-        torch.Tensor):
-        return tensor_clamp_ste(x, min_val, max_val)
 
 
 class ScaleBias(nn.Module):
@@ -1395,9 +1464,6 @@ class WeightReg(nn.Module):
 
 
 ZERO_HW_SENTINEL_VALUE = 0.0
-
-
-ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
 
 
 class QuantProxy(nn.Module):
@@ -1465,22 +1531,19 @@ def get_quant_type(bit_width):
         return QuantType.INT
 
 
+HIDDEN_DROPOUT = 0.2
+
+
 FC_OUT_FEATURES = [64, 64, 64]
+
+
+INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
 
 
 LAST_FC_PER_OUT_CH_SCALING = False
 
 
 IN_DROPOUT = 0.2
-
-
-INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
-
-
-HIDDEN_DROPOUT = 0.2
-
-
-BIAS_ENABLED = False
 
 
 class SFC(Module):
@@ -1653,7 +1716,13 @@ class DwsConvBlock(nn.Module):
         return x
 
 
-ENABLE_BIAS_QUANT = False
+SCALING_MIN_VAL = 2e-09
+
+
+ACT_RETURN_QUANT_TENSOR = False
+
+
+ACT_MAX_VAL = 1
 
 
 class ProxylessBlock(nn.Module):
@@ -1723,12 +1792,6 @@ class ProxylessUnit(nn.Module):
 HARD_TANH_THRESHOLD = 10.0
 
 
-ACT_RETURN_QUANT_TENSOR = False
-
-
-ACT_SCALING_PER_CHANNEL = False
-
-
 def make_layers(cfg, batch_norm, bit_width):
     layers = []
     in_channels = 3
@@ -1748,40 +1811,10 @@ def make_layers(cfg, batch_norm, bit_width):
     return nn.Sequential(*layers)
 
 
-class QuantVGG(nn.Module):
+WEIGHT_NARROW_RANGE = True
 
-    def __init__(self, cfg, batch_norm, bit_width=8, num_classes=1000):
-        super(QuantVGG, self).__init__()
-        self.features = make_layers(cfg, batch_norm, bit_width)
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        self.classifier = nn.Sequential(make_quant_linear(512 * 7 * 7, 4096,
-            bias=True, bit_width=bit_width), make_quant_relu(bit_width), nn
-            .Dropout(), make_quant_linear(4096, 4096, bias=True, bit_width=
-            bit_width), make_quant_relu(bit_width), nn.Dropout(),
-            make_quant_linear(4096, num_classes, bias=False, bit_width=
-            bit_width, weight_scaling_per_output_channel=False))
-        self._initialize_weights()
 
-    def forward(self, x):
-        x = self.features(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.classifier(x)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+ENABLE_BIAS_QUANT = False
 
 
 class AudioPreprocessor(nn.Module):
@@ -2050,17 +2083,10 @@ def clean_punctuations(string, table, punctuation_to_replace):
     return string
 
 
-NUM_CHECK = re.compile(
-    '([$]?)(^|\\s)(\\S*[0-9]\\S*)(?=(\\s|$)((\\S*)(\\s|$))?)')
+THREE_CHECK = re.compile('([0-9]{3})([.,][0-9]{1,2})?([!.?])?$')
 
 
-ORD_CHECK = re.compile('([0-9]+)(st|nd|rd|th)')
-
-
-TIME_CHECK = re.compile('([0-9]{1,2}):([0-9]{2})(am|pm)?')
-
-
-DECIMAL_CHECK = re.compile('([.,][0-9]{1,2})$')
+CURRENCY_CHECK = re.compile('\\$')
 
 
 class GreedyCTCDecoder(nn.Module):
@@ -2104,19 +2130,6 @@ class CTCLossNM(nn.Module):
         return self._loss(*kwargs.values())
 
 
-def splice_frames(x, frame_splicing):
-    """ Stacks frames together across feature dim
-
-    input is batch_size, feature_dim, num_frames
-    output is batch_size, feature_dim*frame_splicing, num_frames
-
-    """
-    seq = [x]
-    for n in range(1, frame_splicing):
-        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
-    return torch.cat(seq, dim=1)
-
-
 CONSTANT = 1e-05
 
 
@@ -2141,6 +2154,19 @@ def normalize_batch(x, seq_len, normalize_type):
         return (x - x_mean.view(-1, 1, 1)) / x_std.view(-1, 1, 1)
     else:
         return x
+
+
+def splice_frames(x, frame_splicing):
+    """ Stacks frames together across feature dim
+
+    input is batch_size, feature_dim, num_frames
+    output is batch_size, feature_dim*frame_splicing, num_frames
+
+    """
+    seq = [x]
+    for n in range(1, frame_splicing):
+        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
+    return torch.cat(seq, dim=1)
 
 
 class FilterbankFeatures(nn.Module):
@@ -2286,12 +2312,6 @@ class FilterbankFeatures(nn.Module):
 BIAS_CONFIGS = False
 
 
-WEIGHT_NARROW_RANGE = True
-
-
-SCALING_MIN_VAL = 2e-09
-
-
 class GroupShuffle(nn.Module):
 
     def __init__(self, groups, channels):
@@ -2305,6 +2325,25 @@ class GroupShuffle(nn.Module):
         x = torch.transpose(x, 1, 2).contiguous()
         x = x.view(-1, self.groups * self.channels_per_group, sh[-1])
         return x
+
+
+def get_same_padding(kernel_size, stride, dilation):
+    if stride > 1 and dilation > 1:
+        raise ValueError('Only stride OR dilation may be greater than 1')
+    if dilation > 1:
+        return dilation * kernel_size // 2 - 1
+    return kernel_size // 2
+
+
+def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias, affine_only):
+    mul_factor = bn_weight
+    add_factor = bn_bias * torch.sqrt(bn_var + bn_eps)
+    add_factor = add_factor - bn_mean * (bn_weight - 1.0)
+    if not affine_only:
+        mul_factor = mul_factor / torch.sqrt(bn_var + bn_eps)
+        add_factor = add_factor - bn_mean
+        add_factor = add_factor / torch.sqrt(bn_var + bn_eps)
+    return mul_factor, add_factor
 
 
 class SpecAugment(nn.Module):
@@ -2576,9 +2615,6 @@ class Identity(nn.Module):
         return x
 
 
-ACT_MAX_VAL = 1
-
-
 ACT_MIN_VAL = -1
 
 
@@ -2594,6 +2630,83 @@ def make_leakyRelu_activation(bit_width):
     el2 = make_hardtanh_activation(bit_width=bit_width)
     layer = nn.Sequential(el1, el2)
     return layer
+
+
+def make_tanh_activation(bit_width):
+    return quant_nn.QuantTanh(bit_width=bit_width, quant_type=QUANT_TYPE,
+        scaling_min_val=SCALING_MIN_VAL, return_quant_tensor=False)
+
+
+def make_transpconv1d(feat_in, feat_out, kernel_size, stride, padding,
+    bit_width, dilation=1):
+    return quant_nn.QuantConvTranspose1d(in_channels=feat_in, out_channels=
+        feat_out, kernel_size=kernel_size, stride=stride, padding=padding,
+        dilation=dilation, weight_bit_width=bit_width, weight_quant_type=
+        QUANT_TYPE, weight_narrow_range=WEIGHT_NARROW_RANGE,
+        weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE,
+        weight_scaling_stats_op=WEIGHT_SCALING_STATS_OP,
+        weight_scaling_min_val=SCALING_MIN_VAL, bias_bit_width=bit_width,
+        bias_quant_type=QUANT_TYPE_BIAS, bias_narrow_range=BIAS_CONFIGS,
+        compute_output_scale=BIAS_CONFIGS, compute_output_bit_width=
+        BIAS_CONFIGS, return_quant_tensor=False)
+
+
+MAX_WAV_VALUE = 32768.0
+
+
+class Generator(nn.Module):
+
+    def __init__(self, mel_channel, bit_width, last_layer_bit_width):
+        super(Generator, self).__init__()
+        self.mel_channel = mel_channel
+        self.generator = nn.Sequential(nn.utils.weight_norm(
+            make_quantconv1d(mel_channel, 512, kernel_size=7, stride=1,
+            padding=3, bit_width=bit_width)), make_leakyRelu_activation(
+            bit_width=bit_width), nn.utils.weight_norm(make_transpconv1d(
+            512, 256, kernel_size=16, stride=8, padding=4, bit_width=
+            bit_width)), ResStack(256, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(256, 128, kernel_size=16, stride=8, padding=4,
+            bit_width=bit_width)), ResStack(128, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(128, 64, kernel_size=4, stride=2, padding=1,
+            bit_width=bit_width)), ResStack(64, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(64, 32, kernel_size=4, stride=2, padding=1,
+            bit_width=bit_width)), ResStack(32, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_quantconv1d(32, 1, kernel_size=7, stride=1, padding=3,
+            bit_width=bit_width)), make_tanh_activation(bit_width=
+            last_layer_bit_width))
+
+    def forward(self, mel):
+        mel = (mel + 5.0) / 5.0
+        return self.generator(mel)
+
+    def eval(self, inference=False):
+        super(Generator, self).eval()
+        if inference:
+            self.remove_weight_norm()
+
+    def remove_weight_norm(self):
+        for idx, layer in enumerate(self.generator):
+            if len(layer.state_dict()) != 0:
+                try:
+                    nn.utils.remove_weight_norm(layer)
+                except:
+                    layer.remove_weight_norm()
+
+    def inference(self, mel):
+        hop_length = 256
+        zero = torch.full((1, self.mel_channel, 10), -11.5129).to(mel.device)
+        mel = torch.cat((mel, zero), dim=2)
+        audio = self.forward(mel)
+        audio = audio.squeeze()
+        audio = audio[:-(hop_length * 10)]
+        audio = MAX_WAV_VALUE * audio
+        audio = audio.clamp(min=-MAX_WAV_VALUE, max=MAX_WAV_VALUE - 1)
+        audio = audio.short()
+        return audio
 
 
 class ResStack(nn.Module):

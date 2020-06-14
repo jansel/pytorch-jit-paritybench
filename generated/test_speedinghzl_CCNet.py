@@ -229,12 +229,6 @@ class ABN(nn.Sequential):
             num_features, **kwargs)), ('act', activation)]))
 
 
-def _check(fn, *args, **kwargs):
-    success = fn(*args, **kwargs)
-    if not success:
-        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
-
-
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
@@ -242,6 +236,12 @@ ACT_ELU = 'elu'
 
 
 ACT_NONE = 'none'
+
+
+def _check(fn, *args, **kwargs):
+    success = fn(*args, **kwargs)
+    if not success:
+        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
 
 
 def _act_backward(ctx, x, dx):
@@ -255,14 +255,6 @@ def _act_backward(ctx, x, dx):
         pass
 
 
-def _count_samples(x):
-    count = 1
-    for i, s in enumerate(x.size()):
-        if i != 1:
-            count *= s
-    return count
-
-
 def _act_forward(ctx, x):
     if ctx.activation == ACT_LEAKY_RELU:
         _check(_ext.leaky_relu_cuda, x, ctx.slope)
@@ -270,6 +262,14 @@ def _act_forward(ctx, x):
         _check(_ext.elu_cuda, x)
     elif ctx.activation == ACT_NONE:
         pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
 
 
 class InPlaceABN(autograd.Function):
@@ -1352,6 +1352,19 @@ class DataParallelModel(DataParallel):
         return modules
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
+
+
 torch_ver = torch.__version__[:3]
 
 
@@ -1405,19 +1418,6 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):

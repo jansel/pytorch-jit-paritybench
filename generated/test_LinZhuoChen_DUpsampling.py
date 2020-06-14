@@ -101,12 +101,6 @@ class ABN(nn.Sequential):
             num_features, **kwargs)), ('act', activation)]))
 
 
-def _check(fn, *args, **kwargs):
-    success = fn(*args, **kwargs)
-    if not success:
-        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
-
-
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
@@ -114,6 +108,12 @@ ACT_ELU = 'elu'
 
 
 ACT_NONE = 'none'
+
+
+def _check(fn, *args, **kwargs):
+    success = fn(*args, **kwargs)
+    if not success:
+        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
 
 
 def _act_backward(ctx, x, dx):
@@ -127,19 +127,6 @@ def _act_backward(ctx, x, dx):
         pass
 
 
-def _count_samples(x):
-    count = 1
-    for i, s in enumerate(x.size()):
-        if i != 1:
-            count *= s
-    return count
-
-
-def _check_contiguous(*args):
-    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
-        raise ValueError('Non-contiguous input')
-
-
 def _act_forward(ctx, x):
     if ctx.activation == ACT_LEAKY_RELU:
         _check(_ext.leaky_relu_cuda, x, ctx.slope)
@@ -147,6 +134,19 @@ def _act_forward(ctx, x):
         _check(_ext.elu_cuda, x)
     elif ctx.activation == ACT_NONE:
         pass
+
+
+def _check_contiguous(*args):
+    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
+        raise ValueError('Non-contiguous input')
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
 
 
 class InPlaceABNWrapper(nn.Module):

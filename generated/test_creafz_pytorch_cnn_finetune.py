@@ -63,13 +63,6 @@ import torch.optim as optim
 import types
 
 
-default = object()
-
-
-def product(iterable):
-    return functools.reduce(operator.mul, iterable)
-
-
 MODEL_REGISTRY = {}
 
 
@@ -99,6 +92,13 @@ class ModelWrapperMeta(ABCMeta, ModelRegistryMeta):
     ABCMeta and ModelRegistryMeta simultaneously
     """
     pass
+
+
+default = object()
+
+
+def product(iterable):
+    return functools.reduce(operator.mul, iterable)
 
 
 class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):

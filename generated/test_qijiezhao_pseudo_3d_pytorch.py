@@ -37,13 +37,13 @@ import math
 from functools import partial
 
 
-def conv_T(in_planes, out_planes, stride=1, padding=1):
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=1,
+def conv_S(in_planes, out_planes, stride=1, padding=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=1,
         padding=padding, bias=False)
 
 
-def conv_S(in_planes, out_planes, stride=1, padding=1):
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=1,
+def conv_T(in_planes, out_planes, stride=1, padding=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=1,
         padding=padding, bias=False)
 
 

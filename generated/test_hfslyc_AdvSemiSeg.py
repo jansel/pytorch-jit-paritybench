@@ -73,13 +73,13 @@ import torch.backends.cudnn as cudnn
 import random
 
 
+affine_par = True
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
-
-
-affine_par = True
 
 
 class BasicBlock(nn.Module):

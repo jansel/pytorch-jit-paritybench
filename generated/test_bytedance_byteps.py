@@ -126,6 +126,63 @@ import torch.optim
 import torch.utils.data
 
 
+class Compressor(object):
+    """Interface for compressing and decompressing a given tensor."""
+
+    @staticmethod
+    def compress(tensor):
+        """Compresses a tensor and returns it with the context needed to decompress it."""
+        pass
+
+    @staticmethod
+    def decompress(tensor, ctx):
+        """Decompress the tensor with the given context."""
+        pass
+
+
+class FP16Compressor(Compressor):
+    """Compress all floating point gradients to 16-bit."""
+
+    @staticmethod
+    def compress(tensor):
+        """Downcasts the tensor to 16-bit."""
+        tensor_compressed = tensor
+        if tensor.dtype.is_floating:
+            tensor_compressed = tf.cast(tensor, dtype=tf.float16)
+        return tensor_compressed, tensor.dtype
+
+    @staticmethod
+    def decompress(tensor, ctx):
+        """Upcasts the tensor to the initialization dtype."""
+        tensor_decompressed = tensor
+        dtype = ctx
+        if dtype.is_floating:
+            tensor_decompressed = tf.cast(tensor, dtype=dtype)
+        return tensor_decompressed
+
+
+class NoneCompressor(Compressor):
+    """Default no-op compression."""
+
+    @staticmethod
+    def compress(tensor):
+        """Returns the tensor unmodified."""
+        return tensor, None
+
+    @staticmethod
+    def decompress(tensor, ctx):
+        """Returns the tensor unmodified."""
+        return tensor
+
+
+class Compression(object):
+    """Optional gradient compression algorithm used during push_pull."""
+    """Do not compress the gradients. This is the default."""
+    none = NoneCompressor
+    """Compress all floating point gradients to 16-bit."""
+    fp16 = FP16Compressor
+
+
 def get_ext_suffix():
     """Determine library extension for various versions of Python."""
     ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')

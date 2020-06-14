@@ -1102,6 +1102,33 @@ class DiceCoefficient(torch.nn.Module):
         return dice_coefficient(input, target, smooth=self.smooth)
 
 
+def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
+    """means: bs, n_instances, n_filters"""
+    bs, n_instances, n_filters = means.size()
+    dist_term = 0.0
+    for i in range(bs):
+        _n_objects_sample = int(n_objects[i])
+        if _n_objects_sample <= 1:
+            continue
+        _mean_sample = means[(i), :_n_objects_sample, :]
+        means_1 = _mean_sample.unsqueeze(1).expand(_n_objects_sample,
+            _n_objects_sample, n_filters)
+        means_2 = means_1.permute(1, 0, 2)
+        diff = means_1 - means_2
+        _norm = torch.norm(diff, norm, 2)
+        margin = 2 * delta_d * (1.0 - torch.eye(_n_objects_sample))
+        if usegpu:
+            margin = margin.cuda()
+        margin = Variable(margin)
+        _dist_term_sample = torch.sum(torch.clamp(margin - _norm, min=0.0) ** 2
+            )
+        _dist_term_sample = _dist_term_sample / (_n_objects_sample * (
+            _n_objects_sample - 1))
+        dist_term += _dist_term_sample
+    dist_term = dist_term / bs
+    return dist_term
+
+
 def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
     """pred: bs, height * width, n_filters
        gt: bs, height * width, n_instances"""
@@ -1138,33 +1165,6 @@ def calculate_regularization_term(means, n_objects, norm):
         reg_term += torch.mean(_norm)
     reg_term = reg_term / bs
     return reg_term
-
-
-def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
-    """means: bs, n_instances, n_filters"""
-    bs, n_instances, n_filters = means.size()
-    dist_term = 0.0
-    for i in range(bs):
-        _n_objects_sample = int(n_objects[i])
-        if _n_objects_sample <= 1:
-            continue
-        _mean_sample = means[(i), :_n_objects_sample, :]
-        means_1 = _mean_sample.unsqueeze(1).expand(_n_objects_sample,
-            _n_objects_sample, n_filters)
-        means_2 = means_1.permute(1, 0, 2)
-        diff = means_1 - means_2
-        _norm = torch.norm(diff, norm, 2)
-        margin = 2 * delta_d * (1.0 - torch.eye(_n_objects_sample))
-        if usegpu:
-            margin = margin.cuda()
-        margin = Variable(margin)
-        _dist_term_sample = torch.sum(torch.clamp(margin - _norm, min=0.0) ** 2
-            )
-        _dist_term_sample = _dist_term_sample / (_n_objects_sample * (
-            _n_objects_sample - 1))
-        dist_term += _dist_term_sample
-    dist_term = dist_term / bs
-    return dist_term
 
 
 def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):

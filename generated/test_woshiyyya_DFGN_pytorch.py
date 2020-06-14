@@ -953,16 +953,16 @@ class BertAttention(nn.Module):
         return attention_output
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
         0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -1114,6 +1114,9 @@ class BertPreTrainingHeads(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         seq_relationship_score = self.seq_relationship(pooled_output)
         return prediction_scores, seq_relationship_score
+
+
+CONFIG_NAME = 'bert_config.json'
 
 
 WEIGHTS_NAME = 'pytorch_model.bin'
@@ -1388,9 +1391,6 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
     , 'bert-base-chinese':
     'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
     }
-
-
-CONFIG_NAME = 'bert_config.json'
 
 
 logger = logging.getLogger(__name__)

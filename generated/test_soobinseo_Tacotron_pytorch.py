@@ -293,9 +293,6 @@ class AttentionDecoder(nn.Module):
         return attn_hidden, gru1_hidden, gru2_hidden
 
 
-_pad = '_'
-
-
 class MelDecoder(nn.Module):
     """
     Decoder

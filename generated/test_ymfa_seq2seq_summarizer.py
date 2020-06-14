@@ -224,21 +224,6 @@ class DecoderRNN(nn.Module):
         return output, hidden, enc_attn, prob_ptr
 
 
-class Seq2SeqOutput(object):
-
-    def __init__(self, encoder_outputs: torch.Tensor, encoder_hidden: torch
-        .Tensor, decoded_tokens: torch.Tensor, loss: Union[torch.Tensor,
-        float]=0, loss_value: float=0, enc_attn_weights: torch.Tensor=None,
-        ptr_probs: torch.Tensor=None):
-        self.encoder_outputs = encoder_outputs
-        self.encoder_hidden = encoder_hidden
-        self.decoded_tokens = decoded_tokens
-        self.loss = loss
-        self.loss_value = loss_value
-        self.enc_attn_weights = enc_attn_weights
-        self.ptr_probs = ptr_probs
-
-
 class Hypothesis(object):
 
     def __init__(self, tokens, log_probs, dec_hidden, dec_states,
@@ -268,6 +253,21 @@ class Hypothesis(object):
             dec_states, enc_attn_weights=self.enc_attn_weights + [enc_attn] if
             enc_attn is not None else self.enc_attn_weights, num_non_words=
             self.num_non_words + 1 if non_word else self.num_non_words)
+
+
+class Seq2SeqOutput(object):
+
+    def __init__(self, encoder_outputs: torch.Tensor, encoder_hidden: torch
+        .Tensor, decoded_tokens: torch.Tensor, loss: Union[torch.Tensor,
+        float]=0, loss_value: float=0, enc_attn_weights: torch.Tensor=None,
+        ptr_probs: torch.Tensor=None):
+        self.encoder_outputs = encoder_outputs
+        self.encoder_hidden = encoder_hidden
+        self.decoded_tokens = decoded_tokens
+        self.loss = loss
+        self.loss_value = loss_value
+        self.enc_attn_weights = enc_attn_weights
+        self.ptr_probs = ptr_probs
 
 
 import torch

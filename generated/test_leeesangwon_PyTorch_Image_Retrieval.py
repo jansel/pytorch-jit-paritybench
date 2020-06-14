@@ -125,24 +125,6 @@ class NPairLoss(nn.Module):
         return torch.sum(anchors ** 2 + positives ** 2) / anchors.shape[0]
 
 
-def set_parameter_requires_grad(model, feature_extracting):
-    if feature_extracting:
-        for param in model.parameters():
-            param.requires_grad = False
-
-
-def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'
-        ], 'num_classes should be {}, but is {}'.format(settings[
-        'num_classes'], num_classes)
-    model.load_state_dict(model_zoo.load_url(settings['url']))
-    model.input_space = settings['input_space']
-    model.input_size = settings['input_size']
-    model.input_range = settings['input_range']
-    model.mean = settings['mean']
-    model.std = settings['std']
-
-
 class SelfAttention(nn.Module):
     """ Self attention Layer
     https://github.com/heykeetae/Self-Attention-GAN"""

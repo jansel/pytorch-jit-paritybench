@@ -46,19 +46,10 @@ import numpy as np
 from numpy.linalg import inv
 
 
-def up_conv_layer(input_channels, output_channels, kernel_size):
-    return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.
-        Conv2d(input_channels, output_channels, kernel_size, padding=(
-        kernel_size - 1) / 2, bias=False), nn.BatchNorm2d(output_channels),
-        nn.ReLU())
-
-
-def get_trainable_number(variable):
-    num = 1
-    shape = list(variable.shape)
-    for i in shape:
-        num *= i
-    return num
+def conv_layer(input_channels, output_channels, kernel_size):
+    return nn.Sequential(nn.Conv2d(input_channels, output_channels,
+        kernel_size, padding=(kernel_size - 1) / 2, bias=False), nn.
+        BatchNorm2d(output_channels), nn.ReLU())
 
 
 def depth_layer(input_channels):
@@ -75,10 +66,19 @@ def down_conv_layer(input_channels, output_channels, kernel_size):
         ReLU())
 
 
-def conv_layer(input_channels, output_channels, kernel_size):
-    return nn.Sequential(nn.Conv2d(input_channels, output_channels,
-        kernel_size, padding=(kernel_size - 1) / 2, bias=False), nn.
-        BatchNorm2d(output_channels), nn.ReLU())
+def get_trainable_number(variable):
+    num = 1
+    shape = list(variable.shape)
+    for i in shape:
+        num *= i
+    return num
+
+
+def up_conv_layer(input_channels, output_channels, kernel_size):
+    return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.
+        Conv2d(input_channels, output_channels, kernel_size, padding=(
+        kernel_size - 1) / 2, bias=False), nn.BatchNorm2d(output_channels),
+        nn.ReLU())
 
 
 class depthNet(nn.Module):

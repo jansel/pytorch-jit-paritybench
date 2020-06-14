@@ -722,11 +722,6 @@ class HRModule(nn.Module):
         return x_fuse
 
 
-def get_root_logger(log_file=None, log_level=logging.INFO):
-    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
-    return logger
-
-
 class Res2Layer(nn.Sequential):
     """Res2Layer to build Res2Net style backbone.
 
@@ -831,28 +826,7 @@ class L2Norm(nn.Module):
             x_float) * x_float / norm).type_as(x)
 
 
-def distance2bbox(points, distance, max_shape=None):
-    """Decode distance prediction to bounding box.
-
-    Args:
-        points (Tensor): Shape (n, 2), [x, y].
-        distance (Tensor): Distance from the given point to 4
-            boundaries (left, top, right, bottom).
-        max_shape (tuple): Shape of the image.
-
-    Returns:
-        Tensor: Decoded bboxes.
-    """
-    x1 = points[:, (0)] - distance[:, (0)]
-    y1 = points[:, (1)] - distance[:, (1)]
-    x2 = points[:, (0)] + distance[:, (2)]
-    y2 = points[:, (1)] + distance[:, (3)]
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1])
-        y1 = y1.clamp(min=0, max=max_shape[0])
-        x2 = x2.clamp(min=0, max=max_shape[1])
-        y2 = y2.clamp(min=0, max=max_shape[0])
-    return torch.stack([x1, y1, x2, y2], -1)
+INF = 100000000.0
 
 
 class FeatureAlign(nn.Module):
@@ -884,13 +858,88 @@ def multi_apply(func, *args, **kwargs):
     return tuple(map(list, zip(*map_results)))
 
 
-def build(cfg, registry, default_args=None):
-    if isinstance(cfg, list):
-        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
-            ]
-        return nn.Sequential(*modules)
+def batched_nms(bboxes, scores, inds, nms_cfg, class_agnostic=False):
+    """Performs non-maximum suppression in a batched fashion.
+
+    Modified from https://github.com/pytorch/vision/blob
+    /505cd6957711af790211896d32b40291bea1bc21/torchvision/ops/boxes.py#L39.
+    In order to perform NMS independently per class, we add an offset to all
+    the boxes. The offset is dependent only on the class idx, and is large
+    enough so that boxes from different classes do not overlap.
+
+    Arguments:
+        bboxes (torch.Tensor): bboxes in shape (N, 4).
+        scores (torch.Tensor): scores in shape (N, ).
+        inds (torch.Tensor): each index value correspond to a bbox cluster,
+            and NMS will not be applied between elements of different inds,
+            shape (N, ).
+        nms_cfg (dict): specify nms type and class_agnostic as well as other
+            parameters like iou_thr.
+        class_agnostic (bool): if true, nms is class agnostic,
+            i.e. IoU thresholding happens over all bboxes,
+            regardless of the predicted class
+
+    Returns:
+        tuple: kept bboxes and indice.
+    """
+    nms_cfg_ = nms_cfg.copy()
+    class_agnostic = nms_cfg_.pop('class_agnostic', class_agnostic)
+    if class_agnostic:
+        bboxes_for_nms = bboxes
     else:
-        return build_from_cfg(cfg, registry, default_args)
+        max_coordinate = bboxes.max()
+        offsets = inds.to(bboxes) * (max_coordinate + 1)
+        bboxes_for_nms = bboxes + offsets[:, (None)]
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = eval(nms_type)
+    dets, keep = nms_op(torch.cat([bboxes_for_nms, scores[:, (None)]], -1),
+        **nms_cfg_)
+    bboxes = bboxes[keep]
+    scores = dets[:, (-1)]
+    return torch.cat([bboxes, scores[:, (None)]], -1), keep
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
+    -1, score_factors=None):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class), where the last column
+            contains scores of the background class, but this will be ignored.
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+        score_factors (Tensor): The factors multiplied to scores before
+            applying NMS
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
+            are 0-based.
+    """
+    num_classes = multi_scores.size(1) - 1
+    if multi_bboxes.shape[1] > 4:
+        bboxes = multi_bboxes.view(multi_scores.size(0), -1, 4)
+    else:
+        bboxes = multi_bboxes[:, (None)].expand(-1, num_classes, 4)
+    scores = multi_scores[:, :-1]
+    valid_mask = scores > score_thr
+    bboxes = bboxes[valid_mask]
+    if score_factors is not None:
+        scores = scores * score_factors[:, (None)]
+    scores = scores[valid_mask]
+    labels = valid_mask.nonzero()[:, (1)]
+    if bboxes.numel() == 0:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+        return bboxes, labels
+    dets, keep = batched_nms(bboxes, scores, labels, nms_cfg)
+    if max_num > 0:
+        dets = dets[:max_num]
+        keep = keep[:max_num]
+    return dets, labels[keep]
 
 
 class FeatureAdaption(nn.Module):
@@ -926,19 +975,6 @@ class FeatureAdaption(nn.Module):
         offset = self.conv_offset(shape.detach())
         x = self.relu(self.conv_adaption(x, offset))
         return x
-
-
-def unmap(data, count, inds, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 1:
-        ret = data.new_full((count,), fill)
-        ret[inds.type(torch.bool)] = data
-    else:
-        new_size = (count,) + data.size()[1:]
-        ret = data.new_full(new_size, fill)
-        ret[(inds.type(torch.bool)), :] = data
-    return ret
 
 
 def cast_tensor_type(inputs, src_type, dst_type):
@@ -1345,24 +1381,6 @@ def balanced_l1_loss(pred, target, beta=1.0, alpha=0.5, gamma=1.5,
     return loss
 
 
-def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
-    loss = F.cross_entropy(pred, label, reduction='none')
-    if weight is not None:
-        weight = weight.float()
-    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
-        avg_factor=avg_factor)
-    return loss
-
-
-def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
-    assert reduction == 'mean' and avg_factor is None
-    num_rois = pred.size()[0]
-    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
-    pred_slice = pred[inds, label].squeeze(1)
-    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
-        ='mean')[None]
-
-
 def _expand_binary_labels(labels, label_weights, label_channels):
     bin_labels = labels.new_full((labels.size(0), label_channels), 0)
     inds = torch.nonzero(labels >= 1, as_tuple=False).squeeze()
@@ -1386,6 +1404,24 @@ def binary_cross_entropy(pred, label, weight=None, reduction='mean',
         reduction='none')
     loss = weight_reduce_loss(loss, reduction=reduction, avg_factor=avg_factor)
     return loss
+
+
+def cross_entropy(pred, label, weight=None, reduction='mean', avg_factor=None):
+    loss = F.cross_entropy(pred, label, reduction='none')
+    if weight is not None:
+        weight = weight.float()
+    loss = weight_reduce_loss(loss, weight=weight, reduction=reduction,
+        avg_factor=avg_factor)
+    return loss
+
+
+def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
+    assert reduction == 'mean' and avg_factor is None
+    num_rois = pred.size()[0]
+    inds = torch.arange(0, num_rois, dtype=torch.long, device=pred.device)
+    pred_slice = pred[inds, label].squeeze(1)
+    return F.binary_cross_entropy_with_logits(pred_slice, target, reduction
+        ='mean')[None]
 
 
 class SigmoidFocalLossFunction(Function):
@@ -1658,6 +1694,12 @@ class BasicResBlock(nn.Module):
         return out
 
 
+BYTES_PER_FLOAT = 4
+
+
+GPU_MEM_LIMIT = 1024 ** 3
+
+
 def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
     """Paste instance masks acoording to boxes.
 
@@ -1717,38 +1759,6 @@ def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
             )
     else:
         return img_masks[:, (0)], ()
-
-
-def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
-    device = pos_proposals.device
-    mask_size = _pair(cfg.mask_size)
-    num_pos = pos_proposals.size(0)
-    if num_pos > 0:
-        proposals_np = pos_proposals.cpu().numpy()
-        maxh, maxw = gt_masks.height, gt_masks.width
-        proposals_np[:, ([0, 2])] = np.clip(proposals_np[:, ([0, 2])], 0, maxw)
-        proposals_np[:, ([1, 3])] = np.clip(proposals_np[:, ([1, 3])], 0, maxh)
-        pos_assigned_gt_inds = pos_assigned_gt_inds.cpu().numpy()
-        mask_targets = gt_masks.crop_and_resize(proposals_np, mask_size,
-            device=device, inds=pos_assigned_gt_inds).to_ndarray()
-        mask_targets = torch.from_numpy(mask_targets).float().to(device)
-    else:
-        mask_targets = pos_proposals.new_zeros((0,) + mask_size)
-    return mask_targets
-
-
-def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
-    gt_masks_list, cfg):
-    cfg_list = [cfg for _ in range(len(pos_proposals_list))]
-    mask_targets = map(mask_target_single, pos_proposals_list,
-        pos_assigned_gt_inds_list, gt_masks_list, cfg_list)
-    mask_targets = list(mask_targets)
-    if len(mask_targets) > 0:
-        mask_targets = torch.cat(mask_targets)
-    return mask_targets
-
-
-GPU_MEM_LIMIT = 1024 ** 3
 
 
 def force_fp32(apply_to=None, out_fp16=False):
@@ -1821,7 +1831,38 @@ def force_fp32(apply_to=None, out_fp16=False):
     return force_fp32_wrapper
 
 
-BYTES_PER_FLOAT = 4
+def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
+    device = pos_proposals.device
+    mask_size = _pair(cfg.mask_size)
+    num_pos = pos_proposals.size(0)
+    if num_pos > 0:
+        proposals_np = pos_proposals.cpu().numpy()
+        maxh, maxw = gt_masks.height, gt_masks.width
+        proposals_np[:, ([0, 2])] = np.clip(proposals_np[:, ([0, 2])], 0, maxw)
+        proposals_np[:, ([1, 3])] = np.clip(proposals_np[:, ([1, 3])], 0, maxh)
+        pos_assigned_gt_inds = pos_assigned_gt_inds.cpu().numpy()
+        mask_targets = gt_masks.crop_and_resize(proposals_np, mask_size,
+            device=device, inds=pos_assigned_gt_inds).to_ndarray()
+        mask_targets = torch.from_numpy(mask_targets).float().to(device)
+    else:
+        mask_targets = pos_proposals.new_zeros((0,) + mask_size)
+    return mask_targets
+
+
+def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
+    gt_masks_list, cfg):
+    cfg_list = [cfg for _ in range(len(pos_proposals_list))]
+    mask_targets = map(mask_target_single, pos_proposals_list,
+        pos_assigned_gt_inds_list, gt_masks_list, cfg_list)
+    mask_targets = list(mask_targets)
+    if len(mask_targets) > 0:
+        mask_targets = torch.cat(mask_targets)
+    return mask_targets
+
+
+def get_root_logger(log_file=None, log_level=logging.INFO):
+    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
+    return logger
 
 
 class ResLayer(nn.Sequential):

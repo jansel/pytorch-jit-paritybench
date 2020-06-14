@@ -202,13 +202,6 @@ from math import pi
 from collections import OrderedDict
 
 
-class RenderType:
-    RGB = 0
-    Silhouette = 1
-    Depth = 2
-    Normal = 3
-
-
 class Derenderer(Module):
     in_size = 4
     hidden_size = 256
@@ -251,6 +244,13 @@ class Derenderer(Module):
             _translation2ds, '_log_scales': _log_scales, '_log_depths':
             _log_depths, '_class_probs': _class_probs, '_ffd_coeffs':
             _ffd_coeffs}
+
+
+class RenderType:
+    RGB = 0
+    Silhouette = 1
+    Depth = 2
+    Normal = 3
 
 
 class RenderFunction(Function):
@@ -670,14 +670,6 @@ class RPN(nn.Module):
         return [rpn_class_logits, rpn_probs, rpn_bbox]
 
 
-def log2(x):
-    """Implementatin of Log2. Pytorch doesn't have a native implemenation."""
-    ln2 = Variable(torch.log(torch.FloatTensor([2.0])), requires_grad=False)
-    if x.is_cuda:
-        ln2 = ln2.cuda()
-    return torch.log(x) / ln2
-
-
 class CropAndResizeFunction(Function):
 
     def __init__(self, crop_height, crop_width, extrapolation_value=0):
@@ -709,6 +701,14 @@ class CropAndResizeFunction(Function):
             _backend.crop_and_resize_backward(grad_outputs, boxes, box_ind,
                 grad_image)
         return grad_image, None, None
+
+
+def log2(x):
+    """Implementatin of Log2. Pytorch doesn't have a native implemenation."""
+    ln2 = Variable(torch.log(torch.FloatTensor([2.0])), requires_grad=False)
+    if x.is_cuda:
+        ln2 = ln2.cuda()
+    return torch.log(x) / ln2
 
 
 def pyramid_roi_align(inputs, pool_size, image_shape):
@@ -843,219 +843,6 @@ class Mask(nn.Module):
         x = self.conv5(x)
         x = self.sigmoid(x)
         return x
-
-
-def printProgressBar(iteration, total, prefix='', suffix='', decimals=1,
-    length=100, fill='█'):
-    """
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-    """
-    percent = ('{0:.' + str(decimals) + 'f}').format(100 * (iteration /
-        float(total)))
-    filledLength = int(length * iteration // total)
-    bar = fill * filledLength + '-' * (length - filledLength)
-    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end='\n')
-    if iteration == total:
-        print()
-
-
-def pth_nms(dets, thresh):
-    """
-    dets has to be a tensor
-    """
-    if not dets.is_cuda:
-        x1 = dets[:, (1)]
-        y1 = dets[:, (0)]
-        x2 = dets[:, (3)]
-        y2 = dets[:, (2)]
-        scores = dets[:, (4)]
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = scores.sort(0, descending=True)[1]
-        keep = torch.LongTensor(dets.size(0))
-        num_out = torch.LongTensor(1)
-        nms.cpu_nms(keep, num_out, dets, order, areas, thresh)
-        return keep[:num_out[0]]
-    else:
-        x1 = dets[:, (1)]
-        y1 = dets[:, (0)]
-        x2 = dets[:, (3)]
-        y2 = dets[:, (2)]
-        scores = dets[:, (4)]
-        dets_temp = torch.FloatTensor(dets.size()).cuda()
-        dets_temp[:, (0)] = dets[:, (1)]
-        dets_temp[:, (1)] = dets[:, (0)]
-        dets_temp[:, (2)] = dets[:, (3)]
-        dets_temp[:, (3)] = dets[:, (2)]
-        dets_temp[:, (4)] = dets[:, (4)]
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = scores.sort(0, descending=True)[1]
-        dets = dets[order].contiguous()
-        keep = torch.LongTensor(dets.size(0))
-        num_out = torch.LongTensor(1)
-        nms.gpu_nms(keep, num_out, dets_temp, thresh)
-        return order[keep[:num_out[0]].cuda()].contiguous()
-
-
-def nms(dets, thresh):
-    """Dispatch to either CPU or GPU NMS implementations.
-    Accept dets as tensor"""
-    return pth_nms(dets, thresh)
-
-
-def apply_box_deltas(boxes, deltas):
-    """Applies the given deltas to the given boxes.
-    boxes: [N, 4] where each row is y1, x1, y2, x2
-    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
-    """
-    height = boxes[:, (2)] - boxes[:, (0)]
-    width = boxes[:, (3)] - boxes[:, (1)]
-    center_y = boxes[:, (0)] + 0.5 * height
-    center_x = boxes[:, (1)] + 0.5 * width
-    center_y += deltas[:, (0)] * height
-    center_x += deltas[:, (1)] * width
-    height *= torch.exp(deltas[:, (2)])
-    width *= torch.exp(deltas[:, (3)])
-    y1 = center_y - 0.5 * height
-    x1 = center_x - 0.5 * width
-    y2 = y1 + height
-    x2 = x1 + width
-    result = torch.stack([y1, x1, y2, x2], dim=1)
-    return result
-
-
-def intersect1d(tensor1, tensor2):
-    aux = torch.cat((tensor1, tensor2), dim=0)
-    aux = aux.sort()[0]
-    return aux[:-1][(aux[1:] == aux[:-1]).data]
-
-
-def unique1d(tensor):
-    if tensor.size()[0] == 0 or tensor.size()[0] == 1:
-        return tensor
-    tensor = tensor.sort()[0]
-    unique_bool = tensor[1:] != tensor[:-1]
-    first_element = Variable(torch.ByteTensor([True]), requires_grad=False)
-    if tensor.is_cuda:
-        first_element = first_element.cuda()
-    unique_bool = torch.cat((first_element, unique_bool), dim=0)
-    return tensor[unique_bool.data]
-
-
-def clip_to_window(window, boxes):
-    """
-        window: (y1, x1, y2, x2). The window in the image we want to clip to.
-        boxes: [N, (y1, x1, y2, x2)]
-    """
-    boxes[:, (0)] = boxes[:, (0)].clamp(float(window[0]), float(window[2]))
-    boxes[:, (1)] = boxes[:, (1)].clamp(float(window[1]), float(window[3]))
-    boxes[:, (2)] = boxes[:, (2)].clamp(float(window[0]), float(window[2]))
-    boxes[:, (3)] = boxes[:, (3)].clamp(float(window[1]), float(window[3]))
-    return boxes
-
-
-def refine_detections(rois, probs, deltas, window, config):
-    """Refine classified proposals and filter overlaps and return final
-    detections.
-
-    Inputs:
-        rois: [N, (y1, x1, y2, x2)] in normalized coordinates
-        probs: [N, num_classes]. Class probabilities.
-        deltas: [N, num_classes, (dy, dx, log(dh), log(dw))]. Class-specific
-                bounding box deltas.
-        window: (y1, x1, y2, x2) in image coordinates. The part of the image
-            that contains the image excluding the padding.
-
-    Returns detections shaped: [N, (y1, x1, y2, x2, class_id, score)]
-    """
-    _, class_ids = torch.max(probs, dim=1)
-    idx = torch.arange(class_ids.size()[0]).long()
-    if config.GPU_COUNT:
-        idx = idx.cuda()
-    class_scores = probs[idx, class_ids.data]
-    deltas_specific = deltas[idx, class_ids.data]
-    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
-        [1, 4])).float(), requires_grad=False)
-    if config.GPU_COUNT:
-        std_dev = std_dev.cuda()
-    refined_rois = apply_box_deltas(rois, deltas_specific * std_dev)
-    height, width = config.IMAGE_SHAPE[:2]
-    scale = Variable(torch.from_numpy(np.array([height, width, height,
-        width])).float(), requires_grad=False)
-    if config.GPU_COUNT:
-        scale = scale.cuda()
-    refined_rois *= scale
-    refined_rois = clip_to_window(window, refined_rois)
-    refined_rois = torch.round(refined_rois)
-    keep_bool = class_ids > 0
-    if config.DETECTION_MIN_CONFIDENCE:
-        keep_bool = keep_bool & (class_scores >= config.
-            DETECTION_MIN_CONFIDENCE)
-    keep = torch.nonzero(keep_bool)[:, (0)]
-    pre_nms_class_ids = class_ids[keep.data]
-    pre_nms_scores = class_scores[keep.data]
-    pre_nms_rois = refined_rois[keep.data]
-    for i, class_id in enumerate(unique1d(pre_nms_class_ids)):
-        ixs = torch.nonzero(pre_nms_class_ids == class_id)[:, (0)]
-        ix_rois = pre_nms_rois[ixs.data]
-        ix_scores = pre_nms_scores[ixs]
-        ix_scores, order = ix_scores.sort(descending=True)
-        ix_rois = ix_rois[(order.data), :]
-        class_keep = nms(torch.cat((ix_rois, ix_scores.unsqueeze(1)), dim=1
-            ).data, config.DETECTION_NMS_THRESHOLD)
-        class_keep = keep[ixs[order[class_keep].data].data]
-        if i == 0:
-            nms_keep = class_keep
-        else:
-            nms_keep = unique1d(torch.cat((nms_keep, class_keep)))
-    keep = intersect1d(keep, nms_keep)
-    roi_count = config.DETECTION_MAX_INSTANCES
-    top_ids = class_scores[keep.data].sort(descending=True)[1][:roi_count]
-    keep = keep[top_ids.data]
-    result = torch.cat((refined_rois[keep.data], class_ids[keep.data].
-        unsqueeze(1).float(), class_scores[keep.data].unsqueeze(1)), dim=1)
-    return result
-
-
-def parse_image_meta(meta):
-    """Parses an image info Numpy array to its components.
-    See compose_image_meta() for more details.
-    """
-    image_id = meta[:, (0)]
-    image_shape = meta[:, 1:4]
-    window = meta[:, 4:8]
-    active_class_ids = meta[:, 8:]
-    return image_id, image_shape, window, active_class_ids
-
-
-def detection_layer(config, rois, mrcnn_class, mrcnn_bbox, image_meta):
-    """Takes classified proposal boxes and their bounding box deltas and
-    returns the final detection boxes.
-
-    Returns:
-    [batch, num_detections, (y1, x1, y2, x2, class_score)] in pixels
-    """
-    rois = rois.squeeze(0)
-    _, _, window, _ = parse_image_meta(image_meta)
-    window = window[0]
-    detections = refine_detections(rois, mrcnn_class, mrcnn_bbox, window,
-        config)
-    return detections
-
-
-def mold_image(images, config):
-    """Takes RGB images with 0-255 values and subtraces
-    the mean pixel and converts it to float. Expects image
-    colors in RGB order.
-    """
-    return images.astype(np.float32) - config.MEAN_PIXEL
 
 
 def bbox_overlaps(boxes1, boxes2):
@@ -1239,21 +1026,145 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
     return rois, roi_gt_class_ids, deltas, masks
 
 
-def compose_image_meta(image_id, image_shape, window, active_class_ids):
-    """Takes attributes of an image and puts them in one 1D array. Use
-    parse_image_meta() to parse the values back.
-
-    image_id: An int ID of the image. Useful for debugging.
-    image_shape: [height, width, channels]
-    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
-            image is (excluding the padding)
-    active_class_ids: List of class_ids available in the dataset from which
-        the image came. Useful if training on images from multiple datasets
-        where not all classes are present in all datasets.
+def log(text, array=None):
+    """Prints a text message. And, optionally, if a Numpy array is provided it
+    prints it's shape, min, and max values.
     """
-    meta = np.array([image_id] + list(image_shape) + list(window) + list(
-        active_class_ids))
-    return meta
+    if array is not None:
+        text = text.ljust(25)
+        text += 'shape: {:20}  min: {:10.5f}  max: {:10.5f}'.format(str(
+            array.shape), array.min() if array.size else '', array.max() if
+            array.size else '')
+    print(text)
+
+
+def mold_image(images, config):
+    """Takes RGB images with 0-255 values and subtraces
+    the mean pixel and converts it to float. Expects image
+    colors in RGB order.
+    """
+    return images.astype(np.float32) - config.MEAN_PIXEL
+
+
+def pth_nms(dets, thresh):
+    """
+    dets has to be a tensor
+    """
+    if not dets.is_cuda:
+        x1 = dets[:, (1)]
+        y1 = dets[:, (0)]
+        x2 = dets[:, (3)]
+        y2 = dets[:, (2)]
+        scores = dets[:, (4)]
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        order = scores.sort(0, descending=True)[1]
+        keep = torch.LongTensor(dets.size(0))
+        num_out = torch.LongTensor(1)
+        nms.cpu_nms(keep, num_out, dets, order, areas, thresh)
+        return keep[:num_out[0]]
+    else:
+        x1 = dets[:, (1)]
+        y1 = dets[:, (0)]
+        x2 = dets[:, (3)]
+        y2 = dets[:, (2)]
+        scores = dets[:, (4)]
+        dets_temp = torch.FloatTensor(dets.size()).cuda()
+        dets_temp[:, (0)] = dets[:, (1)]
+        dets_temp[:, (1)] = dets[:, (0)]
+        dets_temp[:, (2)] = dets[:, (3)]
+        dets_temp[:, (3)] = dets[:, (2)]
+        dets_temp[:, (4)] = dets[:, (4)]
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        order = scores.sort(0, descending=True)[1]
+        dets = dets[order].contiguous()
+        keep = torch.LongTensor(dets.size(0))
+        num_out = torch.LongTensor(1)
+        nms.gpu_nms(keep, num_out, dets_temp, thresh)
+        return order[keep[:num_out[0]].cuda()].contiguous()
+
+
+def nms(dets, thresh):
+    """Dispatch to either CPU or GPU NMS implementations.
+    Accept dets as tensor"""
+    return pth_nms(dets, thresh)
+
+
+def clip_boxes(boxes, window):
+    """
+    boxes: [N, 4] each col is y1, x1, y2, x2
+    window: [4] in the form y1, x1, y2, x2
+    """
+    boxes = torch.stack([boxes[:, (0)].clamp(float(window[0]), float(window
+        [2])), boxes[:, (1)].clamp(float(window[1]), float(window[3])),
+        boxes[:, (2)].clamp(float(window[0]), float(window[2])), boxes[:, (
+        3)].clamp(float(window[1]), float(window[3]))], 1)
+    return boxes
+
+
+def apply_box_deltas(boxes, deltas):
+    """Applies the given deltas to the given boxes.
+    boxes: [N, 4] where each row is y1, x1, y2, x2
+    deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
+    """
+    height = boxes[:, (2)] - boxes[:, (0)]
+    width = boxes[:, (3)] - boxes[:, (1)]
+    center_y = boxes[:, (0)] + 0.5 * height
+    center_x = boxes[:, (1)] + 0.5 * width
+    center_y += deltas[:, (0)] * height
+    center_x += deltas[:, (1)] * width
+    height *= torch.exp(deltas[:, (2)])
+    width *= torch.exp(deltas[:, (3)])
+    y1 = center_y - 0.5 * height
+    x1 = center_x - 0.5 * width
+    y2 = y1 + height
+    x2 = x1 + width
+    result = torch.stack([y1, x1, y2, x2], dim=1)
+    return result
+
+
+def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None
+    ):
+    """Receives anchor scores and selects a subset to pass as proposals
+    to the second stage. Filtering is done based on anchor scores and
+    non-max suppression to remove overlaps. It also applies bounding
+    box refinment detals to anchors.
+
+    Inputs:
+        rpn_probs: [batch, anchors, (bg prob, fg prob)]
+        rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
+
+    Returns:
+        Proposals in normalized coordinates [batch, rois, (y1, x1, y2, x2)]
+    """
+    inputs[0] = inputs[0].squeeze(0)
+    inputs[1] = inputs[1].squeeze(0)
+    scores = inputs[0][:, (1)]
+    deltas = inputs[1]
+    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
+        [1, 4])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        std_dev = std_dev.cuda()
+    deltas = deltas * std_dev
+    pre_nms_limit = min(6000, anchors.size()[0])
+    scores, order = scores.sort(descending=True)
+    order = order[:pre_nms_limit]
+    scores = scores[:pre_nms_limit]
+    deltas = deltas[(order.data), :]
+    anchors = anchors[(order.data), :]
+    boxes = apply_box_deltas(anchors, deltas)
+    height, width = config.IMAGE_SHAPE[:2]
+    window = np.array([0, 0, height, width]).astype(np.float32)
+    boxes = clip_boxes(boxes, window)
+    keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
+    keep = keep[:proposal_count]
+    boxes = boxes[(keep), :]
+    norm = Variable(torch.from_numpy(np.array([height, width, height, width
+        ])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        norm = norm.cuda()
+    normalized_boxes = boxes / norm
+    normalized_boxes = normalized_boxes.unsqueeze(0)
+    return normalized_boxes
 
 
 def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
@@ -1317,6 +1228,23 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
         rpn_bbox[ix] /= config.RPN_BBOX_STD_DEV
         ix += 1
     return rpn_match, rpn_bbox
+
+
+def compose_image_meta(image_id, image_shape, window, active_class_ids):
+    """Takes attributes of an image and puts them in one 1D array. Use
+    parse_image_meta() to parse the values back.
+
+    image_id: An int ID of the image. Useful for debugging.
+    image_shape: [height, width, channels]
+    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
+            image is (excluding the padding)
+    active_class_ids: List of class_ids available in the dataset from which
+        the image came. Useful if training on images from multiple datasets
+        where not all classes are present in all datasets.
+    """
+    meta = np.array([image_id] + list(image_shape) + list(window) + list(
+        active_class_ids))
+    return meta
 
 
 def load_image_gt(dataset, config, image_id, augment=False, use_mini_mask=False
@@ -1435,116 +1363,6 @@ class Dataset(torch.utils.data.Dataset):
         return self.image_ids.shape[0]
 
 
-def clip_boxes(boxes, window):
-    """
-    boxes: [N, 4] each col is y1, x1, y2, x2
-    window: [4] in the form y1, x1, y2, x2
-    """
-    boxes = torch.stack([boxes[:, (0)].clamp(float(window[0]), float(window
-        [2])), boxes[:, (1)].clamp(float(window[1]), float(window[3])),
-        boxes[:, (2)].clamp(float(window[0]), float(window[2])), boxes[:, (
-        3)].clamp(float(window[1]), float(window[3]))], 1)
-    return boxes
-
-
-def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None
-    ):
-    """Receives anchor scores and selects a subset to pass as proposals
-    to the second stage. Filtering is done based on anchor scores and
-    non-max suppression to remove overlaps. It also applies bounding
-    box refinment detals to anchors.
-
-    Inputs:
-        rpn_probs: [batch, anchors, (bg prob, fg prob)]
-        rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
-
-    Returns:
-        Proposals in normalized coordinates [batch, rois, (y1, x1, y2, x2)]
-    """
-    inputs[0] = inputs[0].squeeze(0)
-    inputs[1] = inputs[1].squeeze(0)
-    scores = inputs[0][:, (1)]
-    deltas = inputs[1]
-    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
-        [1, 4])).float(), requires_grad=False)
-    if config.GPU_COUNT:
-        std_dev = std_dev.cuda()
-    deltas = deltas * std_dev
-    pre_nms_limit = min(6000, anchors.size()[0])
-    scores, order = scores.sort(descending=True)
-    order = order[:pre_nms_limit]
-    scores = scores[:pre_nms_limit]
-    deltas = deltas[(order.data), :]
-    anchors = anchors[(order.data), :]
-    boxes = apply_box_deltas(anchors, deltas)
-    height, width = config.IMAGE_SHAPE[:2]
-    window = np.array([0, 0, height, width]).astype(np.float32)
-    boxes = clip_boxes(boxes, window)
-    keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
-    keep = keep[:proposal_count]
-    boxes = boxes[(keep), :]
-    norm = Variable(torch.from_numpy(np.array([height, width, height, width
-        ])).float(), requires_grad=False)
-    if config.GPU_COUNT:
-        norm = norm.cuda()
-    normalized_boxes = boxes / norm
-    normalized_boxes = normalized_boxes.unsqueeze(0)
-    return normalized_boxes
-
-
-def log(text, array=None):
-    """Prints a text message. And, optionally, if a Numpy array is provided it
-    prints it's shape, min, and max values.
-    """
-    if array is not None:
-        text = text.ljust(25)
-        text += 'shape: {:20}  min: {:10.5f}  max: {:10.5f}'.format(str(
-            array.shape), array.min() if array.size else '', array.max() if
-            array.size else '')
-    print(text)
-
-
-def compute_mrcnn_mask_loss(target_masks, target_class_ids, pred_masks):
-    """Mask binary cross-entropy loss for the masks head.
-
-    target_masks: [batch, num_rois, height, width].
-        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
-    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
-    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
-                with values from 0 to 1.
-    """
-    if target_class_ids.size():
-        positive_ix = torch.nonzero(target_class_ids > 0)[:, (0)]
-        positive_class_ids = target_class_ids[positive_ix.data].long()
-        indices = torch.stack((positive_ix, positive_class_ids), dim=1)
-        y_true = target_masks[(indices[:, (0)].data), :, :]
-        y_pred = pred_masks[(indices[:, (0)].data), (indices[:, (1)].data),
-            :, :]
-        loss = F.binary_cross_entropy(y_pred, y_true)
-    else:
-        loss = Variable(torch.FloatTensor([0]), requires_grad=False)
-        if target_class_ids.is_cuda:
-            loss = loss.cuda()
-    return loss
-
-
-def compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox):
-    """Return the RPN bounding box loss graph.
-
-    target_bbox: [batch, max positive anchors, (dy, dx, log(dh), log(dw))].
-        Uses 0 padding to fill in unsed bbox deltas.
-    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
-               -1=negative, 0=neutral anchor.
-    rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
-    """
-    rpn_match = rpn_match.squeeze(2)
-    indices = torch.nonzero(rpn_match == 1)
-    rpn_bbox = rpn_bbox[indices.data[:, (0)], indices.data[:, (1)]]
-    target_bbox = target_bbox[(0), :rpn_bbox.size()[0], :]
-    loss = F.smooth_l1_loss(rpn_bbox, target_bbox)
-    return loss
-
-
 def compute_mrcnn_class_loss(target_class_ids, pred_class_logits):
     """Loss for the classifier head of Mask RCNN.
 
@@ -1600,6 +1418,47 @@ def compute_rpn_class_loss(rpn_match, rpn_class_logits):
     return loss
 
 
+def compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox):
+    """Return the RPN bounding box loss graph.
+
+    target_bbox: [batch, max positive anchors, (dy, dx, log(dh), log(dw))].
+        Uses 0 padding to fill in unsed bbox deltas.
+    rpn_match: [batch, anchors, 1]. Anchor match type. 1=positive,
+               -1=negative, 0=neutral anchor.
+    rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
+    """
+    rpn_match = rpn_match.squeeze(2)
+    indices = torch.nonzero(rpn_match == 1)
+    rpn_bbox = rpn_bbox[indices.data[:, (0)], indices.data[:, (1)]]
+    target_bbox = target_bbox[(0), :rpn_bbox.size()[0], :]
+    loss = F.smooth_l1_loss(rpn_bbox, target_bbox)
+    return loss
+
+
+def compute_mrcnn_mask_loss(target_masks, target_class_ids, pred_masks):
+    """Mask binary cross-entropy loss for the masks head.
+
+    target_masks: [batch, num_rois, height, width].
+        A float32 tensor of values 0 or 1. Uses zero padding to fill array.
+    target_class_ids: [batch, num_rois]. Integer class IDs. Zero padded.
+    pred_masks: [batch, proposals, height, width, num_classes] float32 tensor
+                with values from 0 to 1.
+    """
+    if target_class_ids.size():
+        positive_ix = torch.nonzero(target_class_ids > 0)[:, (0)]
+        positive_class_ids = target_class_ids[positive_ix.data].long()
+        indices = torch.stack((positive_ix, positive_class_ids), dim=1)
+        y_true = target_masks[(indices[:, (0)].data), :, :]
+        y_pred = pred_masks[(indices[:, (0)].data), (indices[:, (1)].data),
+            :, :]
+        loss = F.binary_cross_entropy(y_pred, y_true)
+    else:
+        loss = Variable(torch.FloatTensor([0]), requires_grad=False)
+        if target_class_ids.is_cuda:
+            loss = loss.cuda()
+    return loss
+
+
 def compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
     target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
     target_mask, mrcnn_mask):
@@ -1613,6 +1472,147 @@ def compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
         mrcnn_mask)
     return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss,
         mrcnn_bbox_loss, mrcnn_mask_loss]
+
+
+def parse_image_meta(meta):
+    """Parses an image info Numpy array to its components.
+    See compose_image_meta() for more details.
+    """
+    image_id = meta[:, (0)]
+    image_shape = meta[:, 1:4]
+    window = meta[:, 4:8]
+    active_class_ids = meta[:, 8:]
+    return image_id, image_shape, window, active_class_ids
+
+
+def clip_to_window(window, boxes):
+    """
+        window: (y1, x1, y2, x2). The window in the image we want to clip to.
+        boxes: [N, (y1, x1, y2, x2)]
+    """
+    boxes[:, (0)] = boxes[:, (0)].clamp(float(window[0]), float(window[2]))
+    boxes[:, (1)] = boxes[:, (1)].clamp(float(window[1]), float(window[3]))
+    boxes[:, (2)] = boxes[:, (2)].clamp(float(window[0]), float(window[2]))
+    boxes[:, (3)] = boxes[:, (3)].clamp(float(window[1]), float(window[3]))
+    return boxes
+
+
+def intersect1d(tensor1, tensor2):
+    aux = torch.cat((tensor1, tensor2), dim=0)
+    aux = aux.sort()[0]
+    return aux[:-1][(aux[1:] == aux[:-1]).data]
+
+
+def unique1d(tensor):
+    if tensor.size()[0] == 0 or tensor.size()[0] == 1:
+        return tensor
+    tensor = tensor.sort()[0]
+    unique_bool = tensor[1:] != tensor[:-1]
+    first_element = Variable(torch.ByteTensor([True]), requires_grad=False)
+    if tensor.is_cuda:
+        first_element = first_element.cuda()
+    unique_bool = torch.cat((first_element, unique_bool), dim=0)
+    return tensor[unique_bool.data]
+
+
+def refine_detections(rois, probs, deltas, window, config):
+    """Refine classified proposals and filter overlaps and return final
+    detections.
+
+    Inputs:
+        rois: [N, (y1, x1, y2, x2)] in normalized coordinates
+        probs: [N, num_classes]. Class probabilities.
+        deltas: [N, num_classes, (dy, dx, log(dh), log(dw))]. Class-specific
+                bounding box deltas.
+        window: (y1, x1, y2, x2) in image coordinates. The part of the image
+            that contains the image excluding the padding.
+
+    Returns detections shaped: [N, (y1, x1, y2, x2, class_id, score)]
+    """
+    _, class_ids = torch.max(probs, dim=1)
+    idx = torch.arange(class_ids.size()[0]).long()
+    if config.GPU_COUNT:
+        idx = idx.cuda()
+    class_scores = probs[idx, class_ids.data]
+    deltas_specific = deltas[idx, class_ids.data]
+    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
+        [1, 4])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        std_dev = std_dev.cuda()
+    refined_rois = apply_box_deltas(rois, deltas_specific * std_dev)
+    height, width = config.IMAGE_SHAPE[:2]
+    scale = Variable(torch.from_numpy(np.array([height, width, height,
+        width])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        scale = scale.cuda()
+    refined_rois *= scale
+    refined_rois = clip_to_window(window, refined_rois)
+    refined_rois = torch.round(refined_rois)
+    keep_bool = class_ids > 0
+    if config.DETECTION_MIN_CONFIDENCE:
+        keep_bool = keep_bool & (class_scores >= config.
+            DETECTION_MIN_CONFIDENCE)
+    keep = torch.nonzero(keep_bool)[:, (0)]
+    pre_nms_class_ids = class_ids[keep.data]
+    pre_nms_scores = class_scores[keep.data]
+    pre_nms_rois = refined_rois[keep.data]
+    for i, class_id in enumerate(unique1d(pre_nms_class_ids)):
+        ixs = torch.nonzero(pre_nms_class_ids == class_id)[:, (0)]
+        ix_rois = pre_nms_rois[ixs.data]
+        ix_scores = pre_nms_scores[ixs]
+        ix_scores, order = ix_scores.sort(descending=True)
+        ix_rois = ix_rois[(order.data), :]
+        class_keep = nms(torch.cat((ix_rois, ix_scores.unsqueeze(1)), dim=1
+            ).data, config.DETECTION_NMS_THRESHOLD)
+        class_keep = keep[ixs[order[class_keep].data].data]
+        if i == 0:
+            nms_keep = class_keep
+        else:
+            nms_keep = unique1d(torch.cat((nms_keep, class_keep)))
+    keep = intersect1d(keep, nms_keep)
+    roi_count = config.DETECTION_MAX_INSTANCES
+    top_ids = class_scores[keep.data].sort(descending=True)[1][:roi_count]
+    keep = keep[top_ids.data]
+    result = torch.cat((refined_rois[keep.data], class_ids[keep.data].
+        unsqueeze(1).float(), class_scores[keep.data].unsqueeze(1)), dim=1)
+    return result
+
+
+def detection_layer(config, rois, mrcnn_class, mrcnn_bbox, image_meta):
+    """Takes classified proposal boxes and their bounding box deltas and
+    returns the final detection boxes.
+
+    Returns:
+    [batch, num_detections, (y1, x1, y2, x2, class_score)] in pixels
+    """
+    rois = rois.squeeze(0)
+    _, _, window, _ = parse_image_meta(image_meta)
+    window = window[0]
+    detections = refine_detections(rois, mrcnn_class, mrcnn_bbox, window,
+        config)
+    return detections
+
+
+def printProgressBar(iteration, total, prefix='', suffix='', decimals=1,
+    length=100, fill='█'):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+    """
+    percent = ('{0:.' + str(decimals) + 'f}').format(100 * (iteration /
+        float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end='\n')
+    if iteration == total:
+        print()
 
 
 class MaskRCNN(nn.Module):
@@ -2259,20 +2259,6 @@ class RoIAlign(nn.Module):
             self.extrapolation_value)(featuremap, boxes, box_ind)
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -2297,6 +2283,20 @@ class FutureResult(object):
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 class SyncMaster(object):
@@ -2374,11 +2374,6 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
-
-
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
@@ -2386,6 +2381,11 @@ def _sum_ft(tensor):
 
 _ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
     'sum_size'])
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])

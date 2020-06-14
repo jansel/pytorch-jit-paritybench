@@ -51,12 +51,6 @@ class View(nn.Module):
         return tensor.view(self.size)
 
 
-def reparametrize(mu, logvar):
-    std = logvar.div(2).exp()
-    eps = Variable(std.data.new(std.size()).normal_())
-    return mu + std * eps
-
-
 def kaiming_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d)):
         init.kaiming_normal(m.weight)
@@ -66,6 +60,12 @@ def kaiming_init(m):
         m.weight.data.fill_(1)
         if m.bias is not None:
             m.bias.data.fill_(0)
+
+
+def reparametrize(mu, logvar):
+    std = logvar.div(2).exp()
+    eps = Variable(std.data.new(std.size()).normal_())
+    return mu + std * eps
 
 
 class BetaVAE_H(nn.Module):

@@ -3028,6 +3028,15 @@ class SpectrumLM(nn.Module):
             return h0
 
 
+def forward_activation(activation, tensor):
+    if activation == 'glu':
+        z, g = torch.chunk(tensor, 2, dim=1)
+        y = z * torch.sigmoid(g)
+        return y
+    else:
+        return activation(tensor)
+
+
 def build_norm_layer(norm_type, param=None, num_feats=None):
     if norm_type == 'bnorm':
         return nn.BatchNorm1d(num_feats)
@@ -3059,15 +3068,6 @@ def build_activation(activation, params, init=0):
         return getattr(nn, activation)()
     else:
         return activation
-
-
-def forward_activation(activation, tensor):
-    if activation == 'glu':
-        z, g = torch.chunk(tensor, 2, dim=1)
-        y = z * torch.sigmoid(g)
-        return y
-    else:
-        return activation(tensor)
 
 
 def forward_norm(x, norm_layer):

@@ -265,10 +265,10 @@ class ResNet(nn.Module):
         return x
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
 num_classes = 85742
+
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class ArcMarginModel(nn.Module):
@@ -300,70 +300,6 @@ class ArcMarginModel(nn.Module):
         output = one_hot * phi + (1.0 - one_hot) * cosine
         output *= self.s
         return output
-
-
-cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
-    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
-    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
-    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
-    'pretrain': False, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
-    3}, 'in_channel': 32, 'out_channel': 64}
-
-
-GPU = cfg_mnet['gpu_train']
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
-
-
-def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
-
-
-def jaccard(box_a, box_b):
-    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
-    is simply the intersection over union of two boxes.  Here we operate on
-    ground truth boxes and default boxes.
-    E.g.:
-        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-    Return:
-        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
-    """
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
-    union = area_a + area_b - inter
-    return inter / union
 
 
 def encode_landm(matched, priors, variances):
@@ -425,6 +361,48 @@ def point_form(boxes):
         [:, 2:] / 2), 1)
 
 
+def intersect(box_a, box_b):
+    """ We resize both tensors to [A,B,2] without new malloc:
+    [A,2] -> [A,1,2] -> [A,B,2]
+    [B,2] -> [1,B,2] -> [A,B,2]
+    Then we compute the area of intersect between box_a and box_b.
+    Args:
+      box_a: (tensor) bounding boxes, Shape: [A,4].
+      box_b: (tensor) bounding boxes, Shape: [B,4].
+    Return:
+      (tensor) intersection area, Shape: [A,B].
+    """
+    A = box_a.size(0)
+    B = box_b.size(0)
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
+        2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
+        :2].unsqueeze(0).expand(A, B, 2))
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    return inter[:, :, (0)] * inter[:, :, (1)]
+
+
+def jaccard(box_a, box_b):
+    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
+    is simply the intersection over union of two boxes.  Here we operate on
+    ground truth boxes and default boxes.
+    E.g.:
+        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
+    Return:
+        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
+    """
+    inter = intersect(box_a, box_b)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+        ).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
+        ).unsqueeze(0).expand_as(inter)
+    union = area_a + area_b - inter
+    return inter / union
+
+
 def match(threshold, truths, priors, variances, labels, landms, loc_t,
     conf_t, landm_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
@@ -471,6 +449,28 @@ def match(threshold, truths, priors, variances, labels, landms, loc_t,
     loc_t[idx] = loc
     conf_t[idx] = conf
     landm_t[idx] = landm
+
+
+cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
+    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
+    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
+    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
+    'pretrain': False, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
+    3}, 'in_channel': 32, 'out_channel': 64}
+
+
+GPU = cfg_mnet['gpu_train']
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -576,14 +576,14 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_c, loss_landm
 
 
-def conv_bn(inp, oup, stride=1, leaky=0):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
-
-
 def conv_bn_no_relu(inp, oup, stride):
     return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup))
+
+
+def conv_bn(inp, oup, stride=1, leaky=0):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
+        BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
 
 
 class SSH(nn.Module):

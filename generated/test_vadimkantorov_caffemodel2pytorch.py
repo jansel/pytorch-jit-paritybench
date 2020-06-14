@@ -31,20 +31,6 @@ import torch.nn.functional as F
 from functools import reduce
 
 
-def convert_to_gpu_if_enabled(obj):
-    return obj
-
-
-class FunctionModule(nn.Module):
-
-    def __init__(self, forward):
-        super(FunctionModule, self).__init__()
-        self.forward_func = forward
-
-    def forward(self, *inputs):
-        return self.forward_func(*inputs)
-
-
 class Blob(object):
     AssignmentAdapter = type('', (object,), dict(shape=property(lambda self:
         self.contents.shape), __setitem__=lambda self, indices, values:
@@ -94,6 +80,23 @@ class Blob(object):
     @property
     def width(self):
         return self.shape[3]
+
+
+TEST = 1
+
+
+def convert_to_gpu_if_enabled(obj):
+    return obj
+
+
+class FunctionModule(nn.Module):
+
+    def __init__(self, forward):
+        super(FunctionModule, self).__init__()
+        self.forward_func = forward
+
+    def forward(self, *inputs):
+        return self.forward_func(*inputs)
 
 
 class Layer(torch.autograd.Function):
@@ -150,6 +153,11 @@ class CaffePythonLayerModule(nn.Module):
             ) else getattr(self.caffe_python_layer, name)
 
 
+def first_or(param, key, default):
+    return param[key] if isinstance(param.get(key), int) else (param.get(
+        key, []) + [default])[0]
+
+
 def init_weight_bias(self, weight=None, bias=None, requires_grad=[]):
     if weight is not None:
         self.weight = nn.Parameter(weight.type_as(self.weight),
@@ -164,11 +172,6 @@ def init_weight_bias(self, weight=None, bias=None, requires_grad=[]):
         elif init.get('type') == 'constant':
             nn.init.constant_(param, val=init['value'])
         param.requires_grad = requires_grad
-
-
-def first_or(param, key, default):
-    return param[key] if isinstance(param.get(key), int) else (param.get(
-        key, []) + [default])[0]
 
 
 class Convolution(nn.Conv2d):

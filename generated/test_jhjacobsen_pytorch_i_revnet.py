@@ -66,15 +66,15 @@ import torch.optim as optim
 import math
 
 
+def merge(x1, x2):
+    return torch.cat((x1, x2), 1)
+
+
 def split(x):
     n = int(x.size()[1] / 2)
     x1 = x[:, :n, :, :].contiguous()
     x2 = x[:, n:, :, :].contiguous()
     return x1, x2
-
-
-def merge(x1, x2):
-    return torch.cat((x1, x2), 1)
 
 
 class irevnet_block(nn.Module):

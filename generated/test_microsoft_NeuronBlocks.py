@@ -222,173 +222,6 @@ from torch.nn import MultiMarginLoss
 from torch.nn import TripletMarginLoss
 
 
-EMBED_LAYER_NAME = 'Embedding'
-
-
-class BaseError(RuntimeError):
-    """ Error base class
-
-    """
-
-    def __init__(self, arg, err_id=None):
-        self.arg = arg
-        self.err_id = err_id
-
-    def __str__(self):
-        if self.err_id is None:
-            return self.arg
-        else:
-            return 'error=%d, %s' % (self.err_id, self.arg)
-
-
-class LayerConfigUndefinedError(BaseError):
-    """ Errors occur when the corresponding configuration class of a layer is not defined
-
-    """
-    pass
-
-
-EMBED_LAYER_ID = 'embedding'
-
-
-class ConfigurationError(BaseError):
-    """ Errors occur when model configuration
-
-    """
-    pass
-
-
-def get_conf(layer_id, layer_name, input_layer_ids, all_layer_configs,
-    model_input_ids, use_gpu, conf_dict=None, shared_conf=None,
-    succeed_embedding_flag=False, output_layer_flag=False, target_num=None,
-    fixed_lengths=None, target_dict=None):
-    """ get layer configuration
-
-    Args
-        layer_id: layer identifier
-        layer_name: name of layer such as BiLSTM
-        input_layer_ids (list): the inputs of current layer
-        all_layer_configs (dict): records the conf class of each layer.
-        model_input_ids (set): the inputs of the model, e.g. ['query', 'passage']
-        use_gpu:
-        conf_dict:
-        shared_conf: if fixed_lengths is not None, the output_dim of shared_conf should be corrected!
-        flag:
-        output_layer_flag:
-        target_num: used for inference the dimension of output space if someone declare a dimension of -1
-        fixed_lengths
-    Returns:
-        configuration class coresponds to the layer
-
-    """
-    if shared_conf:
-        conf = copy.deepcopy(shared_conf)
-    else:
-        try:
-            conf_dict['use_gpu'] = use_gpu
-            if layer_id == EMBED_LAYER_ID:
-                conf_dict['weight_on_gpu'] = conf_dict['conf']['weight_on_gpu']
-                del conf_dict['conf']['weight_on_gpu']
-            if layer_name == 'Linear':
-                if isinstance(conf_dict['hidden_dim'], list):
-                    if conf_dict['hidden_dim'][-1] == -1:
-                        assert output_layer_flag is True, 'Only in the last layer, hidden_dim == -1 is allowed!'
-                        assert target_num is not None, 'Number of targets should be given!'
-                        conf_dict['hidden_dim'][-1] = target_num
-                    elif conf_dict['hidden_dim'][-1] == '#target#':
-                        logging.info(
-                            '#target# position will be replace by target num: %d'
-                             % target_num)
-                        conf_dict['hidden_dim'][-1] = target_num
-                elif isinstance(conf_dict['hidden_dim'], int) and conf_dict[
-                    'hidden_dim'] == -1:
-                    assert output_layer_flag is True, 'Only in the last layer, hidden_dim == -1 is allowed!'
-                    assert target_num is not None, 'Number of targets should be given!'
-                    conf_dict['hidden_dim'] = target_num
-                elif isinstance(conf_dict['hidden_dim'], str) and conf_dict[
-                    'hidden_dim'] == '#target#':
-                    logging.info(
-                        '#target# position will be replace by target num: %d' %
-                        target_num)
-                    conf_dict['hidden_dim'] = target_num
-            if layer_name == 'CRF':
-                conf_dict['target_dict'] = target_dict
-            conf = eval(layer_name + 'Conf')(**conf_dict)
-        except NameError as e:
-            raise LayerConfigUndefinedError('"%sConf" has not been defined' %
-                layer_name)
-    if layer_name == EMBED_LAYER_NAME:
-        pass
-    else:
-        for input_layer_id in input_layer_ids:
-            if not (input_layer_id in all_layer_configs or input_layer_id in
-                model_input_ids):
-                raise ConfigurationError(
-                    'The input %s of layer %s does not exist. Please define it before defining layer %s!'
-                     % (input_layer_id, layer_id, layer_id))
-        former_output_ranks = [(all_layer_configs[input_layer_id].
-            output_rank if input_layer_id in all_layer_configs else
-            all_layer_configs[EMBED_LAYER_ID].output_rank) for
-            input_layer_id in input_layer_ids]
-        conf.input_dims = [(all_layer_configs[input_layer_id].output_dim if
-            input_layer_id in all_layer_configs else all_layer_configs[
-            EMBED_LAYER_ID].output_dim) for input_layer_id in input_layer_ids]
-        if len(input_layer_ids) == 1 and input_layer_ids[0
-            ] in model_input_ids and fixed_lengths:
-            conf.input_dims[0][1] = fixed_lengths[input_layer_ids[0]]
-        if conf.num_of_inputs > 0:
-            if conf.num_of_inputs != len(input_layer_ids):
-                raise ConfigurationError(
-                    '%s only accept %d inputs but you feed %d inputs to it!' %
-                    (layer_name, conf.num_of_inputs, len(input_layer_ids)))
-        elif conf.num_of_inputs == -1:
-            conf.num_of_inputs = len(input_layer_ids)
-            if isinstance(conf.input_ranks, list):
-                conf.input_ranks = conf.input_ranks * conf.num_of_inputs
-            else:
-                logging.warning(
-                    '[For developer of %s] The input_ranks attribute should be a list!'
-                     % layer_name)
-                [conf.input_ranks] * conf.num_of_inputs
-        for input_rank, former_output_rank in zip(conf.input_ranks,
-            former_output_ranks):
-            if input_rank != -1 and input_rank != former_output_rank:
-                raise ConfigurationError(
-                    'Input ranks of %s are inconsistent with former layers' %
-                    layer_id)
-        conf.input_ranks = copy.deepcopy(former_output_ranks)
-    conf.inference()
-    conf.verify()
-    former_conf = None if len(all_layer_configs) == 0 else list(
-        all_layer_configs.values())[-1]
-    conf.verify_former_block(former_conf)
-    logging.debug(
-        'Layer id: %s; name: %s; input_dims: %s; input_ranks: %s; output_dim: %s; output_rank: %s'
-         % (layer_id, layer_name, conf.input_dims if layer_id !=
-        'embedding' else 'None', conf.input_ranks, conf.output_dim, conf.
-        output_rank))
-    return conf
-
-
-def get_layer(layer_name, conf):
-    """
-
-    Args:
-        layer_name:
-        conf:  configuration class
-
-    Returns:
-        specific layer
-
-    """
-    try:
-        layer = eval(layer_name)(conf)
-    except NameError as e:
-        raise Exception('%s; Layer "%s" has not been defined' % (str(e),
-            layer_name))
-    return layer
-
-
 class BaseLayer(nn.Module):
     """The base class of layers
 
@@ -674,6 +507,29 @@ class Add2D(nn.Module):
             Tensor: [batch_size, output_dim], [batch_size]
         """
         return torch.add(args[0], args[2]), args[1]
+
+
+class BaseError(RuntimeError):
+    """ Error base class
+
+    """
+
+    def __init__(self, arg, err_id=None):
+        self.arg = arg
+        self.err_id = err_id
+
+    def __str__(self):
+        if self.err_id is None:
+            return self.arg
+        else:
+            return 'error=%d, %s' % (self.err_id, self.arg)
+
+
+class ConfigurationError(BaseError):
+    """ Errors occur when model configuration
+
+    """
+    pass
 
 
 class Add3D(nn.Module):

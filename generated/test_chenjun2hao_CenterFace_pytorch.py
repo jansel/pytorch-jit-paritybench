@@ -1540,12 +1540,73 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
+url_map = {'efficientnet-b0':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
+    , 'efficientnet-b1':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
+    , 'efficientnet-b2':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
+    , 'efficientnet-b3':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
+    , 'efficientnet-b4':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
+    , 'efficientnet-b5':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
+    , 'efficientnet-b6':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
+    , 'efficientnet-b7':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
+    }
+
+
+def load_pretrained_weights(model, model_name, load_fc=True):
+    """ Loads pretrained weights, and downloads if loading for the first time. """
+    state_dict = model_zoo.load_url(url_map[model_name], map_location=lambda
+        storage, loc: storage)
+    if load_fc:
+        model.load_state_dict(state_dict)
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        res = model.load_state_dict(state_dict, strict=False)
+        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
+            ), 'issue loading pretrained weights'
+    print('Loaded pretrained weights for {}'.format(model_name))
+
+
+def round_filters(filters, global_params):
+    """ Calculate and round number of filters based on depth multiplier. """
+    multiplier = global_params.width_coefficient
+    if not multiplier:
+        return filters
+    divisor = global_params.depth_divisor
+    min_depth = global_params.min_depth
+    filters *= multiplier
+    min_depth = min_depth or divisor
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
+        divisor)
+    if new_filters < 0.9 * filters:
+        new_filters += divisor
+    return int(new_filters)
+
+
 def round_repeats(repeats, global_params):
     """ Round number of filters based on depth multiplier. """
     multiplier = global_params.depth_coefficient
     if not multiplier:
         return repeats
     return int(math.ceil(multiplier * repeats))
+
+
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
+        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
+        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
+    return params_dict[model_name]
 
 
 GlobalParams = collections.namedtuple('GlobalParams', [
@@ -1638,17 +1699,6 @@ def efficientnet(width_coefficient=None, depth_coefficient=None,
     return blocks_args, global_params
 
 
-def efficientnet_params(model_name):
-    """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
-    return params_dict[model_name]
-
-
 def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
@@ -1661,56 +1711,6 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
-
-
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
-    }
-
-
-def load_pretrained_weights(model, model_name, load_fc=True):
-    """ Loads pretrained weights, and downloads if loading for the first time. """
-    state_dict = model_zoo.load_url(url_map[model_name], map_location=lambda
-        storage, loc: storage)
-    if load_fc:
-        model.load_state_dict(state_dict)
-    else:
-        state_dict.pop('_fc.weight')
-        state_dict.pop('_fc.bias')
-        res = model.load_state_dict(state_dict, strict=False)
-        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def round_filters(filters, global_params):
-    """ Calculate and round number of filters based on depth multiplier. """
-    multiplier = global_params.width_coefficient
-    if not multiplier:
-        return filters
-    divisor = global_params.depth_divisor
-    min_depth = global_params.min_depth
-    filters *= multiplier
-    min_depth = min_depth or divisor
-    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
-        divisor)
-    if new_filters < 0.9 * filters:
-        new_filters += divisor
-    return int(new_filters)
 
 
 class EfficientNet(nn.Module):
@@ -2040,12 +2040,6 @@ class Anchors(nn.Module):
             )
 
 
-def multi_apply(func, *args, **kwargs):
-    pfunc = partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
-
-
 def bias_init_with_prob(prior_prob):
     """ initialize conv/fc bias value according to giving probablity"""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
@@ -2056,6 +2050,12 @@ def normal_init(module, mean=0, std=1, bias=0):
     nn.init.normal_(module.weight, mean, std)
     if hasattr(module, 'bias'):
         nn.init.constant_(module.bias, bias)
+
+
+def multi_apply(func, *args, **kwargs):
+    pfunc = partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
 
 
 class RetinaHead(nn.Module):
@@ -2441,18 +2441,18 @@ class MergeUp(nn.Module):
         return up1 + up2
 
 
-def make_layer(k, inp_dim, out_dim, modules, layer=convolution, **kwargs):
-    layers = [layer(k, inp_dim, out_dim, **kwargs)]
-    for _ in range(1, modules):
-        layers.append(layer(k, out_dim, out_dim, **kwargs))
-    return nn.Sequential(*layers)
-
-
 def make_layer_revr(k, inp_dim, out_dim, modules, layer=convolution, **kwargs):
     layers = []
     for _ in range(modules - 1):
         layers.append(layer(k, inp_dim, inp_dim, **kwargs))
     layers.append(layer(k, inp_dim, out_dim, **kwargs))
+    return nn.Sequential(*layers)
+
+
+def make_layer(k, inp_dim, out_dim, modules, layer=convolution, **kwargs):
+    layers = [layer(k, inp_dim, out_dim, **kwargs)]
+    for _ in range(1, modules):
+        layers.append(layer(k, out_dim, out_dim, **kwargs))
     return nn.Sequential(*layers)
 
 

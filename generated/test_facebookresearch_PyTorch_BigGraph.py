@@ -263,112 +263,43 @@ class AbstractComparator(nn.Module, ABC):
         pass
 
 
-LongTensorType = torch.Tensor
+class DeepTypeError(TypeError):
+
+    def __init__(self, message):
+        self.message = message
+        self.path = ''
+
+    def prepend_attr(self, attr: str):
+        self.path = '.%s%s' % (attr, self.path)
+
+    def prepend_index(self, idx: int):
+        self.path = '[%d]%s' % (idx, self.path)
+
+    def prepend_key(self, key):
+        self.path = '[%r]%s' % (key, self.path)
+
+    def __str__(self):
+        path = self.path.lstrip('.')
+        if not path:
+            return self.message
+        return '%s: %s' % (path, self.message)
 
 
-Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
+def has_origin(type_, base_type):
+    try:
+        return issubclass(type_.__origin__, base_type)
+    except (AttributeError, TypeError):
+        return False
 
 
-def ceil_of_ratio(num: int, den: int) ->int:
-    return (num - 1) // den + 1
-
-
-T = TypeVar('T')
-
-
-class Side(Enum):
-    LHS = 0
-    RHS = 1
-
-    def pick(self, lhs: T, rhs: T) ->T:
-        if self is Side.LHS:
-            return lhs
-        elif self is Side.RHS:
-            return rhs
-        else:
-            raise NotImplementedError('Unknown side: %s' % self)
-
-
-def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
-    Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
-    """Compare the given tensor's shape with what you expect it to be.
-
-    This function serves two goals: it can be used both to assert that the size
-    of a tensor (or part of it) is what it should be, and to query for the size
-    of the unknown dimensions. The former result can be achieved with:
-
-        >>> match_shape(t, 2, 3, 4)
-
-    which is similar to
-
-        >>> assert t.size() == (2, 3, 4)
-
-    except that it doesn't use an assert (and is thus not stripped when the code
-    is optimized) and that it raises a TypeError (instead of an AssertionError)
-    with an informative error message. It works with any number of positional
-    arguments, including zero. If a dimension's size is not known beforehand
-    pass a -1: no check will be performed and the size will be returned.
-
-        >>> t = torch.empty(2, 3, 4)
-        >>> match_shape(t, 2, -1, 4)
-        3
-        >>> match_shape(t, -1, 3, -1)
-        (2, 4)
-
-    If the number of dimensions isn't known beforehand, an ellipsis can be used
-    as a placeholder for any number of dimensions (including zero). Their sizes
-    won't be returned.
-
-        >>> t = torch.empty(2, 3, 4)
-        >>> match_shape(t, ..., 3, -1)
-        4
-
-    """
-    if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
-        raise RuntimeError("Some arguments aren't ints or ellipses: %s" % (
-            expected_shape,))
-    actual_shape = tensor.size()
-    error = TypeError("Shape doesn't match: (%s) != (%s)" % (', '.join('%d' %
-        d for d in actual_shape), ', '.join('...' if d is Ellipsis else '*' if
-        d < 0 else '%d' % d for d in expected_shape)))
-    if Ellipsis not in expected_shape:
-        if len(actual_shape) != len(expected_shape):
-            raise error
-    else:
-        if expected_shape.count(Ellipsis) > 1:
-            raise RuntimeError('Two or more ellipses in %s' % (tuple(
-                expected_shape),))
-        if len(actual_shape) < len(expected_shape) - 1:
-            raise error
-        pos = expected_shape.index(Ellipsis)
-        expected_shape = expected_shape[:pos] + actual_shape[pos:pos + 1 -
-            len(expected_shape)] + expected_shape[pos + 1:]
-    unknown_dims: List[int] = []
-    for actual_dim, expected_dim in zip(actual_shape, expected_shape):
-        if expected_dim < 0:
-            unknown_dims.append(actual_dim)
-            continue
-        if actual_dim != expected_dim:
-            raise error
-    if not unknown_dims:
-        return None
-    if len(unknown_dims) == 1:
-        return unknown_dims[0]
-    return tuple(unknown_dims)
-
-
-class Negatives(Enum):
-    NONE = 'none'
-    UNIFORM = 'uniform'
-    BATCH_UNIFORM = 'batch_uniform'
-    ALL = 'all'
-
-
-class Scores(NamedTuple):
-    lhs_pos: FloatTensorType
-    rhs_pos: FloatTensorType
-    lhs_neg: FloatTensorType
-    rhs_neg: FloatTensorType
+def unpack_optional(type_):
+    try:
+        candidate_arg, = set(type_.__args__) - {type(None)}
+    except (AttributeError, LookupError, ValueError):
+        raise TypeError('Not an optional type')
+    if type_ != Optional[candidate_arg]:
+        raise TypeError('Not an optional type')
+    return candidate_arg
 
 
 import torch

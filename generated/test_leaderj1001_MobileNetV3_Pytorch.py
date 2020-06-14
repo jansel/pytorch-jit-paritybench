@@ -105,6 +105,15 @@ class MobileBlock(nn.Module):
             return out
 
 
+def _make_divisible(v, divisor=8, min_value=None):
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
+
 def _weights_init(m):
     if isinstance(m, nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
@@ -117,15 +126,6 @@ def _weights_init(m):
         n = m.weight.size(1)
         m.weight.data.normal_(0, 0.01)
         m.bias.data.zero_()
-
-
-def _make_divisible(v, divisor=8, min_value=None):
-    if min_value is None:
-        min_value = divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
 
 
 class MobileNetV3(nn.Module):

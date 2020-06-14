@@ -1349,20 +1349,6 @@ class DBlock(nn.Module):
         return h + self.shortcut(x)
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1384,6 +1370,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -1468,3 +1468,199 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+class _SynchronizedBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
+            momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input, gain=None, bias=None):
+        if not (self._is_parallel and self.training):
+            out = F.batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, self.training, self.momentum, self.eps)
+            if gain is not None:
+                out = out + gain
+            if bias is not None:
+                out = out + bias
+            return out
+        input_shape = input.size()
+        input = input.view(input.size(0), input.size(1), -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(
+                input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
+                input_sum, input_ssum, sum_size))
+        if gain is not None:
+            output = (input - _unsqueeze_ft(mean)) * (_unsqueeze_ft(inv_std
+                ) * gain.squeeze(-1)) + bias.squeeze(-1)
+        elif self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
+                self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        return output.view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
+            get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
+                2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        self.running_mean = (1 - self.momentum
+            ) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum
+            ) * self.running_var + self.momentum * unbias_var.data
+        return mean, torch.rsqrt(bias_var + self.eps)
+
+
+class BatchNorm2dReimpl(nn.Module):
+    """
+    A re-implementation of batch normalization, used for testing the numerical
+    stability.
+
+    Author: acgtyrant
+    See also:
+    https://github.com/vacancy/Synchronized-BatchNorm-PyTorch/issues/14
+    """
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1):
+        super().__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.momentum = momentum
+        self.weight = nn.Parameter(torch.empty(num_features))
+        self.bias = nn.Parameter(torch.empty(num_features))
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+        self.reset_parameters()
+
+    def reset_running_stats(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+
+    def reset_parameters(self):
+        self.reset_running_stats()
+        init.uniform_(self.weight)
+        init.zeros_(self.bias)
+
+    def forward(self, input_):
+        batchsize, channels, height, width = input_.size()
+        numel = batchsize * height * width
+        input_ = input_.permute(1, 0, 2, 3).contiguous().view(channels, numel)
+        sum_ = input_.sum(1)
+        sum_of_square = input_.pow(2).sum(1)
+        mean = sum_ / numel
+        sumvar = sum_of_square - sum_ * mean
+        self.running_mean = (1 - self.momentum
+            ) * self.running_mean + self.momentum * mean.detach()
+        unbias_var = sumvar / (numel - 1)
+        self.running_var = (1 - self.momentum
+            ) * self.running_var + self.momentum * unbias_var.detach()
+        bias_var = sumvar / numel
+        inv_std = 1 / (bias_var + self.eps).pow(0.5)
+        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1
+            ) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
+        return output.view(channels, batchsize, height, width).permute(1, 0,
+            2, 3).contiguous()
+
+
+class CallbackContext(object):
+    pass
+
+
+def execute_replication_callbacks(modules):
+    """
+    Execute an replication callback `__data_parallel_replicate__` on each module created by original replication.
+
+    The callback will be invoked with arguments `__data_parallel_replicate__(ctx, copy_id)`
+
+    Note that, as all modules are isomorphism, we assign each sub-module with a context
+    (shared among multiple copies of this module on different devices).
+    Through this context, different copies can share some information.
+
+    We guarantee that the callback on the master copy (the first copy) will be called ahead of calling the callback
+    of any slave copies.
+    """
+    master_copy = modules[0]
+    nr_modules = len(list(master_copy.modules()))
+    ctxs = [CallbackContext() for _ in range(nr_modules)]
+    for i, module in enumerate(modules):
+        for j, m in enumerate(module.modules()):
+            if hasattr(m, '__data_parallel_replicate__'):
+                m.__data_parallel_replicate__(ctxs[j], i)
+
+
+class DataParallelWithCallback(DataParallel):
+    """
+    Data Parallel with a replication callback.
+
+    An replication callback `__data_parallel_replicate__` of each module will be invoked after being created by
+    original `replicate` function.
+    The callback will be invoked with arguments `__data_parallel_replicate__(ctx, copy_id)`
+
+    Examples:
+        > sync_bn = SynchronizedBatchNorm1d(10, eps=1e-5, affine=False)
+        > sync_bn = DataParallelWithCallback(sync_bn, device_ids=[0, 1])
+        # sync_bn.__data_parallel_replicate__ will be invoked.
+    """
+
+    def replicate(self, module, device_ids):
+        modules = super(DataParallelWithCallback, self).replicate(module,
+            device_ids)
+        execute_replication_callbacks(modules)
+        return modules
+

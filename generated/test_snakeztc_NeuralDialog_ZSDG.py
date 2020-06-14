@@ -76,10 +76,10 @@ class L2Loss(_Loss):
 FLOAT = 2
 
 
-LONG = 1
-
-
 INT = 0
+
+
+LONG = 1
 
 
 def cast_type(var, dtype, use_gpu):
@@ -148,10 +148,10 @@ class NLLEntropy(_Loss):
         return loss
 
 
-PAD = '<pad>'
-
-
 EOS = '</s>'
+
+
+PAD = '<pad>'
 
 
 class BaseRNN(nn.Module):
@@ -417,10 +417,10 @@ class RnnUttEncoder(nn.Module):
             return utt_embedded
 
 
-GEN = 'gen'
-
-
 TEACH_FORCE = 'teacher_forcing'
+
+
+GEN = 'gen'
 
 
 class DecoderPointerGen(BaseRNN):

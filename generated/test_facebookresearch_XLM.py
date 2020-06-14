@@ -83,6 +83,17 @@ import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 
 
+def get_gaussian_keys(n_keys, dim, normalized, seed):
+    """
+    Generate random Gaussian keys.
+    """
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n_keys, dim)
+    if normalized:
+        X /= np.linalg.norm(X, axis=1, keepdims=True)
+    return X.astype(np.float32)
+
+
 def get_uniform_keys(n_keys, dim, normalized, seed):
     """
     Generate random uniform keys (same initialization as nn.Linear).
@@ -90,17 +101,6 @@ def get_uniform_keys(n_keys, dim, normalized, seed):
     rng = np.random.RandomState(seed)
     bound = 1 / math.sqrt(dim)
     X = rng.uniform(-bound, bound, (n_keys, dim))
-    if normalized:
-        X /= np.linalg.norm(X, axis=1, keepdims=True)
-    return X.astype(np.float32)
-
-
-def get_gaussian_keys(n_keys, dim, normalized, seed):
-    """
-    Generate random Gaussian keys.
-    """
-    rng = np.random.RandomState(seed)
-    X = rng.randn(n_keys, dim)
     if normalized:
         X /= np.linalg.norm(X, axis=1, keepdims=True)
     return X.astype(np.float32)
@@ -488,32 +488,6 @@ class TransformerFFN(nn.Module):
         return x
 
 
-def get_masks(slen, lengths, causal):
-    """
-    Generate hidden states mask, and optionally an attention mask.
-    """
-    assert lengths.max().item() <= slen
-    bs = lengths.size(0)
-    alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
-    mask = alen < lengths[:, (None)]
-    if causal:
-        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(
-            None), :, (None)]
-    else:
-        attn_mask = mask
-    assert mask.size() == (bs, slen)
-    assert causal is False or attn_mask.size() == (bs, slen, slen)
-    return mask, attn_mask
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx=None):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
-    if padding_idx is not None:
-        nn.init.constant_(m.weight[padding_idx], 0)
-    return m
-
-
 class BeamHypotheses(object):
 
     def __init__(self, n_hyp, max_len, length_penalty, early_stopping):
@@ -562,6 +536,14 @@ class BeamHypotheses(object):
                 self.length_penalty)
 
 
+def Embedding(num_embeddings, embedding_dim, padding_idx=None):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    if padding_idx is not None:
+        nn.init.constant_(m.weight[padding_idx], 0)
+    return m
+
+
 N_MAX_POSITIONS = 512
 
 
@@ -572,6 +554,24 @@ def create_sinusoidal_embeddings(n_pos, dim, out):
     out[:, 1::2] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
     out.detach_()
     out.requires_grad = False
+
+
+def get_masks(slen, lengths, causal):
+    """
+    Generate hidden states mask, and optionally an attention mask.
+    """
+    assert lengths.max().item() <= slen
+    bs = lengths.size(0)
+    alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
+    mask = alen < lengths[:, (None)]
+    if causal:
+        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(
+            None), :, (None)]
+    else:
+        attn_mask = mask
+    assert mask.size() == (bs, slen)
+    assert causal is False or attn_mask.size() == (bs, slen, slen)
+    return mask, attn_mask
 
 
 class TransformerModel(nn.Module):

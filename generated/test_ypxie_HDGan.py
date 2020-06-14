@@ -312,13 +312,6 @@ class Sent2FeatMap(nn.Module):
         return output
 
 
-def branch_out(in_dim, out_dim=3):
-    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
-        kernel_size=3, padding=0, bias=False)]
-    _layers += [nn.Tanh()]
-    return nn.Sequential(*_layers)
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -327,6 +320,13 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
+
+
+def branch_out(in_dim, out_dim=3):
+    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
+        kernel_size=3, padding=0, bias=False)]
+    _layers += [nn.Tanh()]
+    return nn.Sequential(*_layers)
 
 
 class Generator(nn.Module):
@@ -599,18 +599,18 @@ class ImageEncoder(nn.Module):
         return feat
 
 
-def xavier_weight(tensor):
-    nin, nout = tensor.size()[0], tensor.size()[1]
-    r = np.sqrt(6.0) / np.sqrt(nin + nout)
-    return tensor.normal_(0, r)
-
-
 def l2norm(input, p=2.0, dim=1, eps=1e-12):
     """
     Compute L2 norm, row-wise
     """
     l2_inp = input / input.norm(p, dim, keepdim=True).clamp(min=eps)
     return l2_inp.expand_as(input)
+
+
+def xavier_weight(tensor):
+    nin, nout = tensor.size()[0], tensor.size()[1]
+    r = np.sqrt(6.0) / np.sqrt(nin + nout)
+    return tensor.normal_(0, r)
 
 
 class ImgSenRanking(torch.nn.Module):

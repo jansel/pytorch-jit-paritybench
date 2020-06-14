@@ -3582,15 +3582,6 @@ class DynamicShapeTinyNet(nn.Module):
         return out, logits
 
 
-def ChannelWiseInterV2(inputs, oC):
-    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
-    batch, C, H, W = inputs.size()
-    if C == oC:
-        return inputs
-    else:
-        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
-
-
 def ChannelWiseInterV1(inputs, oC):
     assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
 
@@ -3611,6 +3602,15 @@ def ChannelWiseInterV1(inputs, oC):
     return outputs
 
 
+def ChannelWiseInterV2(inputs, oC):
+    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
+    batch, C, H, W = inputs.size()
+    if C == oC:
+        return inputs
+    else:
+        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
+
+
 def ChannelWiseInter(inputs, oC, mode='v2'):
     if mode == 'v1':
         return ChannelWiseInterV1(inputs, oC)
@@ -3618,16 +3618,6 @@ def ChannelWiseInter(inputs, oC, mode='v2'):
         return ChannelWiseInterV2(inputs, oC)
     else:
         raise ValueError('invalid mode : {:}'.format(mode))
-
-
-def get_width_choices(nOut):
-    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    if nOut is None:
-        return len(xsrange)
-    else:
-        Xs = [int(nOut * i) for i in xsrange]
-        Xs = sorted(list(set(Xs)))
-        return tuple(Xs)
 
 
 def conv_forward(inputs, conv, choices):
@@ -3639,6 +3629,16 @@ def conv_forward(inputs, conv, choices):
     outputs = conv(xinputs)
     selecteds = [outputs[:, :oC] for oC in choices]
     return selecteds
+
+
+def get_width_choices(nOut):
+    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    if nOut is None:
+        return len(xsrange)
+    else:
+        Xs = [int(nOut * i) for i in xsrange]
+        Xs = sorted(list(set(Xs)))
+        return tuple(Xs)
 
 
 class ConvBNReLU(nn.Module):
@@ -3924,6 +3924,18 @@ def get_depth_choices(nDepth):
             raise ValueError('invalid Depth : {:}'.format(nDepth))
 
 
+def linear_forward(inputs, linear):
+    if linear is None:
+        return inputs
+    iC = inputs.size(1)
+    weight = linear.weight[:, :iC]
+    if linear.bias is None:
+        bias = None
+    else:
+        bias = linear.bias
+    return nn.functional.linear(inputs, weight, bias)
+
+
 def select2withP(logits, tau, just_prob=False, num=2, eps=1e-07):
     if tau <= 0:
         new_logits = logits
@@ -3945,18 +3957,6 @@ def select2withP(logits, tau, just_prob=False, num=2, eps=1e-07):
     selected_logit = torch.gather(new_logits, 1, selected_index)
     selcted_probs = nn.functional.softmax(selected_logit, dim=1)
     return selected_index, selcted_probs
-
-
-def linear_forward(inputs, linear):
-    if linear is None:
-        return inputs
-    iC = inputs.size(1)
-    weight = linear.weight[:, :iC]
-    if linear.bias is None:
-        bias = None
-    else:
-        bias = linear.bias
-    return nn.functional.linear(inputs, weight, bias)
 
 
 class SearchShapeCifarResNet(nn.Module):

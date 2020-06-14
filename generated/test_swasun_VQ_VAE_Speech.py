@@ -599,13 +599,13 @@ class Flow(nn.Module):
         return x, c
 
 
-def gaussian_sample(eps, mean, log_sd):
-    return mean + torch.exp(log_sd) * eps
-
-
 def gaussian_log_p(x, mean, log_sd):
     return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(
         2 * log_sd)
+
+
+def gaussian_sample(eps, mean, log_sd):
+    return mean + torch.exp(log_sd) * eps
 
 
 class Block(nn.Module):
@@ -1893,6 +1893,68 @@ class ResidualConv1dGLU(nn.Module):
                 c.clear_buffer()
 
 
+def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
+    x: 2 ** x):
+    """Compute receptive field size
+
+    Args:
+        total_layers (int): total layers
+        num_cycles (int): cycles
+        kernel_size (int): kernel size
+        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
+          to disable dilated convolution.
+
+    Returns:
+        int: receptive field size in sample
+
+    """
+    assert total_layers % num_cycles == 0
+    layers_per_cycle = total_layers // num_cycles
+    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
+    return (kernel_size - 1) * sum(dilations) + 1
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    m.weight.data.normal_(0, std)
+    return m
+
+
+def _expand_global_features(B, T, g, bct=True):
+    """Expand global conditioning features to all time steps
+
+    Args:
+        B (int): Batch size.
+        T (int): Time length.
+        g (Tensor): Global features, (B x C) or (B x C x 1).
+        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
+
+    Returns:
+        Tensor: B x C x T or B x T x C or None
+    """
+    if g is None:
+        return None
+    g = g.unsqueeze(-1) if g.dim() == 2 else g
+    if bct:
+        g_bct = g.expand(B, -1, T)
+        return g_bct.contiguous()
+    else:
+        g_btc = g.expand(B, -1, T).transpose(1, 2)
+        return g_btc.contiguous()
+
+
+def ConvTranspose2d(in_channels, out_channels, kernel_size,
+    weight_normalization=True, **kwargs):
+    freq_axis_kernel_size = kernel_size[0]
+    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
+    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
+    m.bias.data.zero_()
+    if weight_normalization:
+        return nn.utils.weight_norm(m)
+    else:
+        return m
+
+
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
@@ -1928,68 +1990,6 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0):
     x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
     x = torch.clamp(torch.clamp(x, min=-1.0), max=1.0)
     return x
-
-
-def ConvTranspose2d(in_channels, out_channels, kernel_size,
-    weight_normalization=True, **kwargs):
-    freq_axis_kernel_size = kernel_size[0]
-    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
-    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
-    m.bias.data.zero_()
-    if weight_normalization:
-        return nn.utils.weight_norm(m)
-    else:
-        return m
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    m.weight.data.normal_(0, std)
-    return m
-
-
-def _expand_global_features(B, T, g, bct=True):
-    """Expand global conditioning features to all time steps
-
-    Args:
-        B (int): Batch size.
-        T (int): Time length.
-        g (Tensor): Global features, (B x C) or (B x C x 1).
-        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
-
-    Returns:
-        Tensor: B x C x T or B x T x C or None
-    """
-    if g is None:
-        return None
-    g = g.unsqueeze(-1) if g.dim() == 2 else g
-    if bct:
-        g_bct = g.expand(B, -1, T)
-        return g_bct.contiguous()
-    else:
-        g_btc = g.expand(B, -1, T).transpose(1, 2)
-        return g_btc.contiguous()
-
-
-def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
-    x: 2 ** x):
-    """Compute receptive field size
-
-    Args:
-        total_layers (int): total layers
-        num_cycles (int): cycles
-        kernel_size (int): kernel size
-        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
-          to disable dilated convolution.
-
-    Returns:
-        int: receptive field size in sample
-
-    """
-    assert total_layers % num_cycles == 0
-    layers_per_cycle = total_layers // num_cycles
-    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
-    return (kernel_size - 1) * sum(dilations) + 1
 
 
 class WaveNet(nn.Module):

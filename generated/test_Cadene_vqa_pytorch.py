@@ -225,6 +225,12 @@ class AbstractNoAtt(nn.Module):
         return x
 
 
+def process_lengths(input):
+    max_length = input.size(1)
+    lengths = list(max_length - input.data.eq(0).sum(1).squeeze())
+    return lengths
+
+
 def select_last(x, lengths):
     batch_size = x.size(0)
     seq_length = x.size(1)
@@ -235,12 +241,6 @@ def select_last(x, lengths):
     x = x.mul(mask)
     x = x.sum(1).view(batch_size, x.size(2))
     return x
-
-
-def process_lengths(input):
-    max_length = input.size(1)
-    lengths = list(max_length - input.data.eq(0).sum(1).squeeze())
-    return lengths
 
 
 class LSTM(nn.Module):

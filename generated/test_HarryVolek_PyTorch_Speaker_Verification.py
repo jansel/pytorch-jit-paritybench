@@ -74,6 +74,11 @@ def calc_loss(sim_matrix):
     return loss, per_embedding_loss
 
 
+def get_centroids(embeddings):
+    centroids = embeddings.mean(dim=1)
+    return centroids
+
+
 def get_utterance_centroids(embeddings):
     """
     Returns the centroids for each utterance of a speaker, where
@@ -112,11 +117,6 @@ def get_cossim(embeddings, centroids):
         num_utterances)
     cos_diff = cos_diff + 1e-06
     return cos_diff
-
-
-def get_centroids(embeddings):
-    centroids = embeddings.mean(dim=1)
-    return centroids
 
 
 class GE2ELoss(nn.Module):

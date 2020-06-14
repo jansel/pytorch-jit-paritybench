@@ -516,12 +516,12 @@ class MultiboxLoss(nn.Module):
         return smooth_l1_loss / num_pos, classification_loss / num_pos
 
 
+GraphPath = namedtuple('GraphPath', ['s0', 'name', 's1'])
+
+
 def _xavier_init_(m: nn.Module):
     if isinstance(m, nn.Conv2d):
         nn.init.xavier_uniform_(m.weight)
-
-
-GraphPath = namedtuple('GraphPath', ['s0', 'name', 's1'])
 
 
 class SSD(nn.Module):

@@ -271,6 +271,12 @@ class BottleneckBlock(nn.Module):
         return self.relu(residual + a)
 
 
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
 class Shake(Function):
 
     @classmethod
@@ -300,12 +306,6 @@ class Shake(Function):
 
 def shake(inp1, inp2, training=False):
     return Shake.apply(inp1, inp2, training)
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class ShakeShakeBlock(nn.Module):

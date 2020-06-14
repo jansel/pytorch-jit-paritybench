@@ -691,16 +691,16 @@ class BertAttention(nn.Module):
         return outputs
 
 
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
 def gelu_new(x):
     """ Implementation of the gelu activation function currently in Google Bert repo (identical to OpenAI GPT).
         Also see https://arxiv.org/abs/1606.08415
     """
     return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 
         0.044715 * torch.pow(x, 3.0))))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu_new, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -821,61 +821,6 @@ class BertPooler(nn.Module):
         return pooled_output
 
 
-class MagnitudeBinarizer(object):
-    """
-    Magnitude Binarizer.
-    Computes a binary mask M from a real value matrix S such that `M_{i,j} = 1` if and only if `S_{i,j}`
-    is among the k% highest values of |S| (absolute value).
-
-    Implementation is inspired from https://github.com/NervanaSystems/distiller/blob/2291fdcc2ea642a98d4e20629acb5a9e2e04b4e6/distiller/pruning/automated_gradual_pruner.py#L24
-    """
-
-    @staticmethod
-    def apply(inputs: torch.tensor, threshold: float):
-        """
-        Args:
-            inputs (`torch.FloatTensor`)
-                The input matrix from which the binarizer computes the binary mask.
-                This input marix is typically the weight matrix.
-            threshold (`float`)
-                The percentage of weights to keep (the rest is pruned).
-                `threshold` is a float between 0 and 1.
-        Returns:
-            mask (`torch.FloatTensor`)
-                Binary matrix of the same size as `inputs` acting as a mask (1 - the associated weight is
-                retained, 0 - the associated weight is pruned).
-        """
-        mask = inputs.clone()
-        _, idx = inputs.abs().flatten().sort(descending=True)
-        j = int(threshold * inputs.numel())
-        flat_out = mask.flatten()
-        flat_out[idx[j:]] = 0
-        flat_out[idx[:j]] = 1
-        return mask
-
-
-def add_start_docstrings_to_callable(*docstr):
-
-    def docstring_decorator(fn):
-        class_name = ':class:`~transformers.{}`'.format(fn.__qualname__.
-            split('.')[0])
-        intro = (
-            '   The {} forward method, overrides the :func:`__call__` special method.'
-            .format(class_name))
-        note = """
-
-    .. note::
-        Although the recipe for forward pass needs to be defined within
-        this function, one should call the :class:`Module` instance afterwards
-        instead of this since the former takes care of running the
-        pre and post processing steps while the latter silently ignores them.
-        """
-        fn.__doc__ = intro + note + ''.join(docstr) + (fn.__doc__ if fn.
-            __doc__ is not None else '')
-        return fn
-    return docstring_decorator
-
-
 def add_start_docstrings(*docstr):
 
     def docstring_decorator(fn):
@@ -883,54 +828,6 @@ def add_start_docstrings(*docstr):
             None else '')
         return fn
     return docstring_decorator
-
-
-BERT_INPUTS_DOCSTRING = """
-    Args:
-        input_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`):
-            Indices of input sequence tokens in the vocabulary.
-
-            Indices can be obtained using :class:`transformers.BertTokenizer`.
-            See :func:`transformers.PreTrainedTokenizer.encode` and
-            :func:`transformers.PreTrainedTokenizer.encode_plus` for details.
-
-            `What are input IDs? <../glossary.html#input-ids>`__
-        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
-            Mask to avoid performing attention on padding token indices.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-
-            `What are attention masks? <../glossary.html#attention-mask>`__
-        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
-            Segment token indices to indicate first and second portions of the inputs.
-            Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
-            corresponds to a `sentence B` token
-
-            `What are token type IDs? <../glossary.html#token-type-ids>`_
-        position_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
-            Indices of positions of each input sequence tokens in the position embeddings.
-            Selected in the range ``[0, config.max_position_embeddings - 1]``.
-
-            `What are position IDs? <../glossary.html#position-ids>`_
-        head_mask (:obj:`torch.FloatTensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
-            Mask to nullify selected heads of the self-attention modules.
-            Mask values selected in ``[0, 1]``:
-            :obj:`1` indicates the head is **not masked**, :obj:`0` indicates the head is **masked**.
-        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
-            Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
-            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
-            than the model's internal embedding lookup matrix.
-        encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention
-            if the model is configured as a decoder.
-        encoder_attention_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
-            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
-            is used in the cross-attention if the model is configured as a decoder.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
-            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
-"""
 
 
 logger = logging.getLogger(__name__)
@@ -1001,9 +898,7 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
     return model
 
 
-def is_remote_url(url_or_filename):
-    parsed = urlparse(url_or_filename)
-    return parsed.scheme in ('http', 'https')
+CONFIG_NAME = 'config.json'
 
 
 class DecoderState(object):
@@ -1487,23 +1382,29 @@ class ClassificationHead(torch.nn.Module):
         return logits
 
 
-LARGE_INTEGER = int(1e+20)
+EPSILON = 1e-10
 
 
-VERY_LARGE_INTEGER = int(1e+30)
+PRETRAINED_VOCAB_FILES_MAP = {'vocab_file': {'albert-base-v1':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v1-spiece.model'
+    , 'albert-large-v1':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-large-v1-spiece.model'
+    , 'albert-xlarge-v1':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xlarge-v1-spiece.model'
+    , 'albert-xxlarge-v1':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xxlarge-v1-spiece.model'
+    , 'albert-base-v2':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v2-spiece.model'
+    , 'albert-large-v2':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-large-v2-spiece.model'
+    , 'albert-xlarge-v2':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xlarge-v2-spiece.model'
+    , 'albert-xxlarge-v2':
+    'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xxlarge-v2-spiece.model'
+    }}
 
 
-def is_tf_available():
-    return _tf_available
-
-
-def is_torch_available():
-    return _torch_available
-
-
-UNEVEN_SEQUENCES_FOR_BATCH_MSG = (
-    "The sequences building the batch are not of the same size, no tensor can be built. Set `pad_to_max_length=True` to pad the smaller sequencesup to the larger sequence's length."
-    )
+VOCAB_FILES_NAMES = {'vocab_file': 'spiece.model'}
 
 
 def find_pruneable_heads_and_indices(heads: List, n_heads: int, head_size:
@@ -3213,78 +3114,6 @@ class ModalEmbeddings(nn.Module):
         return embeddings
 
 
-MMBT_INPUTS_DOCSTRING = """    Inputs:
-        **input_modal**: ``torch.FloatTensor`` of shape ``(batch_size, ***)``:
-            The other modality data. It will be the shape that the encoder for that type expects.
-            e.g. With an Image Encoder, the shape would be (batch_size, channels, height, width)
-        **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Indices of input sequence tokens in the vocabulary.
-            It does not expect [CLS] token to be added as it's appended to the end of other modality embeddings.
-            See :func:`transformers.PreTrainedTokenizer.encode` and
-            :func:`transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
-        **modal_start_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
-            Optional start token to be added to Other Modality Embedding. [CLS] Most commonly used for Classification tasks.
-        **modal_end_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
-            Optional end token to be added to Other Modality Embedding. [SEP] Most commonly used.
-        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
-            Mask to avoid performing attention on padding token indices.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-        **token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Segment token indices to indicate different portions of the inputs.
-        **modal_token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
-            Segment token indices to indicate different portions of the non-text modality.
-            The embeddings from these tokens will be summed with the respective token embeddings for the non-text modality.
-        **position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
-            Indices of positions of each input sequence tokens in the position embeddings.
-        **modal_position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
-            Indices of positions of each input sequence tokens in the position embeddings for the non-text modality.
-        **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
-            Mask to nullify selected heads of the self-attention modules.
-            Mask values selected in ``[0, 1]``:
-            ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
-        **inputs_embeds**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, embedding_dim)``:
-            Optionally, instead of passing ``input_ids`` you can choose to directly pass an embedded representation.
-            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
-            than the model's internal embedding lookup matrix.
-        **encoder_hidden_states**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, hidden_size)``:
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention if the model
-            is configured as a decoder.
-        **encoder_attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
-            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
-            is used in the cross-attention if the model is configured as a decoder.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
-            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
-"""
-
-
-MMBT_START_DOCSTRING = """    MMBT model was proposed in
-    `Supervised Multimodal Bitransformers for Classifying Images and Text`_
-    by Douwe Kiela, Suvrat Bhooshan, Hamed Firooz, Davide Testuggine.
-    It's a supervised multimodal bitransformer model that fuses information from text and other image encoders,
-    and obtain state-of-the-art performance on various multimodal classification benchmark tasks.
-
-    This model is a PyTorch `torch.nn.Module`_ sub-class. Use it as a regular PyTorch Module and
-    refer to the PyTorch documentation for all matter related to general usage and behavior.
-
-    .. _`Supervised Multimodal Bitransformers for Classifying Images and Text`:
-        https://github.com/facebookresearch/mmbt
-
-    .. _`torch.nn.Module`:
-        https://pytorch.org/docs/stable/nn.html#module
-
-    Parameters:
-        config (:class:`~transformers.MMBTConfig`): Model configuration class with all the parameters of the model.
-            Initializing with a config file does not load the weights associated with the model, only the configuration.
-        transformer (:class: `~nn.Module`): A text transformer that is used by MMBT.
-            It should have embeddings, encoder, and pooler attributes.
-        encoder (:class: `~nn.Module`): Encoder for the second modality.
-            It should take in a batch of modal inputs and return k, n dimension embeddings.
-"""
-
-
 class ModuleUtilsMixin:
     """
     A few utilities for torch.nn.Modules, to be used as a mixin.
@@ -3467,6 +3296,78 @@ class ModuleUtilsMixin:
             ) == 5, f'head_mask.dim != 5, instead {head_mask.dim()}'
         head_mask = head_mask.to(dtype=self.dtype)
         return head_mask
+
+
+MMBT_START_DOCSTRING = """    MMBT model was proposed in
+    `Supervised Multimodal Bitransformers for Classifying Images and Text`_
+    by Douwe Kiela, Suvrat Bhooshan, Hamed Firooz, Davide Testuggine.
+    It's a supervised multimodal bitransformer model that fuses information from text and other image encoders,
+    and obtain state-of-the-art performance on various multimodal classification benchmark tasks.
+
+    This model is a PyTorch `torch.nn.Module`_ sub-class. Use it as a regular PyTorch Module and
+    refer to the PyTorch documentation for all matter related to general usage and behavior.
+
+    .. _`Supervised Multimodal Bitransformers for Classifying Images and Text`:
+        https://github.com/facebookresearch/mmbt
+
+    .. _`torch.nn.Module`:
+        https://pytorch.org/docs/stable/nn.html#module
+
+    Parameters:
+        config (:class:`~transformers.MMBTConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+        transformer (:class: `~nn.Module`): A text transformer that is used by MMBT.
+            It should have embeddings, encoder, and pooler attributes.
+        encoder (:class: `~nn.Module`): Encoder for the second modality.
+            It should take in a batch of modal inputs and return k, n dimension embeddings.
+"""
+
+
+MMBT_INPUTS_DOCSTRING = """    Inputs:
+        **input_modal**: ``torch.FloatTensor`` of shape ``(batch_size, ***)``:
+            The other modality data. It will be the shape that the encoder for that type expects.
+            e.g. With an Image Encoder, the shape would be (batch_size, channels, height, width)
+        **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of input sequence tokens in the vocabulary.
+            It does not expect [CLS] token to be added as it's appended to the end of other modality embeddings.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
+        **modal_start_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
+            Optional start token to be added to Other Modality Embedding. [CLS] Most commonly used for Classification tasks.
+        **modal_end_tokens**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size,)``:
+            Optional end token to be added to Other Modality Embedding. [SEP] Most commonly used.
+        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        **token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Segment token indices to indicate different portions of the inputs.
+        **modal_token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
+            Segment token indices to indicate different portions of the non-text modality.
+            The embeddings from these tokens will be summed with the respective token embeddings for the non-text modality.
+        **position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of positions of each input sequence tokens in the position embeddings.
+        **modal_position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, modal_sequence_length)``:
+            Indices of positions of each input sequence tokens in the position embeddings for the non-text modality.
+        **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
+        **inputs_embeds**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, embedding_dim)``:
+            Optionally, instead of passing ``input_ids`` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+        **encoder_hidden_states**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, hidden_size)``:
+            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention if the model
+            is configured as a decoder.
+        **encoder_attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
+            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
+            is used in the cross-attention if the model is configured as a decoder.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
+            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
+"""
 
 
 @add_start_docstrings(
@@ -3885,6 +3786,10 @@ class ReformerEmbeddings(nn.Module):
         return embeddings
 
 
+LSHSelfAttentionOutput = namedtuple('LSHSelfAttentionOutput', [
+    'hidden_states', 'attention_probs', 'buckets'])
+
+
 class EfficientAttentionMixin:
     """
     A few utilities for nn.Modules in Reformer, to be used as a mixin.
@@ -3945,10 +3850,6 @@ class EfficientAttentionMixin:
             raise ValueError(
                 'Input vector rank should be one of [3, 4], but is: {}'.
                 format(len(vectors.shape)))
-
-
-LSHSelfAttentionOutput = namedtuple('LSHSelfAttentionOutput', [
-    'hidden_states', 'attention_probs', 'buckets'])
 
 
 class ReverseSort(Function):
@@ -4590,12 +4491,12 @@ class ChunkReformerFeedForward(nn.Module):
         return self.output(hidden_states)
 
 
-ReformerOutput = namedtuple('ReformerOutput', ['hidden_states',
-    'attn_output', 'attention_probs', 'buckets'])
-
-
 ReformerBackwardOutput = namedtuple('ReformerBackwardOutput', [
     'attn_output', 'hidden_states', 'grad_attn_output', 'grad_hidden_states'])
+
+
+ReformerOutput = namedtuple('ReformerOutput', ['hidden_states',
+    'attn_output', 'attention_probs', 'buckets'])
 
 
 class ReformerLayer(nn.Module):
@@ -5430,10 +5331,39 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids:
+    Iterable[int]) ->Iterable[int]:
+    banned_tokens = []
+
+    def _tokens_match(prev_tokens, tokens):
+        if len(tokens) == 0:
+            return True
+        if len(tokens) > len(prev_input_ids):
+            return False
+        if prev_tokens[-len(tokens):] == tokens:
+            return True
+        else:
+            return False
+    for prev_input_ids_slice in prev_input_ids:
+        banned_tokens_slice = []
+        for banned_token_seq in bad_words_ids:
+            assert len(banned_token_seq
+                ) > 0, 'Banned words token sequences {} cannot have an empty list'.format(
+                bad_words_ids)
+            if _tokens_match(prev_input_ids_slice.tolist(),
+                banned_token_seq[:-1]) is False:
+                continue
+            banned_tokens_slice.append(banned_token_seq[-1])
+        banned_tokens.append(banned_tokens_slice)
+    return banned_tokens
 
 
 TF2_WEIGHTS_NAME = 'tf_model.h5'
+
+
+def is_remote_url(url_or_filename):
+    parsed = urlparse(url_or_filename)
+    return parsed.scheme in ('http', 'https')
 
 
 def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0,
@@ -5468,34 +5398,35 @@ def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0,
     return logits
 
 
-def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids:
-    Iterable[int]) ->Iterable[int]:
-    banned_tokens = []
-
-    def _tokens_match(prev_tokens, tokens):
-        if len(tokens) == 0:
-            return True
-        if len(tokens) > len(prev_input_ids):
-            return False
-        if prev_tokens[-len(tokens):] == tokens:
-            return True
-        else:
-            return False
-    for prev_input_ids_slice in prev_input_ids:
-        banned_tokens_slice = []
-        for banned_token_seq in bad_words_ids:
-            assert len(banned_token_seq
-                ) > 0, 'Banned words token sequences {} cannot have an empty list'.format(
-                bad_words_ids)
-            if _tokens_match(prev_input_ids_slice.tolist(),
-                banned_token_seq[:-1]) is False:
-                continue
-            banned_tokens_slice.append(banned_token_seq[-1])
-        banned_tokens.append(banned_tokens_slice)
-    return banned_tokens
+WEIGHTS_NAME = 'pytorch_model.bin'
 
 
 DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
+
+
+def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int,
+    no_repeat_ngram_size: int, cur_len: int) ->None:
+    """Copied from fairseq for no_repeat_ngram in beam_search"""
+    if cur_len + 1 < no_repeat_ngram_size:
+        return [[] for _ in range(num_hypos)]
+    generated_ngrams = [{} for _ in range(num_hypos)]
+    for idx in range(num_hypos):
+        gen_tokens = prev_input_ids[idx].tolist()
+        generated_ngram = generated_ngrams[idx]
+        for ngram in zip(*[gen_tokens[i:] for i in range(no_repeat_ngram_size)]
+            ):
+            prev_ngram_tuple = tuple(ngram[:-1])
+            generated_ngram[prev_ngram_tuple] = generated_ngram.get(
+                prev_ngram_tuple, []) + [ngram[-1]]
+
+    def _get_generated_ngrams(hypo_idx):
+        start_idx = cur_len + 1 - no_repeat_ngram_size
+        ngram_idx = tuple(prev_input_ids[(hypo_idx), start_idx:cur_len].
+            tolist())
+        return generated_ngrams[hypo_idx].get(ngram_idx, [])
+    banned_tokens = [_get_generated_ngrams(hypo_idx) for hypo_idx in range(
+        num_hypos)]
+    return banned_tokens
 
 
 class BeamHypotheses(object):
@@ -5549,29 +5480,7 @@ class BeamHypotheses(object):
             return ret
 
 
-def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int,
-    no_repeat_ngram_size: int, cur_len: int) ->None:
-    """Copied from fairseq for no_repeat_ngram in beam_search"""
-    if cur_len + 1 < no_repeat_ngram_size:
-        return [[] for _ in range(num_hypos)]
-    generated_ngrams = [{} for _ in range(num_hypos)]
-    for idx in range(num_hypos):
-        gen_tokens = prev_input_ids[idx].tolist()
-        generated_ngram = generated_ngrams[idx]
-        for ngram in zip(*[gen_tokens[i:] for i in range(no_repeat_ngram_size)]
-            ):
-            prev_ngram_tuple = tuple(ngram[:-1])
-            generated_ngram[prev_ngram_tuple] = generated_ngram.get(
-                prev_ngram_tuple, []) + [ngram[-1]]
-
-    def _get_generated_ngrams(hypo_idx):
-        start_idx = cur_len + 1 - no_repeat_ngram_size
-        ngram_idx = tuple(prev_input_ids[(hypo_idx), start_idx:cur_len].
-            tolist())
-        return generated_ngrams[hypo_idx].get(ngram_idx, [])
-    banned_tokens = [_get_generated_ngrams(hypo_idx) for hypo_idx in range(
-        num_hypos)]
-    return banned_tokens
+TF_WEIGHTS_NAME = 'model.ckpt'
 
 
 CLOUDFRONT_DISTRIB_PREFIX = 'https://cdn.huggingface.co'
@@ -5602,9 +5511,6 @@ def hf_bucket_url(model_id: str, filename: str, use_cdn=True) ->str:
         return f'{endpoint}/{model_id}-{filename}'
     else:
         return f'{endpoint}/{model_id}/{filename}'
-
-
-TF_WEIGHTS_NAME = 'model.ckpt'
 
 
 class Conv1D(nn.Module):
@@ -6189,10 +6095,10 @@ class XLNetLayer(nn.Module):
         return outputs
 
 
-XxxOutput = nn.Module
-
-
 XxxIntermediate = nn.Module
+
+
+XxxOutput = nn.Module
 
 
 XxxAttention = nn.Module

@@ -67,6 +67,12 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+pspnet_specs = {'pascalvoc': {'n_classes': 21, 'input_size': (473, 473),
+    'block_config': [3, 4, 23, 3]}, 'cityscapes': {'n_classes': 19,
+    'input_size': (713, 713), 'block_config': [3, 4, 23, 3]}, 'ade20k': {
+    'n_classes': 150, 'input_size': (473, 473), 'block_config': [3, 4, 6, 3]}}
+
+
 RESTORE_FROM = (
     'http://vllab.ucmerced.edu/ytsai/CVPR18/DeepLab_resnet_pretrained_init-f81d91e8.pth'
     )
@@ -83,12 +89,6 @@ def DeeplabMulti(pretrained=True, num_classes=21):
                 new_params['.'.join(i_parts[1:])] = saved_state_dict[i]
         model.load_state_dict(new_params)
     return model
-
-
-pspnet_specs = {'pascalvoc': {'n_classes': 21, 'input_size': (473, 473),
-    'block_config': [3, 4, 23, 3]}, 'cityscapes': {'n_classes': 19,
-    'input_size': (713, 713), 'block_config': [3, 4, 23, 3]}, 'ade20k': {
-    'n_classes': 150, 'input_size': (473, 473), 'block_config': [3, 4, 6, 3]}}
 
 
 class SharedEncoder(nn.Module):

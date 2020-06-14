@@ -290,16 +290,16 @@ class FPN(nn.Module):
         return out
 
 
+mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
+    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
+
+
 def construct_backbone(cfg_backbone):
     backbone = cfg_backbone.type(*cfg_backbone.args)
     num_layers = max(cfg_backbone.selected_layers) + 1
     while len(backbone.layers) < num_layers:
         backbone.add_layer()
     return backbone
-
-
-mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
-    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
 _global_config['img_size'] = 4
@@ -323,16 +323,16 @@ def make_anchors(conv_h, conv_w, scale):
     return prior_data
 
 
-_global_config['backbone'] = 4
-
-
-_global_config['scales'] = 1.0
+_global_config['freeze_bn'] = 4
 
 
 _global_config['train_semantic'] = False
 
 
-_global_config['freeze_bn'] = 4
+_global_config['backbone'] = 4
+
+
+_global_config['scales'] = 1.0
 
 
 class Yolact(nn.Module):
@@ -451,87 +451,6 @@ class Yolact(nn.Module):
             return predictions
 
 
-def intersect(box_a, box_b):
-    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
-    min_xy = np.maximum(box_a[:, :2], box_b[:2])
-    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
-
-
-def jaccard(box_a, box_b, iscrowd: bool=False):
-    """
-    Compute the IoU of two sets of boxes.
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-        iscrowd: if True, put the crowd in box_b
-    Return:
-        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
-    """
-    use_batch = True
-    if box_a.dim() == 2:
-        use_batch = False
-        box_a = box_a[None, ...]
-        box_b = box_b[None, ...]
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
-        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
-    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
-        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
-    union = area_a + area_b - inter
-    out = inter / area_a if iscrowd else inter / union
-    return out if use_batch else out.squeeze(0)
-
-
-def encode(matched, priors):
-    variances = [0.1, 0.2]
-    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-    g_cxcy /= variances[0] * priors[:, 2:]
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
-    offsets = torch.cat([g_cxcy, g_wh], 1)
-    return offsets
-
-
-_global_config['crowd_iou_threshold'] = 4
-
-
-def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
-    """
-    Match each prior box with the ground truth box of the highest jaccard overlap, encode the bounding boxes,
-    then return the matched indices corresponding to both confidence and location preds.
-    Args:
-        pos_thresh: (float) IoU > pos_thresh ==> positive.
-        neg_thresh: (float) IoU < neg_thresh ==> negative.
-        box_gt: (tensor) Ground truth boxes, Shape: [num_obj, 4], (xmin, ymin, xmax, ymax).
-        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors, 4], (center_x, center_y, w, h).
-        class_gt: (tensor) All the class labels for the image, Shape: [num_obj].
-        crowd_boxes: (tensor) All the crowd box annotations or None if there are none.
-
-    Return:
-        The matched indices corresponding to 1)location and 2)confidence preds.
-    """
-    priors = priors.data
-    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:,
-        :2] + priors[:, 2:] / 2), 1)
-    overlaps = jaccard(box_gt, decoded_priors)
-    each_box_max, each_box_index = overlaps.max(1)
-    each_prior_max, each_prior_index = overlaps.max(0)
-    each_prior_max.index_fill_(0, each_box_index, 2)
-    for j in range(each_box_index.size(0)):
-        each_prior_index[each_box_index[j]] = j
-    each_prior_box = box_gt[each_prior_index]
-    conf = class_gt[each_prior_index] + 1
-    conf[each_prior_max < pos_thresh] = -1
-    conf[each_prior_max < neg_thresh] = 0
-    if crowd_boxes is not None and cfg.crowd_iou_threshold < 1:
-        crowd_overlaps = jaccard(decoded_priors, crowd_boxes, iscrowd=True)
-        best_crowd_overlap, best_crowd_idx = crowd_overlaps.max(1)
-        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_threshold)] = -1
-    offsets = encode(each_prior_box, priors)
-    return offsets, conf, each_prior_box, each_prior_index
-
-
 def center_size(boxes):
     """ Convert prior_boxes to format: (cx, cy, w, h)."""
     return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
@@ -576,19 +495,100 @@ def crop(masks, boxes, padding: int=1):
     return masks * crop_mask.float()
 
 
-_global_config['bbox_alpha'] = 4
+def encode(matched, priors):
+    variances = [0.1, 0.2]
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+    g_cxcy /= variances[0] * priors[:, 2:]
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = torch.log(g_wh) / variances[1]
+    offsets = torch.cat([g_cxcy, g_wh], 1)
+    return offsets
 
 
-_global_config['masks_to_train'] = False
+def intersect(box_a, box_b):
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
-_global_config['semantic_alpha'] = 4
+def jaccard(box_a, box_b, iscrowd: bool=False):
+    """
+    Compute the IoU of two sets of boxes.
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
+        iscrowd: if True, put the crowd in box_b
+    Return:
+        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
+    """
+    use_batch = True
+    if box_a.dim() == 2:
+        use_batch = False
+        box_a = box_a[None, ...]
+        box_b = box_b[None, ...]
+    inter = intersect(box_a, box_b)
+    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
+        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
+    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
+        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    union = area_a + area_b - inter
+    out = inter / area_a if iscrowd else inter / union
+    return out if use_batch else out.squeeze(0)
+
+
+_global_config['crowd_iou_threshold'] = 4
+
+
+def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
+    """
+    Match each prior box with the ground truth box of the highest jaccard overlap, encode the bounding boxes,
+    then return the matched indices corresponding to both confidence and location preds.
+    Args:
+        pos_thresh: (float) IoU > pos_thresh ==> positive.
+        neg_thresh: (float) IoU < neg_thresh ==> negative.
+        box_gt: (tensor) Ground truth boxes, Shape: [num_obj, 4], (xmin, ymin, xmax, ymax).
+        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors, 4], (center_x, center_y, w, h).
+        class_gt: (tensor) All the class labels for the image, Shape: [num_obj].
+        crowd_boxes: (tensor) All the crowd box annotations or None if there are none.
+
+    Return:
+        The matched indices corresponding to 1)location and 2)confidence preds.
+    """
+    priors = priors.data
+    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:,
+        :2] + priors[:, 2:] / 2), 1)
+    overlaps = jaccard(box_gt, decoded_priors)
+    each_box_max, each_box_index = overlaps.max(1)
+    each_prior_max, each_prior_index = overlaps.max(0)
+    each_prior_max.index_fill_(0, each_box_index, 2)
+    for j in range(each_box_index.size(0)):
+        each_prior_index[each_box_index[j]] = j
+    each_prior_box = box_gt[each_prior_index]
+    conf = class_gt[each_prior_index] + 1
+    conf[each_prior_max < pos_thresh] = -1
+    conf[each_prior_max < neg_thresh] = 0
+    if crowd_boxes is not None and cfg.crowd_iou_threshold < 1:
+        crowd_overlaps = jaccard(decoded_priors, crowd_boxes, iscrowd=True)
+        best_crowd_overlap, best_crowd_idx = crowd_overlaps.max(1)
+        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_threshold)] = -1
+    offsets = encode(each_prior_box, priors)
+    return offsets, conf, each_prior_box, each_prior_index
+
+
+_global_config['conf_alpha'] = 4
 
 
 _global_config['mask_alpha'] = 4
 
 
-_global_config['conf_alpha'] = 4
+_global_config['semantic_alpha'] = 4
+
+
+_global_config['bbox_alpha'] = 4
+
+
+_global_config['masks_to_train'] = False
 
 
 class Multi_Loss(nn.Module):

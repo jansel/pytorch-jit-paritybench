@@ -158,42 +158,72 @@ from torch.nn import BCEWithLogitsLoss
 logger = logging.getLogger(__name__)
 
 
-def convert_iob_to_simple_tags(preds, spans):
-    contains_named_entity = len([x for x in preds if 'B-' in x]) != 0
-    simple_tags = []
-    merged_spans = []
-    open_tag = False
-    for pred, span in zip(preds, spans):
-        if not ('B-' in pred or 'I-' in pred):
-            if open_tag:
-                merged_spans.append(cur_span)
-                simple_tags.append(cur_tag)
-                open_tag = False
-            continue
-        elif 'B-' in pred:
-            if open_tag:
-                merged_spans.append(cur_span)
-                simple_tags.append(cur_tag)
-            cur_tag = pred.replace('B-', '')
-            cur_span = span
-            open_tag = True
-        elif 'I-' in pred:
-            this_tag = pred.replace('I-', '')
-            if open_tag and this_tag == cur_tag:
-                cur_span['end'] = span['end']
-            elif open_tag:
-                merged_spans.append(cur_span)
-                simple_tags.append(cur_tag)
-                open_tag = False
-    if open_tag:
-        merged_spans.append(cur_span)
-        simple_tags.append(cur_tag)
-        open_tag = False
-    if contains_named_entity and len(simple_tags) == 0:
-        raise Exception(
-            'Predicted Named Entities lost when converting from IOB to simple tags. Please check the formatof the training data adheres to either adheres to IOB2 format or is converted when read_ner_file() is called.'
-            )
-    return simple_tags, merged_spans
+def load_from_cache(pretrained_model_name_or_path, s3_dict, **kwargs):
+    cache_dir = kwargs.pop('cache_dir', None)
+    force_download = kwargs.pop('force_download', False)
+    resume_download = kwargs.pop('resume_download', False)
+    proxies = kwargs.pop('proxies', None)
+    s3_file = s3_dict[pretrained_model_name_or_path]
+    try:
+        resolved_file = cached_path(s3_file, cache_dir=cache_dir,
+            force_download=force_download, proxies=proxies, resume_download
+            =resume_download)
+        if resolved_file is None:
+            raise EnvironmentError
+    except EnvironmentError:
+        if pretrained_model_name_or_path in s3_dict:
+            msg = "Couldn't reach server at '{}' to download data.".format(
+                s3_file)
+        else:
+            msg = (
+                "Model name '{}' was not found in model name list. We assumed '{}' was a path, a model identifier, or url to a configuration file or a directory containing such a file but couldn't find any such file at this path or url."
+                .format(pretrained_model_name_or_path, s3_file))
+        raise EnvironmentError(msg)
+    if resolved_file == s3_file:
+        logger.info('loading file {}'.format(s3_file))
+    else:
+        logger.info('loading file {} from cache at {}'.format(s3_file,
+            resolved_file))
+    return resolved_file
+
+
+def _is_punctuation(char):
+    """Checks whether `chars` is a punctuation character."""
+    cp = ord(char)
+    if (cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <=
+        96 or cp >= 123 and cp <= 126):
+        return True
+    cat = unicodedata.category(char)
+    if cat.startswith('P'):
+        return True
+    return False
+
+
+def run_split_on_punc(text, never_split=None):
+    """Splits punctuation on a piece of text.
+    Function taken from HuggingFace: transformers.tokenization_bert.BasicTokenizer
+    """
+    if never_split is not None and text in never_split:
+        return [text]
+    chars = list(text)
+    i = 0
+    start_new_word = True
+    output = []
+    while i < len(chars):
+        char = chars[i]
+        if _is_punctuation(char):
+            output.append([char])
+            start_new_word = True
+        else:
+            if start_new_word:
+                output.append([])
+            start_new_word = False
+            output[-1].append(char)
+        i += 1
+    return [''.join(x) for x in output]
+
+
+EMBEDDING_VOCAB_FILES_MAP = {}
 
 
 def s3e_pooling(token_embs, token_ids, token_weights, centroids,
@@ -269,9 +299,6 @@ def s3e_pooling(token_embs, token_ids, token_weights, centroids,
         embeddings = embeddings - embeddings.dot(svd_components.transpose()
             ) * svd_components
     return embeddings
-
-
-OUTPUT_DIM_NAMES = ['dim', 'hidden_size', 'd_model']
 
 
 class WrappedDataParallel(DataParallel):

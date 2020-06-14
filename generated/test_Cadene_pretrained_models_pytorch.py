@@ -3682,6 +3682,19 @@ class InceptionResNetA2Way(MultiWay):
             num_blocks=2)
 
 
+class InceptionResNetB2Way(MultiWay):
+
+    def __init__(self, scale):
+        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
+            num_blocks=2)
+
+
+class InceptionResNetBPoly3(InceptionResNetBPoly):
+
+    def __init__(self, scale):
+        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
+
+
 class InceptionResNetC2Way(MultiWay):
 
     def __init__(self, scale):
@@ -3693,19 +3706,6 @@ class InceptionResNetCPoly3(InceptionResNetCPoly):
 
     def __init__(self, scale):
         super(InceptionResNetCPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetBPoly3(InceptionResNetBPoly):
-
-    def __init__(self, scale):
-        super(InceptionResNetBPoly3, self).__init__(scale, num_blocks=3)
-
-
-class InceptionResNetB2Way(MultiWay):
-
-    def __init__(self, scale):
-        super(InceptionResNetB2Way, self).__init__(scale, block_cls=BlockB,
-            num_blocks=2)
 
 
 class PolyNet(nn.Module):

@@ -219,16 +219,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
-    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
-    if use_batch_norm:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(oup), ReLU(inplace=True))
-    else:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            ReLU(inplace=True))
-
-
 def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
     if use_batch_norm:
@@ -237,6 +227,16 @@ def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     else:
         return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), ReLU
             (inplace=True))
+
+
+def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
+    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
+    if use_batch_norm:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(oup), ReLU(inplace=True))
+    else:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            ReLU(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -373,6 +373,15 @@ class MobileBlock(nn.Module):
             return out
 
 
+def _make_divisible(v, divisor=8, min_value=None):
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
+
 def _weights_init(m):
     if isinstance(m, nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
@@ -385,15 +394,6 @@ def _weights_init(m):
         n = m.weight.size(1)
         m.weight.data.normal_(0, 0.01)
         m.bias.data.zero_()
-
-
-def _make_divisible(v, divisor=8, min_value=None):
-    if min_value is None:
-        min_value = divisor
-    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-    if new_v < 0.9 * v:
-        new_v += divisor
-    return new_v
 
 
 class MobileNetV3(nn.Module):

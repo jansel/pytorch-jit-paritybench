@@ -1819,7 +1819,6 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
         return self.criterion(input, one_hot)
 
 
-import unittest
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
@@ -1849,7 +1848,6 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
     def test_007(self):
         self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @unittest.skip("crashes")
     def test_008(self):
         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

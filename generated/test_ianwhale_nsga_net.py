@@ -832,6 +832,35 @@ class ChannelBasedDecoder(Decoder):
         raise NotImplementedError()
 
 
+class ResidualGenomeDecoder(ChannelBasedDecoder):
+    """
+    Genetic CNN genome decoder with residual bit.
+    """
+
+    def __init__(self, list_genome, channels, preact=False, repeats=None):
+        """
+        Constructor.
+        :param list_genome: list, genome describing the connections in a network.
+        :param channels: list, list of tuples describing the channel size changes.
+        :param repeats: None | list, list of integers describing how many times to repeat each phase.
+        """
+        super().__init__(list_genome, channels, repeats=repeats)
+        if self._model is not None:
+            return
+        phases = []
+        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
+            _genome, self._channels)):
+            phases.append(ResidualPhase(gene, in_channels, out_channels,
+                idx, preact=preact))
+        self._model = nn.Sequential(*self.build_layers(phases))
+
+    def get_model(self):
+        """
+        :return: nn.Module
+        """
+        return self._model
+
+
 class DenseGenomeDecoder(ChannelBasedDecoder):
     """
     Genetic CNN genome decoder with residual bit.
@@ -861,35 +890,6 @@ class DenseGenomeDecoder(ChannelBasedDecoder):
         :return: list
         """
         return [gene for gene in genome if phase_active(gene)]
-
-    def get_model(self):
-        """
-        :return: nn.Module
-        """
-        return self._model
-
-
-class ResidualGenomeDecoder(ChannelBasedDecoder):
-    """
-    Genetic CNN genome decoder with residual bit.
-    """
-
-    def __init__(self, list_genome, channels, preact=False, repeats=None):
-        """
-        Constructor.
-        :param list_genome: list, genome describing the connections in a network.
-        :param channels: list, list of tuples describing the channel size changes.
-        :param repeats: None | list, list of integers describing how many times to repeat each phase.
-        """
-        super().__init__(list_genome, channels, repeats=repeats)
-        if self._model is not None:
-            return
-        phases = []
-        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
-            _genome, self._channels)):
-            phases.append(ResidualPhase(gene, in_channels, out_channels,
-                idx, preact=preact))
-        self._model = nn.Sequential(*self.build_layers(phases))
 
     def get_model(self):
         """
@@ -1020,16 +1020,6 @@ class EvoNetwork(nn.Module):
         return self.linear(x), None
 
 
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
-            bernoulli_(keep_prob))
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
     count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
@@ -1046,6 +1036,16 @@ OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1),
     stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C,
     affine=affine))}
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
+            bernoulli_(keep_prob))
+        x.div_(keep_prob)
+        x.mul_(mask)
+    return x
 
 
 class Cell(nn.Module):

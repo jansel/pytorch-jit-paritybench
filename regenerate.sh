@@ -1,8 +1,8 @@
 #!/bin/bash
 set -ex
-python paritybench.py
+python main.py 2>&1 | tee output.log
 for X in patches/*
 do
-  patch -p1 < $X
+    patch -p1 < $X
 done
 pytest generated

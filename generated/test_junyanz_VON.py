@@ -449,18 +449,18 @@ class BasicBlockUp(nn.Module):
         return out
 
 
+def convMeanpool(inplanes, outplanes):
+    sequence = []
+    sequence += [conv3x3(inplanes, outplanes)]
+    sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
+    return nn.Sequential(*sequence)
+
+
 def meanpoolConv(inplanes, outplanes):
     sequence = []
     sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
     sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1,
         padding=0, bias=True)]
-    return nn.Sequential(*sequence)
-
-
-def convMeanpool(inplanes, outplanes):
-    sequence = []
-    sequence += [conv3x3(inplanes, outplanes)]
-    sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
     return nn.Sequential(*sequence)
 
 
@@ -1047,17 +1047,17 @@ class _netG0(nn.Module):
             return self.sigmoid(output)
 
 
-def fromRGB(input_nc, output_nc, bias):
-    layers = []
-    layers += [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
-    layers += [nn.LeakyReLU(0.2, inplace=True)]
-    return nn.Sequential(*layers)
-
-
 def convBlock(input_nc, output_nc, bias, norm_layer=None):
     layers = [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
     if norm_layer is not None:
         layers += [norm_layer(output_nc)]
+    layers += [nn.LeakyReLU(0.2, inplace=True)]
+    return nn.Sequential(*layers)
+
+
+def fromRGB(input_nc, output_nc, bias):
+    layers = []
+    layers += [nn.Conv3d(input_nc, output_nc, 4, 2, 1, bias=bias)]
     layers += [nn.LeakyReLU(0.2, inplace=True)]
     return nn.Sequential(*layers)
 

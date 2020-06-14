@@ -52,6 +52,43 @@ from torch.autograd import Variable
 from torch.nn import init
 
 
+def log_sum_exp(tensor, dim=-1, sum_op=torch.sum):
+    """
+    Uses the LogSumExp (LSE) as an approximation for the sum in a log-domain.
+    :param tensor: Tensor to compute LSE over
+    :param dim: dimension to perform operation over
+    :param sum_op: reductive operation to be applied, e.g. torch.sum or torch.mean
+    :return: LSE
+    """
+    max, _ = torch.max(tensor, dim=dim, keepdim=True)
+    return torch.log(sum_op(torch.exp(tensor - max), dim=dim, keepdim=True) +
+        1e-08) + max
+
+
+class ImportanceWeightedSampler(object):
+    """
+    Importance weighted sampler [Burda 2015] to
+    be used in conjunction with SVI.
+    """
+
+    def __init__(self, mc=1, iw=1):
+        """
+        Initialise a new sampler.
+        :param mc: number of Monte Carlo samples
+        :param iw: number of Importance Weighted samples
+        """
+        self.mc = mc
+        self.iw = iw
+
+    def resample(self, x):
+        return x.repeat(self.mc * self.iw, 1)
+
+    def __call__(self, elbo):
+        elbo = elbo.view(self.mc, self.iw, -1)
+        elbo = torch.mean(log_sum_exp(elbo, dim=1, sum_op=torch.mean), dim=0)
+        return elbo.view(-1)
+
+
 def log_standard_categorical(p):
     """
     Calculates the cross entropy between a (one-hot) categorical vector
@@ -88,43 +125,6 @@ def enumerate_discrete(x, y_dim):
     if x.is_cuda:
         generated = generated.cuda()
     return Variable(generated.float())
-
-
-def log_sum_exp(tensor, dim=-1, sum_op=torch.sum):
-    """
-    Uses the LogSumExp (LSE) as an approximation for the sum in a log-domain.
-    :param tensor: Tensor to compute LSE over
-    :param dim: dimension to perform operation over
-    :param sum_op: reductive operation to be applied, e.g. torch.sum or torch.mean
-    :return: LSE
-    """
-    max, _ = torch.max(tensor, dim=dim, keepdim=True)
-    return torch.log(sum_op(torch.exp(tensor - max), dim=dim, keepdim=True) +
-        1e-08) + max
-
-
-class ImportanceWeightedSampler(object):
-    """
-    Importance weighted sampler [Burda 2015] to
-    be used in conjunction with SVI.
-    """
-
-    def __init__(self, mc=1, iw=1):
-        """
-        Initialise a new sampler.
-        :param mc: number of Monte Carlo samples
-        :param iw: number of Importance Weighted samples
-        """
-        self.mc = mc
-        self.iw = iw
-
-    def resample(self, x):
-        return x.repeat(self.mc * self.iw, 1)
-
-    def __call__(self, elbo):
-        elbo = elbo.view(self.mc, self.iw, -1)
-        elbo = torch.mean(log_sum_exp(elbo, dim=1, sum_op=torch.mean), dim=0)
-        return elbo.view(-1)
 
 
 class SVI(nn.Module):

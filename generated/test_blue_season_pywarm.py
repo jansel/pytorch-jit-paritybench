@@ -60,24 +60,6 @@ spec_b0 = (16, 1, 3, 1, 1, 0.25, 0.2), (24, 6, 3, 2, 2, 0.25, 0.2), (40, 6,
     0.25, 0.2), (192, 6, 5, 2, 4, 0.25, 0.2), (320, 6, 3, 1, 1, 0.25, 0.2)
 
 
-def conv_pad_same(x, size, kernel=1, stride=1, **kw):
-    pad = 0
-    if kernel != 1 or stride != 1:
-        in_size, s, k = [torch.as_tensor(v) for v in (x.shape[2:], stride,
-            kernel)]
-        pad = torch.max(((in_size + s - 1) // s - 1) * s + k - in_size,
-            torch.tensor(0))
-        left, right = pad // 2, pad - pad // 2
-        if torch.all(left == right):
-            pad = tuple(left.tolist())
-        else:
-            left, right = left.tolist(), right.tolist()
-            pad = sum(zip(left[::-1], right[::-1]), ())
-            x = F.pad(x, pad)
-            pad = 0
-    return W.conv(x, size, kernel, stride=stride, padding=pad, **kw)
-
-
 def is_ready(model):
     """ Check if a `model` is prepared. """
     return hasattr(model, '_pywarm_forward_pre_hook')
@@ -119,17 +101,18 @@ def namespace(f):
     return _wrapped
 
 
+def drop_connect(x, rate):
+    """ Randomly set entire batch to 0. """
+    if rate == 0:
+        return x
+    rate = 1.0 - rate
+    drop_mask = torch.rand([x.shape[0], 1, 1, 1], device=x.device,
+        requires_grad=False) + rate
+    return x / rate * drop_mask.floor()
+
+
 def swish(x):
     return x * torch.sigmoid(x)
-
-
-@namespace
-def conv_bn_act(x, size, kernel=1, stride=1, groups=1, bias=False, eps=
-    0.001, momentum=0.01, act=swish, name='', **kw):
-    x = conv_pad_same(x, size, kernel, stride=stride, groups=groups, bias=
-        bias, name=name + '-conv')
-    return W.batch_norm(x, eps=eps, momentum=momentum, activation=act, name
-        =name + '-bn')
 
 
 @namespace
@@ -142,14 +125,31 @@ def squeeze_excitation(x, size_se, name='', **kw):
     return W.conv(x, size_in, 1, activation=swish, name=name + '-conv2')
 
 
-def drop_connect(x, rate):
-    """ Randomly set entire batch to 0. """
-    if rate == 0:
-        return x
-    rate = 1.0 - rate
-    drop_mask = torch.rand([x.shape[0], 1, 1, 1], device=x.device,
-        requires_grad=False) + rate
-    return x / rate * drop_mask.floor()
+def conv_pad_same(x, size, kernel=1, stride=1, **kw):
+    pad = 0
+    if kernel != 1 or stride != 1:
+        in_size, s, k = [torch.as_tensor(v) for v in (x.shape[2:], stride,
+            kernel)]
+        pad = torch.max(((in_size + s - 1) // s - 1) * s + k - in_size,
+            torch.tensor(0))
+        left, right = pad // 2, pad - pad // 2
+        if torch.all(left == right):
+            pad = tuple(left.tolist())
+        else:
+            left, right = left.tolist(), right.tolist()
+            pad = sum(zip(left[::-1], right[::-1]), ())
+            x = F.pad(x, pad)
+            pad = 0
+    return W.conv(x, size, kernel, stride=stride, padding=pad, **kw)
+
+
+@namespace
+def conv_bn_act(x, size, kernel=1, stride=1, groups=1, bias=False, eps=
+    0.001, momentum=0.01, act=swish, name='', **kw):
+    x = conv_pad_same(x, size, kernel, stride=stride, groups=groups, bias=
+        bias, name=name + '-conv')
+    return W.batch_norm(x, eps=eps, momentum=momentum, activation=act, name
+        =name + '-bn')
 
 
 @namespace
@@ -265,11 +265,6 @@ def conv_bn_relu(x, size, stride=1, expand=1, kernel=3, groups=1, name=''):
     return W.batch_norm(x, activation='relu6', name=f'{name}-1')
 
 
-def classify(x, size, *arg, **kw):
-    x = W.dropout(x, rate=0.2, name='classifier-0')
-    return W.linear(x, size, name='classifier-1')
-
-
 def bottleneck(x, size_out, stride, expand, name=''):
     size_in = x.shape[1]
     size_mid = size_in * expand
@@ -285,12 +280,17 @@ def bottleneck(x, size_out, stride, expand, name=''):
     return y
 
 
+def conv1x1(x, *arg, **kw):
+    return conv_bn_relu(x, *arg, kernel=1, **kw)
+
+
 def pool(x, *arg, **kw):
     return x.mean([2, 3])
 
 
-def conv1x1(x, *arg, **kw):
-    return conv_bn_relu(x, *arg, kernel=1, **kw)
+def classify(x, size, *arg, **kw):
+    x = W.dropout(x, rate=0.2, name='classifier-0')
+    return W.linear(x, size, name='classifier-1')
 
 
 default_spec = (None, 32, 1, 2, conv_bn_relu), (1, 16, 1, 1, bottleneck), (

@@ -223,11 +223,7 @@ class Stem(nn.Module):
         return x
 
 
-def relu_conv_bn(in_channels: int, out_channels: int, kernel_size: int=1,
-    stride: int=1, padding: int=0) ->nn.Module:
-    return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_channels,
-        out_channels, kernel_size, stride, padding, bias=False), nn.
-        BatchNorm2d(out_channels))
+NORMAL_CONCAT = [0, 3, 4, 6]
 
 
 class Operation(nn.Module):
@@ -268,6 +264,28 @@ class FactorizedReduce(nn.Module):
         return x
 
 
+class pop:
+    """The command to pop a skip tensor.
+
+    ::
+
+        def forward(self, input):
+            skip = yield pop('name')
+            return f(input) + skip
+
+    Args:
+        name (str): name of skip tensor
+
+    Returns:
+        the skip tensor previously stashed by another layer under the same name
+
+    """
+    __slots__ = 'name',
+
+    def __init__(self, name: str) ->None:
+        self.name = name
+
+
 class stash:
     """The command to stash a skip tensor.
 
@@ -289,26 +307,10 @@ class stash:
         self.tensor = tensor
 
 
-class pop:
-    """The command to pop a skip tensor.
+Tensors = Tuple[Tensor, ...]
 
-    ::
 
-        def forward(self, input):
-            skip = yield pop('name')
-            return f(input) + skip
-
-    Args:
-        name (str): name of skip tensor
-
-    Returns:
-        the skip tensor previously stashed by another layer under the same name
-
-    """
-    __slots__ = 'name',
-
-    def __init__(self, name: str) ->None:
-        self.name = name
+TensorOrTensors = Union[Tensor, Tensors]
 
 
 class Pass(nn.Module):
@@ -442,10 +444,20 @@ class DeferredBatchNorm(_BatchNorm):
         return cast(TModule, module_output)
 
 
-Tensors = Tuple[Tensor, ...]
+class CPUStreamType:
+    pass
 
 
-TensorOrTensors = Union[Tensor, Tensors]
+AbstractStream = Union[torch.cuda.Stream, CPUStreamType]
+
+
+class BalanceError(ValueError):
+    pass
+
+
+MOVING_DENIED = TypeError(
+    'denied to move parameters and buffers, because GPipe should manage device placement'
+    )
 
 
 import torch

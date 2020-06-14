@@ -202,6 +202,148 @@ import torch
 from torch import nn
 
 
+class Space(object):
+    """Basic search space describing set of possible values for hyperparameter.
+    """
+    pass
+
+
+class NestedSpace(Space):
+    """Nested hyperparameter search space, which is a search space that itself contains multiple search spaces.
+    """
+
+    def sample(self, **config):
+        """Sample a configuration from this search space.
+        """
+        pass
+
+    @property
+    def cs(self):
+        """ ConfigSpace representation of this search space.
+        """
+        raise NotImplementedError
+
+    @property
+    def kwspaces(self):
+        """ OrderedDict representation of this search space.
+        """
+        raise NotImplementedError
+
+    @property
+    def default(self):
+        """Return default value for hyperparameter corresponding to this search space.
+        """
+        config = self.cs.get_default_configuration().get_dictionary()
+        return self.sample(**config)
+
+    @property
+    def rand(self):
+        """Randomly sample configuration from this nested search space.
+        """
+        config = self.cs.sample_configuration().get_dictionary()
+        return self.sample(**config)
+
+
+def _add_hp(cs, hp):
+    if hp.name in cs._hyperparameters:
+        cs._hyperparameters[hp.name] = hp
+    else:
+        cs.add_hyperparameter(hp)
+
+
+def _add_cs(master_cs, sub_cs, prefix, delimiter='.', parent_hp=None):
+    new_parameters = []
+    for hp in sub_cs.get_hyperparameters():
+        new_parameter = copy.deepcopy(hp)
+        if new_parameter.name == '':
+            new_parameter.name = prefix
+        elif not prefix == '':
+            new_parameter.name = '%s%s%s' % (prefix, '.', new_parameter.name)
+        new_parameters.append(new_parameter)
+    for hp in new_parameters:
+        _add_hp(master_cs, hp)
+
+
+def _strip_config_space(config, prefix):
+    new_config = {}
+    for k, v in config.items():
+        if k.startswith(prefix):
+            new_config[k[len(prefix) + 1:]] = v
+    return new_config
+
+
+class Categorical(NestedSpace):
+    """Nested search space for hyperparameters which are categorical. Such a hyperparameter takes one value out of the discrete set of provided options.
+
+    Parameters
+    ----------
+    data : Space or python built-in objects
+        the choice candidates
+
+    Examples
+    --------
+    a = ag.space.Categorical('a', 'b', 'c', 'd')
+    b = ag.space.Categorical('resnet50', autogluon_obj())
+    """
+
+    def __init__(self, *data):
+        self.data = [*data]
+
+    def __iter__(self):
+        for elem in self.data:
+            yield elem
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def __setitem__(self, index, data):
+        self.data[index] = data
+
+    def __len__(self):
+        return len(self.data)
+
+    @property
+    def cs(self):
+        """ ConfigSpace representation of this search space.
+        """
+        cs = CS.ConfigurationSpace()
+        if len(self.data) == 0:
+            return CS.ConfigurationSpace()
+        hp = CSH.CategoricalHyperparameter(name='choice', choices=range(len
+            (self.data)))
+        _add_hp(cs, hp)
+        for i, v in enumerate(self.data):
+            if isinstance(v, NestedSpace):
+                _add_cs(cs, v.cs, str(i))
+        return cs
+
+    def sample(self, **config):
+        """Sample a configuration from this search space.
+        """
+        choice = config.pop('choice')
+        if isinstance(self.data[choice], NestedSpace):
+            min_config = _strip_config_space(config, prefix=str(choice))
+            return self.data[choice].sample(**min_config)
+        else:
+            return self.data[choice]
+
+    @property
+    def kwspaces(self):
+        """OrderedDict representation of this search space.
+        """
+        kw_spaces = OrderedDict()
+        for idx, obj in enumerate(self.data):
+            if isinstance(obj, NestedSpace):
+                for sub_k, sub_v in obj.kwspaces.items():
+                    new_k = '{}.{}'.format(idx, sub_k)
+                    kw_spaces[new_k] = sub_v
+        return kw_spaces
+
+    def __repr__(self):
+        reprstr = self.__class__.__name__ + str(self.data)
+        return reprstr
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

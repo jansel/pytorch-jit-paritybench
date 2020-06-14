@@ -431,6 +431,20 @@ class frrn(nn.Module):
         return x
 
 
+def get_interp_size(input, s_factor=1, z_factor=1):
+    ori_h, ori_w = input.shape[2:]
+    ori_h = (ori_h - 1) / s_factor + 1
+    ori_w = (ori_w - 1) / s_factor + 1
+    ori_h = ori_h + (ori_h - 1) * (z_factor - 1)
+    ori_w = ori_w + (ori_w - 1) * (z_factor - 1)
+    resize_shape = int(ori_h), int(ori_w)
+    return resize_shape
+
+
+icnet_specs = {'cityscapes': {'n_classes': 19, 'input_size': (1025, 2049),
+    'block_config': [3, 4, 6, 3]}}
+
+
 def multi_scale_cross_entropy2d(input, target, weight=None, size_average=
     True, scale_weight=None):
     if not isinstance(input, tuple):
@@ -446,20 +460,6 @@ def multi_scale_cross_entropy2d(input, target, weight=None, size_average=
         loss = loss + scale_weight[i] * cross_entropy2d(input=inp, target=
             target, weight=weight, size_average=size_average)
     return loss
-
-
-icnet_specs = {'cityscapes': {'n_classes': 19, 'input_size': (1025, 2049),
-    'block_config': [3, 4, 6, 3]}}
-
-
-def get_interp_size(input, s_factor=1, z_factor=1):
-    ori_h, ori_w = input.shape[2:]
-    ori_h = (ori_h - 1) / s_factor + 1
-    ori_w = (ori_w - 1) / s_factor + 1
-    ori_h = ori_h + (ori_h - 1) * (z_factor - 1)
-    ori_w = ori_w + (ori_w - 1) * (z_factor - 1)
-    resize_shape = int(ori_h), int(ori_w)
-    return resize_shape
 
 
 class icnet(nn.Module):
@@ -1781,9 +1781,11 @@ class Test_meetshah1995_pytorch_semseg(_paritybench_base):
     def test_017(self):
         self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_018(self):
         self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_019(self):
         self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

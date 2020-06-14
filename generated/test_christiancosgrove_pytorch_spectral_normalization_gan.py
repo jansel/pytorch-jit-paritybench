@@ -77,10 +77,10 @@ class Generator(nn.Module):
         return self.model(z.view(-1, self.z_dim, 1, 1))
 
 
-w_g = 4
-
-
 leak = 0.1
+
+
+w_g = 4
 
 
 class Discriminator(nn.Module):

@@ -31,12 +31,16 @@ import torch.nn.functional as F
 import numpy as np
 
 
-def kmax_pooling(x, dim, k):
-    index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
-    return x.gather(dim, index)
-
-
 FILTER_LENGTH = 1
+
+
+J = 4
+
+
+K = 300
+
+
+L = 128
 
 
 TOTAL_LETTER_GRAMS = int(3 * 10000.0)
@@ -48,13 +52,9 @@ WINDOW_SIZE = 3
 WORD_DEPTH = WINDOW_SIZE * TOTAL_LETTER_GRAMS
 
 
-K = 300
-
-
-J = 4
-
-
-L = 128
+def kmax_pooling(x, dim, k):
+    index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
+    return x.gather(dim, index)
 
 
 class CDSSM(nn.Module):

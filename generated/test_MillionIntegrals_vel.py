@@ -881,12 +881,6 @@ class OuNoise(nn.Module):
             high_tensor)
 
 
-def gaussian_noise(in_features, out_features, device):
-    """ Normal gaussian N(0, 1) noise """
-    return torch.randn((in_features, out_features), device=device
-        ), torch.randn(out_features, device=device)
-
-
 def scaled_noise(size, device):
     x = torch.randn(size, device=device)
     return x.sign().mul_(x.abs().sqrt_())
@@ -900,6 +894,12 @@ def factorized_gaussian_noise(in_features, out_features, device):
     in_noise = scaled_noise(in_features, device=device)
     out_noise = scaled_noise(out_features, device=device)
     return out_noise.ger(in_noise), out_noise
+
+
+def gaussian_noise(in_features, out_features, device):
+    """ Normal gaussian N(0, 1) noise """
+    return torch.randn((in_features, out_features), device=device
+        ), torch.randn(out_features, device=device)
 
 
 class NoisyLinear(nn.Module):

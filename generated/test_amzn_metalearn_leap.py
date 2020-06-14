@@ -166,6 +166,34 @@ class Res:
         self.acc = self.ncorrects.sum() / self.nsamples.sum()
 
 
+def maml_inner_step(input, output, model, optimizer, criterion, create_graph):
+    """Create a computation graph through the gradient operation
+
+    Arguments:
+        input (torch.Tensor): input tensor.
+        output (torch.Tensor): target tensor.
+        model (torch.nn.Module): task learner.
+        optimizer (maml.optim): optimizer for inner loop.
+        criterion (func): loss criterion.
+        create_graph (bool): create graph through gradient step.
+    """
+    new_parameters = None
+    prediction = model(input)
+    loss = criterion(prediction, output)
+    loss.backward(create_graph=create_graph, retain_graph=create_graph)
+    if create_graph:
+        _, new_parameters = optimizer.step(retain_graph=create_graph)
+    else:
+        optimizer.step(retain_graph=create_graph)
+    return loss, prediction, new_parameters
+
+
+def build_dict(names, parameters):
+    """Populate an ordered dictionary of parameters"""
+    state_dict = OrderedDict({n: p for n, p in zip(names, parameters)})
+    return state_dict
+
+
 def _load_from_par_dict(module, par_dict, prefix):
     """Replace the module's _parameter dict with par_dict"""
     _new_parameters = OrderedDict()
@@ -224,34 +252,6 @@ def load_state_dict(module, state_dict):
             if child is not None:
                 load(child, prefix + name + '.')
     load(module)
-
-
-def build_dict(names, parameters):
-    """Populate an ordered dictionary of parameters"""
-    state_dict = OrderedDict({n: p for n, p in zip(names, parameters)})
-    return state_dict
-
-
-def maml_inner_step(input, output, model, optimizer, criterion, create_graph):
-    """Create a computation graph through the gradient operation
-
-    Arguments:
-        input (torch.Tensor): input tensor.
-        output (torch.Tensor): target tensor.
-        model (torch.nn.Module): task learner.
-        optimizer (maml.optim): optimizer for inner loop.
-        criterion (func): loss criterion.
-        create_graph (bool): create graph through gradient step.
-    """
-    new_parameters = None
-    prediction = model(input)
-    loss = criterion(prediction, output)
-    loss.backward(create_graph=create_graph, retain_graph=create_graph)
-    if create_graph:
-        _, new_parameters = optimizer.step(retain_graph=create_graph)
-    else:
-        optimizer.step(retain_graph=create_graph)
-    return loss, prediction, new_parameters
 
 
 def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph

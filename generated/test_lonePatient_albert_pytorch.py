@@ -1039,7 +1039,7 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
+CONFIG_NAME = 'config.json'
 
 
 class Conv1D(nn.Module):

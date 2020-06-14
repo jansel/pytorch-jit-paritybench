@@ -102,6 +102,9 @@ from torch.optim.lr_scheduler import MultiStepLR
 import scipy.stats
 
 
+models = {}
+
+
 datasets = {}
 
 
@@ -111,9 +114,6 @@ def register(name):
         datasets[name] = cls
         return cls
     return decorator
-
-
-models = {}
 
 
 @register('classifier')

@@ -164,6 +164,10 @@ class ComplexYOLO(nn.Module):
         return x
 
 
+anchors = [[1.08, 1.19], [3.42, 4.41], [6.63, 11.38], [9.42, 5.11], [16.62,
+    10.52]]
+
+
 def bbox_iou(box1, box2, x1y1x2y2=True):
     """
     Returns the IoU of two bounding boxes
@@ -245,10 +249,6 @@ def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors,
             if iou > 0.5 and pred_label == target_label and score > 0.5:
                 nCorrect += 1
     return nGT, nCorrect, mask, conf_mask, tx, ty, tw, tl, tconf, tcls
-
-
-anchors = [[1.08, 1.19], [3.42, 4.41], [6.63, 11.38], [9.42, 5.11], [16.62,
-    10.52]]
 
 
 class RegionLoss(nn.Module):

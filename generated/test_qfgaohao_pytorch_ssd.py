@@ -223,16 +223,6 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
-def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
-    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
-    if use_batch_norm:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(oup), ReLU(inplace=True))
-    else:
-        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-            ReLU(inplace=True))
-
-
 def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
     if use_batch_norm:
@@ -241,6 +231,16 @@ def conv_1x1_bn(inp, oup, use_batch_norm=True, onnx_compatible=False):
     else:
         return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), ReLU
             (inplace=True))
+
+
+def conv_bn(inp, oup, stride, use_batch_norm=True, onnx_compatible=False):
+    ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
+    if use_batch_norm:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(oup), ReLU(inplace=True))
+    else:
+        return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+            ReLU(inplace=True))
 
 
 class MobileNetV2(nn.Module):

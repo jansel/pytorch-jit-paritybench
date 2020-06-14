@@ -256,6 +256,15 @@ class EncoderLayer(nn.Module):
         return enc_output, self_attn
 
 
+def pad_list(xs, pad_value):
+    n_batch = len(xs)
+    max_len = constant.args.tgt_max_len
+    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
+    for i in range(n_batch):
+        pad[(i), :xs[i].size(0)] = xs[i]
+    return pad
+
+
 def is_chinese_char(cc):
     return unicodedata.category(cc) == 'Lo'
 
@@ -335,15 +344,6 @@ def calculate_lm_score(seq, lm, id2label):
     score, oov_token = lm.evaluate(seq_str)
     return -1 * score / len(seq_str.split()) + 1, len(seq_str.split()
         ) + 1, oov_token
-
-
-def pad_list(xs, pad_value):
-    n_batch = len(xs)
-    max_len = constant.args.tgt_max_len
-    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
-    for i in range(n_batch):
-        pad[(i), :xs[i].size(0)] = xs[i]
-    return pad
 
 
 def get_subsequent_mask(seq):

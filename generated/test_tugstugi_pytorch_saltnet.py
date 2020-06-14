@@ -278,91 +278,31 @@ class AdaptiveConcatPool2d(nn.Module):
         return torch.cat([self.mp(x), self.ap(x)], 1)
 
 
-def upsample(size=None, scale_factor=None):
-    return nn.Upsample(size=size, scale_factor=scale_factor, mode=
-        'bilinear', align_corners=False)
+def darknet(pretrained):
+    from .darknet import KitModel as DarkNet
+    net = DarkNet()
+    if pretrained:
+        state_dict = torch.load('/media/data/model_zoo/coco/pytorch_yolov3.pth'
+            )
+        net.load_state_dict(state_dict)
+    n_pretrained = 3 if pretrained else 0
+    return [net.model0, net.model1, net.model2], True, n_pretrained
 
 
-def replace_bn(bn, act=None):
-    slop = 0.01
-    if isinstance(act, nn.ReLU):
-        activation = 'leaky_relu'
-    elif isinstance(act, nn.LeakyReLU):
-        activation = 'leaky_relu'
-        slope = act.negative_slope
-    elif isinstance(act, nn.ELU):
-        activation = 'elu'
-    else:
-        activation = 'none'
-    abn = ActivatedBatchNorm(num_features=bn.num_features, eps=bn.eps,
-        momentum=bn.momentum, affine=bn.affine, track_running_stats=bn.
-        track_running_stats, activation=activation, slope=slop)
-    abn.load_state_dict(bn.state_dict())
-    return abn
+MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
 
 
-def replace_bn_in_block(block):
-    block.bn1 = replace_bn(block.bn1, block.relu)
-    block.bn2 = replace_bn(block.bn2, block.relu)
-    block.bn3 = replace_bn(block.bn3)
-    block.relu = DummyModule()
-    if block.downsample:
-        block.downsample = replace_bn_in_sequential(block.downsample)
-    return nn.Sequential(block, nn.ReLU(inplace=True))
+MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL +
+    'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': 
+    MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
 
 
-def replace_bn_in_sequential(layer0, block=None):
-    layer0_modules = []
-    last_bn = None
-    for n, m in layer0.named_children():
-        if isinstance(m, nn.BatchNorm2d):
-            last_bn = n, m
-        else:
-            activation = 'none'
-            if last_bn:
-                abn = replace_bn(last_bn[1], m)
-                activation = abn.activation
-                layer0_modules.append((last_bn[0], abn))
-                last_bn = None
-            if activation == 'none':
-                if block and isinstance(m, block):
-                    m = replace_bn_in_block(m)
-                elif isinstance(m, nn.Sequential):
-                    m = replace_bn_in_sequential(m, block)
-                layer0_modules.append((n, m))
-    if last_bn:
-        abn = replace_bn(last_bn[1])
-        layer0_modules.append((last_bn[0], abn))
-    return nn.Sequential(OrderedDict(layer0_modules))
-
-
-def se_net(name, pretrained):
-    import pretrainedmodels
-    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
-        'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
-        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
-        senet = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=imagenet_pretrained)
-    else:
-        return NotImplemented
-    layer0 = replace_bn_in_sequential(senet.layer0)
-    block = senet.layer1[0].__class__
-    layer1 = replace_bn_in_sequential(senet.layer1, block=block)
-    layer1.out_channels = layer1[-1].out_channels = senet.layer1[-1
-        ].conv3.out_channels
-    layer0.out_channels = layer0[-1].out_channels = senet.layer1[0
-        ].conv1.in_channels
-    layer2 = replace_bn_in_sequential(senet.layer2, block=block)
-    layer2.out_channels = layer2[-1].out_channels = senet.layer2[-1
-        ].conv3.out_channels
-    layer3 = replace_bn_in_sequential(senet.layer3, block=block)
-    layer3.out_channels = layer3[-1].out_channels = senet.layer3[-1
-        ].conv3.out_channels
-    layer4 = replace_bn_in_sequential(senet.layer4, block=block)
-    layer4.out_channels = layer4[-1].out_channels = senet.layer4[-1
-        ].conv3.out_channels
-    n_pretrained = 5 if imagenet_pretrained else 0
-    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
+def load_pretrained_weights(layers, name, dataset_name):
+    state_dict = model_zoo.load_url(MODEL_URLS[name][dataset_name])
+    mock_module = MockModule(layers)
+    mock_module.load_state_dict(state_dict, strict=False)
 
 
 def get_out_channels(layers):
@@ -447,14 +387,96 @@ def resnext(name, pretrained):
     return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
 
 
-def ConvRelu(*args, **kwargs):
-    return Sequential(nn.Conv2d(*args, **kwargs), nn.ReLU(inplace=True))
+def replace_bn(bn, act=None):
+    slop = 0.01
+    if isinstance(act, nn.ReLU):
+        activation = 'leaky_relu'
+    elif isinstance(act, nn.LeakyReLU):
+        activation = 'leaky_relu'
+        slope = act.negative_slope
+    elif isinstance(act, nn.ELU):
+        activation = 'elu'
+    else:
+        activation = 'none'
+    abn = ActivatedBatchNorm(num_features=bn.num_features, eps=bn.eps,
+        momentum=bn.momentum, affine=bn.affine, track_running_stats=bn.
+        track_running_stats, activation=activation, slope=slop)
+    abn.load_state_dict(bn.state_dict())
+    return abn
+
+
+def replace_bn_in_block(block):
+    block.bn1 = replace_bn(block.bn1, block.relu)
+    block.bn2 = replace_bn(block.bn2, block.relu)
+    block.bn3 = replace_bn(block.bn3)
+    block.relu = DummyModule()
+    if block.downsample:
+        block.downsample = replace_bn_in_sequential(block.downsample)
+    return nn.Sequential(block, nn.ReLU(inplace=True))
+
+
+def replace_bn_in_sequential(layer0, block=None):
+    layer0_modules = []
+    last_bn = None
+    for n, m in layer0.named_children():
+        if isinstance(m, nn.BatchNorm2d):
+            last_bn = n, m
+        else:
+            activation = 'none'
+            if last_bn:
+                abn = replace_bn(last_bn[1], m)
+                activation = abn.activation
+                layer0_modules.append((last_bn[0], abn))
+                last_bn = None
+            if activation == 'none':
+                if block and isinstance(m, block):
+                    m = replace_bn_in_block(m)
+                elif isinstance(m, nn.Sequential):
+                    m = replace_bn_in_sequential(m, block)
+                layer0_modules.append((n, m))
+    if last_bn:
+        abn = replace_bn(last_bn[1])
+        layer0_modules.append((last_bn[0], abn))
+    return nn.Sequential(OrderedDict(layer0_modules))
+
+
+def se_net(name, pretrained):
+    import pretrainedmodels
+    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
+        'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
+        imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
+        senet = pretrainedmodels.__dict__[name](num_classes=1000,
+            pretrained=imagenet_pretrained)
+    else:
+        return NotImplemented
+    layer0 = replace_bn_in_sequential(senet.layer0)
+    block = senet.layer1[0].__class__
+    layer1 = replace_bn_in_sequential(senet.layer1, block=block)
+    layer1.out_channels = layer1[-1].out_channels = senet.layer1[-1
+        ].conv3.out_channels
+    layer0.out_channels = layer0[-1].out_channels = senet.layer1[0
+        ].conv1.in_channels
+    layer2 = replace_bn_in_sequential(senet.layer2, block=block)
+    layer2.out_channels = layer2[-1].out_channels = senet.layer2[-1
+        ].conv3.out_channels
+    layer3 = replace_bn_in_sequential(senet.layer3, block=block)
+    layer3.out_channels = layer3[-1].out_channels = senet.layer3[-1
+        ].conv3.out_channels
+    layer4 = replace_bn_in_sequential(senet.layer4, block=block)
+    layer4.out_channels = layer4[-1].out_channels = senet.layer4[-1
+        ].conv3.out_channels
+    n_pretrained = 5 if imagenet_pretrained else 0
+    return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
 
 
 def ConvBnRelu(*args, **kwargs):
     """drop in block for nn.Conv2d with BatchNorm and ReLU"""
     c = nn.Conv2d(*args, **kwargs)
     return Sequential(c, nn.BatchNorm2d(c.out_channels), nn.ReLU(inplace=True))
+
+
+def ConvRelu(*args, **kwargs):
+    return Sequential(nn.Conv2d(*args, **kwargs), nn.ReLU(inplace=True))
 
 
 def vgg_base_extra(bn):
@@ -506,33 +528,6 @@ def vgg(name, pretrained):
     return layers, bn, n_pretrained
 
 
-MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
-
-
-MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': 
-    MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
-
-
-def load_pretrained_weights(layers, name, dataset_name):
-    state_dict = model_zoo.load_url(MODEL_URLS[name][dataset_name])
-    mock_module = MockModule(layers)
-    mock_module.load_state_dict(state_dict, strict=False)
-
-
-def darknet(pretrained):
-    from .darknet import KitModel as DarkNet
-    net = DarkNet()
-    if pretrained:
-        state_dict = torch.load('/media/data/model_zoo/coco/pytorch_yolov3.pth'
-            )
-        net.load_state_dict(state_dict)
-    n_pretrained = 3 if pretrained else 0
-    return [net.model0, net.model1, net.model2], True, n_pretrained
-
-
 def create_basenet(name, pretrained):
     """
     Parameters
@@ -560,6 +555,11 @@ def create_basenet(name, pretrained):
         load_pretrained_weights(layers, name, pretrained)
         n_pretrained = len(layers)
     return layers, bn, n_pretrained
+
+
+def upsample(size=None, scale_factor=None):
+    return nn.Upsample(size=size, scale_factor=scale_factor, mode=
+        'bilinear', align_corners=False)
 
 
 class UNet(nn.Module):

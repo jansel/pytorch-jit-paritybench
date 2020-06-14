@@ -1100,30 +1100,93 @@ class LastLevelP6P7(nn.Module):
         return [p6, p7]
 
 
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
+def _register_generic(module_dict, module_name, module):
+    assert module_name not in module_dict
+    module_dict[module_name] = module
 
 
-_global_config['MODEL'] = 4
+class Registry(dict):
+    """
+    A helper class for managing registering modules, it extends a dictionary
+    and provides a register functions.
+
+    Eg. creeting a registry:
+        some_registry = Registry({"default": default_module})
+
+    There're two ways of registering new modules:
+    1): normal way is just calling register function:
+        def foo():
+            ...
+        some_registry.register("foo_module", foo)
+    2): used as decorator when declaring the module:
+        @some_registry.register("foo_module")
+        @some_registry.register("foo_modeul_nickname")
+        def foo():
+            ...
+
+    Access of module is just like using a dictionary, eg:
+        f = some_registry["foo_modeul"]
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Registry, self).__init__(*args, **kwargs)
+
+    def register(self, module_name, module=None):
+        if module is not None:
+            _register_generic(self, module_name, module)
+            return
+
+        def register_fn(fn):
+            _register_generic(self, module_name, fn)
+            return fn
+        return register_fn
 
 
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
+StageSpec = namedtuple('StageSpec', ['index', 'block_count', 'return_features']
+    )
+
+
+ResNet101FPNStagesTo5 = tuple(StageSpec(index=i, block_count=c,
+    return_features=r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 23, 
+    True), (4, 3, True)))
+
+
+ResNet101StagesTo4 = tuple(StageSpec(index=i, block_count=c,
+    return_features=r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 23,
+    True)))
+
+
+ResNet101StagesTo5 = tuple(StageSpec(index=i, block_count=c,
+    return_features=r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 23,
+    False), (4, 3, True)))
+
+
+ResNet152FPNStagesTo5 = tuple(StageSpec(index=i, block_count=c,
+    return_features=r) for i, c, r in ((1, 3, True), (2, 8, True), (3, 36, 
+    True), (4, 3, True)))
+
+
+ResNet50FPNStagesTo5 = tuple(StageSpec(index=i, block_count=c,
+    return_features=r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 6, 
+    True), (4, 3, True)))
+
+
+ResNet50StagesTo4 = tuple(StageSpec(index=i, block_count=c, return_features
+    =r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 6, True)))
+
+
+ResNet50StagesTo5 = tuple(StageSpec(index=i, block_count=c, return_features
+    =r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 6, False), (4, 3,
+    True)))
+
+
+_STAGE_SPECS = Registry({'R-50-C4': ResNet50StagesTo4, 'R-50-C5':
+    ResNet50StagesTo5, 'R-101-C4': ResNet101StagesTo4, 'R-101-C5':
+    ResNet101StagesTo5, 'R-50-FPN': ResNet50FPNStagesTo5, 'R-50-FPN-X':
+    ResNet50FPNStagesTo5, 'R-50-FPN-RETINANET': ResNet50FPNStagesTo5,
+    'R-101-FPN': ResNet101FPNStagesTo5, 'R-101-FPN-X':
+    ResNet101FPNStagesTo5, 'R-101-FPN-RETINANET': ResNet101FPNStagesTo5,
+    'R-152-FPN': ResNet152FPNStagesTo5, 'R-152-FPN-X': ResNet152FPNStagesTo5})
 
 
 class Bottleneck(nn.Module):
@@ -1229,6 +1292,19 @@ def build_roi_heads(cfg, in_channels):
     return roi_heads
 
 
+def build_retinanet(cfg, in_channels):
+    return RetinaNetModule(cfg, in_channels)
+
+
+def build_rpn(cfg, in_channels):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    if cfg.MODEL.RETINANET_ON:
+        return build_retinanet(cfg, in_channels)
+    return RPNModule(cfg, in_channels)
+
+
 class ImageList(object):
     """
     Structure that holds a list of images (of possibly
@@ -1287,19 +1363,6 @@ def to_image_list(tensors, size_divisible=0):
     else:
         raise TypeError('Unsupported type for to_image_list: {}'.format(
             type(tensors)))
-
-
-def build_retinanet(cfg, in_channels):
-    return RetinaNetModule(cfg, in_channels)
-
-
-def build_rpn(cfg, in_channels):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    if cfg.MODEL.RETINANET_ON:
-        return build_retinanet(cfg, in_channels)
-    return RPNModule(cfg, in_channels)
 
 
 class GeneralizedRCNN(nn.Module):
@@ -1922,20 +1985,10 @@ class BoxCoder(object):
         return pred_boxes
 
 
-def _cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
+FLIP_LEFT_RIGHT = 0
 
 
 FLIP_TOP_BOTTOM = 1
-
-
-FLIP_LEFT_RIGHT = 0
 
 
 class BoxList(object):
@@ -2161,30 +2214,6 @@ class BoxList(object):
         s += 'image_height={}, '.format(self.size[1])
         s += 'mode={})'.format(self.mode)
         return s
-
-
-def cat_boxlist(bboxes):
-    """
-    Concatenates a list of BoxList (having the same image size) into a
-    single BoxList
-
-    Arguments:
-        bboxes (list[BoxList])
-    """
-    assert isinstance(bboxes, (list, tuple))
-    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
-    size = bboxes[0].size
-    assert all(bbox.size == size for bbox in bboxes)
-    mode = bboxes[0].mode
-    assert all(bbox.mode == mode for bbox in bboxes)
-    fields = set(bboxes[0].fields())
-    assert all(set(bbox.fields()) == fields for bbox in bboxes)
-    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
-        )
-    for field in fields:
-        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
-        cat_boxes.add_field(field, data)
-    return cat_boxes
 
 
 class BoxPairList(object):
@@ -2454,6 +2483,40 @@ def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores'):
     return boxlist.convert(mode)
 
 
+def _cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def cat_boxlist(bboxes):
+    """
+    Concatenates a list of BoxList (having the same image size) into a
+    single BoxList
+
+    Arguments:
+        bboxes (list[BoxList])
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+    size = bboxes[0].size
+    assert all(bbox.size == size for bbox in bboxes)
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+    fields = set(bboxes[0].fields())
+    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode
+        )
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+    return cat_boxes
+
+
 class PostProcessor(nn.Module):
     """
     From a set of classification scores, box regression and proposals,
@@ -2666,8 +2729,18 @@ class MSDN_BASE(nn.Module):
         return torch.stack(feature_data, 0)
 
 
-def build_reldn_model(cfg, in_channels):
-    return RelDN(cfg, in_channels)
+def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
+    rel_ind_sub = proposal_idx_pairs[:, (0)]
+    rel_ind_obj = proposal_idx_pairs[:, (1)]
+    num_obj_im = torch.unique(im_inds)
+    num_obj_im = torch.cumsum(num_obj_im, dim=0)
+    rel_ind_offset_im = num_obj_im[im_inds_pairs - 1]
+    num_rels_im = torch.unique(im_inds_pairs)
+    rel_ind_offset_im[:num_rels_im[0]] = 0
+    rel_ind_offset_im = torch.squeeze(rel_ind_offset_im)
+    rel_ind_sub += rel_ind_offset_im
+    rel_ind_obj += rel_ind_offset_im
+    return torch.cat((rel_ind_sub[:, (None)], rel_ind_obj[:, (None)]), 1)
 
 
 def _get_tensor_from_boxlist(proposals, field='labels'):
@@ -2689,21 +2762,49 @@ def _get_tensor_from_boxlist(proposals, field='labels'):
     return bbox_batch, output_batch, im_inds_batch
 
 
-def make_roi_box_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    min_detections_per_img = cfg.MODEL.ROI_HEADS.MIN_DETECTIONS_PER_IMG
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
-    postprocessor = PostProcessor(score_thresh, nms_thresh,
-        detections_per_img, min_detections_per_img, box_coder,
-        cls_agnostic_bbox_reg, bbox_aug_enabled, relation_on=cfg.MODEL.
-        RELATION_ON)
-    return postprocessor
+def boxlist_iou(boxlist1, boxlist2):
+    """Compute the intersection over union of two set of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Arguments:
+      box1: (BoxList) bounding boxes, sized [N,4].
+      box2: (BoxList) bounding boxes, sized [M,4].
+
+    Returns:
+      (tensor) iou, sized [N,M].
+
+    Reference:
+      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
+    """
+    if boxlist1.size != boxlist2.size:
+        raise RuntimeError('boxlists should have same image size, got {}, {}'
+            .format(boxlist1, boxlist2))
+    boxlist1 = boxlist1.convert('xyxy')
+    boxlist2 = boxlist2.convert('xyxy')
+    N = len(boxlist1)
+    M = len(boxlist2)
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    lt = torch.max(box1[:, (None), :2], box2[:, :2])
+    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    TO_REMOVE = 1
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)
+    inter = wh[:, :, (0)] * wh[:, :, (1)]
+    iou = inter / (area1[:, (None)] + area2 - inter)
+    return iou
+
+
+def build_baseline_model(cfg, in_channels):
+    return Baseline(cfg, in_channels)
+
+
+def build_grcnn_model(cfg, in_channels):
+    return GRCNN(cfg, in_channels)
+
+
+def build_imp_model(cfg, in_channels):
+    return IMP(cfg, in_channels)
 
 
 class MSDN(MSDN_BASE):
@@ -2796,37 +2897,164 @@ def build_msdn_model(cfg, in_channels):
     return MSDN(cfg, in_channels)
 
 
-def boxlist_iou(boxlist1, boxlist2):
-    """Compute the intersection over union of two set of boxes.
-    The box order must be (xmin, ymin, xmax, ymax).
+def build_reldn_model(cfg, in_channels):
+    return RelDN(cfg, in_channels)
 
-    Arguments:
-      box1: (BoxList) bounding boxes, sized [N,4].
-      box2: (BoxList) bounding boxes, sized [M,4].
 
-    Returns:
-      (tensor) iou, sized [N,M].
-
-    Reference:
-      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
+class BalancedPositiveNegativePairSampler(object):
     """
-    if boxlist1.size != boxlist2.size:
-        raise RuntimeError('boxlists should have same image size, got {}, {}'
-            .format(boxlist1, boxlist2))
-    boxlist1 = boxlist1.convert('xyxy')
-    boxlist2 = boxlist2.convert('xyxy')
-    N = len(boxlist1)
-    M = len(boxlist2)
-    area1 = boxlist1.area()
-    area2 = boxlist2.area()
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
-    return iou
+    This class samples batches, ensuring that they contain a fixed proportion of positives
+    """
+
+    def __init__(self, batch_size_per_image, positive_fraction):
+        """
+        Arguments:
+            batch_size_per_image (int): number of elements to be selected per image
+            positive_fraction (float): percentage of positive elements per batch
+        """
+        self.batch_size_per_image = batch_size_per_image
+        self.positive_fraction = positive_fraction
+
+    def __call__(self, matched_idxs):
+        """
+        Arguments:
+            matched idxs: list of tensors containing -1, 0 or positive values.
+                Each tensor corresponds to a specific image.
+                -1 values are ignored, 0 are considered as negatives and > 0 as
+                positives.
+
+        Returns:
+            pos_idx (list[tensor])
+            neg_idx (list[tensor])
+
+        Returns two lists of binary masks for each image.
+        The first list contains the positive elements that were selected,
+        and the second list the negative example.
+        """
+        pos_idx = []
+        neg_idx = []
+        for matched_idxs_per_image in matched_idxs:
+            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
+            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
+            num_pos = int(self.batch_size_per_image * self.positive_fraction)
+            num_pos = min(positive.numel(), num_pos)
+            num_neg = self.batch_size_per_image - num_pos
+            num_neg = min(negative.numel(), num_neg)
+            perm1 = torch.randperm(positive.numel(), device=positive.device)[:
+                num_pos]
+            perm2 = torch.randperm(negative.numel(), device=negative.device)[:
+                num_neg]
+            pos_idx_per_image = positive[perm1]
+            neg_idx_per_image = negative[perm2]
+            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.uint8)
+            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.uint8)
+            pos_idx_per_image_mask[pos_idx_per_image] = 1
+            neg_idx_per_image_mask[neg_idx_per_image] = 1
+            pos_idx.append(pos_idx_per_image_mask)
+            neg_idx.append(neg_idx_per_image_mask)
+        return pos_idx, neg_idx
+
+
+class PairMatcher(object):
+    """
+    This class assigns to each predicted "element" (e.g., a box) a ground-truth
+    element. Each predicted element will have exactly zero or one matches; each
+    ground-truth element may be assigned to zero or more predicted elements.
+
+    Matching is based on the MxN match_quality_matrix, that characterizes how well
+    each (ground-truth, predicted)-pair match. For example, if the elements are
+    boxes, the matrix may contain box IoU overlap values.
+
+    The matcher returns a tensor of size N containing the index of the ground-truth
+    element m that matches to prediction n. If there is no match, a negative value
+    is returned.
+    """
+    BELOW_LOW_THRESHOLD = -1
+    BETWEEN_THRESHOLDS = -2
+
+    def __init__(self, high_threshold, low_threshold,
+        allow_low_quality_matches=False):
+        """
+        Args:
+            high_threshold (float): quality values greater than or equal to
+                this value are candidate matches.
+            low_threshold (float): a lower quality threshold used to stratify
+                matches into three levels:
+                1) matches >= high_threshold
+                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
+                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
+            allow_low_quality_matches (bool): if True, produce additional matches
+                for predictions that have only low-quality match candidates. See
+                set_low_quality_matches_ for more details.
+        """
+        assert low_threshold <= high_threshold
+        self.high_threshold = high_threshold
+        self.low_threshold = low_threshold
+        self.allow_low_quality_matches = allow_low_quality_matches
+
+    def __call__(self, match_pair_quality_matrix):
+        """
+        Args:
+            match_pair_quality_matrix (Tensor[float]): an MxN tensor, containing the
+            pairwise quality between M ground-truth pairs and N predicted pairs.
+
+        Returns:
+            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
+            [0, M - 1] or a negative value indicating that prediction i could not
+            be matched.
+        """
+        if match_pair_quality_matrix.numel() == 0:
+            if match_quality_matrix.shape[0] == 0:
+                raise ValueError(
+                    'No ground-truth boxes available for one of the images during training'
+                    )
+            else:
+                raise ValueError(
+                    'No proposal boxes available for one of the images during training'
+                    )
+        matched_vals, matches = match_pair_quality_matrix.max(dim=0)
+        if self.allow_low_quality_matches:
+            all_matches = matches.clone()
+        below_low_threshold = matched_vals < self.low_threshold
+        between_thresholds = (matched_vals >= self.low_threshold) & (
+            matched_vals < self.high_threshold)
+        matches[below_low_threshold] = PairMatcher.BELOW_LOW_THRESHOLD
+        matches[between_thresholds] = PairMatcher.BETWEEN_THRESHOLDS
+        if self.allow_low_quality_matches:
+            self.set_low_quality_matches_(matches, all_matches,
+                match_quality_matrix)
+        return matches
+
+    def set_low_quality_matches_(self, matches, all_matches,
+        match_quality_matrix):
+        """
+        Produce additional matches for predictions that have only low-quality matches.
+        Specifically, for each ground-truth find the set of predictions that have
+        maximum overlap with it (including ties); for each prediction in that set, if
+        it is unmatched, then match it to the ground-truth with which it has the highest
+        quality value.
+        """
+        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
+        gt_pred_pairs_of_highest_quality = torch.nonzero(
+            match_quality_matrix == highest_quality_foreach_gt[:, (None)])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
+
+
+def make_relation_proposal_network(cfg):
+    matcher = PairMatcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
+        ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    fg_bg_sampler = BalancedPositiveNegativePairSampler(cfg.MODEL.
+        ROI_RELATION_HEAD.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_RELATION_HEAD
+        .POSITIVE_FRACTION)
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    relpn = RelPN(cfg, matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg
+        )
+    return relpn
 
 
 def make_roi_box_feature_extractor(cfg, in_channels):
@@ -2835,21 +3063,26 @@ def make_roi_box_feature_extractor(cfg, in_channels):
     return func(cfg, in_channels)
 
 
-def build_grcnn_model(cfg, in_channels):
-    return GRCNN(cfg, in_channels)
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    min_detections_per_img = cfg.MODEL.ROI_HEADS.MIN_DETECTIONS_PER_IMG
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
+    postprocessor = PostProcessor(score_thresh, nms_thresh,
+        detections_per_img, min_detections_per_img, box_coder,
+        cls_agnostic_bbox_reg, bbox_aug_enabled, relation_on=cfg.MODEL.
+        RELATION_ON)
+    return postprocessor
 
 
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
+def make_roi_box_predictor(cfg, in_channels):
+    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg, in_channels)
 
 
 class Matcher(object):
@@ -2936,6 +3169,19 @@ class Matcher(object):
             match_quality_matrix == highest_quality_foreach_gt[:, (None)])
         pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
 
 
 class FastRCNNLossComputation(object):
@@ -3068,148 +3314,6 @@ class FastRCNNLossComputation(object):
         return classification_loss, box_loss
 
 
-class PairMatcher(object):
-    """
-    This class assigns to each predicted "element" (e.g., a box) a ground-truth
-    element. Each predicted element will have exactly zero or one matches; each
-    ground-truth element may be assigned to zero or more predicted elements.
-
-    Matching is based on the MxN match_quality_matrix, that characterizes how well
-    each (ground-truth, predicted)-pair match. For example, if the elements are
-    boxes, the matrix may contain box IoU overlap values.
-
-    The matcher returns a tensor of size N containing the index of the ground-truth
-    element m that matches to prediction n. If there is no match, a negative value
-    is returned.
-    """
-    BELOW_LOW_THRESHOLD = -1
-    BETWEEN_THRESHOLDS = -2
-
-    def __init__(self, high_threshold, low_threshold,
-        allow_low_quality_matches=False):
-        """
-        Args:
-            high_threshold (float): quality values greater than or equal to
-                this value are candidate matches.
-            low_threshold (float): a lower quality threshold used to stratify
-                matches into three levels:
-                1) matches >= high_threshold
-                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
-                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
-            allow_low_quality_matches (bool): if True, produce additional matches
-                for predictions that have only low-quality match candidates. See
-                set_low_quality_matches_ for more details.
-        """
-        assert low_threshold <= high_threshold
-        self.high_threshold = high_threshold
-        self.low_threshold = low_threshold
-        self.allow_low_quality_matches = allow_low_quality_matches
-
-    def __call__(self, match_pair_quality_matrix):
-        """
-        Args:
-            match_pair_quality_matrix (Tensor[float]): an MxN tensor, containing the
-            pairwise quality between M ground-truth pairs and N predicted pairs.
-
-        Returns:
-            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
-            [0, M - 1] or a negative value indicating that prediction i could not
-            be matched.
-        """
-        if match_pair_quality_matrix.numel() == 0:
-            if match_quality_matrix.shape[0] == 0:
-                raise ValueError(
-                    'No ground-truth boxes available for one of the images during training'
-                    )
-            else:
-                raise ValueError(
-                    'No proposal boxes available for one of the images during training'
-                    )
-        matched_vals, matches = match_pair_quality_matrix.max(dim=0)
-        if self.allow_low_quality_matches:
-            all_matches = matches.clone()
-        below_low_threshold = matched_vals < self.low_threshold
-        between_thresholds = (matched_vals >= self.low_threshold) & (
-            matched_vals < self.high_threshold)
-        matches[below_low_threshold] = PairMatcher.BELOW_LOW_THRESHOLD
-        matches[between_thresholds] = PairMatcher.BETWEEN_THRESHOLDS
-        if self.allow_low_quality_matches:
-            self.set_low_quality_matches_(matches, all_matches,
-                match_quality_matrix)
-        return matches
-
-    def set_low_quality_matches_(self, matches, all_matches,
-        match_quality_matrix):
-        """
-        Produce additional matches for predictions that have only low-quality matches.
-        Specifically, for each ground-truth find the set of predictions that have
-        maximum overlap with it (including ties); for each prediction in that set, if
-        it is unmatched, then match it to the ground-truth with which it has the highest
-        quality value.
-        """
-        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(
-            match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
-        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
-
-
-class BalancedPositiveNegativePairSampler(object):
-    """
-    This class samples batches, ensuring that they contain a fixed proportion of positives
-    """
-
-    def __init__(self, batch_size_per_image, positive_fraction):
-        """
-        Arguments:
-            batch_size_per_image (int): number of elements to be selected per image
-            positive_fraction (float): percentage of positive elements per batch
-        """
-        self.batch_size_per_image = batch_size_per_image
-        self.positive_fraction = positive_fraction
-
-    def __call__(self, matched_idxs):
-        """
-        Arguments:
-            matched idxs: list of tensors containing -1, 0 or positive values.
-                Each tensor corresponds to a specific image.
-                -1 values are ignored, 0 are considered as negatives and > 0 as
-                positives.
-
-        Returns:
-            pos_idx (list[tensor])
-            neg_idx (list[tensor])
-
-        Returns two lists of binary masks for each image.
-        The first list contains the positive elements that were selected,
-        and the second list the negative example.
-        """
-        pos_idx = []
-        neg_idx = []
-        for matched_idxs_per_image in matched_idxs:
-            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
-            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
-            num_pos = int(self.batch_size_per_image * self.positive_fraction)
-            num_pos = min(positive.numel(), num_pos)
-            num_neg = self.batch_size_per_image - num_pos
-            num_neg = min(negative.numel(), num_neg)
-            perm1 = torch.randperm(positive.numel(), device=positive.device)[:
-                num_pos]
-            perm2 = torch.randperm(negative.numel(), device=negative.device)[:
-                num_neg]
-            pos_idx_per_image = positive[perm1]
-            neg_idx_per_image = negative[perm2]
-            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.uint8)
-            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.uint8)
-            pos_idx_per_image_mask[pos_idx_per_image] = 1
-            neg_idx_per_image_mask[neg_idx_per_image] = 1
-            pos_idx.append(pos_idx_per_image_mask)
-            neg_idx.append(neg_idx_per_image_mask)
-        return pos_idx, neg_idx
-
-
 def make_roi_relation_loss_evaluator(cfg):
     matcher = PairMatcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
         ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
@@ -3224,43 +3328,6 @@ def make_roi_relation_loss_evaluator(cfg):
     return loss_evaluator
 
 
-def make_relation_proposal_network(cfg):
-    matcher = PairMatcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
-        ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    fg_bg_sampler = BalancedPositiveNegativePairSampler(cfg.MODEL.
-        ROI_RELATION_HEAD.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_RELATION_HEAD
-        .POSITIVE_FRACTION)
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    relpn = RelPN(cfg, matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg
-        )
-    return relpn
-
-
-def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
-    rel_ind_sub = proposal_idx_pairs[:, (0)]
-    rel_ind_obj = proposal_idx_pairs[:, (1)]
-    num_obj_im = torch.unique(im_inds)
-    num_obj_im = torch.cumsum(num_obj_im, dim=0)
-    rel_ind_offset_im = num_obj_im[im_inds_pairs - 1]
-    num_rels_im = torch.unique(im_inds_pairs)
-    rel_ind_offset_im[:num_rels_im[0]] = 0
-    rel_ind_offset_im = torch.squeeze(rel_ind_offset_im)
-    rel_ind_sub += rel_ind_offset_im
-    rel_ind_obj += rel_ind_offset_im
-    return torch.cat((rel_ind_sub[:, (None)], rel_ind_obj[:, (None)]), 1)
-
-
-def make_roi_box_predictor(cfg, in_channels):
-    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
-    return func(cfg, in_channels)
-
-
-def build_baseline_model(cfg, in_channels):
-    return Baseline(cfg, in_channels)
-
-
 def make_roi_relation_post_processor(cfg):
     use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
     bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
@@ -3273,10 +3340,6 @@ def make_roi_relation_post_processor(cfg):
     postprocessor = PostProcessor(score_thresh, nms_thresh,
         detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
     return postprocessor
-
-
-def build_imp_model(cfg, in_channels):
-    return IMP(cfg, in_channels)
 
 
 class ROIRelationHead(torch.nn.Module):
@@ -3958,6 +4021,32 @@ class RelPN(nn.Module):
         return classification_loss
 
 
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
+
+
 def make_fc(dim_in, hidden_dim, use_gn=False):
     """
         Caffe2 implementation uses XavierFill, which in fact
@@ -4377,15 +4466,6 @@ class BufferList(nn.Module):
         return iter(self._buffers.values())
 
 
-def _whctrs(anchor):
-    """Return width, height, x center, and y center for an anchor (window)."""
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
 def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
@@ -4395,6 +4475,15 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """Return width, height, x center, and y center for an anchor (window)."""
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):
@@ -4713,131 +4802,6 @@ class RetinaNetHead(torch.nn.Module):
         return logits, bbox_reg
 
 
-class RetinaNetPostProcessor(RPNPostProcessor):
-    """
-    Performs post-processing on the outputs of the RetinaNet boxes.
-    This is only used in the testing.
-    """
-
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh,
-        fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
-        """
-        Arguments:
-            pre_nms_thresh (float)
-            pre_nms_top_n (int)
-            nms_thresh (float)
-            fpn_post_nms_top_n (int)
-            min_size (int)
-            num_classes (int)
-            box_coder (BoxCoder)
-        """
-        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0,
-            nms_thresh, min_size)
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        self.box_coder = box_coder
-
-    def add_gt_proposals(self, proposals, targets):
-        """
-        This function is not used in RetinaNet
-        """
-        pass
-
-    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            box_cls: tensor of size N, A * C, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        device = box_cls.device
-        N, _, H, W = box_cls.shape
-        A = box_regression.size(1) // 4
-        C = box_cls.size(1) // A
-        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
-        box_cls = box_cls.sigmoid()
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        box_regression = box_regression.reshape(N, -1, 4)
-        num_anchors = A * H * W
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
-        results = []
-        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(
-            box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
-            per_box_cls = per_box_cls[per_candidate_inds]
-            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n,
-                sorted=False)
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[(
-                top_k_indices), :]
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
-            per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(
-                per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc
-                ), :].view(-1, 4))
-            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
-            boxlist.add_field('labels', per_class)
-            boxlist.add_field('scores', per_box_cls)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-        return results
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            scores = boxlists[i].get_field('scores')
-            labels = boxlists[i].get_field('labels')
-            boxes = boxlists[i].bbox
-            boxlist = boxlists[i]
-            result = []
-            for j in range(1, self.num_classes):
-                inds = (labels == j).nonzero().view(-1)
-                scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
-                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
-                boxlist_for_class.add_field('scores', scores_j)
-                boxlist_for_class = boxlist_nms(boxlist_for_class, self.
-                    nms_thresh, score_field='scores')
-                num_labels = len(boxlist_for_class)
-                boxlist_for_class.add_field('labels', torch.full((
-                    num_labels,), j, dtype=torch.int64, device=scores.device))
-                result.append(boxlist_for_class)
-            result = cat_boxlist(result)
-            number_of_detections = len(result)
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.get_field('scores')
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), 
-                    number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
-                result = result[keep]
-            results.append(result)
-        return results
-
-
-def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
-    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
-    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
-    nms_thresh = config.MODEL.RETINANET.NMS_TH
-    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
-    min_size = 0
-    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
-        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
-        fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size,
-        num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder
-        )
-    return box_selector
-
-
 def make_anchor_generator_retinanet(config):
     anchor_sizes = config.MODEL.RETINANET.ANCHOR_SIZES
     aspect_ratios = config.MODEL.RETINANET.ASPECT_RATIOS
@@ -5030,6 +4994,131 @@ def make_retinanet_loss_evaluator(cfg, box_coder):
         MODEL.RETINANET.BBOX_REG_BETA, regress_norm=cfg.MODEL.RETINANET.
         BBOX_REG_WEIGHT)
     return loss_evaluator
+
+
+class RetinaNetPostProcessor(RPNPostProcessor):
+    """
+    Performs post-processing on the outputs of the RetinaNet boxes.
+    This is only used in the testing.
+    """
+
+    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh,
+        fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
+        """
+        Arguments:
+            pre_nms_thresh (float)
+            pre_nms_top_n (int)
+            nms_thresh (float)
+            fpn_post_nms_top_n (int)
+            min_size (int)
+            num_classes (int)
+            box_coder (BoxCoder)
+        """
+        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0,
+            nms_thresh, min_size)
+        self.pre_nms_thresh = pre_nms_thresh
+        self.pre_nms_top_n = pre_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+        self.min_size = min_size
+        self.num_classes = num_classes
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        self.box_coder = box_coder
+
+    def add_gt_proposals(self, proposals, targets):
+        """
+        This function is not used in RetinaNet
+        """
+        pass
+
+    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            box_cls: tensor of size N, A * C, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        device = box_cls.device
+        N, _, H, W = box_cls.shape
+        A = box_regression.size(1) // 4
+        C = box_cls.size(1) // A
+        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
+        box_cls = box_cls.sigmoid()
+        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+        box_regression = box_regression.reshape(N, -1, 4)
+        num_anchors = A * H * W
+        candidate_inds = box_cls > self.pre_nms_thresh
+        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
+        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
+        results = []
+        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(
+            box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
+            per_box_cls = per_box_cls[per_candidate_inds]
+            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n,
+                sorted=False)
+            per_candidate_nonzeros = per_candidate_inds.nonzero()[(
+                top_k_indices), :]
+            per_box_loc = per_candidate_nonzeros[:, (0)]
+            per_class = per_candidate_nonzeros[:, (1)]
+            per_class += 1
+            detections = self.box_coder.decode(per_box_regression[(
+                per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc
+                ), :].view(-1, 4))
+            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
+            boxlist.add_field('labels', per_class)
+            boxlist.add_field('scores', per_box_cls)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            results.append(boxlist)
+        return results
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        results = []
+        for i in range(num_images):
+            scores = boxlists[i].get_field('scores')
+            labels = boxlists[i].get_field('labels')
+            boxes = boxlists[i].bbox
+            boxlist = boxlists[i]
+            result = []
+            for j in range(1, self.num_classes):
+                inds = (labels == j).nonzero().view(-1)
+                scores_j = scores[inds]
+                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
+                boxlist_for_class.add_field('scores', scores_j)
+                boxlist_for_class = boxlist_nms(boxlist_for_class, self.
+                    nms_thresh, score_field='scores')
+                num_labels = len(boxlist_for_class)
+                boxlist_for_class.add_field('labels', torch.full((
+                    num_labels,), j, dtype=torch.int64, device=scores.device))
+                result.append(boxlist_for_class)
+            result = cat_boxlist(result)
+            number_of_detections = len(result)
+            if number_of_detections > self.fpn_post_nms_top_n > 0:
+                cls_scores = result.get_field('scores')
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), 
+                    number_of_detections - self.fpn_post_nms_top_n + 1)
+                keep = cls_scores >= image_thresh.item()
+                keep = torch.nonzero(keep).squeeze(1)
+                result = result[keep]
+            results.append(result)
+        return results
+
+
+def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
+    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
+    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
+    nms_thresh = config.MODEL.RETINANET.NMS_TH
+    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
+    min_size = 0
+    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh,
+        pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh,
+        fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size,
+        num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder
+        )
+    return box_selector
 
 
 class RetinaNetModule(torch.nn.Module):

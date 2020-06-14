@@ -461,27 +461,19 @@ class CobaLIFParameters(NamedTuple):
     alpha: float = 100.0
 
 
-class Logistic(torch.autograd.Function):
-    """Probalistic approximation of the heaviside step function as
+class CobaLIFState(NamedTuple):
+    """State of a conductance based LIF neuron.
 
-    .. math::
-        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
+    Parameters:
+        z (torch.Tensor): recurrent spikes
+        v (torch.Tensor): membrane potential
+        g_e (torch.Tensor): excitatory input conductance
+        g_i (torch.Tensor): inhibitory input conductance
     """
-
-    @staticmethod
-    def forward(ctx, x, k):
-        ctx.save_for_backward(x, k)
-        p = 0.5 + 0.5 * torch.tanh(k * x)
-        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, k = ctx.saved_tensors
-        dtanh = 1 - (x * k).tanh().pow(2)
-        return dy * dtanh, None
-
-
-logistic_fn = Logistic.apply
+    z: torch.Tensor
+    v: torch.Tensor
+    g_e: torch.Tensor
+    g_i: torch.Tensor
 
 
 def heaviside(data):
@@ -494,6 +486,44 @@ def heaviside(data):
     """
     return torch.where(data <= torch.zeros_like(data), torch.zeros_like(
         data), torch.ones_like(data))
+
+
+class HeaviTent(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.save_for_backward(x, alpha)
+        return heaviside(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, alpha = ctx.saved_tensors
+        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
+
+
+heavi_tent_fn = HeaviTent.apply
+
+
+class HeaviTanh(torch.autograd.Function):
+    """Approximation of the heaviside step function as
+
+    .. math::
+        h(x,k) = \\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x)
+    """
+
+    @staticmethod
+    def forward(ctx, x, k):
+        ctx.save_for_backward(x, k)
+        return heaviside(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, k = ctx.saved_tensors
+        dtanh = 1 - (x * k).tanh().pow(2)
+        return dy * dtanh, None
+
+
+heavi_tanh_fn = HeaviTanh.apply
 
 
 class SuperSpike(torch.autograd.Function):
@@ -524,44 +554,6 @@ def super_fn(x: torch.Tensor, alpha: float=100.0) ->torch.Tensor:
     return SuperSpike.apply(x, alpha)
 
 
-class HeaviTanh(torch.autograd.Function):
-    """Approximation of the heaviside step function as
-
-    .. math::
-        h(x,k) = \\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x)
-    """
-
-    @staticmethod
-    def forward(ctx, x, k):
-        ctx.save_for_backward(x, k)
-        return heaviside(x)
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, k = ctx.saved_tensors
-        dtanh = 1 - (x * k).tanh().pow(2)
-        return dy * dtanh, None
-
-
-heavi_tanh_fn = HeaviTanh.apply
-
-
-class HeaviTent(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(x, alpha)
-        return heaviside(x)
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, alpha = ctx.saved_tensors
-        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
-
-
-heavi_tent_fn = HeaviTent.apply
-
-
 class HeaviCirc(torch.autograd.Function):
     """Approximation of the heaviside step function as
 
@@ -586,6 +578,29 @@ class HeaviCirc(torch.autograd.Function):
 heavi_circ_fn = HeaviCirc.apply
 
 
+class Logistic(torch.autograd.Function):
+    """Probalistic approximation of the heaviside step function as
+
+    .. math::
+        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
+    """
+
+    @staticmethod
+    def forward(ctx, x, k):
+        ctx.save_for_backward(x, k)
+        p = 0.5 + 0.5 * torch.tanh(k * x)
+        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, k = ctx.saved_tensors
+        dtanh = 1 - (x * k).tanh().pow(2)
+        return dy * dtanh, None
+
+
+logistic_fn = Logistic.apply
+
+
 def threshold(x: torch.Tensor, method: str, alpha: float) ->torch.Tensor:
     if method == 'heaviside':
         return heaviside(x)
@@ -604,21 +619,6 @@ def threshold(x: torch.Tensor, method: str, alpha: float) ->torch.Tensor:
             f'Attempted to apply threshold function {method}, but no such ' +
             'function exist. We currently support heaviside, super, ' +
             'tanh, tent, circ, and logistic.')
-
-
-class CobaLIFState(NamedTuple):
-    """State of a conductance based LIF neuron.
-
-    Parameters:
-        z (torch.Tensor): recurrent spikes
-        v (torch.Tensor): membrane potential
-        g_e (torch.Tensor): excitatory input conductance
-        g_i (torch.Tensor): inhibitory input conductance
-    """
-    z: torch.Tensor
-    v: torch.Tensor
-    g_e: torch.Tensor
-    g_i: torch.Tensor
 
 
 def coba_lif_step(input_tensor: torch.Tensor, state: CobaLIFState,
@@ -937,6 +937,17 @@ class IFConstantCurrentEncoder(torch.nn.Module):
             self.dt)
 
 
+class LIState(NamedTuple):
+    """State of a leaky-integrator
+
+    Parameters:
+        v (torch.Tensor): membrane voltage
+        i (torch.Tensor): input current
+    """
+    v: torch.Tensor
+    i: torch.Tensor
+
+
 class LIParameters(NamedTuple):
     """Parameters of a leaky integrator
 
@@ -950,17 +961,6 @@ class LIParameters(NamedTuple):
     tau_mem_inv: torch.Tensor = torch.as_tensor(1.0 / 0.01)
     v_leak: torch.Tensor = torch.as_tensor(0.0)
     v_reset: torch.Tensor = torch.as_tensor(0.0)
-
-
-class LIState(NamedTuple):
-    """State of a leaky-integrator
-
-    Parameters:
-        v (torch.Tensor): membrane voltage
-        i (torch.Tensor): input current
-    """
-    v: torch.Tensor
-    i: torch.Tensor
 
 
 def li_step(input_tensor: torch.Tensor, state: LIState, input_weights:
@@ -1371,25 +1371,18 @@ class LIFCorrelationState(NamedTuple):
 
 
 @torch.jit.script
+def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
+    """Computes which synapses in the synapse array should be updated.
+    """
+    return heaviside(post_pre + post_spike_mask - pre_spike_mask)
+
+
+@torch.jit.script
 def post_mask(weights, z):
     """Computes the mask produced by post-synaptic spikes on
     the synapse array.
     """
     return torch.zeros_like(weights) + z
-
-
-class CorrelationSensorParameters(NamedTuple):
-    eta_p: torch.Tensor = torch.as_tensor(1.0)
-    eta_m: torch.Tensor = torch.as_tensor(1.0)
-    tau_ac_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
-    tau_c_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
-
-
-@torch.jit.script
-def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
-    """Computes which synapses in the synapse array should be updated.
-    """
-    return heaviside(post_pre + post_spike_mask - pre_spike_mask)
 
 
 @torch.jit.script
@@ -1398,6 +1391,13 @@ def pre_mask(weights, z):
     the synapse array."""
     return torch.transpose(torch.transpose(torch.zeros_like(weights), 1, 2) +
         z, 1, 2)
+
+
+class CorrelationSensorParameters(NamedTuple):
+    eta_p: torch.Tensor = torch.as_tensor(1.0)
+    eta_m: torch.Tensor = torch.as_tensor(1.0)
+    tau_ac_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
+    tau_c_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
 
 
 def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor,
@@ -1573,17 +1573,6 @@ class LIFMCCell(torch.nn.Module):
             recurrent_weights, self.g_coupling, p=self.p, dt=self.dt)
 
 
-class LIFRefracState(NamedTuple):
-    """State of a LIF neuron with absolute refractory period.
-
-    Parameters:
-        lif (LIFState): state of the LIF neuron integration
-        rho (torch.Tensor): refractory state (count towards zero)
-    """
-    lif: LIFState
-    rho: torch.Tensor
-
-
 class LIFRefracParameters(NamedTuple):
     """Parameters of a LIF neuron with absolute refractory period.
 
@@ -1593,6 +1582,17 @@ class LIFRefracParameters(NamedTuple):
     """
     lif: LIFParameters = LIFParameters()
     rho_reset: torch.Tensor = torch.as_tensor(5.0)
+
+
+class LIFRefracState(NamedTuple):
+    """State of a LIF neuron with absolute refractory period.
+
+    Parameters:
+        lif (LIFState): state of the LIF neuron integration
+        rho (torch.Tensor): refractory state (count towards zero)
+    """
+    lif: LIFState
+    rho: torch.Tensor
 
 
 def lif_mc_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState,

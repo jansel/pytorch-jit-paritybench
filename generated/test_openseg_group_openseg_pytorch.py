@@ -685,13 +685,13 @@ class FilterResponseNormalization(nn.Module):
         return torch.max(self.gamma * x + self.beta, self.tau)
 
 
-ACT_RELU = 'relu'
+ACT_ELU = 'elu'
 
 
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
-ACT_ELU = 'elu'
+ACT_RELU = 'relu'
 
 
 class ABN(nn.Module):
@@ -1564,6 +1564,19 @@ class DataParallelModel(DataParallel):
         return modules
 
 
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
+
+
 torch_ver = torch.__version__[:3]
 
 
@@ -1616,19 +1629,6 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             raise output
         outputs.append(output)
     return outputs
-
-
-class Reduce(Function):
-
-    @staticmethod
-    def forward(ctx, *inputs):
-        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
-        inputs = sorted(inputs, key=lambda i: i.get_device())
-        return comm.reduce_add(inputs)
-
-    @staticmethod
-    def backward(ctx, gradOutput):
-        return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
 class DataParallelCriterion(DataParallel):
@@ -1924,20 +1924,6 @@ class SwitchNorm3d(nn.Module):
         return x * self.weight + self.bias
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
-
-
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -1959,6 +1945,20 @@ class FutureResult(object):
             res = self._result
             self._result = None
             return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
+    'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
 
 
 _MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
@@ -2037,6 +2037,12 @@ class SyncMaster(object):
     @property
     def nr_slaves(self):
         return len(self._registry)
+
+
+_ChildMessage = collections.namedtuple('Message', ['sum', 'ssum', 'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 build_path = '/tmp/bulid/syncbn'

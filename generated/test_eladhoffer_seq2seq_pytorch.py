@@ -1011,27 +1011,6 @@ class TimeRecurrentCell(nn.Module):
             return outputs, hidden
 
 
-def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False,
-    weight_norm=False):
-
-    def f(*kargs, **kwargs):
-        module = StackedRecurrent(residual)
-        for i in range(num_layers):
-            rnn = recurrent_func(*kargs, **kwargs)
-            if weight_norm:
-                rnn = wn(rnn)
-            module.add_module(str(i), rnn)
-        return module
-    return f
-
-
-def wrap_zoneout_cell(cell_func, zoneout_prob=0):
-
-    def f(*kargs, **kwargs):
-        return ZoneOutCell(cell_func(*kargs, **kwargs), zoneout_prob)
-    return f
-
-
 class StackedsAttentionCell(StackedCell):
 
     def __init__(self, input_size, hidden_size, attention_layer, num_layers
@@ -1058,6 +1037,27 @@ class StackedsAttentionCell(StackedCell):
         else:
             del score
             return output, (hidden_cell, output)
+
+
+def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False,
+    weight_norm=False):
+
+    def f(*kargs, **kwargs):
+        module = StackedRecurrent(residual)
+        for i in range(num_layers):
+            rnn = recurrent_func(*kargs, **kwargs)
+            if weight_norm:
+                rnn = wn(rnn)
+            module.add_module(str(i), rnn)
+        return module
+    return f
+
+
+def wrap_zoneout_cell(cell_func, zoneout_prob=0):
+
+    def f(*kargs, **kwargs):
+        return ZoneOutCell(cell_func(*kargs, **kwargs), zoneout_prob)
+    return f
 
 
 def Recurrent(mode, input_size, hidden_size, num_layers=1, bias=True,
@@ -1534,6 +1534,10 @@ class WeightDrop(torch.nn.Module):
         return self.module.forward(*args)
 
 
+def _dummy(*args, **kwargs):
+    return
+
+
 def _norm(p, dim):
     """Computes the norm over all dimensions except dim"""
     if dim is None:
@@ -1548,10 +1552,6 @@ def _norm(p, dim):
             output_size)
     else:
         return _norm(p.transpose(0, dim), 0).transpose(0, dim)
-
-
-def _dummy(*args, **kwargs):
-    return
 
 
 class WeightNorm(torch.nn.Module):
@@ -2007,61 +2007,6 @@ class RecurrentAttentionDecoder(nn.Module):
         return x, new_state
 
 
-def _limit_lengths(seqs, max_length=None, max_tokens=None):
-    max_length = max_length or float('inf')
-    lengths = [min(s.nelement(), max_length) for s in seqs]
-    if max_tokens is not None:
-        num_tokens = sum(lengths)
-        if num_tokens > max_tokens:
-            max_length = int(floor(num_tokens / len(seqs)))
-            lengths = [min(length, max_length) for length in lengths]
-    return lengths
-
-
-def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=
-    None, batch_first=False, pad_value=PAD, sort=False, pack=False, augment
-    =False, device=None, dtype=torch.long):
-    """
-    seqs: a list of Tensors to be batched together
-    max_length: maximum sequence length permitted
-    max_tokens: maximum number of tokens in batch permitted
-
-    """
-    batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
-    if fixed_length is not None:
-        fixed_length = max_length = min(max_length, fixed_length)
-    if len(seqs) == 1 and not fixed_length:
-        lengths = _limit_lengths(seqs, max_length, max_tokens)
-        seq_tensor = seqs[0].view(-1)[:lengths[0]]
-        seq_tensor = seq_tensor.unsqueeze(batch_dim).to(dtype=dtype, device
-            =device)
-    else:
-        if sort:
-            seqs.sort(key=len, reverse=True)
-        lengths = _limit_lengths(seqs, max_length, max_tokens)
-        batch_length = max(lengths) if fixed_length is None else fixed_length
-        tensor_size = (len(seqs), batch_length) if batch_first else (
-            batch_length, len(seqs))
-        seq_tensor = torch.full(tensor_size, pad_value, dtype=dtype, device
-            =device)
-        for i, seq in enumerate(seqs):
-            start_seq = 0
-            end_seq = lengths[i]
-            if augment and end_seq < seq.nelement():
-                delta = randrange(seq.nelement() - end_seq + 1)
-                start_seq += delta
-                end_seq += delta
-            seq_tensor.narrow(time_dim, 0, lengths[i]).select(batch_dim, i
-                ).copy_(seq[start_seq:end_seq])
-    if pack:
-        seq_tensor = pack_padded_sequence(seq_tensor, lengths, batch_first=
-            batch_first)
-        if device is not None:
-            seq_tensor = PackedSequence(seq_tensor.data, seq_tensor.
-                batch_sizes.to(device))
-    return seq_tensor, lengths
-
-
 class Sequence(object):
     """Represents a complete or partial sequence."""
 
@@ -2248,6 +2193,61 @@ class SequenceGenerator(object):
         seqs = [complete.extract(sort=True)[0] for complete in
             complete_sequences]
         return seqs
+
+
+def _limit_lengths(seqs, max_length=None, max_tokens=None):
+    max_length = max_length or float('inf')
+    lengths = [min(s.nelement(), max_length) for s in seqs]
+    if max_tokens is not None:
+        num_tokens = sum(lengths)
+        if num_tokens > max_tokens:
+            max_length = int(floor(num_tokens / len(seqs)))
+            lengths = [min(length, max_length) for length in lengths]
+    return lengths
+
+
+def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=
+    None, batch_first=False, pad_value=PAD, sort=False, pack=False, augment
+    =False, device=None, dtype=torch.long):
+    """
+    seqs: a list of Tensors to be batched together
+    max_length: maximum sequence length permitted
+    max_tokens: maximum number of tokens in batch permitted
+
+    """
+    batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
+    if fixed_length is not None:
+        fixed_length = max_length = min(max_length, fixed_length)
+    if len(seqs) == 1 and not fixed_length:
+        lengths = _limit_lengths(seqs, max_length, max_tokens)
+        seq_tensor = seqs[0].view(-1)[:lengths[0]]
+        seq_tensor = seq_tensor.unsqueeze(batch_dim).to(dtype=dtype, device
+            =device)
+    else:
+        if sort:
+            seqs.sort(key=len, reverse=True)
+        lengths = _limit_lengths(seqs, max_length, max_tokens)
+        batch_length = max(lengths) if fixed_length is None else fixed_length
+        tensor_size = (len(seqs), batch_length) if batch_first else (
+            batch_length, len(seqs))
+        seq_tensor = torch.full(tensor_size, pad_value, dtype=dtype, device
+            =device)
+        for i, seq in enumerate(seqs):
+            start_seq = 0
+            end_seq = lengths[i]
+            if augment and end_seq < seq.nelement():
+                delta = randrange(seq.nelement() - end_seq + 1)
+                start_seq += delta
+                end_seq += delta
+            seq_tensor.narrow(time_dim, 0, lengths[i]).select(batch_dim, i
+                ).copy_(seq[start_seq:end_seq])
+    if pack:
+        seq_tensor = pack_padded_sequence(seq_tensor, lengths, batch_first=
+            batch_first)
+        if device is not None:
+            seq_tensor = PackedSequence(seq_tensor.data, seq_tensor.
+                batch_sizes.to(device))
+    return seq_tensor, lengths
 
 
 class Seq2Seq(nn.Module):
@@ -2456,17 +2456,13 @@ def index_select_2d(x, order):
         out_sz)
 
 
-def repeat(x, N, dim=0):
-    if x is None:
-        return None
-    sz = list(x.shape)
-    expand_sz = list(x.shape)
-    sz.insert(dim, 1)
-    expand_sz.insert(dim, N)
-    x = x.view(*sz)
-    x = x.expand(*expand_sz)
-    x = x.contiguous()
-    return x
+@torch.jit.script
+def _reorder(order):
+    B, T = order.shape
+    reorder_list = []
+    for j in range(T):
+        reorder_list.append(order.eq(j).nonzero()[:, (-1)])
+    return torch.stack(reorder_list, dim=-1)
 
 
 def rand_order(T, block_size=None, block_ratio=0.25, out=None):
@@ -2487,15 +2483,6 @@ def rand_order(T, block_size=None, block_ratio=0.25, out=None):
     return out
 
 
-@torch.jit.script
-def _reorder(order):
-    B, T = order.shape
-    reorder_list = []
-    for j in range(T):
-        reorder_list.append(order.eq(j).nonzero()[:, (-1)])
-    return torch.stack(reorder_list, dim=-1)
-
-
 def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
     time_dim, batch_dim = (1, 0) if batch_first else (0, 1)
     B, T = inputs.size(batch_dim), inputs.size(time_dim)
@@ -2512,6 +2499,19 @@ def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
         order = order.t()
         reorder = reorder.t()
     return order, reorder
+
+
+def repeat(x, N, dim=0):
+    if x is None:
+        return None
+    sz = list(x.shape)
+    expand_sz = list(x.shape)
+    sz.insert(dim, 1)
+    expand_sz.insert(dim, N)
+    x = x.view(*sz)
+    x = x.expand(*expand_sz)
+    x = x.contiguous()
+    return x
 
 
 class TransformerAttentionDecoder(nn.Module):

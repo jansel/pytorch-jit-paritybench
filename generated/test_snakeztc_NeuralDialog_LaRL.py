@@ -123,13 +123,13 @@ class CudaModule(nn.Module):
         return m
 
 
-LONG = 1
-
-
 FLOAT = 2
 
 
 INT = 0
+
+
+LONG = 1
 
 
 def cast_type(var, dtype, use_gpu):

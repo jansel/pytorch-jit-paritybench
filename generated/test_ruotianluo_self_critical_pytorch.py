@@ -96,6 +96,9 @@ from torch.utils.tensorboard import SummaryWriter
 from collections import defaultdict
 
 
+Bleu_scorer = None
+
+
 CiderD_scorer = None
 
 
@@ -106,9 +109,6 @@ def array_to_str(arr):
         if arr[i] == 0:
             break
     return out.strip()
-
-
-Bleu_scorer = None
 
 
 def get_self_critical_reward(greedy_res, data_gts, gen_result, opt):
@@ -255,30 +255,6 @@ class RewardCriterion(nn.Module):
         return output
 
 
-Cider_scorer = None
-
-
-def get_self_cider_scores(data_gts, gen_result, opt):
-    batch_size = gen_result.size(0)
-    seq_per_img = batch_size // len(data_gts)
-    res = []
-    gen_result = gen_result.data.cpu().numpy()
-    for i in range(batch_size):
-        res.append(array_to_str(gen_result[i]))
-    scores = []
-    for i in range(len(data_gts)):
-        tmp = Cider_scorer.my_self_cider([res[i * seq_per_img:(i + 1) *
-            seq_per_img]])
-
-        def get_div(eigvals):
-            eigvals = np.clip(eigvals, 0, None)
-            return -np.log(np.sqrt(eigvals[-1]) / np.sqrt(eigvals).sum()
-                ) / np.log(len(eigvals))
-        scores.append(get_div(np.linalg.eigvalsh(tmp[0] / 10)))
-    scores = np.array(scores)
-    return scores
-
-
 def get_scores(data_gts, gen_result, opt):
     batch_size = gen_result.size(0)
     seq_per_img = batch_size // len(data_gts)
@@ -306,6 +282,30 @@ def get_scores(data_gts, gen_result, opt):
         bleu_scores = 0
     scores = (opt.cider_reward_weight * cider_scores + opt.
         bleu_reward_weight * bleu_scores)
+    return scores
+
+
+Cider_scorer = None
+
+
+def get_self_cider_scores(data_gts, gen_result, opt):
+    batch_size = gen_result.size(0)
+    seq_per_img = batch_size // len(data_gts)
+    res = []
+    gen_result = gen_result.data.cpu().numpy()
+    for i in range(batch_size):
+        res.append(array_to_str(gen_result[i]))
+    scores = []
+    for i in range(len(data_gts)):
+        tmp = Cider_scorer.my_self_cider([res[i * seq_per_img:(i + 1) *
+            seq_per_img]])
+
+        def get_div(eigvals):
+            eigvals = np.clip(eigvals, 0, None)
+            return -np.log(np.sqrt(eigvals[-1]) / np.sqrt(eigvals).sum()
+                ) / np.log(len(eigvals))
+        scores.append(get_div(np.linalg.eigvalsh(tmp[0] / 10)))
+    scores = np.array(scores)
     return scores
 
 

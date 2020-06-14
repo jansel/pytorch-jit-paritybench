@@ -47,6 +47,12 @@ import torch.nn as nn
 from torch.nn import init
 
 
+START_TAG = '<START>'
+
+
+STOP_TAG = '<STOP>'
+
+
 def to_scalar(var):
     return var.view(-1).data.tolist()[0]
 
@@ -56,14 +62,26 @@ def argmax(vec):
     return to_scalar(idx)
 
 
-def log_sum_exp(vec):
-    max_score = vec[0, argmax(vec)]
-    max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
-    return max_score + torch.log(torch.sum(torch.exp(vec -
-        max_score_broadcast)))
+def init_embedding(input_embedding):
+    """
+    Initialize embedding
+    """
+    bias = np.sqrt(3.0 / input_embedding.size(1))
+    nn.init.uniform(input_embedding, -bias, bias)
 
 
-parameters = OrderedDict()
+def init_linear(input_linear):
+    """
+    Initialize linear transformation
+    """
+    bias = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.weight
+        .size(1)))
+    nn.init.uniform(input_linear.weight, -bias, bias)
+    if input_linear.bias is not None:
+        input_linear.bias.data.zero_()
+
+
+eval_path = './evaluation'
 
 
 import torch

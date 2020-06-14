@@ -693,6 +693,11 @@ class PreactivatedShortcutTransformation(nn.Module):
         return x
 
 
+skip_transformations = {'postactivated_shortcut':
+    PostactivatedShortcutTransformation, 'preactivated_shortcut':
+    PreactivatedShortcutTransformation}
+
+
 class BasicR2Plus1DTransformation(BasicTransformation):
     """
     Basic transformation: 3x3x3 group conv, 3x3x3 group conv
@@ -737,11 +742,6 @@ residual_transformations = {'basic_r2plus1d_transformation':
     PostactivatedBottleneckTransformation,
     'preactivated_bottleneck_transformation':
     PreactivatedBottleneckTransformation}
-
-
-skip_transformations = {'postactivated_shortcut':
-    PostactivatedShortcutTransformation, 'preactivated_shortcut':
-    PreactivatedShortcutTransformation}
 
 
 class ResBlock(nn.Module):

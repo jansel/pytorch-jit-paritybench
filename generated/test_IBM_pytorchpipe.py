@@ -311,65 +311,6 @@ class AppState(metaclass=SingletonMetaClass):
             return self.__globals[key]
 
 
-def load_class_default_config_file(class_type):
-    """
-    Function loads default configuration from the default config file associated with the given class type and adds it to parameter registry.
-
-    :param class_type: Class type of a given object.
-
-    :raturn: Loaded default configuration.
-    """
-    module = class_type.__module__.replace('.', '/')
-    rel_path = module[module.find('ptp') + 4:]
-    abs_default_config = os.path.join(AppState().absolute_config_path,
-        'default', rel_path) + '.yml'
-    if not os.path.isfile(abs_default_config):
-        print(
-            "ERROR: The default configuration file '{}' for '{}' does not exist"
-            .format(abs_default_config, class_type.__module__))
-        exit(-1)
-    try:
-        with open(abs_default_config, 'r') as stream:
-            param_dict = yaml.safe_load(stream)
-        if param_dict is None:
-            print("WARNING: The default configuration file '{}' is empty!".
-                format(abs_default_config))
-            return {}
-        else:
-            return param_dict
-    except yaml.YAMLError as e:
-        print(
-            """ERROR: Couldn't properly parse the '{}' default configuration file. YAML error:
-  {}"""
-            .format(abs_default_config, e))
-        exit(-2)
-
-
-class KeyMappingsFacade(object):
-    """
-    Simple facility for accessing key names using provided mappings using list-like (read-only) access.
-    """
-
-    def __init__(self, key_mappings):
-        """
-        Constructor. Stores key mappings.
-
-        :param key_mappings: Dictionary of key mappings of the parent object.
-        """
-        self.keys_mappings = key_mappings
-
-    def __getitem__(self, key):
-        """
-        Global value getter function.
-        Uses parent object key mapping for accesing the value.
-
-        :param key: Global key name (that will be mapped).
-
-        :return: Associated Value.
-        """
-        return self.keys_mappings.get(key, key)
-
-
 class GlobalsFacade(object):
     """
     Simple facility for accessing global variables using provided mappings using list-like read-write access.
@@ -406,6 +347,65 @@ class GlobalsFacade(object):
         """
         mapped_key = self.key_mappings.get(key, key)
         return self.app_state[mapped_key]
+
+
+class KeyMappingsFacade(object):
+    """
+    Simple facility for accessing key names using provided mappings using list-like (read-only) access.
+    """
+
+    def __init__(self, key_mappings):
+        """
+        Constructor. Stores key mappings.
+
+        :param key_mappings: Dictionary of key mappings of the parent object.
+        """
+        self.keys_mappings = key_mappings
+
+    def __getitem__(self, key):
+        """
+        Global value getter function.
+        Uses parent object key mapping for accesing the value.
+
+        :param key: Global key name (that will be mapped).
+
+        :return: Associated Value.
+        """
+        return self.keys_mappings.get(key, key)
+
+
+def load_class_default_config_file(class_type):
+    """
+    Function loads default configuration from the default config file associated with the given class type and adds it to parameter registry.
+
+    :param class_type: Class type of a given object.
+
+    :raturn: Loaded default configuration.
+    """
+    module = class_type.__module__.replace('.', '/')
+    rel_path = module[module.find('ptp') + 4:]
+    abs_default_config = os.path.join(AppState().absolute_config_path,
+        'default', rel_path) + '.yml'
+    if not os.path.isfile(abs_default_config):
+        print(
+            "ERROR: The default configuration file '{}' for '{}' does not exist"
+            .format(abs_default_config, class_type.__module__))
+        exit(-1)
+    try:
+        with open(abs_default_config, 'r') as stream:
+            param_dict = yaml.safe_load(stream)
+        if param_dict is None:
+            print("WARNING: The default configuration file '{}' is empty!".
+                format(abs_default_config))
+            return {}
+        else:
+            return param_dict
+    except yaml.YAMLError as e:
+        print(
+            """ERROR: Couldn't properly parse the '{}' default configuration file. YAML error:
+  {}"""
+            .format(abs_default_config, e))
+        exit(-2)
 
 
 import torch
