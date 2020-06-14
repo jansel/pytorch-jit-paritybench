@@ -183,6 +183,9 @@ from torch.utils.data import DataLoader
 from torch.nn.parallel.data_parallel import data_parallel
 
 
+import time
+
+
 from torch.nn import Sequential
 
 
@@ -262,32 +265,6 @@ class CheapConvBlock(nn.Module):
         return x
 
 
-def require_dict_kwargs(kwargs, msg=None):
-    """ Ensure arguments passed kwargs are either None or a dict.
-        If arguments are neither a dict nor None a RuntimeError
-        is thrown
-    Args:
-        kwargs (object): possible dict or None
-        msg (None, optional): Error msg
-
-    Returns:
-        dict: kwargs dict
-
-    Raises:
-        RuntimeError: if the passed value is neither a dict nor None
-            this error is raised
-    """
-    if kwargs is None:
-        return dict()
-    elif isinstance(kwargs, dict):
-        return kwargs
-    elif msg is None:
-        raise RuntimeError(
-            'value passed as keyword argument dict is neither None nor a dict')
-    else:
-        raise RuntimeError('%s' % str(msg))
-
-
 class MySideLoss(nn.Module):
     """Wrap a criterion. Collect regularization losses from model and combine with wrapped criterion.
     """
@@ -364,11 +341,11 @@ class Criteria(nn.Module):
         return loss
 
 
-class ShapeError(ValueError):
+class NotTorchModuleError(TypeError):
     pass
 
 
-class NotTorchModuleError(TypeError):
+class ShapeError(ValueError):
     pass
 
 
@@ -881,16 +858,16 @@ class ResidualBlock(nn.Module):
         return output
 
 
+class DeviceError(ValueError):
+    pass
+
+
 def is_listlike(x):
     return isinstance(x, (list, tuple))
 
 
 def from_iterable(x):
     return x[0] if is_listlike(x) and len(x) == 1 else x
-
-
-class DeviceError(ValueError):
-    pass
 
 
 class DeviceTransfer(nn.Module):

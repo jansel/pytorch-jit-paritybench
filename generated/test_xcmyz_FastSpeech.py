@@ -88,6 +88,9 @@ import copy
 from collections import OrderedDict
 
 
+import time
+
+
 from math import sqrt
 
 
@@ -819,6 +822,10 @@ class Attention(nn.Module):
         return result, attns
 
 
+def clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
 def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
     """ Sinusoid position encoding table """
 
@@ -834,10 +841,6 @@ def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
     if padding_idx is not None:
         sinusoid_table[padding_idx] = 0.0
     return torch.FloatTensor(sinusoid_table)
-
-
-def clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class LinearNorm(torch.nn.Module):
@@ -1477,11 +1480,6 @@ class PostNet(nn.Module):
         return x
 
 
-def get_non_pad_mask(seq):
-    assert seq.dim() == 2
-    return seq.ne(Constants.PAD).type(torch.float).unsqueeze(-1)
-
-
 def get_attn_key_pad_mask(seq_k, seq_q):
     """ For masking out the padding part of key sequence. """
     len_q = seq_q.size(1)
@@ -1490,10 +1488,9 @@ def get_attn_key_pad_mask(seq_k, seq_q):
     return padding_mask
 
 
-_punctuation = "!'(),.:;? "
-
-
-_special = '-'
+def get_non_pad_mask(seq):
+    assert seq.dim() == 2
+    return seq.ne(Constants.PAD).type(torch.float).unsqueeze(-1)
 
 
 class ScaledDotProductAttention(nn.Module):

@@ -99,6 +99,9 @@ import torch.nn
 import math
 
 
+import time
+
+
 import itertools
 
 
@@ -275,11 +278,6 @@ def actions_to_probs(actions, n_actions):
     return probs
 
 
-def build_policy_bag(features_bag, n_actions, loss_fn, n_layers, hidden_dim):
-    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=
-        n_layers, hidden_dim=hidden_dim) for features in features_bag]
-
-
 def min_set(costs, limit_actions=None):
     min_val = None
     min_set = []
@@ -341,6 +339,17 @@ class BootstrapCost:
             return self.average_cost().argmin()
 
 
+def bootstrap_probabilities(n_actions, policy_bag, state, deviate_to):
+    actions = [[policy(state, deviate_to)] for policy in policy_bag]
+    probs = actions_to_probs(actions, n_actions)
+    return probs
+
+
+def build_policy_bag(features_bag, n_actions, loss_fn, n_layers, hidden_dim):
+    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=
+        n_layers, hidden_dim=hidden_dim) for features in features_bag]
+
+
 def delegate_with_poisson(params, functions, greedy_update):
     total_loss = 0.0
     functions_params_pairs = zip(functions, params)
@@ -352,12 +361,6 @@ def delegate_with_poisson(params, functions, greedy_update):
             count_i = np.random.poisson(1)
         total_loss = total_loss + count_i * loss_i
     return total_loss
-
-
-def bootstrap_probabilities(n_actions, policy_bag, state, deviate_to):
-    actions = [[policy(state, deviate_to)] for policy in policy_bag]
-    probs = actions_to_probs(actions, n_actions)
-    return probs
 
 
 import torch

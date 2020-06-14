@@ -39,6 +39,9 @@ import torch
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 class RNNDropout(nn.Dropout):
     """
     Dropout layer for the inputs of RNNs.
@@ -170,28 +173,6 @@ class Seq2SeqEncoder(nn.Module):
         return reordered_outputs
 
 
-def weighted_sum(tensor, weights, mask):
-    """
-    Apply a weighted sum on the vectors along the last dimension of 'tensor',
-    and mask the vectors in the result with 'mask'.
-
-    Args:
-        tensor: A tensor of vectors on which a weighted sum must be applied.
-        weights: The weights to use in the weighted sum.
-        mask: A mask to apply on the result of the weighted sum.
-
-    Returns:
-        A new tensor containing the result of the weighted sum after the mask
-        has been applied on it.
-    """
-    weighted_sum = weights.bmm(tensor)
-    while mask.dim() < weighted_sum.dim():
-        mask = mask.unsqueeze(1)
-    mask = mask.transpose(-1, -2)
-    mask = mask.expand_as(weighted_sum).contiguous().float()
-    return weighted_sum * mask
-
-
 def masked_softmax(tensor, mask):
     """
     Apply a masked softmax on the last dimension of a tensor.
@@ -217,6 +198,28 @@ def masked_softmax(tensor, mask):
     result = result * reshaped_mask
     result = result / (result.sum(dim=-1, keepdim=True) + 1e-13)
     return result.view(*tensor_shape)
+
+
+def weighted_sum(tensor, weights, mask):
+    """
+    Apply a weighted sum on the vectors along the last dimension of 'tensor',
+    and mask the vectors in the result with 'mask'.
+
+    Args:
+        tensor: A tensor of vectors on which a weighted sum must be applied.
+        weights: The weights to use in the weighted sum.
+        mask: A mask to apply on the result of the weighted sum.
+
+    Returns:
+        A new tensor containing the result of the weighted sum after the mask
+        has been applied on it.
+    """
+    weighted_sum = weights.bmm(tensor)
+    while mask.dim() < weighted_sum.dim():
+        mask = mask.unsqueeze(1)
+    mask = mask.transpose(-1, -2)
+    mask = mask.expand_as(weighted_sum).contiguous().float()
+    return weighted_sum * mask
 
 
 class SoftmaxAttention(nn.Module):
@@ -265,28 +268,6 @@ class SoftmaxAttention(nn.Module):
         return attended_premises, attended_hypotheses
 
 
-def replace_masked(tensor, mask, value):
-    """
-    Replace the all the values of vectors in 'tensor' that are masked in
-    'masked' by 'value'.
-
-    Args:
-        tensor: The tensor in which the masked vectors must have their values
-            replaced.
-        mask: A mask indicating the vectors which must have their values
-            replaced.
-        value: The value to place in the masked vectors of 'tensor'.
-
-    Returns:
-        A new tensor of the same size as 'tensor' where the values of the
-        vectors masked in 'mask' were replaced by 'value'.
-    """
-    mask = mask.unsqueeze(1).transpose(2, 1)
-    reverse_mask = 1.0 - mask
-    values_to_add = value * reverse_mask
-    return tensor * mask + values_to_add
-
-
 def _init_esim_weights(module):
     """
     Initialise the weights of the ESIM model.
@@ -329,6 +310,28 @@ def get_mask(sequences_batch, sequences_lengths):
     mask = torch.ones(batch_size, max_length, dtype=torch.float)
     mask[sequences_batch[:, :max_length] == 0] = 0.0
     return mask
+
+
+def replace_masked(tensor, mask, value):
+    """
+    Replace the all the values of vectors in 'tensor' that are masked in
+    'masked' by 'value'.
+
+    Args:
+        tensor: The tensor in which the masked vectors must have their values
+            replaced.
+        mask: A mask indicating the vectors which must have their values
+            replaced.
+        value: The value to place in the masked vectors of 'tensor'.
+
+    Returns:
+        A new tensor of the same size as 'tensor' where the values of the
+        vectors masked in 'mask' were replaced by 'value'.
+    """
+    mask = mask.unsqueeze(1).transpose(2, 1)
+    reverse_mask = 1.0 - mask
+    values_to_add = value * reverse_mask
+    return tensor * mask + values_to_add
 
 
 class ESIM(nn.Module):

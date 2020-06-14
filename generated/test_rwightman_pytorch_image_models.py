@@ -122,6 +122,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import logging
 
 
@@ -201,20 +204,6 @@ from torch.nn.modules.utils import _pair
 
 
 from torch.nn.modules.utils import _quadruple
-
-
-_NO_JIT = False
-
-
-def is_no_jit():
-    return _NO_JIT
-
-
-_SCRIPTABLE = False
-
-
-def is_scriptable():
-    return _SCRIPTABLE
 
 
 class LabelSmoothingCrossEntropy(nn.Module):
@@ -820,6 +809,154 @@ class DPN(nn.Module):
         return out.flatten(1)
 
 
+def drop_path(x, drop_prob: float=0.0, training: bool=False):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+
+    """
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    random_tensor = keep_prob + torch.rand((x.size()[0], 1, 1, 1), dtype=x.
+        dtype, device=x.device)
+    random_tensor.floor_()
+    output = x.div(keep_prob) * random_tensor
+    return output
+
+
+class FeatureHooks:
+
+    def __init__(self, hooks, named_modules):
+        modules = {k: v for k, v in named_modules}
+        for h in hooks:
+            hook_name = h['name']
+            m = modules[hook_name]
+            hook_fn = partial(self._collect_output_hook, hook_name)
+            if h['type'] == 'forward_pre':
+                m.register_forward_pre_hook(hook_fn)
+            elif h['type'] == 'forward':
+                m.register_forward_hook(hook_fn)
+            else:
+                assert False, 'Unsupported hook type'
+        self._feature_outputs = defaultdict(OrderedDict)
+
+    def _collect_output_hook(self, name, *args):
+        x = args[-1]
+        if isinstance(x, tuple):
+            x = x[0]
+        self._feature_outputs[x.device][name] = x
+
+    def get_output(self, device) ->List[torch.tensor]:
+        output = list(self._feature_outputs[device].values())
+        self._feature_outputs[device] = OrderedDict()
+        return output
+
+
+_DEBUG = False
+
+
+def _split_channels(num_chan, num_groups):
+    split = [(num_chan // num_groups) for _ in range(num_groups)]
+    split[0] += num_chan - sum(split)
+    return split
+
+
+def get_padding(kernel_size, stride, dilation=1):
+    padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
+    return padding
+
+
+def is_static_pad(kernel_size: int, stride: int=1, dilation: int=1, **_):
+    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
+
+
+def get_padding_value(padding, kernel_size, **kwargs) ->Tuple[Tuple, bool]:
+    dynamic = False
+    if isinstance(padding, str):
+        padding = padding.lower()
+        if padding == 'same':
+            if is_static_pad(kernel_size, **kwargs):
+                padding = get_padding(kernel_size, **kwargs)
+            else:
+                padding = 0
+                dynamic = True
+        elif padding == 'valid':
+            padding = 0
+        else:
+            padding = get_padding(kernel_size, **kwargs)
+    return padding, dynamic
+
+
+def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
+    padding = kwargs.pop('padding', '')
+    kwargs.setdefault('bias', False)
+    padding, is_dynamic = get_padding_value(padding, kernel_size, **kwargs)
+    if is_dynamic:
+        return Conv2dSame(in_chs, out_chs, kernel_size, **kwargs)
+    else:
+        return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
+            kwargs)
+
+
+class MixedConv2d(nn.ModuleDict):
+    """ Mixed Grouped Convolution
+
+    Based on MDConv and GroupedConv in MixNet impl:
+      https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mixnet/custom_layers.py
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
+        padding='', dilation=1, depthwise=False, **kwargs):
+        super(MixedConv2d, self).__init__()
+        kernel_size = kernel_size if isinstance(kernel_size, list) else [
+            kernel_size]
+        num_groups = len(kernel_size)
+        in_splits = _split_channels(in_channels, num_groups)
+        out_splits = _split_channels(out_channels, num_groups)
+        self.in_channels = sum(in_splits)
+        self.out_channels = sum(out_splits)
+        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits,
+            out_splits)):
+            conv_groups = out_ch if depthwise else 1
+            self.add_module(str(idx), create_conv2d_pad(in_ch, out_ch, k,
+                stride=stride, padding=padding, dilation=dilation, groups=
+                conv_groups, **kwargs))
+        self.splits = in_splits
+
+    def forward(self, x):
+        x_split = torch.split(x, self.splits, 1)
+        x_out = [c(x_split[i]) for i, c in enumerate(self.values())]
+        x = torch.cat(x_out, 1)
+        return x
+
+
+def create_conv2d(in_channels, out_channels, kernel_size, **kwargs):
+    """ Select a 2d convolution implementation based on arguments
+    Creates and returns one of torch.nn.Conv2d, Conv2dSame, MixedConv2d, or CondConv2d.
+
+    Used extensively by EfficientNet, MobileNetv3 and related networks.
+    """
+    if isinstance(kernel_size, list):
+        assert 'num_experts' not in kwargs
+        assert 'groups' not in kwargs
+        m = MixedConv2d(in_channels, out_channels, kernel_size, **kwargs)
+    else:
+        depthwise = kwargs.pop('depthwise', False)
+        groups = out_channels if depthwise else kwargs.pop('groups', 1)
+        if 'num_experts' in kwargs and kwargs['num_experts'] > 0:
+            m = CondConv2d(in_channels, out_channels, kernel_size, groups=
+                groups, **kwargs)
+        else:
+            m = create_conv2d_pad(in_channels, out_channels, kernel_size,
+                groups=groups, **kwargs)
+    return m
+
+
 def get_condconv_initializer(initializer, num_experts, expert_shape):
 
     def condconv_initializer(weight):
@@ -881,103 +1018,6 @@ def efficientnet_init_weights(model: nn.Module, init_fn=None):
         init_fn(m, n)
 
 
-def get_padding(kernel_size, stride, dilation=1):
-    padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
-    return padding
-
-
-def is_static_pad(kernel_size: int, stride: int=1, dilation: int=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
-
-
-def get_padding_value(padding, kernel_size, **kwargs) ->Tuple[Tuple, bool]:
-    dynamic = False
-    if isinstance(padding, str):
-        padding = padding.lower()
-        if padding == 'same':
-            if is_static_pad(kernel_size, **kwargs):
-                padding = get_padding(kernel_size, **kwargs)
-            else:
-                padding = 0
-                dynamic = True
-        elif padding == 'valid':
-            padding = 0
-        else:
-            padding = get_padding(kernel_size, **kwargs)
-    return padding, dynamic
-
-
-def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
-    padding = kwargs.pop('padding', '')
-    kwargs.setdefault('bias', False)
-    padding, is_dynamic = get_padding_value(padding, kernel_size, **kwargs)
-    if is_dynamic:
-        return Conv2dSame(in_chs, out_chs, kernel_size, **kwargs)
-    else:
-        return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
-            kwargs)
-
-
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
-
-
-class MixedConv2d(nn.ModuleDict):
-    """ Mixed Grouped Convolution
-
-    Based on MDConv and GroupedConv in MixNet impl:
-      https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mixnet/custom_layers.py
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding='', dilation=1, depthwise=False, **kwargs):
-        super(MixedConv2d, self).__init__()
-        kernel_size = kernel_size if isinstance(kernel_size, list) else [
-            kernel_size]
-        num_groups = len(kernel_size)
-        in_splits = _split_channels(in_channels, num_groups)
-        out_splits = _split_channels(out_channels, num_groups)
-        self.in_channels = sum(in_splits)
-        self.out_channels = sum(out_splits)
-        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits,
-            out_splits)):
-            conv_groups = out_ch if depthwise else 1
-            self.add_module(str(idx), create_conv2d_pad(in_ch, out_ch, k,
-                stride=stride, padding=padding, dilation=dilation, groups=
-                conv_groups, **kwargs))
-        self.splits = in_splits
-
-    def forward(self, x):
-        x_split = torch.split(x, self.splits, 1)
-        x_out = [c(x_split[i]) for i, c in enumerate(self.values())]
-        x = torch.cat(x_out, 1)
-        return x
-
-
-def create_conv2d(in_channels, out_channels, kernel_size, **kwargs):
-    """ Select a 2d convolution implementation based on arguments
-    Creates and returns one of torch.nn.Conv2d, Conv2dSame, MixedConv2d, or CondConv2d.
-
-    Used extensively by EfficientNet, MobileNetv3 and related networks.
-    """
-    if isinstance(kernel_size, list):
-        assert 'num_experts' not in kwargs
-        assert 'groups' not in kwargs
-        m = MixedConv2d(in_channels, out_channels, kernel_size, **kwargs)
-    else:
-        depthwise = kwargs.pop('depthwise', False)
-        groups = out_channels if depthwise else kwargs.pop('groups', 1)
-        if 'num_experts' in kwargs and kwargs['num_experts'] > 0:
-            m = CondConv2d(in_channels, out_channels, kernel_size, groups=
-                groups, **kwargs)
-        else:
-            m = create_conv2d_pad(in_channels, out_channels, kernel_size,
-                groups=groups, **kwargs)
-    return m
-
-
 def make_divisible(v, divisor=8, min_value=None):
     min_value = min_value or divisor
     new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
@@ -992,57 +1032,6 @@ def round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
         return channels
     channels *= multiplier
     return make_divisible(channels, divisor, channel_min)
-
-
-def drop_path(x, drop_prob: float=0.0, training: bool=False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-
-    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
-    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
-    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
-    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
-    'survival rate' as the argument.
-
-    """
-    if drop_prob == 0.0 or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    random_tensor = keep_prob + torch.rand((x.size()[0], 1, 1, 1), dtype=x.
-        dtype, device=x.device)
-    random_tensor.floor_()
-    output = x.div(keep_prob) * random_tensor
-    return output
-
-
-_DEBUG = False
-
-
-class FeatureHooks:
-
-    def __init__(self, hooks, named_modules):
-        modules = {k: v for k, v in named_modules}
-        for h in hooks:
-            hook_name = h['name']
-            m = modules[hook_name]
-            hook_fn = partial(self._collect_output_hook, hook_name)
-            if h['type'] == 'forward_pre':
-                m.register_forward_pre_hook(hook_fn)
-            elif h['type'] == 'forward':
-                m.register_forward_hook(hook_fn)
-            else:
-                assert False, 'Unsupported hook type'
-        self._feature_outputs = defaultdict(OrderedDict)
-
-    def _collect_output_hook(self, name, *args):
-        x = args[-1]
-        if isinstance(x, tuple):
-            x = x[0]
-        self._feature_outputs[x.device][name] = x
-
-    def get_output(self, device) ->List[torch.tensor]:
-        output = list(self._feature_outputs[device].values())
-        self._feature_outputs[device] = OrderedDict()
-        return output
 
 
 class EfficientNetFeatures(nn.Module):
@@ -1733,10 +1722,10 @@ class Xception71(nn.Module):
         return x
 
 
-logger = logging.getLogger(__name__)
-
-
 _BN_MOMENTUM = 0.1
+
+
+logger = logging.getLogger(__name__)
 
 
 class HighResolutionModule(nn.Module):
@@ -2939,14 +2928,14 @@ class HardMishJit(nn.Module):
 
 
 @torch.jit.script
-def swish_jit_fwd(x):
-    return x.mul(torch.sigmoid(x))
-
-
-@torch.jit.script
 def swish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     return grad_output * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+
+
+@torch.jit.script
+def swish_jit_fwd(x):
+    return x.mul(torch.sigmoid(x))
 
 
 class SwishJitAutoFn(torch.autograd.Function):
@@ -3014,14 +3003,14 @@ class MishMe(nn.Module):
 
 
 @torch.jit.script
-def hard_sigmoid_jit_fwd(x, inplace: bool=False):
-    return (x + 3).clamp(min=0, max=6).div(6.0)
-
-
-@torch.jit.script
 def hard_sigmoid_jit_bwd(x, grad_output):
     m = torch.ones_like(x) * ((x >= -3.0) & (x <= 3.0)) / 6.0
     return grad_output * m
+
+
+@torch.jit.script
+def hard_sigmoid_jit_fwd(x, inplace: bool=False):
+    return (x + 3).clamp(min=0, max=6).div(6.0)
 
 
 class HardSigmoidJitAutoFn(torch.autograd.Function):
@@ -3047,15 +3036,15 @@ class HardSigmoidMe(nn.Module):
 
 
 @torch.jit.script
-def hard_swish_jit_fwd(x):
-    return x * (x + 3).clamp(min=0, max=6).div(6.0)
-
-
-@torch.jit.script
 def hard_swish_jit_bwd(x, grad_output):
     m = torch.ones_like(x) * (x >= 3.0)
     m = torch.where((x >= -3.0) & (x <= 3.0), x / 3.0 + 0.5, m)
     return grad_output * m
+
+
+@torch.jit.script
+def hard_swish_jit_fwd(x):
+    return x * (x + 3).clamp(min=0, max=6).div(6.0)
 
 
 class HardSwishJitAutoFn(torch.autograd.Function):
@@ -3466,23 +3455,6 @@ class Conv2dSame(nn.Conv2d):
     def forward(self, x):
         return conv2d_same(x, self.weight, self.bias, self.stride, self.
             padding, self.dilation, self.groups)
-
-
-def get_norm_act_layer(layer_class):
-    layer_class = layer_class.replace('_', '').lower()
-    if layer_class.startswith('batchnorm'):
-        layer = BatchNormAct2d
-    elif layer_class.startswith('groupnorm'):
-        layer = GroupNormAct
-    elif layer_class == 'evonormbatch':
-        layer = EvoNormBatch2d
-    elif layer_class == 'evonormsample':
-        layer = EvoNormSample2d
-    elif layer_class == 'iabn' or layer_class == 'inplaceabn':
-        layer = InplaceAbn
-    else:
-        assert False, 'Invalid norm_act layer (%s)' % layer_class
-    return layer
 
 
 def drop_block_2d(x, drop_prob: float=0.1, block_size: int=7, gamma_scale:
@@ -3984,13 +3956,6 @@ class MaxPool2dSame(nn.MaxPool2d):
             padding, self.dilation, self.ceil_mode)
 
 
-_EXPORTABLE = False
-
-
-def is_exportable():
-    return _EXPORTABLE
-
-
 def tanh(x, inplace: bool=False):
     return x.tanh_() if inplace else x.tanh()
 
@@ -4001,8 +3966,12 @@ _ACT_FN_DEFAULT = dict(swish=swish, mish=mish, relu=F.relu, relu6=F.relu6,
     hard_sigmoid, hard_swish=hard_swish, hard_mish=hard_mish)
 
 
-def mish_me(x, inplace=False):
-    return MishJitAutoFn.apply(x)
+_ACT_FN_JIT = dict(swish=swish_jit, mish=mish_jit, hard_sigmoid=
+    hard_sigmoid_jit, hard_swish=hard_swish_jit, hard_mish=hard_mish_jit)
+
+
+def hard_mish_me(x, inplace: bool=False):
+    return HardMishJitAutoFn.apply(x)
 
 
 def hard_sigmoid_me(x, inplace: bool=False):
@@ -4013,8 +3982,8 @@ def hard_swish_me(x, inplace=False):
     return HardSwishJitAutoFn.apply(x)
 
 
-def hard_mish_me(x, inplace: bool=False):
-    return HardMishJitAutoFn.apply(x)
+def mish_me(x, inplace=False):
+    return MishJitAutoFn.apply(x)
 
 
 def swish_me(x, inplace=False):
@@ -4025,8 +3994,25 @@ _ACT_FN_ME = dict(swish=swish_me, mish=mish_me, hard_sigmoid=
     hard_sigmoid_me, hard_swish=hard_swish_me, hard_mish=hard_mish_me)
 
 
-_ACT_FN_JIT = dict(swish=swish_jit, mish=mish_jit, hard_sigmoid=
-    hard_sigmoid_jit, hard_swish=hard_swish_jit, hard_mish=hard_mish_jit)
+_EXPORTABLE = False
+
+
+def is_exportable():
+    return _EXPORTABLE
+
+
+_NO_JIT = False
+
+
+def is_no_jit():
+    return _NO_JIT
+
+
+_SCRIPTABLE = False
+
+
+def is_scriptable():
+    return _SCRIPTABLE
 
 
 def get_act_fn(name='relu'):
@@ -5537,19 +5523,6 @@ class ClassifierHead(nn.Module):
         return x
 
 
-def generate_regnet(width_slope, width_initial, width_mult, depth, q=8):
-    """Generates per block widths from RegNet parameters."""
-    assert width_slope >= 0 and width_initial > 0 and width_mult > 1 and width_initial % q == 0
-    widths_cont = np.arange(depth) * width_slope + width_initial
-    width_exps = np.round(np.log(widths_cont / width_initial) / np.log(
-        width_mult))
-    widths = width_initial * np.power(width_mult, width_exps)
-    widths = np.round(np.divide(widths, q)) * q
-    num_stages, max_stage = len(np.unique(widths)), width_exps.max() + 1
-    widths, widths_cont = widths.astype(int).tolist(), widths_cont.tolist()
-    return widths, num_stages, max_stage, widths_cont
-
-
 def quantize_float(f, q):
     """Converts a float to closest non-zero int divisible by q."""
     return int(round(f / q) * q)
@@ -5564,6 +5537,19 @@ def adjust_widths_groups_comp(widths, bottle_ratios, groups):
     widths = [int(w_bot / b) for w_bot, b in zip(bottleneck_widths,
         bottle_ratios)]
     return widths, groups
+
+
+def generate_regnet(width_slope, width_initial, width_mult, depth, q=8):
+    """Generates per block widths from RegNet parameters."""
+    assert width_slope >= 0 and width_initial > 0 and width_mult > 1 and width_initial % q == 0
+    widths_cont = np.arange(depth) * width_slope + width_initial
+    width_exps = np.round(np.log(widths_cont / width_initial) / np.log(
+        width_mult))
+    widths = width_initial * np.power(width_mult, width_exps)
+    widths = np.round(np.divide(widths, q)) * q
+    num_stages, max_stage = len(np.unique(widths)), width_exps.max() + 1
+    widths, widths_cont = widths.astype(int).tolist(), widths_cont.tolist()
+    return widths, num_stages, max_stage, widths_cont
 
 
 class RegNet(nn.Module):
@@ -7167,268 +7153,4 @@ class Xception(nn.Module):
             F.dropout(x, self.drop_rate, training=self.training)
         x = self.fc(x)
         return x
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_rwightman_pytorch_image_models(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(AdaptiveCatAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(BatchNormAct2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
-
-    def test_007(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_008(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
-
-    def test_009(self):
-        self._check(BlurPool2d(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(BnActConv2d(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(CecaModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(ChannelAttn(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_015(self):
-        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(ClassifierHead(*[], **{'in_chs': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_018(self):
-        self._check(DPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_019(self):
-        self._check(DenseTransition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_020(self):
-        self._check(DepthToSpace(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_021(self):
-        self._check(DlaBasic(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_022(self):
-        self._check(DlaBottle2neck(*[], **{'inplanes': 64, 'outplanes': 64}), [torch.rand([4, 64, 64, 64])], {})
-
-    @_fails_compile()
-    def test_023(self):
-        self._check(DlaBottleneck(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_024(self):
-        self._check(DropBlock2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_025(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_026(self):
-        self._check(EcaModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_027(self):
-        self._check(EffectiveSEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_028(self):
-        self._check(EvoNormBatch2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_029(self):
-        self._check(FactorizedReduction(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_030(self):
-        self._check(FastGlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_031(self):
-        self._check(FastSEModule(*[], **{'channels': 4, 'reduction_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_032(self):
-        self._check(GroupNormAct(*[], **{'num_groups': 1, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_033(self):
-        self._check(HardMish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_034(self):
-        self._check(HardMishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_035(self):
-        self._check(HardMishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_036(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_037(self):
-        self._check(HardSigmoidJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_038(self):
-        self._check(HardSigmoidMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_039(self):
-        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_040(self):
-        self._check(HardSwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_041(self):
-        self._check(HardSwishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_042(self):
-        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
-
-    def test_043(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
-
-    def test_044(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
-
-    def test_045(self):
-        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_046(self):
-        self._check(LabelSmoothingCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_047(self):
-        self._check(LightChannelAttn(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
-
-    def test_048(self):
-        self._check(MaxPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_049(self):
-        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_050(self):
-        self._check(MedianPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_051(self):
-        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_052(self):
-        self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_053(self):
-        self._check(MishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_054(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_055(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
-
-    def test_056(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    def test_057(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    def test_058(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_059(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
-
-    def test_060(self):
-        self._check(RadixSoftmax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_061(self):
-        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
-
-    def test_062(self):
-        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
-
-    def test_063(self):
-        self._check(ReluConvBn(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_064(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_065(self):
-        self._check(SEResNetBlock(*[], **{'inplanes': 4, 'planes': 4, 'groups': 1, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_066(self):
-        self._check(SelectAdaptivePool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_067(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_068(self):
-        self._check(SequentialList(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_069(self):
-        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_070(self):
-        self._check(SoftTargetCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_071(self):
-        self._check(SpaceToDepth(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_072(self):
-        self._check(SplitAttnConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_073(self):
-        self._check(SplitBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_074(self):
-        self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_075(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_076(self):
-        self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_077(self):
-        self._check(SwishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_078(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_079(self):
-        self._check(Xception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

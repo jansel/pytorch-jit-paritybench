@@ -3028,13 +3028,13 @@ class SpectrumLM(nn.Module):
             return h0
 
 
-def forward_activation(activation, tensor):
-    if activation == 'glu':
-        z, g = torch.chunk(tensor, 2, dim=1)
-        y = z * torch.sigmoid(g)
-        return y
+def build_activation(activation, params, init=0):
+    if activation == 'prelu' or activation is None:
+        return nn.PReLU(params, init=init)
+    if isinstance(activation, str):
+        return getattr(nn, activation)()
     else:
-        return activation(tensor)
+        return activation
 
 
 def build_norm_layer(norm_type, param=None, num_feats=None):
@@ -3061,13 +3061,13 @@ def build_norm_layer(norm_type, param=None, num_feats=None):
         raise TypeError('Unrecognized norm type: ', norm_type)
 
 
-def build_activation(activation, params, init=0):
-    if activation == 'prelu' or activation is None:
-        return nn.PReLU(params, init=init)
-    if isinstance(activation, str):
-        return getattr(nn, activation)()
+def forward_activation(activation, tensor):
+    if activation == 'glu':
+        z, g = torch.chunk(tensor, 2, dim=1)
+        y = z * torch.sigmoid(g)
+        return y
     else:
-        return activation
+        return activation(tensor)
 
 
 def forward_norm(x, norm_layer):

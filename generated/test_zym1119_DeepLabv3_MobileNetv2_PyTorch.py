@@ -127,6 +127,55 @@ class ASPP_plus(nn.Module):
         return self.concate_conv(concate)
 
 
+LOG = lambda x: print('\x1b[0;31;2m' + x + '\x1b[0m')
+
+
+WARNING = lambda x: print('\x1b[1;31;2mWARNING: ' + x + '\x1b[0m')
+
+
+class bar(object):
+
+    def __init__(self):
+        self.start_time = None
+        self.iter_per_sec = 0
+        self.time = None
+
+    def click(self, current_idx, max_idx, total_length=40):
+        """
+        Each click is a draw procedure of progressbar
+        :param current_idx: range from 0 to max_idx-1
+        :param max_idx: maximum iteration
+        :param total_length: length of progressbar
+        """
+        if self.start_time is None:
+            self.start_time = time.time()
+        else:
+            self.time = time.time() - self.start_time
+            self.iter_per_sec = 1 / self.time
+            perc = current_idx * total_length // max_idx
+            print('\r|' + '=' * perc + '>' + ' ' * (total_length - 1 - perc
+                ) + '| %d/%d (%.2f iter/s)' % (current_idx + 1, max_idx,
+                self.iter_per_sec), end='')
+            self.start_time = time.time()
+
+    def close(self):
+        self.__init__()
+        print('')
+
+
+def logits2trainId(logits):
+    """
+    Transform output of network into trainId map
+    :param logits: output tensor of network, before softmax, should be in shape (#classes, h, w)
+    """
+    upsample = torch.nn.Upsample(size=(1024, 2048), mode='bilinear',
+        align_corners=False)
+    logits = upsample(logits.unsqueeze_(0))
+    logits.squeeze_(0)
+    logits = torch.argmax(logits, dim=0)
+    return logits
+
+
 Label = namedtuple('Label', ['name', 'id', 'trainId', 'category',
     'categoryId', 'hasInstances', 'ignoreInEval', 'color'])
 
@@ -185,55 +234,6 @@ def trainId2LabelId(dataset_root, train_id, name):
     label_id = label_id.astype(np.uint8)
     name = name.replace('labelTrainIds', 'labelIds')
     cv2.imwrite(dataset_root + '/' + name, label_id)
-
-
-class bar(object):
-
-    def __init__(self):
-        self.start_time = None
-        self.iter_per_sec = 0
-        self.time = None
-
-    def click(self, current_idx, max_idx, total_length=40):
-        """
-        Each click is a draw procedure of progressbar
-        :param current_idx: range from 0 to max_idx-1
-        :param max_idx: maximum iteration
-        :param total_length: length of progressbar
-        """
-        if self.start_time is None:
-            self.start_time = time.time()
-        else:
-            self.time = time.time() - self.start_time
-            self.iter_per_sec = 1 / self.time
-            perc = current_idx * total_length // max_idx
-            print('\r|' + '=' * perc + '>' + ' ' * (total_length - 1 - perc
-                ) + '| %d/%d (%.2f iter/s)' % (current_idx + 1, max_idx,
-                self.iter_per_sec), end='')
-            self.start_time = time.time()
-
-    def close(self):
-        self.__init__()
-        print('')
-
-
-WARNING = lambda x: print('\x1b[1;31;2mWARNING: ' + x + '\x1b[0m')
-
-
-LOG = lambda x: print('\x1b[0;31;2m' + x + '\x1b[0m')
-
-
-def logits2trainId(logits):
-    """
-    Transform output of network into trainId map
-    :param logits: output tensor of network, before softmax, should be in shape (#classes, h, w)
-    """
-    upsample = torch.nn.Upsample(size=(1024, 2048), mode='bilinear',
-        align_corners=False)
-    logits = upsample(logits.unsqueeze_(0))
-    logits.squeeze_(0)
-    logits = torch.argmax(logits, dim=0)
-    return logits
 
 
 def trainId2color(dataset_root, id_map, name):

@@ -23,6 +23,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch.backends.cudnn as cudnn
 
 
@@ -124,10 +127,10 @@ def upBlock(in_planes, out_planes):
     return block
 
 
-_global_config['GAN'] = 4
-
-
 _global_config['FINE_GRAINED_CATEGORIES'] = 4
+
+
+_global_config['GAN'] = 4
 
 
 class BACKGROUND_STAGE(nn.Module):
@@ -280,15 +283,15 @@ class G_NET(nn.Module):
         return fake_imgs, fg_imgs, mk_imgs, fg_mk
 
 
-def downBlock(in_planes, out_planes):
-    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=
-        False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
-    return block
-
-
 def Block3x3_leakRelu(in_planes, out_planes):
     block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
         out_planes), nn.LeakyReLU(0.2, inplace=True))
+    return block
+
+
+def downBlock(in_planes, out_planes):
+    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=
+        False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
@@ -342,13 +345,13 @@ class Encoder(nn.Module):
                 ), self.softmax(code_c)
 
 
-def Up_unet(in_c, out_c):
-    return nn.Sequential(nn.ConvTranspose2d(in_c, out_c * 2, 4, 2, 1), nn.
+def Down_unet(in_c, out_c):
+    return nn.Sequential(nn.Conv2d(in_c, out_c * 2, 4, 2, 1), nn.
         BatchNorm2d(out_c * 2), GLU())
 
 
-def Down_unet(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c * 2, 4, 2, 1), nn.
+def Up_unet(in_c, out_c):
+    return nn.Sequential(nn.ConvTranspose2d(in_c, out_c * 2, 4, 2, 1), nn.
         BatchNorm2d(out_c * 2), GLU())
 
 

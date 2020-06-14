@@ -56,19 +56,6 @@ from torch.nn import init
 import torch.utils.model_zoo as model_zoo
 
 
-def shift(shape, stride, anchors):
-    shift_h = np.arange(0, shape[0]) * stride
-    shift_w = np.arange(0, shape[1]) * stride
-    shift_h, shift_w = np.meshgrid(shift_h, shift_w)
-    shifts = np.vstack((shift_h.ravel(), shift_w.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)
-        ).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 2))
-    return all_anchors
-
-
 def generate_anchors(P_h=None, P_w=None):
     if P_h is None:
         P_h = np.array([2, 6, 10, 14])
@@ -83,6 +70,19 @@ def generate_anchors(P_h=None, P_w=None):
             anchors[k, 0] = P_h[i]
             k += 1
     return anchors
+
+
+def shift(shape, stride, anchors):
+    shift_h = np.arange(0, shape[0]) * stride
+    shift_w = np.arange(0, shape[1]) * stride
+    shift_h, shift_w = np.meshgrid(shift_h, shift_w)
+    shifts = np.vstack((shift_h.ravel(), shift_w.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)
+        ).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 2))
+    return all_anchors
 
 
 class post_process(nn.Module):

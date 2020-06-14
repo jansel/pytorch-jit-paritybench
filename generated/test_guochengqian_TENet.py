@@ -323,6 +323,20 @@ class VGGLoss(nn.Module):
         return sum(loss)
 
 
+def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
+    act_type = act_type.lower()
+    if act_type == 'relu':
+        layer = nn.ReLU(inplace)
+    elif act_type == 'leakyrelu':
+        layer = nn.LeakyReLU(neg_slope, inplace)
+    elif act_type == 'prelu':
+        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
+    else:
+        raise NotImplementedError('activation layer [%s] is not found' %
+            act_type)
+    return layer
+
+
 def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False
     ):
     return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=
@@ -338,20 +352,6 @@ def norm_layer(norm_type, nc):
     else:
         raise NotImplementedError('normalization layer [%s] is not found' %
             norm_type)
-    return layer
-
-
-def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
-    act_type = act_type.lower()
-    if act_type == 'relu':
-        layer = nn.ReLU(inplace)
-    elif act_type == 'leakyrelu':
-        layer = nn.LeakyReLU(neg_slope, inplace)
-    elif act_type == 'prelu':
-        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
-    else:
-        raise NotImplementedError('activation layer [%s] is not found' %
-            act_type)
     return layer
 
 

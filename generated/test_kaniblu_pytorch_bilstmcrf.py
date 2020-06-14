@@ -51,6 +51,12 @@ import torch.optim as O
 import torch.autograd as A
 
 
+def log_sum_exp(vec, dim=0):
+    max, idx = torch.max(vec, dim)
+    max_exp = max.unsqueeze(-1).expand_as(vec)
+    return max + torch.log(torch.sum(torch.exp(vec - max_exp), dim))
+
+
 def sequence_mask(lens, max_len=None):
     batch_size = lens.size(0)
     if max_len is None:
@@ -63,12 +69,6 @@ def sequence_mask(lens, max_len=None):
     lens_exp = lens.unsqueeze(1).expand_as(ranges)
     mask = ranges < lens_exp
     return mask
-
-
-def log_sum_exp(vec, dim=0):
-    max, idx = torch.max(vec, dim)
-    max_exp = max.unsqueeze(-1).expand_as(vec)
-    return max + torch.log(torch.sum(torch.exp(vec - max_exp), dim))
 
 
 class CRF(nn.Module):

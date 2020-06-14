@@ -85,6 +85,9 @@ import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 
 
+import time
+
+
 from collections import defaultdict
 
 
@@ -445,6 +448,62 @@ class InterpolateModule(nn.Module):
         return F.interpolate(x, *self.args, **self.kwdargs)
 
 
+class Config(object):
+    """
+    Holds the configuration for anything you want it to.
+    To get the currently active config, call get_cfg().
+
+    To use, just do cfg.x instead of cfg['x'].
+    I made this because doing cfg['x'] all the time is dumb.
+    """
+
+    def __init__(self, config_dict):
+        for key, val in config_dict.items():
+            self.__setattr__(key, val)
+
+    def copy(self, new_config_dict={}):
+        """
+        Copies this config into a new config object, making
+        the changes given by new_config_dict.
+        """
+        ret = Config(vars(self))
+        for key, val in new_config_dict.items():
+            ret.__setattr__(key, val)
+        return ret
+
+    def replace(self, new_config_dict):
+        """
+        Copies new_config_dict into this config object.
+        Note: new_config_dict can also be a config object.
+        """
+        if isinstance(new_config_dict, Config):
+            new_config_dict = vars(new_config_dict)
+        for key, val in new_config_dict.items():
+            self.__setattr__(key, val)
+
+    def print(self):
+        for k, v in vars(self).items():
+            print(k, ' = ', v)
+
+
+activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid,
+    'softmax': lambda x: torch.nn.functional.softmax(x, dim=-1), 'relu': lambda
+    x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
+
+
+@torch.jit.script
+def center_size(boxes):
+    """ Convert prior_boxes to (cx, cy, w, h)
+    representation for comparison to center-size form ground truth data.
+    Args:
+        boxes: (tensor) point_form boxes
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
+        boxes[:, :2]), 1)
+
+
 @torch.jit.script
 def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0, cast:
     bool=True):
@@ -492,70 +551,6 @@ def crop(masks, boxes, padding: int=1):
     masks_down = cols < y2.view(1, 1, -1)
     crop_mask = masks_left * masks_right * masks_up * masks_down
     return masks * crop_mask.float()
-
-
-@torch.jit.script
-def center_size(boxes):
-    """ Convert prior_boxes to (cx, cy, w, h)
-    representation for comparison to center-size form ground truth data.
-    Args:
-        boxes: (tensor) point_form boxes
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
-    """
-    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]), 1)
-
-
-@torch.jit.script
-def encode(matched, priors, use_yolo_regressors: bool=False):
-    """
-    Encode bboxes matched with each prior into the format
-    produced by the network. See decode for more details on
-    this format. Note that encode(decode(x, p), p) = x.
-    
-    Args:
-        - matched: A tensor of bboxes in point form with shape [num_priors, 4]
-        - priors:  The tensor of all priors with shape [num_priors, 4]
-    Return: A tensor with encoded relative coordinates in the format
-            outputted by the network (see decode). Size: [num_priors, 4]
-    """
-    if use_yolo_regressors:
-        boxes = center_size(matched)
-        loc = torch.cat((boxes[:, :2] - priors[:, :2], torch.log(boxes[:, 2
-            :] / priors[:, 2:])), 1)
-    else:
-        variances = [0.1, 0.2]
-        g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
-        g_cxcy /= variances[0] * priors[:, 2:]
-        g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-        g_wh = torch.log(g_wh) / variances[1]
-        loc = torch.cat([g_cxcy, g_wh], 1)
-    return loc
-
-
-def change(gt, priors):
-    """
-    Compute the d_change metric proposed in Box2Pix:
-    https://lmb.informatik.uni-freiburg.de/Publications/2018/UB18/paper-box2pix.pdf
-    
-    Input should be in point form (xmin, ymin, xmax, ymax).
-
-    Output is of shape [num_gt, num_priors]
-    Note this returns -change so it can be a drop in replacement for 
-    """
-    num_priors = priors.size(0)
-    num_gt = gt.size(0)
-    gt_w = (gt[:, (2)] - gt[:, (0)])[:, (None)].expand(num_gt, num_priors)
-    gt_h = (gt[:, (3)] - gt[:, (1)])[:, (None)].expand(num_gt, num_priors)
-    gt_mat = gt[:, (None), :].expand(num_gt, num_priors, 4)
-    pr_mat = priors[(None), :, :].expand(num_gt, num_priors, 4)
-    diff = gt_mat - pr_mat
-    diff[:, :, (0)] /= gt_w
-    diff[:, :, (2)] /= gt_w
-    diff[:, :, (1)] /= gt_h
-    diff[:, :, (3)] /= gt_h
-    return -torch.sqrt((diff ** 2).sum(dim=2))
 
 
 @torch.jit.script
@@ -612,6 +607,84 @@ def decode(loc, priors, use_yolo_regressors: bool=False):
     return boxes
 
 
+def elemwise_box_iou(box_a, box_b):
+    """ Does the same as above but instead of pairwise, elementwise along the inner dimension. """
+    max_xy = torch.min(box_a[:, 2:], box_b[:, 2:])
+    min_xy = torch.max(box_a[:, :2], box_b[:, :2])
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    inter = inter[:, (0)] * inter[:, (1)]
+    area_a = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+    area_b = (box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
+    union = area_a + area_b - inter
+    union = torch.clamp(union, min=0.1)
+    return torch.clamp(inter / union, max=1)
+
+
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
+    Args:
+        x (Variable(tensor)): conf_preds from conf layers
+    """
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
+
+
+mask_type = Config({'direct': 0, 'lincomb': 1})
+
+
+def change(gt, priors):
+    """
+    Compute the d_change metric proposed in Box2Pix:
+    https://lmb.informatik.uni-freiburg.de/Publications/2018/UB18/paper-box2pix.pdf
+    
+    Input should be in point form (xmin, ymin, xmax, ymax).
+
+    Output is of shape [num_gt, num_priors]
+    Note this returns -change so it can be a drop in replacement for 
+    """
+    num_priors = priors.size(0)
+    num_gt = gt.size(0)
+    gt_w = (gt[:, (2)] - gt[:, (0)])[:, (None)].expand(num_gt, num_priors)
+    gt_h = (gt[:, (3)] - gt[:, (1)])[:, (None)].expand(num_gt, num_priors)
+    gt_mat = gt[:, (None), :].expand(num_gt, num_priors, 4)
+    pr_mat = priors[(None), :, :].expand(num_gt, num_priors, 4)
+    diff = gt_mat - pr_mat
+    diff[:, :, (0)] /= gt_w
+    diff[:, :, (2)] /= gt_w
+    diff[:, :, (1)] /= gt_h
+    diff[:, :, (3)] /= gt_h
+    return -torch.sqrt((diff ** 2).sum(dim=2))
+
+
+@torch.jit.script
+def encode(matched, priors, use_yolo_regressors: bool=False):
+    """
+    Encode bboxes matched with each prior into the format
+    produced by the network. See decode for more details on
+    this format. Note that encode(decode(x, p), p) = x.
+    
+    Args:
+        - matched: A tensor of bboxes in point form with shape [num_priors, 4]
+        - priors:  The tensor of all priors with shape [num_priors, 4]
+    Return: A tensor with encoded relative coordinates in the format
+            outputted by the network (see decode). Size: [num_priors, 4]
+    """
+    if use_yolo_regressors:
+        boxes = center_size(matched)
+        loc = torch.cat((boxes[:, :2] - priors[:, :2], torch.log(boxes[:, 2
+            :] / priors[:, 2:])), 1)
+    else:
+        variances = [0.1, 0.2]
+        g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
+        g_cxcy /= variances[0] * priors[:, 2:]
+        g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+        g_wh = torch.log(g_wh) / variances[1]
+        loc = torch.cat([g_cxcy, g_wh], 1)
+    return loc
+
+
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
@@ -646,13 +719,13 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     return out if use_batch else out.squeeze(0)
 
 
-_global_config['use_prediction_matching'] = 4
+_global_config['use_change_matching'] = 4
 
 
 _global_config['crowd_iou_threshold'] = 4
 
 
-_global_config['use_change_matching'] = 4
+_global_config['use_prediction_matching'] = 4
 
 
 _global_config['use_yolo_regressors'] = 4
@@ -705,74 +778,7 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     idx_t[idx] = best_truth_idx
 
 
-def elemwise_box_iou(box_a, box_b):
-    """ Does the same as above but instead of pairwise, elementwise along the inner dimension. """
-    max_xy = torch.min(box_a[:, 2:], box_b[:, 2:])
-    min_xy = torch.max(box_a[:, :2], box_b[:, :2])
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    inter = inter[:, (0)] * inter[:, (1)]
-    area_a = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-    area_b = (box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-    union = area_a + area_b - inter
-    union = torch.clamp(union, min=0.1)
-    return torch.clamp(inter / union, max=1)
-
-
-class Config(object):
-    """
-    Holds the configuration for anything you want it to.
-    To get the currently active config, call get_cfg().
-
-    To use, just do cfg.x instead of cfg['x'].
-    I made this because doing cfg['x'] all the time is dumb.
-    """
-
-    def __init__(self, config_dict):
-        for key, val in config_dict.items():
-            self.__setattr__(key, val)
-
-    def copy(self, new_config_dict={}):
-        """
-        Copies this config into a new config object, making
-        the changes given by new_config_dict.
-        """
-        ret = Config(vars(self))
-        for key, val in new_config_dict.items():
-            ret.__setattr__(key, val)
-        return ret
-
-    def replace(self, new_config_dict):
-        """
-        Copies new_config_dict into this config object.
-        Note: new_config_dict can also be a config object.
-        """
-        if isinstance(new_config_dict, Config):
-            new_config_dict = vars(new_config_dict)
-        for key, val in new_config_dict.items():
-            self.__setattr__(key, val)
-
-    def print(self):
-        for k, v in vars(self).items():
-            print(k, ' = ', v)
-
-
-activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid,
-    'softmax': lambda x: torch.nn.functional.softmax(x, dim=-1), 'relu': lambda
-    x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
-
-
-mask_type = Config({'direct': 0, 'lincomb': 1})
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1)) + x_max
+_global_config['ohem_use_most_confident'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -1312,11 +1318,6 @@ class MultiBoxLoss(nn.Module):
         return loss_i * cfg.maskiou_alpha
 
 
-def gradinator(x):
-    x.requires_grad = False
-    return x
-
-
 def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
     """ Ensures that the image is the given size without distorting aspect ratio. """
     with torch.no_grad():
@@ -1344,13 +1345,18 @@ def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
         return img, targets, masks, num_crowds
 
 
-_global_config['batch_size'] = 4
+def gradinator(x):
+    x.requires_grad = False
+    return x
 
 
 _global_config['cuda'] = 4
 
 
 _global_config['preserve_aspect_ratio'] = 4
+
+
+_global_config['batch_size'] = 4
 
 
 def prepare_data(datum, devices: list=None, allocation: list=None):
@@ -1554,7 +1560,25 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
+_global_config['extra_head_net'] = 4
+
+
+_global_config['mask_type'] = 4
+
+
 _global_config['mask_proto_split_prototypes_by_head'] = 4
+
+
+_global_config['num_heads'] = 4
+
+
+_global_config['mask_proto_coeff_activation'] = 4
+
+
+_global_config['extra_layers'] = 1
+
+
+_global_config['use_prediction_module'] = 4
 
 
 _global_config['use_instance_coeff'] = 4
@@ -1563,37 +1587,16 @@ _global_config['use_instance_coeff'] = 4
 _global_config['num_instance_coeffs'] = 4
 
 
-_global_config['_tmp_img_h'] = 4
-
-
-_global_config['extra_layers'] = 1
+_global_config['_tmp_img_w'] = 4
 
 
 _global_config['mask_proto_coeff_gate'] = 4
 
 
-_global_config['extra_head_net'] = 4
-
-
 _global_config['mask_dim'] = 4
 
 
-_global_config['mask_proto_coeff_activation'] = 4
-
-
 _global_config['num_classes'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
-
-
-_global_config['use_prediction_module'] = 4
-
-
-_global_config['num_heads'] = 4
 
 
 _global_config['eval_mask_branch'] = 4
@@ -1602,10 +1605,13 @@ _global_config['eval_mask_branch'] = 4
 _global_config['mask_proto_prototypes_as_features'] = 4
 
 
+_global_config['use_mask_scoring'] = 4
+
+
 _global_config['head_layer_params'] = 1
 
 
-_global_config['mask_type'] = 4
+_global_config['_tmp_img_h'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -1797,15 +1803,6 @@ class PredictionModule(nn.Module):
         return self.priors
 
 
-def construct_backbone(cfg):
-    """ Constructs a backbone given a backbone config object (see config.py). """
-    backbone = cfg.type(*cfg.args)
-    num_layers = max(cfg.selected_layers) + 1
-    while len(backbone.layers) < num_layers:
-        backbone.add_layer()
-    return backbone
-
-
 _global_config['max_num_detections'] = 4
 
 
@@ -1977,11 +1974,11 @@ class Detect(object):
 use_jit = torch.cuda.device_count() <= 1
 
 
+ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
+
+
 script_method_wrapper = (torch.jit.script_method if use_jit else lambda fn,
     _rcn=None: fn)
-
-
-ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
 
 
 _global_config['fpn'] = 4
@@ -2081,6 +2078,33 @@ class FastMaskIoUNet(ScriptModuleWrapper):
         maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1
             ).squeeze(-1)
         return maskiou_p
+
+
+def construct_backbone(cfg):
+    """ Constructs a backbone given a backbone config object (see config.py). """
+    backbone = cfg.type(*cfg.args)
+    num_layers = max(cfg.selected_layers) + 1
+    while len(backbone.layers) < num_layers:
+        backbone.add_layer()
+    return backbone
+
+
+_global_config['mask_proto_bias'] = 4
+
+
+_global_config['nms_conf_thresh'] = 4
+
+
+_global_config['mask_size'] = 4
+
+
+_global_config['mask_proto_grid_file'] = 4
+
+
+_global_config['mask_proto_prototypes_as_features_no_grad'] = 4
+
+
+_global_config['share_prediction_module'] = 4
 
 
 class Yolact(nn.Module):

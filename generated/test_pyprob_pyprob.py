@@ -120,6 +120,9 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 import uuid
 
 
@@ -263,6 +266,37 @@ class EmbeddingFeedForward(nn.Module):
             else:
                 x = self._activation(x)
         return x.view(torch.Size([-1]) + self._output_shape)
+
+
+class Batch:
+
+    def __init__(self, traces):
+        self.traces = traces
+        self.size = len(traces)
+        sub_batches = {}
+        total_length_controlled = 0
+        for trace in traces:
+            tl = trace.length_controlled
+            if tl == 0:
+                raise ValueError('Trace of length zero.')
+            total_length_controlled += tl
+            trace_hash = ''.join([variable.address for variable in trace.
+                variables_controlled])
+            if trace_hash not in sub_batches:
+                sub_batches[trace_hash] = []
+            sub_batches[trace_hash].append(trace)
+        self.sub_batches = list(sub_batches.values())
+        self.mean_length_controlled = total_length_controlled / self.size
+
+    def __len__(self):
+        return len(self.traces)
+
+    def __getitem__(self, key):
+        return self.traces[key]
+
+    def to(self, device):
+        for trace in self.traces:
+            trace.to(device=device)
 
 
 class Distribution:

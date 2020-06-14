@@ -208,10 +208,18 @@ class EDSRDec(nn.Module):
         return x
 
 
-_NUM_PARAMS_OTHER = 3
+class CDFOut(NamedTuple):
+    logit_probs_c_sm: torch.Tensor
+    means_c: torch.Tensor
+    log_scales_c: torch.Tensor
+    K: int
+    targets: torch.Tensor
 
 
 _LOG_SCALES_MIN = -7.0
+
+
+_NUM_PARAMS_OTHER = 3
 
 
 _NUM_PARAMS_RGB = 4
@@ -220,14 +228,6 @@ _NUM_PARAMS_RGB = 4
 def non_shared_get_K(Kp: int, C: int, num_params: int) ->int:
     """ Inverse of non_shared_get_Kp, get back K=number of mixtures """
     return Kp // (num_params * C)
-
-
-class CDFOut(NamedTuple):
-    logit_probs_c_sm: torch.Tensor
-    means_c: torch.Tensor
-    log_scales_c: torch.Tensor
-    K: int
-    targets: torch.Tensor
 
 
 class DiscretizedMixLogisticLoss(nn.Module):

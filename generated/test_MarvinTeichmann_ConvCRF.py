@@ -38,6 +38,9 @@ import torch
 from torch.autograd import Variable
 
 
+import time
+
+
 import scipy as scp
 
 
@@ -158,15 +161,6 @@ class GaussCRF(nn.Module):
             return torch.stack(bs * [Variable(self.mesh) * sdims])
 
 
-def show_memusage(device=0, name=''):
-    import gpustat
-    gc.collect()
-    gpu_stats = gpustat.GPUStatCollection.new_query()
-    item = gpu_stats.jsonify()['gpus'][device]
-    logging.info('{:>5}/{:>5} MB Usage at {}'.format(item['memory.used'],
-        item['memory.total'], name))
-
-
 def _get_ind(dz):
     if dz == 0:
         return 0, 0
@@ -187,6 +181,15 @@ def _negative(dz):
         return None
     else:
         return -dz
+
+
+def show_memusage(device=0, name=''):
+    import gpustat
+    gc.collect()
+    gpu_stats = gpustat.GPUStatCollection.new_query()
+    item = gpu_stats.jsonify()['gpus'][device]
+    logging.info('{:>5}/{:>5} MB Usage at {}'.format(item['memory.used'],
+        item['memory.total'], name))
 
 
 class MessagePassingCol:

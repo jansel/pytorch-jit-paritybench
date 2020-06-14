@@ -30,6 +30,9 @@ import math
 import numpy as np
 
 
+import time
+
+
 import torch
 
 
@@ -66,6 +69,18 @@ class DeepvoLoss(loss._Loss):
         return F.mse_loss(input[0:3], target[0:3], size_average=self.
             size_average, reduce=self.reduce) + 100 * F.mse_loss(input[3:6],
             target[3:6], size_average=self.size_average, reduce=self.reduce)
+
+
+def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
+    if batchNorm:
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
+            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
+            bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1,
+            inplace=True), nn.Dropout(dropout))
+    else:
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
+            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
+            bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Dropout(dropout))
 
 
 class Parameters:

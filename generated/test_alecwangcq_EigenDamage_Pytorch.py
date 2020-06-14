@@ -61,6 +61,9 @@ import torch.nn.init as init
 from collections import OrderedDict
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -224,14 +227,6 @@ class presnet(nn.Module):
         return x
 
 
-def update_QQ_dict(Q_g, Q_a, m, n):
-    if n is not m:
-        Q_g[n] = Q_g[m]
-        Q_a[n] = Q_a[m]
-        Q_a.pop(m)
-        Q_g.pop(m)
-
-
 def register_bottleneck_layer(m, Q_g, Q_a, W_star, use_patch, trainable=False):
     assert use_patch
     if isinstance(m, nn.Linear):
@@ -253,6 +248,14 @@ def register_bottleneck_layer(m, Q_g, Q_a, W_star, use_patch, trainable=False):
             scale, ConvLayerRotation(Q_g, trainable=trainable))
     else:
         raise NotImplementedError
+
+
+def update_QQ_dict(Q_g, Q_a, m, n):
+    if n is not m:
+        Q_g[n] = Q_g[m]
+        Q_a[n] = Q_a[m]
+        Q_a.pop(m)
+        Q_g.pop(m)
 
 
 class BottleneckPResNet(nn.Module):

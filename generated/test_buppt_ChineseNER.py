@@ -36,15 +36,15 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+START_TAG = '<START>'
+
+
 STOP_TAG = '<STOP>'
 
 
 def argmax(vec):
     _, idx = torch.max(vec, 1)
     return idx.item()
-
-
-START_TAG = '<START>'
 
 
 def log_sum_exp(vec):

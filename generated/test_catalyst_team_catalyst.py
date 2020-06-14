@@ -1904,6 +1904,15 @@ class LovaszLossMultiLabel(_Loss):
         return loss
 
 
+_EPS = 1e-08
+
+
+def _create_margin_mask(labels: torch.Tensor) ->torch.Tensor:
+    equal_labels_mask = torch.eq(labels.unsqueeze(0), labels.unsqueeze(1))
+    marign_mask = 2 * equal_labels_mask.float() - 1
+    return marign_mask
+
+
 def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
     ) ->torch.Tensor:
     skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
@@ -1924,15 +1933,6 @@ def euclidean_distance(x: torch.Tensor, y: torch.Tensor=None) ->torch.Tensor:
     dist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     dist.clamp_min_(0.0)
     return dist
-
-
-def _create_margin_mask(labels: torch.Tensor) ->torch.Tensor:
-    equal_labels_mask = torch.eq(labels.unsqueeze(0), labels.unsqueeze(1))
-    marign_mask = 2 * equal_labels_mask.float() - 1
-    return marign_mask
-
-
-_EPS = 1e-08
 
 
 def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha:
@@ -3406,14 +3406,10 @@ class ClassifyUnet(nn.Module):
         return y_hat, x_
 
 
-LOG_SCALE_MIN = -10
-
-
-def normal_sample(mu, sigma):
-    return mu + sigma * torch.randn_like(sigma)
-
-
 LOG_SCALE_MAX = 2
+
+
+LOG_SCALE_MIN = -10
 
 
 def normal_logprob(mu, sigma, z):
@@ -3422,6 +3418,10 @@ def normal_logprob(mu, sigma, z):
     logprob_vec = normalization_constant + square_term
     logprob = logprob_vec.sum(1)
     return logprob
+
+
+def normal_sample(mu, sigma):
+    return mu + sigma * torch.randn_like(sigma)
 
 
 class ClassifyVAE(torch.nn.Module):

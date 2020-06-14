@@ -274,6 +274,9 @@ class Recorder(nn.Module):
         return out
 
 
+DEC_PREFIX = 'dec_'
+
+
 ENC_PREFIX = 'enc_'
 
 
@@ -296,9 +299,6 @@ def group_by_key_prefix_and_remove_prefix(prefix, d):
     kwargs_without_prefix = dict(map(lambda x: (x[0][len(prefix):], x[1]),
         tuple(kwargs_with_prefix.items())))
     return kwargs_without_prefix, kwargs
-
-
-DEC_PREFIX = 'dec_'
 
 
 def extract_enc_dec_kwargs(kwargs):
@@ -415,11 +415,12 @@ class Chunk(nn.Module):
         return torch.cat([self.fn(c, **kwargs) for c in chunks], dim=self.dim)
 
 
-def chunked_sum(tensor, chunks=1):
-    *orig_size, last_dim = tensor.shape
-    tensor = tensor.reshape(-1, last_dim)
-    summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
-    return torch.cat(summed_tensors, dim=0).reshape(orig_size)
+TOKEN_SELF_ATTN_VALUE = -50000.0
+
+
+def batched_index_select(values, indices):
+    last_dim = values.shape[-1]
+    return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
 
 
 def default(val, default_val):
@@ -449,12 +450,11 @@ def cache_method_decorator(cache_attr, cache_namespace, reexecute=False):
     return inner_fn
 
 
-def batched_index_select(values, indices):
-    last_dim = values.shape[-1]
-    return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
-
-
-TOKEN_SELF_ATTN_VALUE = -50000.0
+def chunked_sum(tensor, chunks=1):
+    *orig_size, last_dim = tensor.shape
+    tensor = tensor.reshape(-1, last_dim)
+    summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
+    return torch.cat(summed_tensors, dim=0).reshape(orig_size)
 
 
 def max_neg_value(tensor):
@@ -672,13 +672,6 @@ class LSHAttention(nn.Module):
         return out, attn, buckets
 
 
-def merge_dims(ind_from, ind_to, tensor):
-    shape = list(tensor.shape)
-    arr_slice = slice(ind_from, ind_to + 1)
-    shape[arr_slice] = [reduce(mul, shape[arr_slice])]
-    return tensor.reshape(*shape)
-
-
 def look_around(x, backward=1, forward=0, pad_value=-1, dim=2):
     t = x.shape[1]
     dims = (len(x.shape) - dim) * (0, 0)
@@ -686,6 +679,13 @@ def look_around(x, backward=1, forward=0, pad_value=-1, dim=2):
     tensors = [padded_x[:, ind:ind + t, (...)] for ind in range(forward +
         backward + 1)]
     return torch.cat(tensors, dim=dim)
+
+
+def merge_dims(ind_from, ind_to, tensor):
+    shape = list(tensor.shape)
+    arr_slice = slice(ind_from, ind_to + 1)
+    shape[arr_slice] = [reduce(mul, shape[arr_slice])]
+    return tensor.reshape(*shape)
 
 
 class LocalAttention(nn.Module):
@@ -970,10 +970,6 @@ class FixedPositionalEmbedding(nn.Module):
         return emb[(None), :, :]
 
 
-def cast_tuple(x):
-    return x if isinstance(x, tuple) else (x,)
-
-
 def cache_fn(f):
     cache = None
 
@@ -985,6 +981,10 @@ def cache_fn(f):
         cache = f(*args, **kwargs)
         return cache
     return cached_fn
+
+
+def cast_tuple(x):
+    return x if isinstance(x, tuple) else (x,)
 
 
 class Reformer(nn.Module):

@@ -57,6 +57,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
+import time
+
+
 class DotProductAttention(nn.Module):
     """Dot product attention.
     Given a set of vector values, and a vector query, attention is a technique

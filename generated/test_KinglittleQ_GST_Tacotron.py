@@ -52,6 +52,9 @@ from torch.nn import DataParallel
 from scipy.io.wavfile import write
 
 
+from time import time
+
+
 class GST(nn.Module):
 
     def __init__(self):

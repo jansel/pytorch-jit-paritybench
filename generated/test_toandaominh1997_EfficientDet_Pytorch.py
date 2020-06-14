@@ -77,6 +77,9 @@ from torch.utils import model_zoo
 import random
 
 
+import time
+
+
 import torch.nn.parallel
 
 
@@ -435,63 +438,6 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
-    }
-
-
-def load_pretrained_weights(model, model_name, load_fc=True):
-    """ Loads pretrained weights, and downloads if loading for the first time. """
-    state_dict = model_zoo.load_url(url_map[model_name])
-    if load_fc:
-        model.load_state_dict(state_dict)
-    else:
-        state_dict.pop('_fc.weight')
-        state_dict.pop('_fc.bias')
-        res = model.load_state_dict(state_dict, strict=False)
-        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
-
-
-def round_filters(filters, global_params):
-    """ Calculate and round number of filters based on depth multiplier. """
-    multiplier = global_params.width_coefficient
-    if not multiplier:
-        return filters
-    divisor = global_params.depth_divisor
-    min_depth = global_params.min_depth
-    filters *= multiplier
-    min_depth = min_depth or divisor
-    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
-        divisor)
-    if new_filters < 0.9 * filters:
-        new_filters += divisor
-    return int(new_filters)
-
-
-def round_repeats(repeats, global_params):
-    """ Round number of filters based on depth multiplier. """
-    multiplier = global_params.depth_coefficient
-    if not multiplier:
-        return repeats
-    return int(math.ceil(multiplier * repeats))
-
-
 def efficientnet_params(model_name):
     """ Map EfficientNet model name to parameter coefficients. """
     params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
@@ -501,12 +447,6 @@ def efficientnet_params(model_name):
         2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
         'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
     return params_dict[model_name]
-
-
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
 
 
 BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
@@ -575,6 +515,12 @@ class BlockDecoder(object):
         return block_strings
 
 
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+
 def efficientnet(width_coefficient=None, depth_coefficient=None,
     dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=1000
     ):
@@ -605,6 +551,63 @@ def get_model_params(model_name, override_params):
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
+
+
+url_map = {'efficientnet-b0':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth'
+    , 'efficientnet-b1':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth'
+    , 'efficientnet-b2':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth'
+    , 'efficientnet-b3':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b3-5fb5a3c3.pth'
+    , 'efficientnet-b4':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b4-6ed6700e.pth'
+    , 'efficientnet-b5':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b5-b6417697.pth'
+    , 'efficientnet-b6':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b6-c76e70fd.pth'
+    , 'efficientnet-b7':
+    'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b7-dcc49843.pth'
+    }
+
+
+def load_pretrained_weights(model, model_name, load_fc=True):
+    """ Loads pretrained weights, and downloads if loading for the first time. """
+    state_dict = model_zoo.load_url(url_map[model_name])
+    if load_fc:
+        model.load_state_dict(state_dict)
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        res = model.load_state_dict(state_dict, strict=False)
+        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']
+            ), 'issue loading pretrained weights'
+    print('Loaded pretrained weights for {}'.format(model_name))
+
+
+def round_filters(filters, global_params):
+    """ Calculate and round number of filters based on depth multiplier. """
+    multiplier = global_params.width_coefficient
+    if not multiplier:
+        return filters
+    divisor = global_params.depth_divisor
+    min_depth = global_params.min_depth
+    filters *= multiplier
+    min_depth = min_depth or divisor
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
+        divisor)
+    if new_filters < 0.9 * filters:
+        new_filters += divisor
+    return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
 
 
 class EfficientNet(nn.Module):
@@ -965,20 +968,6 @@ class ClassificationModel(nn.Module):
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
 
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
-        shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
-        ).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
-
-
 def generate_anchors(base_size=16, ratios=None, scales=None):
     """
     Generate anchor (reference) windows by enumerating aspect ratios X
@@ -997,6 +986,20 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
     anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
     anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
     return anchors
+
+
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(),
+        shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)
+        ).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
 
 
 class Anchors(nn.Module):
@@ -1216,16 +1219,16 @@ def bias_init_with_prob(prior_prob):
     return bias_init
 
 
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
 def multi_apply(func, *args, **kwargs):
     pfunc = partial(func, **kwargs) if kwargs else func
     map_results = map(pfunc, *args)
     return tuple(map(list, zip(*map_results)))
+
+
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 class RetinaHead(nn.Module):

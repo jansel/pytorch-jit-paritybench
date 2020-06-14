@@ -262,6 +262,9 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.nn.utils.clip_grad import clip_grad_value_
 
 
+import time
+
+
 import numpy
 
 
@@ -548,49 +551,61 @@ class MLPEncoder(Module):
         return self.seq(data)
 
 
-FLAMBE_STASH_KEY = '_flambe_stash'
+C = TypeVar('C', bound='Component')
 
 
-VERSION_KEY = '_flambe_version'
-
-
-HIGHEST_SERIALIZATION_PROTOCOL_VERSION = 1
+FLAMBE_CLASS_KEY = '_flambe_class'
 
 
 FLAMBE_CONFIG_KEY = '_flambe_config'
 
 
-STATE_DICT_DELIMETER = '.'
-
-
-def _extract_prefix(root, directory):
-    if directory.startswith(root):
-        return directory[len(root):].lstrip(os.sep).replace(os.sep,
-            STATE_DICT_DELIMETER)
-    else:
-        raise Exception()
+FLAMBE_DIRECTORIES_KEY = '_flambe_directories'
 
 
 FLAMBE_SOURCE_KEY = '_flambe_source'
 
 
-CONFIG_FILE_NAME = 'config.yaml'
+FLAMBE_STASH_KEY = '_flambe_stash'
 
 
-PROTOCOL_VERSION_FILE_NAME = 'protocol_version.txt'
+KEEP_VARS_KEY = 'keep_vars'
 
 
-class State(OrderedDict):
-    """A state object for Flambe."""
-    _metadata: Dict[str, Any]
+class RegistrationError(Exception):
+    """Error thrown when acessing yaml tag on a non-registered class
+
+    Thrown when trying to access the default yaml tag for a class
+    typically occurs when called on an abstract class
+    """
+    pass
 
 
-def _prefix_keys(state, prefix):
-    for key in set(state.keys()):
-        val = state[key]
-        del state[key]
-        state[prefix + key] = val
-    return state
+logger = logging.getLogger(__name__)
+
+
+def make_from_yaml_with_metadata(from_yaml_fn: Callable[..., Any], tag: str,
+    factory_name: Optional[str]=None) ->Callable[..., Any]:
+
+    @functools.wraps(from_yaml_fn)
+    def wrapped(constructor: Any, node: Any) ->Any:
+        obj = from_yaml_fn(constructor, node, factory_name=factory_name)
+        obj.__dict__['_created_with_tag'] = tag
+        return obj
+    return wrapped
+
+
+def make_to_yaml_with_metadata(to_yaml_fn: Callable[..., Any]) ->Callable[
+    ..., Any]:
+
+    @functools.wraps(to_yaml_fn)
+    def wrapped(representer: Any, node: Any) ->Any:
+        if hasattr(node, '_created_with_tag'):
+            tag = node._created_with_tag
+        else:
+            tag = Registrable.get_default_tag(type(node))
+        return to_yaml_fn(representer, node, tag=tag)
+    return wrapped
 
 
 class MixtureOfSoftmax(Module):
@@ -697,6 +712,24 @@ class LastPooling(Module):
         return data[(torch.arange(data.size(0)).long()), (lengths - 1), :]
 
 
+def _default_padding_mask(data: torch.Tensor) ->torch.Tensor:
+    """
+    Builds a 1s padding mask taking into account initial 2 dimensions
+    of input data.
+
+    Parameters
+    ----------
+    data : torch.Tensor
+        The input data, as a tensor of shape [B x S x H]
+
+    Returns
+    ----------
+    torch.Tensor
+        A padding mask , as a tensor of shape [B x S]
+    """
+    return torch.ones((data.size(0), data.size(1))).to(data)
+
+
 def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
     ) ->torch.Tensor:
     """
@@ -715,24 +748,6 @@ def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
 
     """
     return (data * padding_mask.unsqueeze(2)).sum(dim=1)
-
-
-def _default_padding_mask(data: torch.Tensor) ->torch.Tensor:
-    """
-    Builds a 1s padding mask taking into account initial 2 dimensions
-    of input data.
-
-    Parameters
-    ----------
-    data : torch.Tensor
-        The input data, as a tensor of shape [B x S x H]
-
-    Returns
-    ----------
-    torch.Tensor
-        A padding mask , as a tensor of shape [B x S]
-    """
-    return torch.ones((data.size(0), data.size(1))).to(data)
 
 
 class SumPooling(Module):
@@ -899,9 +914,6 @@ class StructuredSelfAttentivePooling(Module):
         attention = self._compute_attention(data, mask)
         attended = torch.bmm(attention.transpose(1, 2), data)
         return attended.mean(dim=1)
-
-
-logger = logging.getLogger(__name__)
 
 
 class PooledRNNEncoder(Module):

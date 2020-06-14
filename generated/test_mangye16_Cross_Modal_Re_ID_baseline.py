@@ -52,6 +52,9 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+import time
+
+
 import torch.backends.cudnn as cudnn
 
 
@@ -99,14 +102,6 @@ class OriTripletLoss(nn.Module):
         loss = self.ranking_loss(dist_an, dist_ap, y)
         correct = torch.ge(dist_an, dist_ap).sum().item()
         return loss, correct
-
-
-def softmax_weights(dist, mask):
-    max_v = torch.max(dist * mask, dim=1, keepdim=True)[0]
-    diff = dist - max_v
-    Z = torch.sum(torch.exp(diff) * mask, dim=1, keepdim=True) + 1e-06
-    W = torch.exp(diff) * mask / Z
-    return W
 
 
 class Normalize(nn.Module):

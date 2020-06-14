@@ -24,6 +24,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch as T
 
 
@@ -45,6 +48,15 @@ from torch.distributions import Categorical
 from numpy import random
 
 
+_global_config['trunc_norm_init_std'] = 4
+
+
+def init_linear_wt(linear):
+    linear.weight.data.normal_(std=config.trunc_norm_init_std)
+    if linear.bias is not None:
+        linear.bias.data.normal_(std=config.trunc_norm_init_std)
+
+
 _global_config['rand_unif_init_mag'] = 4
 
 
@@ -60,15 +72,6 @@ def init_lstm_wt(lstm):
             start, end = n // 4, n // 2
             bias.data.fill_(0.0)
             bias.data[start:end].fill_(1.0)
-
-
-_global_config['trunc_norm_init_std'] = 4
-
-
-def init_linear_wt(linear):
-    linear.weight.data.normal_(std=config.trunc_norm_init_std)
-    if linear.bias is not None:
-        linear.bias.data.normal_(std=config.trunc_norm_init_std)
 
 
 _global_config['hidden_dim'] = 4

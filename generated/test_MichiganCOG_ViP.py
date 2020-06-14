@@ -435,15 +435,15 @@ class ResidualBlock(nn.Module):
         return self.layernorm(x[0] + self.dropout(self.layer(*x)))
 
 
+INF = 10000000000.0
+
+
 def matmul(x, y):
     if x.dim() == y.dim():
         return x @ y
     if x.dim() == y.dim() - 1:
         return (x.unsqueeze(-2) @ y).squeeze(-2)
     return (x @ y.unsqueeze(-2)).squeeze(-2)
-
-
-INF = 10000000000.0
 
 
 class Attention(nn.Module):
@@ -681,6 +681,33 @@ class InceptionModule(nn.Module):
         return torch.cat([b0, b1, b2, b3], dim=1)
 
 
+class PreprocessEval(object):
+    """
+    Container for all transforms used to preprocess clips for training in this dataset.
+    """
+
+    def __init__(self, **kwargs):
+        """
+        Initialize preprocessing class for training set
+        Args:
+            preprocess (String): Keyword to select different preprocessing types            
+            crop_type  (String): Select random or central crop 
+
+        Return:
+            None
+        """
+        self.transforms = []
+        self.transforms.append(pt.ResizeClip(**kwargs))
+        self.transforms.append(pt.CenterCropClip(**kwargs))
+        self.transforms.append(pt.SubtractRGBMean(**kwargs))
+        self.transforms.append(pt.ToTensorClip(**kwargs))
+
+    def __call__(self, input_data):
+        for transform in self.transforms:
+            input_data = transform(input_data)
+        return input_data
+
+
 class PreprocessTrain(object):
     """
     Container for all transforms used to preprocess clips for training in this dataset.
@@ -708,33 +735,6 @@ class PreprocessTrain(object):
         self.transforms.append(pt.SubtractRGBMean(**kwargs))
         self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **
             kwargs))
-        self.transforms.append(pt.ToTensorClip(**kwargs))
-
-    def __call__(self, input_data):
-        for transform in self.transforms:
-            input_data = transform(input_data)
-        return input_data
-
-
-class PreprocessEval(object):
-    """
-    Container for all transforms used to preprocess clips for training in this dataset.
-    """
-
-    def __init__(self, **kwargs):
-        """
-        Initialize preprocessing class for training set
-        Args:
-            preprocess (String): Keyword to select different preprocessing types            
-            crop_type  (String): Select random or central crop 
-
-        Return:
-            None
-        """
-        self.transforms = []
-        self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.SubtractRGBMean(**kwargs))
         self.transforms.append(pt.ToTensorClip(**kwargs))
 
     def __call__(self, input_data):
@@ -933,123 +933,23 @@ class I3D(nn.Module):
         return self.avg_pool(x)
 
 
-class PreprocessEvalSSD(object):
+def decode(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
     """
-    Container for all transforms used to preprocess clips for evaluation in this dataset.
-    """
-
-    def __init__(self, **kwargs):
-        crop_shape = kwargs['crop_shape']
-        crop_type = kwargs['crop_type']
-        resize_shape = kwargs['resize_shape']
-        self.transforms = []
-        if crop_type == 'Random':
-            self.transforms.append(pt.RandomCropClip(**kwargs))
-        elif crop_type == 'Center':
-            self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractRGBMean(**kwargs))
-        self.transforms.append(pt.ToTensorClip())
-
-    def __call__(self, input_data, bbox_data=[]):
-        """
-        Preprocess the clip and the bbox data accordingly
-        Args:
-            input_data: List of PIL images containing clip frames 
-            bbox_data:  Numpy array containing bbox coordinates per object per frame 
-
-        Return:
-            input_data: Pytorch tensor containing the processed clip data 
-            bbox_data:  Numpy tensor containing the augmented bbox coordinates
-        """
-        if bbox_data == []:
-            for transform in self.transforms:
-                input_data = transform(input_data)
-            return input_data
-        else:
-            for transform in self.transforms:
-                input_data, bbox_data = transform(input_data, bbox_data)
-            return input_data, bbox_data
-
-
-def vgg(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        elif v == 'C':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
-    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
-    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
-    return layers
-
-
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
-    """
-
-    def __init__(self, cfg):
-        super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-
-    def forward(self):
-        mean = []
-        for k, f in enumerate(self.feature_maps):
-            for i, j in product(range(f), repeat=2):
-                f_k = self.image_size / self.steps[k]
-                cx = (j + 0.5) / f_k
-                cy = (i + 0.5) / f_k
-                s_k = self.min_sizes[k] / self.image_size
-                mean += [cx, cy, s_k, s_k]
-                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
-                mean += [cx, cy, s_k_prime, s_k_prime]
-                for ar in self.aspect_ratios[k]:
-                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
-                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
-
-
-def add_extras(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    return layers
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
+        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -1109,25 +1009,6 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
     return keep, count
 
 
-def decode(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-    return boxes
-
-
 class Detect(Function):
     """At test time, Detect is the final layer of SSD.  Decode location preds,
     apply non-maximum suppression to location predictions based on conf
@@ -1180,6 +1061,45 @@ class Detect(Function):
         return output
 
 
+class PreprocessEvalSSD(object):
+    """
+    Container for all transforms used to preprocess clips for evaluation in this dataset.
+    """
+
+    def __init__(self, **kwargs):
+        crop_shape = kwargs['crop_shape']
+        crop_type = kwargs['crop_type']
+        resize_shape = kwargs['resize_shape']
+        self.transforms = []
+        if crop_type == 'Random':
+            self.transforms.append(pt.RandomCropClip(**kwargs))
+        elif crop_type == 'Center':
+            self.transforms.append(pt.CenterCropClip(**kwargs))
+        self.transforms.append(pt.ResizeClip(**kwargs))
+        self.transforms.append(pt.SubtractRGBMean(**kwargs))
+        self.transforms.append(pt.ToTensorClip())
+
+    def __call__(self, input_data, bbox_data=[]):
+        """
+        Preprocess the clip and the bbox data accordingly
+        Args:
+            input_data: List of PIL images containing clip frames 
+            bbox_data:  Numpy array containing bbox coordinates per object per frame 
+
+        Return:
+            input_data: Pytorch tensor containing the processed clip data 
+            bbox_data:  Numpy tensor containing the augmented bbox coordinates
+        """
+        if bbox_data == []:
+            for transform in self.transforms:
+                input_data = transform(input_data)
+            return input_data
+        else:
+            for transform in self.transforms:
+                input_data, bbox_data = transform(input_data, bbox_data)
+            return input_data, bbox_data
+
+
 class PreprocessTrainSSD(object):
     """
     Container for all transforms used to preprocess clips for training in this dataset.
@@ -1219,6 +1139,63 @@ class PreprocessTrainSSD(object):
             return input_data, bbox_data
 
 
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, cfg):
+        super(PriorBox, self).__init__()
+        self.image_size = cfg['min_dim']
+        self.num_priors = len(cfg['aspect_ratios'])
+        self.variance = cfg['variance'] or [0.1]
+        self.feature_maps = cfg['feature_maps']
+        self.min_sizes = cfg['min_sizes']
+        self.max_sizes = cfg['max_sizes']
+        self.steps = cfg['steps']
+        self.aspect_ratios = cfg['aspect_ratios']
+        self.clip = cfg['clip']
+        self.version = cfg['name']
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+
+    def forward(self):
+        mean = []
+        for k, f in enumerate(self.feature_maps):
+            for i, j in product(range(f), repeat=2):
+                f_k = self.image_size / self.steps[k]
+                cx = (j + 0.5) / f_k
+                cy = (i + 0.5) / f_k
+                s_k = self.min_sizes[k] / self.image_size
+                mean += [cx, cy, s_k, s_k]
+                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
+                mean += [cx, cy, s_k_prime, s_k_prime]
+                for ar in self.aspect_ratios[k]:
+                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
+                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
+
+
+def add_extras(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    flag = False
+    for k, v in enumerate(cfg):
+        if in_channels != 'S':
+            if v == 'S':
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
+                    1, 3)[flag], stride=2, padding=1)]
+            else:
+                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
+            flag = not flag
+        in_channels = v
+    return layers
+
+
 def multibox(vgg, extra_layers, cfg, num_classes):
     loc_layers = []
     conf_layers = []
@@ -1234,6 +1211,29 @@ def multibox(vgg, extra_layers, cfg, num_classes):
         conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
             kernel_size=3, padding=1)]
     return vgg, extra_layers, (loc_layers, conf_layers)
+
+
+def vgg(cfg, i, batch_norm=False):
+    layers = []
+    in_channels = i
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        elif v == 'C':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
+    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
+        True)]
+    return layers
 
 
 class SSD(nn.Module):
@@ -1369,16 +1369,15 @@ class L2Norm(nn.Module):
         return out
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 def encode(matched, priors, variances):
@@ -1442,6 +1441,18 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
+    Args:
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
@@ -1475,17 +1486,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1591,23 +1591,31 @@ class Test_MichiganCOG_ViP(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(Attention(*[], **{'d_key': 4, 'drop_ratio': 0.5, 'causal': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
+    def test_002(self):
         self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
+        self._check(MultiHead(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(Transformer(*[], **{'d_model': 4, 'n_vocab_src': 4, 'vocab_trg': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_007(self):
         self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 

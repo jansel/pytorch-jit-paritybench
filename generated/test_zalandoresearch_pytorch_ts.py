@@ -210,6 +210,9 @@ import copy
 import math
 
 
+import time
+
+
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -228,11 +231,94 @@ from itertools import chain
 from itertools import combinations
 
 
-def prod(xs):
-    p = 1
-    for x in xs:
-        p *= x
-    return p
+class LSTNetBase(nn.Module):
+
+    def __init__(self, num_series: int, channels: int, kernel_size: int,
+        rnn_cell_type: str, rnn_num_cells: int, skip_rnn_cell_type: str,
+        skip_rnn_num_cells: int, skip_size: int, ar_window: int,
+        context_length: int, horizon: Optional[int], prediction_length:
+        Optional[int], dropout_rate: float, output_activation: Optional[str
+        ], scaling: bool, *args, **kwargs) ->None:
+        super().__init__(*args, **kwargs)
+        self.num_series = num_series
+        self.channels = channels
+        assert channels % skip_size == 0, 'number of conv1d `channels` must be divisible by the `skip_size`'
+        self.skip_size = skip_size
+        assert ar_window > 0, 'auto-regressive window must be a positive integer'
+        self.ar_window = ar_window
+        assert not (horizon is None) == (prediction_length is None
+            ), 'Exactly one of `horizon` and `prediction_length` must be set at a time'
+        assert horizon is None or horizon > 0, '`horizon` must be greater than zero'
+        assert prediction_length is None or prediction_length > 0, '`prediction_length` must be greater than zero'
+        self.prediction_length = prediction_length
+        self.horizon = horizon
+        assert context_length > 0, '`context_length` must be greater than zero'
+        self.context_length = context_length
+        if output_activation is not None:
+            assert output_activation in ['sigmoid', 'tanh'
+                ], "`output_activation` must be either 'sigmiod' or 'tanh' "
+        self.output_activation = output_activation
+        assert rnn_cell_type in ['GRU', 'LSTM'
+            ], "`rnn_cell_type` must be either 'GRU' or 'LSTM' "
+        assert skip_rnn_cell_type in ['GRU', 'LSTM'
+            ], "`skip_rnn_cell_type` must be either 'GRU' or 'LSTM' "
+        conv_out = context_length - kernel_size
+        self.conv_skip = conv_out // skip_size
+        assert self.conv_skip > 0, """conv1d output size must be greater than or equal to `skip_size`
+Choose a smaller `kernel_size` or bigger `context_length`"""
+        self.cnn = nn.Conv2d(in_channels=1, out_channels=channels,
+            kernel_size=(num_series, kernel_size))
+        self.dropout = nn.Dropout(p=dropout_rate)
+        rnn = {'LSTM': nn.LSTM, 'GRU': nn.GRU}[rnn_cell_type]
+        self.rnn = rnn(input_size=channels, hidden_size=rnn_num_cells)
+        skip_rnn = {'LSTM': nn.LSTM, 'GRU': nn.GRU}[skip_rnn_cell_type]
+        self.skip_rnn_num_cells = skip_rnn_num_cells
+        self.skip_rnn = skip_rnn(input_size=channels, hidden_size=
+            skip_rnn_num_cells)
+        self.fc = nn.Linear(rnn_num_cells + skip_size * skip_rnn_num_cells,
+            num_series)
+        if self.horizon:
+            self.ar_fc = nn.Linear(ar_window, 1)
+        else:
+            self.ar_fc = nn.Linear(ar_window, prediction_length)
+        if scaling:
+            self.scaler = MeanScaler(keepdim=True, time_first=False)
+        else:
+            self.scaler = NOPScaler(keepdim=True, time_first=False)
+
+    def forward(self, past_target: torch.Tensor, past_observed_values:
+        torch.Tensor) ->torch.Tensor:
+        scaled_past_target, scale = self.scaler(past_target[(...), -self.
+            context_length:], past_observed_values[(...), -self.
+            context_length:])
+        c = F.relu(self.cnn(scaled_past_target.unsqueeze(1)))
+        c = self.dropout(c)
+        c = c.squeeze(2)
+        r = c.permute(2, 0, 1)
+        _, r = self.rnn(r)
+        r = self.dropout(r.squeeze(0))
+        skip_c = c[(...), -self.conv_skip * self.skip_size:]
+        skip_c = skip_c.reshape(-1, self.channels, self.conv_skip, self.
+            skip_size)
+        skip_c = skip_c.permute(2, 0, 3, 1)
+        skip_c = skip_c.reshape((self.conv_skip, -1, self.channels))
+        _, skip_c = self.skip_rnn(skip_c)
+        skip_c = skip_c.reshape((-1, self.skip_size * self.skip_rnn_num_cells))
+        skip_c = self.dropout(skip_c)
+        res = self.fc(torch.cat((r, skip_c), 1)).unsqueeze(-1)
+        ar_x = scaled_past_target[(...), -self.ar_window:]
+        ar_x = ar_x.reshape(-1, self.ar_window)
+        ar_x = self.ar_fc(ar_x)
+        if self.horizon:
+            ar_x = ar_x.reshape(-1, self.num_series, 1)
+        else:
+            ar_x = ar_x.reshape(-1, self.num_series, self.prediction_length)
+        out = res + ar_x
+        if self.output_activation is None:
+            return out, scale
+        return torch.sigmoid(out
+            ) if self.output_activation == 'sigmoid' else torch.tanh(out
+            ), scale
 
 
 class NBEATSBlock(nn.Module):
@@ -259,6 +345,23 @@ class NBEATSBlock(nn.Module):
 
     def forward(self, x):
         return self.fc(x)
+
+
+class NBEATSGenericBlock(NBEATSBlock):
+
+    def __init__(self, units, thetas_dim, num_block_layers=4,
+        backcast_length=10, forecast_length=5):
+        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=
+            thetas_dim, num_block_layers=num_block_layers, backcast_length=
+            backcast_length, forecast_length=forecast_length)
+        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
+        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
+
+    def forward(self, x):
+        x = super().forward(x)
+        theta_b = F.relu(self.theta_b_fc(x))
+        theta_f = F.relu(self.theta_f_fc(x))
+        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
 def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
@@ -325,23 +428,6 @@ class NBEATSTrendBlock(NBEATSBlock):
         backcast = self.theta_b_fc(x).mm(self.T_backcast)
         forecast = self.theta_f_fc(x).mm(self.T_forecast)
         return backcast, forecast
-
-
-class NBEATSGenericBlock(NBEATSBlock):
-
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5):
-        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length)
-        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
-        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
-
-    def forward(self, x):
-        x = super().forward(x)
-        theta_b = F.relu(self.theta_b_fc(x))
-        theta_f = F.relu(self.theta_f_fc(x))
-        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
 class NBEATSNetwork(nn.Module):
@@ -426,22 +512,11 @@ class NBEATSNetwork(nn.Module):
             ) * torch.logical_not(flag) / (seasonal_error + flag)
 
 
-def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
-    None, dim=None):
-    if weights is not None:
-        weighted_tensor = tensor * weights
-        if dim is not None:
-            sum_weights = torch.sum(weights, dim)
-            sum_weighted_tensor = torch.sum(weighted_tensor, dim)
-        else:
-            sum_weights = weights.sum()
-            sum_weighted_tensor = weighted_tensor.sum()
-        sum_weights = torch.max(torch.ones_like(sum_weights), sum_weights)
-        return sum_weighted_tensor / sum_weights
-    elif dim is not None:
-        return torch.mean(tensor, dim=dim)
-    else:
-        return tensor.mean()
+def prod(xs):
+    p = 1
+    for x in xs:
+        p *= x
+    return p
 
 
 class ArgProj(nn.Module):

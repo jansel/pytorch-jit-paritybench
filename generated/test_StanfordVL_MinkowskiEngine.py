@@ -118,6 +118,9 @@ from torch.nn.modules import Module
 import logging
 
 
+from time import time
+
+
 import torch.utils.data
 
 
@@ -154,14 +157,6 @@ class OperationType(Enum):
     MULTIPLICATION = 1
 
 
-op_to_int = {i: i.value for i in OperationType}
-
-
-def operation_type_to_int(op):
-    assert isinstance(op, OperationType)
-    return op_to_int[op]
-
-
 def get_postfix(tensor: torch.Tensor):
     postfix = 'GPU' if tensor.is_cuda else 'CPU'
     if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.
@@ -182,6 +177,14 @@ def get_minkowski_function(name, variable):
             )
     else:
         raise ValueError(f'Function {fn_name} not available.')
+
+
+op_to_int = {i: i.value for i in OperationType}
+
+
+def operation_type_to_int(op):
+    assert isinstance(op, OperationType)
+    return op_to_int[op]
 
 
 class MinkowskiBroadcastFunction(Function):
@@ -222,6 +225,14 @@ class MinkowskiBroadcastFunction(Function):
         return grad_in_feat, grad_in_feat_glob, None, None, None, None
 
 
+COORDS_KEY_DIFFERENT_ERROR = 'SparseTensors must have the same coords_key.'
+
+
+COORDS_MAN_DIFFERENT_ERROR = (
+    'SparseTensors must share the same coordinate manager for this operation. Please refer to the SparseTensor creation API (https://stanfordvl.github.io/MinkowskiEngine/sparse_tensor.html) to share the coordinate manager, or set the sparse tensor operation mode with `set_sparse_tensor_operation_mode` to share it by default.'
+    )
+
+
 def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor],
     dimension: int):
     if isinstance(arg, list):
@@ -237,42 +248,35 @@ def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor],
     return tmp
 
 
-COORDS_MAN_DIFFERENT_ERROR = (
-    'SparseTensors must share the same coordinate manager for this operation. Please refer to the SparseTensor creation API (https://stanfordvl.github.io/MinkowskiEngine/sparse_tensor.html) to share the coordinate manager, or set the sparse tensor operation mode with `set_sparse_tensor_operation_mode` to share it by default.'
-    )
+class CoordsKey:
 
+    def __init__(self, D):
+        self.D = D
+        self.CPPCoordsKey = MEB.CoordsKey()
+        self.CPPCoordsKey.setDimension(D)
 
-class SparseTensorOperationMode(Enum):
-    """
-    `SEPARATE_COORDS_MANAGER`: always create a new coordinate manager.
-    `SHARE_COORDS_MANAGER`: always use the globally defined coordinate manager. Must clear the coordinate manager manually by :attr:`MinkowskiEngine.SparseTensor.clear_global_coords_man`
-    """
-    SEPARATE_COORDS_MANAGER = 0
-    SHARE_COORDS_MANAGER = 1
+    def isKeySet(self):
+        return self.CPPCoordsKey.isKeySet()
 
+    def setKey(self, key):
+        self.CPPCoordsKey.setKey(key)
 
-class SparseTensorQuantizationMode(Enum):
-    """
-    `RANDOM_SUBSAMPLE`: Subsample one coordinate per each quantization block randomly.
-    `UNWEIGHTED_AVERAGE`: average all features within a quantization block equally.
-    """
-    RANDOM_SUBSAMPLE = 0
-    UNWEIGHTED_AVERAGE = 1
+    def getKey(self):
+        return self.CPPCoordsKey.getKey()
 
+    def setTensorStride(self, tensor_stride):
+        tensor_stride = convert_to_int_list(tensor_stride, self.D)
+        self.CPPCoordsKey.setTensorStride(tensor_stride)
 
-def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
-    IntTensor], dimension: int):
-    if isinstance(arg, torch.IntTensor):
-        assert arg.numel() == dimension
-        return arg
-    if isinstance(arg, (Sequence, np.ndarray)):
-        tmp = torch.IntTensor([i for i in arg])
-        assert tmp.numel() == dimension
-    elif np.isscalar(arg):
-        tmp = torch.IntTensor([int(arg) for i in range(dimension)])
-    else:
-        raise ValueError('Input must be a scalar or a sequence')
-    return tmp
+    def getTensorStride(self):
+        return self.CPPCoordsKey.getTensorStride()
+
+    def __repr__(self):
+        return str(self.CPPCoordsKey)
+
+    def __eq__(self, other):
+        assert isinstance(other, CoordsKey)
+        return self.getKey() == other.getKey()
 
 
 class MinkowskiBroadcast(Module):
@@ -309,6 +313,21 @@ class MinkowskiBroadcast(Module):
             broadcast_feat[row_ind] = input_glob.F[b]
         return SparseTensor(broadcast_feat, coords_key=input.coords_key,
             coords_manager=input.coords_man)
+
+
+def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
+    IntTensor], dimension: int):
+    if isinstance(arg, torch.IntTensor):
+        assert arg.numel() == dimension
+        return arg
+    if isinstance(arg, (Sequence, np.ndarray)):
+        tmp = torch.IntTensor([i for i in arg])
+        assert tmp.numel() == dimension
+    elif np.isscalar(arg):
+        tmp = torch.IntTensor([int(arg) for i in range(dimension)])
+    else:
+        raise ValueError('Input must be a scalar or a sequence')
+    return tmp
 
 
 class MinkowskiNetwork(nn.Module, ABC):
@@ -441,108 +460,6 @@ class GlobalPoolingMode(Enum):
 
     def __int__(self):
         return self.value
-
-
-class CoordsKey:
-
-    def __init__(self, D):
-        self.D = D
-        self.CPPCoordsKey = MEB.CoordsKey()
-        self.CPPCoordsKey.setDimension(D)
-
-    def isKeySet(self):
-        return self.CPPCoordsKey.isKeySet()
-
-    def setKey(self, key):
-        self.CPPCoordsKey.setKey(key)
-
-    def getKey(self):
-        return self.CPPCoordsKey.getKey()
-
-    def setTensorStride(self, tensor_stride):
-        tensor_stride = convert_to_int_list(tensor_stride, self.D)
-        self.CPPCoordsKey.setTensorStride(tensor_stride)
-
-    def getTensorStride(self):
-        return self.CPPCoordsKey.getTensorStride()
-
-    def __repr__(self):
-        return str(self.CPPCoordsKey)
-
-    def __eq__(self, other):
-        assert isinstance(other, CoordsKey)
-        return self.getKey() == other.getKey()
-
-
-class MinkowskiGlobalPoolingFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input_features, average=True, mode=GlobalPoolingMode.
-        AUTO, in_coords_key=None, out_coords_key=None, coords_manager=None):
-        if out_coords_key is None:
-            out_coords_key = CoordsKey(in_coords_key.D)
-        assert isinstance(mode, GlobalPoolingMode
-            ), f'Mode must be an instance of GlobalPoolingMode, {mode}'
-        ctx.in_coords_key = in_coords_key
-        ctx.out_coords_key = out_coords_key
-        ctx.in_feat = input_features
-        ctx.average = average
-        ctx.coords_manager = coords_manager
-        ctx.mode = mode.value
-        fw_fn = get_minkowski_function('GlobalPoolingForward', input_features)
-        out_feat, num_nonzero = fw_fn(ctx.in_feat, ctx.in_coords_key.
-            CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.
-            coords_manager.CPPCoordsManager, ctx.average, ctx.mode)
-        ctx.num_nonzero = num_nonzero
-        return out_feat
-
-    @staticmethod
-    def backward(ctx, grad_out_feat):
-        bw_fn = get_minkowski_function('GlobalPoolingBackward', grad_out_feat)
-        grad_in_feat = bw_fn(ctx.in_feat, grad_out_feat, ctx.num_nonzero,
-            ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey,
-            ctx.coords_manager.CPPCoordsManager, ctx.average)
-        return grad_in_feat, None, None, None, None, None
-
-
-class MinkowskiGlobalPooling(MinkowskiModuleBase):
-    """Pool all input features to one output.
-
-    .. math::
-
-        \\mathbf{y} = \\frac{1}{|\\mathcal{C}^\\text{in}|} \\sum_{\\mathbf{i} \\in
-        \\mathcal{C}^\\text{in}} \\mathbf{x}_{\\mathbf{i}}
-
-    """
-
-    def __init__(self, average=True, mode=GlobalPoolingMode.AUTO):
-        """Reduces sparse coords into points at origin, i.e. reduce each point
-        cloud into a point at the origin, returning batch_size number of points
-        [[0, 0, ..., 0], [0, 0, ..., 1],, [0, 0, ..., 2]] where the last elem
-        of the coords is the batch index.
-
-        Args:
-            :attr:`average` (bool): when True, return the averaged output. If
-            not, return the sum of all input features.
-
-        """
-        super(MinkowskiGlobalPooling, self).__init__()
-        assert isinstance(mode, GlobalPoolingMode
-            ), f'Mode must be an instance of GlobalPoolingMode. mode={mode}'
-        self.mode = mode
-        self.average = average
-        self.pooling = MinkowskiGlobalPoolingFunction()
-
-    def forward(self, input):
-        assert isinstance(input, SparseTensor)
-        out_coords_key = CoordsKey(input.coords_key.D)
-        output = self.pooling.apply(input.F, self.average, self.mode, input
-            .coords_key, out_coords_key, input.coords_man)
-        return SparseTensor(output, coords_key=out_coords_key,
-            coords_manager=input.coords_man)
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(average=' + str(self.average) + ')'
 
 
 class MinkowskiInstanceNormFunction(Function):

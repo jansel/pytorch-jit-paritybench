@@ -41,6 +41,9 @@ from torch.distributions import kl_divergence
 import numpy as np
 
 
+import time
+
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:

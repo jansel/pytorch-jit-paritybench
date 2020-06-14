@@ -44,6 +44,9 @@ from torch.autograd import Variable
 from torch import nn
 
 
+import time
+
+
 import warnings
 
 
@@ -56,22 +59,22 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 
-_global_config['response_scale'] = 1.0
-
-
-_global_config['train_batch_size'] = False
-
-
-_global_config['train_response_sz'] = False
-
-
-_global_config['total_stride'] = 1
+_global_config['response_sz'] = 4
 
 
 _global_config['radius'] = 4
 
 
-_global_config['response_sz'] = 4
+_global_config['train_batch_size'] = False
+
+
+_global_config['total_stride'] = 1
+
+
+_global_config['response_scale'] = 1.0
+
+
+_global_config['train_response_sz'] = False
 
 
 class SiameseAlexNet(nn.Module):

@@ -75,6 +75,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
 
 
@@ -488,7 +491,13 @@ def heaviside(data):
         data), torch.ones_like(data))
 
 
-class HeaviTent(torch.autograd.Function):
+class HeaviCirc(torch.autograd.Function):
+    """Approximation of the heaviside step function as
+
+    .. math::
+        h(x,\\alpha) = \\frac{1}{2} + \\frac{1}{2} \\
+        \\frac{x}{(x^2 + \\alpha^2)^{1/2}}
+    """
 
     @staticmethod
     def forward(ctx, x, alpha):
@@ -498,10 +507,12 @@ class HeaviTent(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dy):
         x, alpha = ctx.saved_tensors
-        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
+        return dy * (-(x.pow(2) / (2 * (alpha ** 2 + x.pow(2)).pow(1.5))) +
+            1 / (2 * (alpha ** 2 + x.pow(2)).sqrt())
+            ) * 2 * alpha, torch.zeros_like(x)
 
 
-heavi_tent_fn = HeaviTent.apply
+heavi_circ_fn = HeaviCirc.apply
 
 
 class HeaviTanh(torch.autograd.Function):
@@ -524,6 +535,45 @@ class HeaviTanh(torch.autograd.Function):
 
 
 heavi_tanh_fn = HeaviTanh.apply
+
+
+class HeaviTent(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.save_for_backward(x, alpha)
+        return heaviside(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, alpha = ctx.saved_tensors
+        return torch.relu(1 - torch.abs(x)) * alpha * dy, None
+
+
+heavi_tent_fn = HeaviTent.apply
+
+
+class Logistic(torch.autograd.Function):
+    """Probalistic approximation of the heaviside step function as
+
+    .. math::
+        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
+    """
+
+    @staticmethod
+    def forward(ctx, x, k):
+        ctx.save_for_backward(x, k)
+        p = 0.5 + 0.5 * torch.tanh(k * x)
+        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, k = ctx.saved_tensors
+        dtanh = 1 - (x * k).tanh().pow(2)
+        return dy * dtanh, None
+
+
+logistic_fn = Logistic.apply
 
 
 class SuperSpike(torch.autograd.Function):
@@ -552,53 +602,6 @@ class SuperSpike(torch.autograd.Function):
 
 def super_fn(x: torch.Tensor, alpha: float=100.0) ->torch.Tensor:
     return SuperSpike.apply(x, alpha)
-
-
-class HeaviCirc(torch.autograd.Function):
-    """Approximation of the heaviside step function as
-
-    .. math::
-        h(x,\\alpha) = \\frac{1}{2} + \\frac{1}{2} \\
-        \\frac{x}{(x^2 + \\alpha^2)^{1/2}}
-    """
-
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(x, alpha)
-        return heaviside(x)
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, alpha = ctx.saved_tensors
-        return dy * (-(x.pow(2) / (2 * (alpha ** 2 + x.pow(2)).pow(1.5))) +
-            1 / (2 * (alpha ** 2 + x.pow(2)).sqrt())
-            ) * 2 * alpha, torch.zeros_like(x)
-
-
-heavi_circ_fn = HeaviCirc.apply
-
-
-class Logistic(torch.autograd.Function):
-    """Probalistic approximation of the heaviside step function as
-
-    .. math::
-        z \\sim p(\\frac{1}{2} + \\frac{1}{2} \\text{tanh}(k x))
-    """
-
-    @staticmethod
-    def forward(ctx, x, k):
-        ctx.save_for_backward(x, k)
-        p = 0.5 + 0.5 * torch.tanh(k * x)
-        return torch.distributions.bernoulli.Bernoulli(probs=p).sample()
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, k = ctx.saved_tensors
-        dtanh = 1 - (x * k).tanh().pow(2)
-        return dy * dtanh, None
-
-
-logistic_fn = Logistic.apply
 
 
 def threshold(x: torch.Tensor, method: str, alpha: float) ->torch.Tensor:
@@ -937,17 +940,6 @@ class IFConstantCurrentEncoder(torch.nn.Module):
             self.dt)
 
 
-class LIState(NamedTuple):
-    """State of a leaky-integrator
-
-    Parameters:
-        v (torch.Tensor): membrane voltage
-        i (torch.Tensor): input current
-    """
-    v: torch.Tensor
-    i: torch.Tensor
-
-
 class LIParameters(NamedTuple):
     """Parameters of a leaky integrator
 
@@ -961,6 +953,17 @@ class LIParameters(NamedTuple):
     tau_mem_inv: torch.Tensor = torch.as_tensor(1.0 / 0.01)
     v_leak: torch.Tensor = torch.as_tensor(0.0)
     v_reset: torch.Tensor = torch.as_tensor(0.0)
+
+
+class LIState(NamedTuple):
+    """State of a leaky-integrator
+
+    Parameters:
+        v (torch.Tensor): membrane voltage
+        i (torch.Tensor): input current
+    """
+    v: torch.Tensor
+    i: torch.Tensor
 
 
 def li_step(input_tensor: torch.Tensor, state: LIState, input_weights:
@@ -1364,17 +1367,25 @@ class CorrelationSensorState(NamedTuple):
     anti_correlation_trace: torch.Tensor
 
 
+class CorrelationSensorParameters(NamedTuple):
+    eta_p: torch.Tensor = torch.as_tensor(1.0)
+    eta_m: torch.Tensor = torch.as_tensor(1.0)
+    tau_ac_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
+    tau_c_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
+
+
+class LIFCorrelationParameters(NamedTuple):
+    lif_parameters: LIFParameters = LIFParameters()
+    input_correlation_parameters: CorrelationSensorParameters = (
+        CorrelationSensorParameters())
+    recurrent_correlation_parameters: CorrelationSensorParameters = (
+        CorrelationSensorParameters())
+
+
 class LIFCorrelationState(NamedTuple):
     lif_state: LIFState
     input_correlation_state: CorrelationSensorState
     recurrent_correlation_state: CorrelationSensorState
-
-
-@torch.jit.script
-def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
-    """Computes which synapses in the synapse array should be updated.
-    """
-    return heaviside(post_pre + post_spike_mask - pre_spike_mask)
 
 
 @torch.jit.script
@@ -1386,18 +1397,18 @@ def post_mask(weights, z):
 
 
 @torch.jit.script
+def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
+    """Computes which synapses in the synapse array should be updated.
+    """
+    return heaviside(post_pre + post_spike_mask - pre_spike_mask)
+
+
+@torch.jit.script
 def pre_mask(weights, z):
     """Computes the mask produced by the pre-synaptic spikes on
     the synapse array."""
     return torch.transpose(torch.transpose(torch.zeros_like(weights), 1, 2) +
         z, 1, 2)
-
-
-class CorrelationSensorParameters(NamedTuple):
-    eta_p: torch.Tensor = torch.as_tensor(1.0)
-    eta_m: torch.Tensor = torch.as_tensor(1.0)
-    tau_ac_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
-    tau_c_inv: torch.Tensor = torch.as_tensor(1.0 / 0.1)
 
 
 def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor,
@@ -1423,14 +1434,6 @@ def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor,
     return CorrelationSensorState(post_pre=post_pre_new, correlation_trace=
         correlation_trace_new, anti_correlation_trace=
         anti_correlation_trace_new)
-
-
-class LIFCorrelationParameters(NamedTuple):
-    lif_parameters: LIFParameters = LIFParameters()
-    input_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
-    recurrent_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
 
 
 def lif_correlation_step(input_tensor: torch.Tensor, state:

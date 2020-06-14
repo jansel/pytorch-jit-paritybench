@@ -955,6 +955,38 @@ class IntQuant(torch.jit.ScriptModule):
         return y
 
 
+class CeilSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(CeilSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return ceil_ste(x)
+
+
+class ClampMin(torch.jit.ScriptModule):
+    __constants__ = ['min_val']
+
+    def __init__(self, min_val: float) ->None:
+        super(ClampMin, self).__init__()
+        self.min_val = min_val
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return x.clamp_min(self.min_val)
+
+
+class FloorSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(FloorSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return floor_ste(x)
+
+
 @torch.jit.script
 def identity(x: torch.Tensor) ->torch.Tensor:
     """ Identity function
@@ -1001,38 +1033,6 @@ class PowerOfTwo(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(self, x: torch.Tensor):
         return 2.0 ** x
-
-
-class CeilSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(CeilSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return ceil_ste(x)
-
-
-class RoundSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(RoundSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return round_ste(x)
-
-
-class ClampMin(torch.jit.ScriptModule):
-    __constants__ = ['min_val']
-
-    def __init__(self, min_val: float) ->None:
-        super(ClampMin, self).__init__()
-        self.min_val = min_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return x.clamp_min(self.min_val)
 
 
 class AffineRescaling(torch.jit.ScriptModule):
@@ -1307,10 +1307,6 @@ class MeanSigmaStd(torch.jit.ScriptModule):
             missing_keys.remove(sigma_key)
 
 
-def pack_quant_tensor(tensor, scale, bit_width):
-    return QuantTensor._make([tensor, scale, bit_width])
-
-
 @torch.jit.script
 def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
     """ Compute the maximum unsigned integer representable
@@ -1338,24 +1334,14 @@ def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
     return value
 
 
-@torch.jit.script
-def over_output_channels(x):
-    return x.shape[0], -1
+def pack_quant_tensor(tensor, scale, bit_width):
+    return QuantTensor._make([tensor, scale, bit_width])
 
 
-class OverOutputChannelView(torch.jit.ScriptModule):
+OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
 
-    def __init__(self) ->None:
-        super(OverOutputChannelView, self).__init__()
 
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
+SCALING_MIN_VAL = 2e-09
 
 
 @torch.jit.script
@@ -1371,26 +1357,6 @@ class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
     @torch.jit.script_method
     def shape(self, x: torch.Tensor):
         return over_batch_over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_tensor(x):
-    return -1
-
-
-class OverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_tensor(x)
 
     @torch.jit.script_method
     def forward(self, x: torch.Tensor):
@@ -1418,14 +1384,51 @@ class OverBatchOverTensorView(torch.jit.ScriptModule):
         return x.view(shape)
 
 
+@torch.jit.script
+def over_output_channels(x):
+    return x.shape[0], -1
+
+
+class OverOutputChannelView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverOutputChannelView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_output_channels(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_tensor(x):
+    return -1
+
+
+class OverTensorView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverTensorView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_tensor(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
 class StatsInputViewShapeImpl(object):
     OVER_TENSOR = OverTensorView
     OVER_OUTPUT_CHANNELS = OverOutputChannelView
     OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
     OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
-
-
-OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
 
 
 ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
@@ -1440,6 +1443,17 @@ class TensorClamp(torch.jit.ScriptModule):
     def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
         torch.Tensor):
         return tensor_clamp(x, min_val=min_val, max_val=max_val)
+
+
+class TensorClampSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(TensorClampSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
+        torch.Tensor):
+        return tensor_clamp_ste(x, min_val, max_val)
 
 
 class ScaleBias(nn.Module):
@@ -1522,6 +1536,37 @@ class TupleSequential(Sequential):
         return out
 
 
+CNV_OUT_CH_POOL = [(64, False), (64, True), (128, False), (128, True), (256,
+    False), (256, False)]
+
+
+INTERMEDIATE_FC_FEATURES = [(256, 512), (512, 512)]
+
+
+INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
+
+
+LAST_FC_IN_FEATURES = 512
+
+
+LAST_FC_PER_OUT_CH_SCALING = False
+
+
+FC_OUT_FEATURES = [64, 64, 64]
+
+
+HIDDEN_DROPOUT = 0.2
+
+
+IN_DROPOUT = 0.2
+
+
+ACT_PER_OUT_CH_SCALING = False
+
+
+BIAS_ENABLED = False
+
+
 def get_quant_type(bit_width):
     if bit_width is None:
         return QuantType.FP
@@ -1529,64 +1574,6 @@ def get_quant_type(bit_width):
         return QuantType.BINARY
     else:
         return QuantType.INT
-
-
-HIDDEN_DROPOUT = 0.2
-
-
-FC_OUT_FEATURES = [64, 64, 64]
-
-
-INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
-
-
-LAST_FC_PER_OUT_CH_SCALING = False
-
-
-IN_DROPOUT = 0.2
-
-
-class SFC(Module):
-
-    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width
-        =None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
-        super(SFC, self).__init__()
-        weight_quant_type = get_quant_type(weight_bit_width)
-        act_quant_type = get_quant_type(act_bit_width)
-        in_quant_type = get_quant_type(in_bit_width)
-        self.features = ModuleList()
-        self.features.append(get_act_quant(in_bit_width, in_quant_type))
-        self.features.append(Dropout(p=IN_DROPOUT))
-        in_features = reduce(mul, in_features)
-        for out_features in FC_OUT_FEATURES:
-            self.features.append(get_quant_linear(in_features=in_features,
-                out_features=out_features, per_out_ch_scaling=
-                INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=
-                weight_bit_width, quant_type=weight_quant_type))
-            in_features = out_features
-            self.features.append(BatchNorm1d(num_features=in_features))
-            self.features.append(get_act_quant(act_bit_width, act_quant_type))
-            self.features.append(Dropout(p=HIDDEN_DROPOUT))
-        self.features.append(get_quant_linear(in_features=in_features,
-            out_features=num_classes, per_out_ch_scaling=
-            LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width,
-            quant_type=weight_quant_type))
-        self.features.append(BatchNorm1d(num_features=num_classes))
-        for m in self.modules():
-            if isinstance(m, QuantLinear):
-                torch.nn.init.uniform_(m.weight.data, -1, 1)
-
-    def clip_weights(self, min_val, max_val):
-        for mod in self.features:
-            if isinstance(mod, QuantLinear):
-                mod.weight.data.clamp_(min_val, max_val)
-
-    def forward(self, x):
-        x = x.view(x.shape[0], -1)
-        x = 2.0 * x - torch.tensor([1.0], device=x.device)
-        for mod in self.features:
-            x = mod(x)
-        return x
 
 
 class TFC(Module):
@@ -1716,13 +1703,22 @@ class DwsConvBlock(nn.Module):
         return x
 
 
-SCALING_MIN_VAL = 2e-09
+ENABLE_BIAS_QUANT = False
+
+
+FIRST_LAYER_BIT_WIDTH = 8
+
+
+ACT_MAX_VAL = 1
+
+
+ACT_PER_CHANNEL_BROADCASTABLE_SHAPE = None
 
 
 ACT_RETURN_QUANT_TENSOR = False
 
 
-ACT_MAX_VAL = 1
+ACT_SCALING_PER_CHANNEL = False
 
 
 class ProxylessBlock(nn.Module):
@@ -1789,6 +1785,15 @@ class ProxylessUnit(nn.Module):
         return x
 
 
+HADAMARD_FIXED_SCALE = False
+
+
+def make_hadamard_classifier(in_channels, out_channels, fixed_scale=
+    HADAMARD_FIXED_SCALE):
+    return qnn.HadamardClassifier(in_channels=in_channels, out_channels=
+        out_channels, fixed_scale=fixed_scale)
+
+
 HARD_TANH_THRESHOLD = 10.0
 
 
@@ -1812,9 +1817,6 @@ def make_layers(cfg, batch_norm, bit_width):
 
 
 WEIGHT_NARROW_RANGE = True
-
-
-ENABLE_BIAS_QUANT = False
 
 
 class AudioPreprocessor(nn.Module):
@@ -2038,13 +2040,6 @@ class ManifestBase:
         return list(self._data)
 
 
-def warn_common_chars(string):
-    if re.search('[£€]', string):
-        print(
-            "WARNING: Your transcript contains one of '£' or '€' which we donot currently handle"
-            )
-
-
 ABBREVIATIONS_COMMON = [(re.compile('\\b%s\\.' % x[0]), x[1]) for x in [(
     'ms', 'miss'), ('mrs', 'misess'), ('mr', 'mister'), ('messrs',
     'messeurs'), ('dr', 'doctor'), ('drs', 'doctors'), ('st', 'saint'), (
@@ -2075,18 +2070,23 @@ def clean_abbreviations(string, expanded=False):
     return string
 
 
-def clean_punctuations(string, table, punctuation_to_replace):
-    for punc, replacement in punctuation_to_replace.items():
-        string = re.sub('\\{}'.format(punc), ' {} '.format(replacement), string
-            )
-    string = string.translate(table)
-    return string
+NUM_CHECK = re.compile(
+    '([$]?)(^|\\s)(\\S*[0-9]\\S*)(?=(\\s|$)((\\S*)(\\s|$))?)')
+
+
+CURRENCY_CHECK = re.compile('\\$')
+
+
+DECIMAL_CHECK = re.compile('([.,][0-9]{1,2})$')
+
+
+ORD_CHECK = re.compile('([0-9]+)(st|nd|rd|th)')
 
 
 THREE_CHECK = re.compile('([0-9]{3})([.,][0-9]{1,2})?([!.?])?$')
 
 
-CURRENCY_CHECK = re.compile('\\$')
+TIME_CHECK = re.compile('([0-9]{1,2}):([0-9]{2})(am|pm)?')
 
 
 class GreedyCTCDecoder(nn.Module):
@@ -2333,17 +2333,6 @@ def get_same_padding(kernel_size, stride, dilation):
     if dilation > 1:
         return dilation * kernel_size // 2 - 1
     return kernel_size // 2
-
-
-def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias, affine_only):
-    mul_factor = bn_weight
-    add_factor = bn_bias * torch.sqrt(bn_var + bn_eps)
-    add_factor = add_factor - bn_mean * (bn_weight - 1.0)
-    if not affine_only:
-        mul_factor = mul_factor / torch.sqrt(bn_var + bn_eps)
-        add_factor = add_factor - bn_mean
-        add_factor = add_factor / torch.sqrt(bn_var + bn_eps)
-    return mul_factor, add_factor
 
 
 class SpecAugment(nn.Module):
@@ -2615,6 +2604,9 @@ class Identity(nn.Module):
         return x
 
 
+MAX_WAV_VALUE = 32768.0
+
+
 ACT_MIN_VAL = -1
 
 
@@ -2635,78 +2627,6 @@ def make_leakyRelu_activation(bit_width):
 def make_tanh_activation(bit_width):
     return quant_nn.QuantTanh(bit_width=bit_width, quant_type=QUANT_TYPE,
         scaling_min_val=SCALING_MIN_VAL, return_quant_tensor=False)
-
-
-def make_transpconv1d(feat_in, feat_out, kernel_size, stride, padding,
-    bit_width, dilation=1):
-    return quant_nn.QuantConvTranspose1d(in_channels=feat_in, out_channels=
-        feat_out, kernel_size=kernel_size, stride=stride, padding=padding,
-        dilation=dilation, weight_bit_width=bit_width, weight_quant_type=
-        QUANT_TYPE, weight_narrow_range=WEIGHT_NARROW_RANGE,
-        weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE,
-        weight_scaling_stats_op=WEIGHT_SCALING_STATS_OP,
-        weight_scaling_min_val=SCALING_MIN_VAL, bias_bit_width=bit_width,
-        bias_quant_type=QUANT_TYPE_BIAS, bias_narrow_range=BIAS_CONFIGS,
-        compute_output_scale=BIAS_CONFIGS, compute_output_bit_width=
-        BIAS_CONFIGS, return_quant_tensor=False)
-
-
-MAX_WAV_VALUE = 32768.0
-
-
-class Generator(nn.Module):
-
-    def __init__(self, mel_channel, bit_width, last_layer_bit_width):
-        super(Generator, self).__init__()
-        self.mel_channel = mel_channel
-        self.generator = nn.Sequential(nn.utils.weight_norm(
-            make_quantconv1d(mel_channel, 512, kernel_size=7, stride=1,
-            padding=3, bit_width=bit_width)), make_leakyRelu_activation(
-            bit_width=bit_width), nn.utils.weight_norm(make_transpconv1d(
-            512, 256, kernel_size=16, stride=8, padding=4, bit_width=
-            bit_width)), ResStack(256, bit_width=bit_width),
-            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
-            make_transpconv1d(256, 128, kernel_size=16, stride=8, padding=4,
-            bit_width=bit_width)), ResStack(128, bit_width=bit_width),
-            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
-            make_transpconv1d(128, 64, kernel_size=4, stride=2, padding=1,
-            bit_width=bit_width)), ResStack(64, bit_width=bit_width),
-            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
-            make_transpconv1d(64, 32, kernel_size=4, stride=2, padding=1,
-            bit_width=bit_width)), ResStack(32, bit_width=bit_width),
-            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
-            make_quantconv1d(32, 1, kernel_size=7, stride=1, padding=3,
-            bit_width=bit_width)), make_tanh_activation(bit_width=
-            last_layer_bit_width))
-
-    def forward(self, mel):
-        mel = (mel + 5.0) / 5.0
-        return self.generator(mel)
-
-    def eval(self, inference=False):
-        super(Generator, self).eval()
-        if inference:
-            self.remove_weight_norm()
-
-    def remove_weight_norm(self):
-        for idx, layer in enumerate(self.generator):
-            if len(layer.state_dict()) != 0:
-                try:
-                    nn.utils.remove_weight_norm(layer)
-                except:
-                    layer.remove_weight_norm()
-
-    def inference(self, mel):
-        hop_length = 256
-        zero = torch.full((1, self.mel_channel, 10), -11.5129).to(mel.device)
-        mel = torch.cat((mel, zero), dim=2)
-        audio = self.forward(mel)
-        audio = audio.squeeze()
-        audio = audio[:-(hop_length * 10)]
-        audio = MAX_WAV_VALUE * audio
-        audio = audio.clamp(min=-MAX_WAV_VALUE, max=MAX_WAV_VALUE - 1)
-        audio = audio.short()
-        return audio
 
 
 class ResStack(nn.Module):
@@ -2878,115 +2798,3 @@ class STFT(torch.nn.Module):
         self.magnitude, self.phase = self.transform(input_data)
         reconstruction = self.inverse(self.magnitude, self.phase)
         return reconstruction
-
-
-def dynamic_range_compression(x, C=1, clip_val=1e-05):
-    """
-    PARAMS
-    ------
-    C: compression factor
-    """
-    return torch.log(torch.clamp(x, min=clip_val) * C)
-
-
-def dynamic_range_decompression(x, C=1):
-    """
-    PARAMS
-    ------
-    C: compression factor used to compress
-    """
-    return torch.exp(x) / C
-
-
-class TacotronSTFT(torch.nn.Module):
-
-    def __init__(self, filter_length=1024, hop_length=256, win_length=1024,
-        n_mel_channels=80, sampling_rate=22050, mel_fmin=0.0, mel_fmax=None):
-        super(TacotronSTFT, self).__init__()
-        self.n_mel_channels = n_mel_channels
-        self.sampling_rate = sampling_rate
-        self.stft_fn = STFT(filter_length, hop_length, win_length)
-        mel_basis = librosa_mel_fn(sampling_rate, filter_length,
-            n_mel_channels, mel_fmin, mel_fmax)
-        mel_basis = torch.from_numpy(mel_basis).float()
-        self.register_buffer('mel_basis', mel_basis)
-
-    def spectral_normalize(self, magnitudes):
-        output = dynamic_range_compression(magnitudes)
-        return output
-
-    def spectral_de_normalize(self, magnitudes):
-        output = dynamic_range_decompression(magnitudes)
-        return output
-
-    def mel_spectrogram(self, y):
-        """Computes mel-spectrograms from a batch of waves
-        PARAMS
-        ------
-        y: Variable(torch.FloatTensor) with shape (B, T) in range [-1, 1]
-
-        RETURNS
-        -------
-        mel_output: torch.FloatTensor of shape (B, n_mel_channels, T)
-        """
-        assert torch.min(y.data) >= -1
-        assert torch.max(y.data) <= 1
-        magnitudes, phases = self.stft_fn.transform(y)
-        magnitudes = magnitudes.data
-        mel_output = torch.matmul(self.mel_basis, magnitudes)
-        mel_output = self.spectral_normalize(mel_output)
-        return mel_output
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Xilinx_brevitas(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(AffineRescaling(*[], **{'affine_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(AudioPreprocessor(*[], **{'win_length': 4, 'hop_length': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(GreedyCTCDecoder(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(GroupShuffle(*[], **{'groups': 1, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(MultiplyBatch(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4]), torch.rand([4, 4]), torch.rand([4])], {})
-
-    def test_006(self):
-        self._check(ScaleBias(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(SpecAugment(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(SpecCutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(SpectrogramAugmentation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_010(self):
-        self._check(SqrHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(TensorNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(WeightReg(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(ZeroLsbTruncBitWidth(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-

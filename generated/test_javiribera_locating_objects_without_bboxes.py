@@ -51,6 +51,9 @@ import numpy as np
 from torch.nn import functional as F
 
 
+import time
+
+
 from torch import nn
 
 
@@ -106,6 +109,11 @@ class AveragedHausdorffLoss(nn.Module):
         return res
 
 
+def _assert_no_grad(variables):
+    for var in variables:
+        assert not var.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these variables as volatile or not requiring gradients"
+
+
 def generaliz_mean(tensor, dim, p=-9, keepdim=False):
     """
     The generalized mean. It corresponds to the minimum when p = -inf.
@@ -118,11 +126,6 @@ def generaliz_mean(tensor, dim, p=-9, keepdim=False):
     assert p < 0
     res = torch.mean((tensor + 1e-06) ** p, dim, keepdim=keepdim) ** (1.0 / p)
     return res
-
-
-def _assert_no_grad(variables):
-    for var in variables:
-        assert not var.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these variables as volatile or not requiring gradients"
 
 
 class WeightedHausdorffDistance(nn.Module):

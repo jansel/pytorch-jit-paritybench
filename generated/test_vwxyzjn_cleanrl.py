@@ -76,6 +76,9 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
 
+import time
+
+
 import random
 
 
@@ -88,14 +91,14 @@ from collections import deque
 import copy
 
 
-_global_config['gym_id'] = 4
-
-
 _global_config['cuda'] = 4
 
 
 device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else
     'cpu')
+
+
+_global_config['gym_id'] = 4
 
 
 class Value(nn.Module):
@@ -324,10 +327,10 @@ class QNetwork(nn.Module):
         return self.network(x)
 
 
-_global_config['weights_init'] = 4
-
-
 _global_config['pol_layer_norm'] = 1
+
+
+_global_config['weights_init'] = 4
 
 
 class Policy(nn.Module):
@@ -615,12 +618,6 @@ class Scale(nn.Module):
         return x * self.scale
 
 
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
-
-
 class Scale(nn.Module):
 
     def __init__(self, scale):
@@ -629,6 +626,12 @@ class Scale(nn.Module):
 
     def forward(self, x):
         return x * self.scale
+
+
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
 
 
 class Agent(nn.Module):

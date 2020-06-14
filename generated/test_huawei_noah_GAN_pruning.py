@@ -56,6 +56,9 @@ from torch.multiprocessing import reductions
 import random
 
 
+import time
+
+
 class ResidualBlock(nn.Module):
 
     def __init__(self, in_features):

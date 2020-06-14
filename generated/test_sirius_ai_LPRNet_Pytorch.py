@@ -42,6 +42,9 @@ from torch import optim
 import numpy as np
 
 
+import time
+
+
 class small_basic_block(nn.Module):
 
     def __init__(self, ch_in, ch_out):

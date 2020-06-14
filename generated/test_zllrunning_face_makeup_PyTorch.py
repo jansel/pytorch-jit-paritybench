@@ -328,14 +328,14 @@ class BasicBlock(nn.Module):
         return out
 
 
-resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
-
-
 def create_layer_basic(in_chan, out_chan, bnum, stride=1):
     layers = [BasicBlock(in_chan, out_chan, stride=stride)]
     for i in range(bnum - 1):
         layers.append(BasicBlock(out_chan, out_chan, stride=1))
     return nn.Sequential(*layers)
+
+
+resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
 
 
 class Resnet18(nn.Module):

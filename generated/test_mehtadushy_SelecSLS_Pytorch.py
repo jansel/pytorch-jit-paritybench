@@ -24,6 +24,9 @@ __version__ = '1.0.0'
 import logging
 
 
+import time
+
+
 import numpy as np
 
 
@@ -115,11 +118,6 @@ class SelecSLSBlockFused(nn.Module):
             return [self.conv6(torch.cat([d1, d2, d3, x[1]], 1)), x[1]]
 
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU(inplace=True))
-
-
 def bn_fuse(c, b):
     """ BN fusion code adapted from my Caffe BN fusion code and code from @MIPT-Oulu. This function assumes everything is on the cpu"""
     with torch.no_grad():
@@ -148,6 +146,11 @@ def bn_fuse(c, b):
 
 def conv_1x1_bn(inp, oup):
     return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
+        BatchNorm2d(oup), nn.ReLU(inplace=True))
+
+
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
         BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 

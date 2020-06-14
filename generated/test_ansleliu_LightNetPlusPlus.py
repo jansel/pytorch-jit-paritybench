@@ -79,6 +79,9 @@ import numpy as np
 import torch
 
 
+import time
+
+
 from functools import partial
 
 
@@ -1288,13 +1291,13 @@ class MBConvBlock(nn.Module):
         return x
 
 
+ACT_ELU = 'elu'
+
+
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
 ACT_RELU = 'relu'
-
-
-ACT_ELU = 'elu'
 
 
 class ABN(nn.Module):

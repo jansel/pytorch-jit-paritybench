@@ -949,52 +949,71 @@ class UnetSkipConnectionBlock(nn.Module):
             return self.up(data, **kwargs)
 
 
-_custom_losses = sys.modules['torch_points3d.core.losses.losses']
-
-
-_torch_metric_learning_losses = sys.modules['pytorch_metric_learning.losses']
-
-
-_torch_metric_learning_miners = sys.modules['pytorch_metric_learning.miners']
-
-
-def instantiate_loss_or_miner(option, mode='loss'):
+class COLORS:
+    """[This class is used to color the bash shell by using {} {} {} with 'COLORS.{}, text, COLORS.END_TOKEN']
     """
-    create a loss from an OmegaConf dict such as
-    TripletMarginLoss.
-    params:
-        margin=0.1
-    It can also instantiate a miner to better learn a loss
-    """
-    class_ = getattr(option, 'class', None)
-    try:
-        params = option.params
-    except KeyError:
-        params = None
-    try:
-        lparams = option.lparams
-    except KeyError:
-        lparams = None
-    if 'loss' in mode:
-        cls = getattr(_custom_losses, class_, None)
-        if not cls:
-            cls = getattr(_torch_metric_learning_losses, class_, None)
-            if not cls:
-                raise ValueError('loss %s is nowhere to be found' % class_)
-    elif mode == 'miner':
-        cls = getattr(_torch_metric_learning_miners, class_, None)
-        if not cls:
-            raise ValueError('miner %s is nowhere to be found' % class_)
-    else:
-        raise NotImplementedError('Cannot instantiate this mode {}'.format(
-            mode))
-    if params and lparams:
-        return cls(*lparams, **params)
-    if params:
-        return cls(**params)
-    if lparams:
-        return cls(*params)
-    return cls()
+    TRAIN_COLOR = '\x1b[0;92m'
+    VAL_COLOR = '\x1b[0;94m'
+    TEST_COLOR = '\x1b[0;93m'
+    BEST_COLOR = '\x1b[0;92m'
+    END_TOKEN = '\x1b[0m)'
+    END_NO_TOKEN = '\x1b[0m'
+    Black = '\x1b[0;30m'
+    Red = '\x1b[0;31m'
+    Green = '\x1b[0;32m'
+    Yellow = '\x1b[0;33m'
+    Blue = '\x1b[0;34m'
+    Purple = '\x1b[0;35m'
+    Cyan = '\x1b[0;36m'
+    White = '\x1b[0;37m'
+    BBlack = '\x1b[1;30m'
+    BRed = '\x1b[1;31m'
+    BGreen = '\x1b[1;32m'
+    BYellow = '\x1b[1;33m'
+    BBlue = '\x1b[1;34m'
+    BPurple = '\x1b[1;35m'
+    BCyan = '\x1b[1;36m'
+    BWhite = '\x1b[1;37m'
+    UBlack = '\x1b[4;30m'
+    URed = '\x1b[4;31m'
+    UGreen = '\x1b[4;32m'
+    UYellow = '\x1b[4;33m'
+    UBlue = '\x1b[4;34m'
+    UPurple = '\x1b[4;35m'
+    UCyan = '\x1b[4;36m'
+    UWhite = '\x1b[4;37m'
+    On_Black = '\x1b[40m'
+    On_Red = '\x1b[41m'
+    On_Green = '\x1b[42m'
+    On_Yellow = '\x1b[43m'
+    On_Blue = '\x1b[44m'
+    On_Purple = '\x1b[45m'
+    On_Cyan = '\x1b[46m'
+    On_White = '\x1b[47m'
+    IBlack = '\x1b[0;90m'
+    IRed = '\x1b[0;91m'
+    IGreen = '\x1b[0;92m'
+    IYellow = '\x1b[0;93m'
+    IBlue = '\x1b[0;94m'
+    IPurple = '\x1b[0;95m'
+    ICyan = '\x1b[0;96m'
+    IWhite = '\x1b[0;97m'
+    BIBlack = '\x1b[1;90m'
+    BIRed = '\x1b[1;91m'
+    BIGreen = '\x1b[1;92m'
+    BIYellow = '\x1b[1;93m'
+    BIBlue = '\x1b[1;94m'
+    BIPurple = '\x1b[1;95m'
+    BICyan = '\x1b[1;96m'
+    BIWhite = '\x1b[1;97m'
+    On_IBlack = '\x1b[0;100m'
+    On_IRed = '\x1b[0;101m'
+    On_IGreen = '\x1b[0;102m'
+    On_IYellow = '\x1b[0;103m'
+    On_IBlue = '\x1b[0;104m'
+    On_IPurple = '\x1b[10;95m'
+    On_ICyan = '\x1b[0;106m'
+    On_IWhite = '\x1b[0;107m'
 
 
 class BaseInternalLossModule(torch.nn.Module):
@@ -1004,6 +1023,116 @@ class BaseInternalLossModule(torch.nn.Module):
     @abstractmethod
     def get_internal_losses(self) ->Dict[str, Any]:
         pass
+
+
+def gather(x, idx, method=2):
+    """
+    https://github.com/pytorch/pytorch/issues/15245
+    implementation of a custom gather operation for faster backwards.
+    :param x: input with shape [N, D_1, ... D_d]
+    :param idx: indexing with shape [n_1, ..., n_m]
+    :param method: Choice of the method
+    :return: x[idx] with shape [n_1, ..., n_m, D_1, ... D_d]
+    """
+    idx[idx == -1] = x.shape[0] - 1
+    if method == 0:
+        return x[idx]
+    elif method == 1:
+        x = x.unsqueeze(1)
+        x = x.expand((-1, idx.shape[-1], -1))
+        idx = idx.unsqueeze(2)
+        idx = idx.expand((-1, -1, x.shape[-1]))
+        return x.gather(0, idx)
+    elif method == 2:
+        for i, ni in enumerate(idx.size()[1:]):
+            x = x.unsqueeze(i + 1)
+            new_s = list(x.size())
+            new_s[i + 1] = ni
+            x = x.expand(new_s)
+        n = len(idx.size())
+        for i, di in enumerate(x.size()[n:]):
+            idx = idx.unsqueeze(i + n)
+            new_s = list(idx.size())
+            new_s[i + n] = di
+            idx = idx.expand(new_s)
+        return x.gather(0, idx)
+    else:
+        raise ValueError('Unkown method')
+
+
+def radius_gaussian(sq_r, sig, eps=1e-09):
+    """
+    Compute a radius gaussian (gaussian of distance)
+    :param sq_r: input radiuses [dn, ..., d1, d0]
+    :param sig: extents of gaussians [d1, d0] or [d0] or float
+    :return: gaussian of sq_r [dn, ..., d1, d0]
+    """
+    return torch.exp(-sq_r / (2 * sig ** 2 + eps))
+
+
+def KPConv_ops(query_points, support_points, neighbors_indices, features,
+    K_points, K_values, KP_extent, KP_influence, aggregation_mode):
+    """
+    This function creates a graph of operations to define Kernel Point Convolution in tensorflow. See KPConv function
+    above for a description of each parameter
+    :param query_points: float32[n_points, dim] - input query points (center of neighborhoods)
+    :param support_points: float32[n0_points, dim] - input support points (from which neighbors are taken)
+    :param neighbors_indices: int32[n_points, n_neighbors] - indices of neighbors of each point
+    :param features: float32[n0_points, in_fdim] - input features
+    :param K_values: float32[n_kpoints, in_fdim, out_fdim] - weights of the kernel
+    :param fixed: string in ('none', 'center' or 'verticals') - fix position of certain kernel points
+    :param KP_extent: float32 - influence radius of each kernel point
+    :param KP_influence: string in ('constant', 'linear', 'gaussian') - influence function of the kernel points
+    :param aggregation_mode: string in ('closest', 'sum') - whether to sum influences, or only keep the closest
+    :return:                    [n_points, out_fdim]
+    """
+    int(K_points.shape[0])
+    shadow_point = torch.ones_like(support_points[:1, :]) * 1000000.0
+    support_points = torch.cat([support_points, shadow_point], dim=0)
+    neighbors = gather(support_points, neighbors_indices)
+    neighbors = neighbors - query_points.unsqueeze(1)
+    neighbors.unsqueeze_(2)
+    differences = neighbors - K_points
+    sq_distances = torch.sum(differences ** 2, dim=3)
+    if KP_influence == 'constant':
+        all_weights = torch.ones_like(sq_distances)
+        all_weights = all_weights.transpose(2, 1)
+    elif KP_influence == 'linear':
+        all_weights = torch.clamp(1 - torch.sqrt(sq_distances) / KP_extent,
+            min=0.0)
+        all_weights = all_weights.transpose(2, 1)
+    elif KP_influence == 'gaussian':
+        sigma = KP_extent * 0.3
+        all_weights = radius_gaussian(sq_distances, sigma)
+        all_weights = all_weights.transpose(2, 1)
+    else:
+        raise ValueError(
+            'Unknown influence function type (config.KP_influence)')
+    if aggregation_mode == 'closest':
+        neighbors_1nn = torch.argmin(sq_distances, dim=-1)
+        all_weights *= torch.transpose(torch.nn.functional.one_hot(
+            neighbors_1nn, K_points.shape[0]), 1, 2)
+    elif aggregation_mode != 'sum':
+        raise ValueError(
+            "Unknown convolution mode. Should be 'closest' or 'sum'")
+    features = torch.cat([features, torch.zeros_like(features[:1, :])], dim=0)
+    neighborhood_features = gather(features, neighbors_indices)
+    weighted_features = torch.matmul(all_weights, neighborhood_features)
+    weighted_features = weighted_features.permute(1, 0, 2)
+    kernel_outputs = torch.matmul(weighted_features, K_values)
+    output_features = torch.sum(kernel_outputs, dim=0)
+    return output_features
+
+
+def add_ones(query_points, x, add_one):
+    if add_one:
+        ones = torch.ones(query_points.shape[0], dtype=torch.float).unsqueeze(
+            -1).to(query_points.device)
+        if x is not None:
+            x = torch.cat([ones.to(x.dtype), x], dim=-1)
+        else:
+            x = ones
+    return x
 
 
 class BasicBlock(nn.Module):
@@ -1565,151 +1694,6 @@ class OriginalRSConv(nn.Module):
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.nn.__repr__())
-
-
-class BoxData:
-    """ Basic data structure to hold a box prediction or ground truth
-    if an objectness is provided then it will be treated as a prediction. Else, it is a ground truth box
-    """
-
-    def __init__(self, classname, corners3d, objectness=None):
-        assert corners3d.shape == (8, 3)
-        assert objectness is None or objectness <= 1 and objectness >= 0
-        if torch.is_tensor(classname):
-            classname = classname.cpu().item()
-        self.classname = classname
-        if torch.is_tensor(corners3d):
-            corners3d = corners3d.cpu().numpy()
-        self.corners3d = corners3d
-        if torch.is_tensor(objectness):
-            objectness = objectness.cpu().item()
-        self.objectness = objectness
-
-    @property
-    def is_gt(self):
-        return self.objectness is not None
-
-    def __repr__(self):
-        return '{}: (objectness={})'.format(self.__class__.__name__, self.
-            objectness)
-
-
-def nms_samecls(boxes, classes, scores, overlap_threshold=0.25):
-    """ Returns the list of boxes that are kept after nms.
-    A box is suppressed only if it overlaps with
-    another box of the same class that has a higher score
-
-    Parameters
-    ----------
-    boxes : [num_boxes, 6]
-        xmin, ymin, zmin, xmax, ymax, zmax
-    classes : [num_shapes]
-        Class of each box
-    scores : [num_shapes,]
-        score of each box
-    overlap_threshold : float, optional
-        [description], by default 0.25
-    """
-    if torch.is_tensor(boxes):
-        boxes = boxes.cpu().numpy()
-    if torch.is_tensor(scores):
-        scores = scores.cpu().numpy()
-    if torch.is_tensor(classes):
-        classes = classes.cpu().numpy()
-    x1 = boxes[:, (0)]
-    y1 = boxes[:, (1)]
-    z1 = boxes[:, (2)]
-    x2 = boxes[:, (3)]
-    y2 = boxes[:, (4)]
-    z2 = boxes[:, (5)]
-    area = (x2 - x1) * (y2 - y1) * (z2 - z1)
-    I = np.argsort(scores)
-    pick = []
-    while I.size != 0:
-        last = I.size
-        i = I[-1]
-        pick.append(i)
-        xx1 = np.maximum(x1[i], x1[I[:last - 1]])
-        yy1 = np.maximum(y1[i], y1[I[:last - 1]])
-        zz1 = np.maximum(z1[i], z1[I[:last - 1]])
-        xx2 = np.minimum(x2[i], x2[I[:last - 1]])
-        yy2 = np.minimum(y2[i], y2[I[:last - 1]])
-        zz2 = np.minimum(z2[i], z2[I[:last - 1]])
-        cls1 = classes[i]
-        cls2 = classes[I[:last - 1]]
-        l = np.maximum(0, xx2 - xx1)
-        w = np.maximum(0, yy2 - yy1)
-        h = np.maximum(0, zz2 - zz1)
-        inter = l * w * h
-        o = inter / (area[i] + area[I[:last - 1]] - inter)
-        o = o * (cls1 == cls2)
-        I = np.delete(I, np.concatenate(([last - 1], np.where(o >
-            overlap_threshold)[0])))
-    return pick
-
-
-def nn_distance(pc1, pc2, l1smooth=False, delta=1.0, l1=False):
-    """
-    Input:
-        pc1: (B,N,C) torch tensor
-        pc2: (B,M,C) torch tensor
-        l1smooth: bool, whether to use l1smooth loss
-        delta: scalar, the delta used in l1smooth loss
-    Output:
-        dist1: (B,N) torch float32 tensor
-        idx1: (B,N) torch int64 tensor
-        dist2: (B,M) torch float32 tensor
-        idx2: (B,M) torch int64 tensor
-    """
-    N = pc1.shape[1]
-    M = pc2.shape[1]
-    pc1_expand_tile = pc1.unsqueeze(2).repeat(1, 1, M, 1)
-    pc2_expand_tile = pc2.unsqueeze(1).repeat(1, N, 1, 1)
-    pc_diff = pc1_expand_tile - pc2_expand_tile
-    if l1smooth:
-        pc_dist = torch.sum(huber_loss(pc_diff, delta), dim=-1)
-    elif l1:
-        pc_dist = torch.sum(torch.abs(pc_diff), dim=-1)
-    else:
-        pc_dist = torch.sum(pc_diff ** 2, dim=-1)
-    dist1, idx1 = torch.min(pc_dist, dim=2)
-    dist2, idx2 = torch.min(pc_dist, dim=1)
-    return dist1, idx1, dist2, idx2
-
-
-def euler_angles_to_rotation_matrix(theta):
-    R_x = torch.tensor([[1, 0, 0], [0, torch.cos(theta[0]), -torch.sin(
-        theta[0])], [0, torch.sin(theta[0]), torch.cos(theta[0])]])
-    R_y = torch.tensor([[torch.cos(theta[1]), 0, torch.sin(theta[1])], [0, 
-        1, 0], [-torch.sin(theta[1]), 0, torch.cos(theta[1])]])
-    R_z = torch.tensor([[torch.cos(theta[2]), -torch.sin(theta[2]), 0], [
-        torch.sin(theta[2]), torch.cos(theta[2]), 0], [0, 0, 1]])
-    R = torch.mm(R_z, torch.mm(R_y, R_x))
-    return R
-
-
-def box_corners_from_param(box_size, heading_angle, center):
-    """ Generates box corners from a parameterised box.
-    box_size is array(size_x,size_y,size_z), heading_angle is radius clockwise from pos x axis, center is xyz of box center
-        output (8,3) array for 3D box corners
-    """
-    R = euler_angles_to_rotation_matrix(torch.tensor([0.0, 0.0, float(
-        heading_angle)]))
-    if torch.is_tensor(box_size):
-        box_size = box_size.float()
-    l, w, h = box_size
-    x_corners = torch.tensor([-l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, 
-        l / 2, -l / 2])
-    y_corners = torch.tensor([-w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2,
-        w / 2, w / 2])
-    z_corners = torch.tensor([-h / 2, -h / 2, -h / 2, -h / 2, h / 2, h / 2,
-        h / 2, h / 2])
-    corners_3d = R @ torch.stack([x_corners, y_corners, z_corners])
-    corners_3d[(0), :] = corners_3d[(0), :] + center[0]
-    corners_3d[(1), :] = corners_3d[(1), :] + center[1]
-    corners_3d[(2), :] = corners_3d[(2), :] + center[2]
-    corners_3d = corners_3d.T
-    return corners_3d
 
 
 class VotingModule(nn.Module):

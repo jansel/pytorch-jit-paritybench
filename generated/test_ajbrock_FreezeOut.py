@@ -50,6 +50,9 @@ import logging
 from torch.autograd import Variable as V
 
 
+import time
+
+
 class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes, stride, dropRate, layer_index):

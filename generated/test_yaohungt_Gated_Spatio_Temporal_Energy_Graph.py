@@ -449,31 +449,6 @@ class AsyncTFBase(nn.Module):
             vo_t, sv_t)
 
 
-def gtmat(sizes, target):
-    out = torch.zeros(*sizes)
-    for i, t in enumerate(target):
-        t = t.data[0] if type(t) is torch.Tensor else t
-        if len(sizes) == 3:
-            out[(i), (t), :] = 1
-        else:
-            out[i, t] = 1
-    if type(target) is Variable:
-        return Variable(out.cuda())
-    else:
-        return out.cuda()
-
-
-def winsmooth(mat, kernelsize=1):
-    mat.detach()
-    n = mat.shape[0]
-    out = mat.clone()
-    for m in range(n):
-        a = max(0, m - kernelsize)
-        b = min(n - 1, m + kernelsize)
-        out[(m), :] = mat[a:b + 1, :].mean(0)
-    return out
-
-
 def avg(iterator, weight=1.0):
     item, w = next(iterator)
     total = item.clone() * w
@@ -569,6 +544,31 @@ class MessagePassing(object):
         v_x = v_target.data.cpu()
         self.mset(s_x, o_x, v_x, idtime, self.s_storage_gt, self.
             o_storage_gt, self.v_storage_gt)
+
+
+def gtmat(sizes, target):
+    out = torch.zeros(*sizes)
+    for i, t in enumerate(target):
+        t = t.data[0] if type(t) is torch.Tensor else t
+        if len(sizes) == 3:
+            out[(i), (t), :] = 1
+        else:
+            out[i, t] = 1
+    if type(target) is Variable:
+        return Variable(out.cuda())
+    else:
+        return out.cuda()
+
+
+def winsmooth(mat, kernelsize=1):
+    mat.detach()
+    n = mat.shape[0]
+    out = mat.clone()
+    for m in range(n):
+        a = max(0, m - kernelsize)
+        b = min(n - 1, m + kernelsize)
+        out[(m), :] = mat[a:b + 1, :].mean(0)
+    return out
 
 
 class AsyncTFCriterion(nn.Module, MessagePassing):
@@ -680,11 +680,6 @@ class AsyncTFCriterion(nn.Module, MessagePassing):
                 id_time, n=n + 1, synchronous=synchronous)
 
 
-def populate(dict, ind, val=0):
-    if ind not in dict:
-        dict[ind] = val
-
-
 class ScaleGrad(Function):
 
     @staticmethod
@@ -696,6 +691,11 @@ class ScaleGrad(Function):
     def backward(ctx, grad_output):
         _, weights = ctx.saved_variables
         return grad_output * weights, None
+
+
+def populate(dict, ind, val=0):
+    if ind not in dict:
+        dict[ind] = val
 
 
 class BalanceLabels(nn.Module):

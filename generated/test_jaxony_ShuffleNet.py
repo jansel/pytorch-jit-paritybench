@@ -39,12 +39,13 @@ from torch.nn import init
 import numpy as np
 
 
-def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1
-    ):
-    """3x3 convolution with padding
-    """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=padding, bias=bias, groups=groups)
+def channel_shuffle(x, groups):
+    batchsize, num_channels, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x
 
 
 def conv1x1(in_channels, out_channels, groups=1):
@@ -56,13 +57,12 @@ def conv1x1(in_channels, out_channels, groups=1):
         groups, stride=1)
 
 
-def channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
-    return x
+def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1
+    ):
+    """3x3 convolution with padding
+    """
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
+        stride, padding=padding, bias=bias, groups=groups)
 
 
 class ShuffleUnit(nn.Module):

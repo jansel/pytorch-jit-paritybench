@@ -87,6 +87,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 from collections import OrderedDict
 
 
@@ -127,6 +130,10 @@ import inspect
 
 
 import re
+
+
+NCV_PROCESS_NOISE = torch.tensor([[1 / 3, 0.0, 1 / 2, 0.0], [0.0, 1 / 3, 
+    0.0, 1 / 2], [1 / 2, 0.0, 1.0, 0.0], [0.0, 1 / 2, 0.0, 1.0]])
 
 
 NCV_TRANSITION_MATRIX = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0,

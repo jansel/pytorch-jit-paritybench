@@ -251,9 +251,20 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_dhlee347_pytorchic_bert(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(LayerNorm(*[], **{'cfg': _mock_config(dim=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Classifier(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4), 'n_labels': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
 
     def test_001(self):
+        self._check(Embeddings(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_002(self):
+        self._check(LayerNorm(*[], **{'cfg': _mock_config(dim=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(PositionWiseFeedForward(*[], **{'cfg': _mock_config(dim=4, dim_ff=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Transformer(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
 

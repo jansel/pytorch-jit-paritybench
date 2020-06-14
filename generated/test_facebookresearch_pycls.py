@@ -392,10 +392,10 @@ def get_stem_fun(stem_type):
     return stem_funs[stem_type]
 
 
-_global_config['MODEL'] = 4
-
-
 _global_config['ANYNET'] = 4
+
+
+_global_config['MODEL'] = 4
 
 
 class AnyNet(nn.Module):

@@ -95,6 +95,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import numpy as np
 
 
@@ -340,18 +343,13 @@ class Block8(nn.Module):
         return out
 
 
-def _check_contiguous(*args):
-    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
-        raise ValueError('Non-contiguous input')
-
-
 ACT_LEAKY_RELU = 'leaky_relu'
 
 
-ACT_NONE = 'none'
-
-
 ACT_ELU = 'elu'
+
+
+ACT_NONE = 'none'
 
 
 def _act_backward(ctx, x, dx):
@@ -374,6 +372,11 @@ def _act_forward(ctx, x):
         pass
 
 
+def _check_contiguous(*args):
+    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
+        raise ValueError('Non-contiguous input')
+
+
 def _count_samples(x):
     count = 1
     for i, s in enumerate(x.size()):
@@ -389,12 +392,13 @@ def conv_bn(inp, oup, stride):
         nn.ReLU(inplace=True))
 
 
-def conv3x3(in_channels, out_channels, stride=1, bias=True, groups=1, dilate=1
-    ):
-    """3x3 convolution with padding
-    """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=dilate, bias=bias, groups=groups, dilation=dilate)
+def channel_shuffle(x, groups):
+    batchsize, num_channels, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x
 
 
 def conv1x1(in_channels, out_channels, groups=1):
@@ -406,13 +410,12 @@ def conv1x1(in_channels, out_channels, groups=1):
         groups, stride=1)
 
 
-def channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
-    return x
+def conv3x3(in_channels, out_channels, stride=1, bias=True, groups=1, dilate=1
+    ):
+    """3x3 convolution with padding
+    """
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
+        stride, padding=dilate, bias=bias, groups=groups, dilation=dilate)
 
 
 class ShuffleUnit(nn.Module):

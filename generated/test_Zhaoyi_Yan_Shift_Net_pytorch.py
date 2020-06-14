@@ -80,6 +80,9 @@ import torch
 from torch.nn import functional as F
 
 
+import time
+
+
 import numpy as np
 
 
@@ -114,6 +117,9 @@ import random
 
 
 import math
+
+
+from time import time
 
 
 import inspect

@@ -59,6 +59,9 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 
+import time
+
+
 class WaveVAE(nn.Module):
 
     def __init__(self):

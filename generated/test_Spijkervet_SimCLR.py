@@ -152,10 +152,6 @@ class SimCLR(nn.Module):
         return h, z
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
-
-
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -179,9 +175,6 @@ class FutureResult(object):
             return res
 
 
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
-
-
 _SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
     'queue', 'result'])
 
@@ -194,6 +187,9 @@ class SlavePipe(_SlavePipeBase):
         ret = self.result.get()
         self.queue.put(True)
         return ret
+
+
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
 
 
 class SyncMaster(object):
@@ -277,6 +273,13 @@ class SyncMaster(object):
         return len(self._registry)
 
 
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
+    'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
 def _sum_ft(tensor):
     """sum over the first and last dimention"""
     return tensor.sum(dim=0).sum(dim=-1)
@@ -285,9 +288,6 @@ def _sum_ft(tensor):
 def _unsqueeze_ft(tensor):
     """add new dimensions at the front and the tail"""
     return tensor.unsqueeze(0).unsqueeze(-1)
-
-
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 class BatchNorm2dReimpl(nn.Module):

@@ -45,6 +45,9 @@ import numpy as np
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 class Attention(nn.Module):
 
     def __init__(self, v_dim, q_dim, num_hid):

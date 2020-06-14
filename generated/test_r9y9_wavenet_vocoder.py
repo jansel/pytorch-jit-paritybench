@@ -112,19 +112,108 @@ class MaskedCrossEntropyLoss(nn.Module):
         return (losses * mask_).sum() / mask_.sum()
 
 
-def _parse_fail(name, var_type, value, values):
-    """Helper function for raising a value error for bad assignment."""
-    raise ValueError(
-        "Could not parse hparam '%s' of type '%s' with value '%s' in %s" %
-        (name, var_type.__name__, value, values))
-
-
 def log_sum_exp(x):
     """ numerically stable log_sum_exp implementation that prevents overflow """
     axis = len(x.size()) - 1
     m, _ = torch.max(x, dim=axis)
     m2, _ = torch.max(x, dim=axis, keepdim=True)
     return m + torch.log(torch.sum(torch.exp(x - m2), dim=axis))
+
+
+def discretized_mix_logistic_loss(y_hat, y, num_classes=256, log_scale_min=
+    -7.0, reduce=True):
+    """Discretized mixture of logistic distributions loss
+
+    Note that it is assumed that input is scaled to [-1, 1].
+
+    Args:
+        y_hat (Tensor): Predicted output (B x C x T)
+        y (Tensor): Target (B x T x 1).
+        num_classes (int): Number of classes
+        log_scale_min (float): Log scale minimum value
+        reduce (bool): If True, the losses are averaged or summed for each
+          minibatch.
+
+    Returns
+        Tensor: loss
+    """
+    assert y_hat.dim() == 3
+    assert y_hat.size(1) % 3 == 0
+    nr_mix = y_hat.size(1) // 3
+    y_hat = y_hat.transpose(1, 2)
+    logit_probs = y_hat[:, :, :nr_mix]
+    means = y_hat[:, :, nr_mix:2 * nr_mix]
+    log_scales = torch.clamp(y_hat[:, :, 2 * nr_mix:3 * nr_mix], min=
+        log_scale_min)
+    y = y.expand_as(means)
+    centered_y = y - means
+    inv_stdv = torch.exp(-log_scales)
+    plus_in = inv_stdv * (centered_y + 1.0 / (num_classes - 1))
+    cdf_plus = torch.sigmoid(plus_in)
+    min_in = inv_stdv * (centered_y - 1.0 / (num_classes - 1))
+    cdf_min = torch.sigmoid(min_in)
+    log_cdf_plus = plus_in - F.softplus(plus_in)
+    log_one_minus_cdf_min = -F.softplus(min_in)
+    cdf_delta = cdf_plus - cdf_min
+    mid_in = inv_stdv * centered_y
+    log_pdf_mid = mid_in - log_scales - 2.0 * F.softplus(mid_in)
+    """
+    log_probs = tf.where(x < -0.999, log_cdf_plus,
+                         tf.where(x > 0.999, log_one_minus_cdf_min,
+                                  tf.where(cdf_delta > 1e-5,
+                                           tf.log(tf.maximum(cdf_delta, 1e-12)),
+                                           log_pdf_mid - np.log(127.5))))
+    """
+    inner_inner_cond = (cdf_delta > 1e-05).float()
+    inner_inner_out = inner_inner_cond * torch.log(torch.clamp(cdf_delta,
+        min=1e-12)) + (1.0 - inner_inner_cond) * (log_pdf_mid - np.log((
+        num_classes - 1) / 2))
+    inner_cond = (y > 0.999).float()
+    inner_out = inner_cond * log_one_minus_cdf_min + (1.0 - inner_cond
+        ) * inner_inner_out
+    cond = (y < -0.999).float()
+    log_probs = cond * log_cdf_plus + (1.0 - cond) * inner_out
+    log_probs = log_probs + F.log_softmax(logit_probs, -1)
+    if reduce:
+        return -torch.sum(log_sum_exp(log_probs))
+    else:
+        return -log_sum_exp(log_probs).unsqueeze(-1)
+
+
+def _cast_to_type_if_compatible(name, param_type, value):
+    """Cast hparam to the provided type, if compatible.
+
+  Args:
+    name: Name of the hparam to be cast.
+    param_type: The type of the hparam.
+    value: The value to be cast, if compatible.
+
+  Returns:
+    The result of casting `value` to `param_type`.
+
+  Raises:
+    ValueError: If the type of `value` is not compatible with param_type.
+      * If `param_type` is a string type, but `value` is not.
+      * If `param_type` is a boolean, but `value` is not, or vice versa.
+      * If `param_type` is an integer type, but `value` is not.
+      * If `param_type` is a float type, but `value` is not a numeric type.
+  """
+    fail_msg = "Could not cast hparam '%s' of type '%s' from value %r" % (name,
+        param_type, value)
+    if issubclass(param_type, type(None)):
+        return value
+    if issubclass(param_type, (six.string_types, six.binary_type)
+        ) and not isinstance(value, (six.string_types, six.binary_type)):
+        raise ValueError(fail_msg)
+    if issubclass(param_type, bool) != isinstance(value, bool):
+        raise ValueError(fail_msg)
+    if issubclass(param_type, numbers.Integral) and not isinstance(value,
+        numbers.Integral):
+        raise ValueError(fail_msg)
+    if issubclass(param_type, numbers.Number) and not isinstance(value,
+        numbers.Number):
+        raise ValueError(fail_msg)
+    return param_type(value)
 
 
 def mix_gaussian_loss(y_hat, y, log_scale_min=-7.0, reduce=True):
@@ -246,6 +335,13 @@ class Conv1d(nn.Conv1d):
         self._linearized_weight = None
 
 
+def Conv1d1x1(in_channels, out_channels, bias=True):
+    """1-by-1 convolution layer
+    """
+    return Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
+        dilation=1, bias=bias)
+
+
 def _conv1x1_forward(conv, x, is_incremental):
     """Conv1x1 forward
     """
@@ -254,13 +350,6 @@ def _conv1x1_forward(conv, x, is_incremental):
     else:
         x = conv(x)
     return x
-
-
-def Conv1d1x1(in_channels, out_channels, bias=True):
-    """1-by-1 convolution layer
-    """
-    return Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-        dilation=1, bias=bias)
 
 
 class ResidualConv1dGLU(nn.Module):
@@ -437,12 +526,93 @@ class ConvInUpsampleNetwork(nn.Module):
         return c_up
 
 
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    m.weight.data.normal_(0, std)
+    return m
+
+
+def _expand_global_features(B, T, g, bct=True):
+    """Expand global conditioning features to all time steps
+
+    Args:
+        B (int): Batch size.
+        T (int): Time length.
+        g (Tensor): Global features, (B x C) or (B x C x 1).
+        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
+
+    Returns:
+        Tensor: B x C x T or B x T x C or None
+    """
+    if g is None:
+        return None
+    g = g.unsqueeze(-1) if g.dim() == 2 else g
+    if bct:
+        g_bct = g.expand(B, -1, T)
+        return g_bct.contiguous()
+    else:
+        g_btc = g.expand(B, -1, T).transpose(1, 2)
+        return g_btc.contiguous()
+
+
+def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
+    x: 2 ** x):
+    """Compute receptive field size
+
+    Args:
+        total_layers (int): total layers
+        num_cycles (int): cycles
+        kernel_size (int): kernel size
+        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
+          to disable dilated convolution.
+
+    Returns:
+        int: receptive field size in sample
+
+    """
+    assert total_layers % num_cycles == 0
+    layers_per_cycle = total_layers // num_cycles
+    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
+    return (kernel_size - 1) * sum(dilations) + 1
+
+
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
         one_hot = one_hot.cuda()
     one_hot.scatter_(len(tensor.size()), tensor.unsqueeze(-1), fill_with)
     return one_hot
+
+
+def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
+    clamp_log_scale=False):
+    """
+    Sample from discretized mixture of logistic distributions
+
+    Args:
+        y (Tensor): B x C x T
+        log_scale_min (float): Log scale minimum value
+
+    Returns:
+        Tensor: sample in range of [-1, 1].
+    """
+    assert y.size(1) % 3 == 0
+    nr_mix = y.size(1) // 3
+    y = y.transpose(1, 2)
+    logit_probs = y[:, :, :nr_mix]
+    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05
+        )
+    temp = logit_probs.data - torch.log(-torch.log(temp))
+    _, argmax = temp.max(dim=-1)
+    one_hot = to_one_hot(argmax, nr_mix)
+    means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
+    log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1)
+    if clamp_log_scale:
+        log_scales = torch.clamp(log_scales, min=log_scale_min)
+    u = means.data.new(means.size()).uniform_(1e-05, 1.0 - 1e-05)
+    x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
+    x = torch.clamp(torch.clamp(x, min=-1.0), max=1.0)
+    return x
 
 
 def sample_from_mix_gaussian(y, log_scale_min=-7.0):
@@ -484,87 +654,6 @@ def sample_from_mix_gaussian(y, log_scale_min=-7.0):
     dist = Normal(loc=means, scale=scales)
     x = dist.sample()
     x = torch.clamp(x, min=-1.0, max=1.0)
-    return x
-
-
-def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
-    x: 2 ** x):
-    """Compute receptive field size
-
-    Args:
-        total_layers (int): total layers
-        num_cycles (int): cycles
-        kernel_size (int): kernel size
-        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
-          to disable dilated convolution.
-
-    Returns:
-        int: receptive field size in sample
-
-    """
-    assert total_layers % num_cycles == 0
-    layers_per_cycle = total_layers // num_cycles
-    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
-    return (kernel_size - 1) * sum(dilations) + 1
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    m.weight.data.normal_(0, std)
-    return m
-
-
-def _expand_global_features(B, T, g, bct=True):
-    """Expand global conditioning features to all time steps
-
-    Args:
-        B (int): Batch size.
-        T (int): Time length.
-        g (Tensor): Global features, (B x C) or (B x C x 1).
-        bct (bool) : returns (B x C x T) if True, otherwise (B x T x C)
-
-    Returns:
-        Tensor: B x C x T or B x T x C or None
-    """
-    if g is None:
-        return None
-    g = g.unsqueeze(-1) if g.dim() == 2 else g
-    if bct:
-        g_bct = g.expand(B, -1, T)
-        return g_bct.contiguous()
-    else:
-        g_btc = g.expand(B, -1, T).transpose(1, 2)
-        return g_btc.contiguous()
-
-
-def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
-    clamp_log_scale=False):
-    """
-    Sample from discretized mixture of logistic distributions
-
-    Args:
-        y (Tensor): B x C x T
-        log_scale_min (float): Log scale minimum value
-
-    Returns:
-        Tensor: sample in range of [-1, 1].
-    """
-    assert y.size(1) % 3 == 0
-    nr_mix = y.size(1) // 3
-    y = y.transpose(1, 2)
-    logit_probs = y[:, :, :nr_mix]
-    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05
-        )
-    temp = logit_probs.data - torch.log(-torch.log(temp))
-    _, argmax = temp.max(dim=-1)
-    one_hot = to_one_hot(argmax, nr_mix)
-    means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
-    log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1)
-    if clamp_log_scale:
-        log_scales = torch.clamp(log_scales, min=log_scale_min)
-    u = means.data.new(means.size()).uniform_(1e-05, 1.0 - 1e-05)
-    x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
-    x = torch.clamp(torch.clamp(x, min=-1.0), max=1.0)
     return x
 
 

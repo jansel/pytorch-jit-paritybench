@@ -50,6 +50,9 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 
+import time
+
+
 class Audio2Mel(nn.Module):
 
     def __init__(self, n_fft=1024, hop_length=256, win_length=1024,

@@ -35,6 +35,9 @@ import numpy as np
 from torch.autograd import Variable
 
 
+import time
+
+
 class ResidualBlock(nn.Module):
     """Residual Block with instance normalization."""
 

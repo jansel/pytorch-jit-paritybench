@@ -152,6 +152,12 @@ class FocalLoss(nn.Module):
         return loss
 
 
+def hinge(pred, label):
+    signs = 2 * label - 1
+    errors = 1 - pred * signs
+    return errors
+
+
 def lovasz_grad(gt_sorted):
     """
     Computes gradient of the Lovasz extension w.r.t sorted errors
@@ -165,12 +171,6 @@ def lovasz_grad(gt_sorted):
     if p > 1:
         jaccard[1:p] = jaccard[1:p] - jaccard[0:-1]
     return jaccard
-
-
-def hinge(pred, label):
-    signs = 2 * label - 1
-    errors = 1 - pred * signs
-    return errors
 
 
 def lovasz_hinge_flat(logits, labels, ignore_index):
@@ -656,6 +656,54 @@ class MobileNetV2(nn.Module):
         None
 
 
+class SegmentatorTTA(object):
+
+    @staticmethod
+    def hflip(x):
+        return x.flip(3)
+
+    @staticmethod
+    def vflip(x):
+        return x.flip(2)
+
+    @staticmethod
+    def trans(x):
+        return x.transpose(2, 3)
+
+    def pred_resize(self, x, size, net_type='unet'):
+        h, w = size
+        if net_type == 'unet':
+            pred = self.forward(x)
+            if x.shape[2:] == size:
+                return pred
+            else:
+                return F.interpolate(pred, size=(h, w), mode='bilinear',
+                    align_corners=True)
+        else:
+            pred = self.forward(F.pad(x, (0, 1, 0, 1)))
+            return F.interpolate(pred, size=(h + 1, w + 1), mode='bilinear',
+                align_corners=True)[(...), :h, :w]
+
+    def tta(self, x, scales=None, net_type='unet'):
+        size = x.shape[2:]
+        if scales is None:
+            seg_sum = self.pred_resize(x, size, net_type)
+            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size,
+                net_type))
+            return seg_sum / 2
+        else:
+            seg_sum = self.pred_resize(x, size, net_type)
+            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size,
+                net_type))
+            for scale in scales:
+                scaled = F.interpolate(x, scale_factor=scale, mode=
+                    'bilinear', align_corners=True)
+                seg_sum += self.pred_resize(scaled, size, net_type)
+                seg_sum += self.hflip(self.pred_resize(self.hflip(scaled),
+                    size, net_type))
+            return seg_sum / ((len(scales) + 1) * 2)
+
+
 def create_decoder(dec_type):
     if dec_type == 'unet_scse':
         return DecoderUnetSCSE
@@ -665,27 +713,6 @@ def create_decoder(dec_type):
         return DecoderUnetOC
     else:
         raise NotImplementedError
-
-
-def se_net(name, pretrained=False):
-    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
-        'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
-        pretrained = 'imagenet' if pretrained else None
-        senet = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=pretrained)
-    else:
-        return NotImplemented
-    layer0 = senet.layer0
-    layer1 = senet.layer1
-    layer2 = senet.layer2
-    layer3 = senet.layer3
-    layer4 = senet.layer4
-    layer0.out_channels = senet.layer1[0].conv1.in_channels
-    layer1.out_channels = senet.layer1[-1].conv3.out_channels
-    layer2.out_channels = senet.layer2[-1].conv3.out_channels
-    layer3.out_channels = senet.layer3[-1].conv3.out_channels
-    layer4.out_channels = senet.layer4[-1].conv3.out_channels
-    return [layer0, layer1, layer2, layer3, layer4]
 
 
 def resnet(name, pretrained=False):
@@ -740,6 +767,27 @@ def resnext(name, pretrained=False):
     return [layer0, layer1, layer2, layer3, layer4]
 
 
+def se_net(name, pretrained=False):
+    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
+        'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
+        pretrained = 'imagenet' if pretrained else None
+        senet = pretrainedmodels.__dict__[name](num_classes=1000,
+            pretrained=pretrained)
+    else:
+        return NotImplemented
+    layer0 = senet.layer0
+    layer1 = senet.layer1
+    layer2 = senet.layer2
+    layer3 = senet.layer3
+    layer4 = senet.layer4
+    layer0.out_channels = senet.layer1[0].conv1.in_channels
+    layer1.out_channels = senet.layer1[-1].conv3.out_channels
+    layer2.out_channels = senet.layer2[-1].conv3.out_channels
+    layer3.out_channels = senet.layer3[-1].conv3.out_channels
+    layer4.out_channels = senet.layer4[-1].conv3.out_channels
+    return [layer0, layer1, layer2, layer3, layer4]
+
+
 def create_encoder(enc_type, output_stride=8, pretrained=True):
     if enc_type.startswith('resnet'):
         return resnet(enc_type, pretrained)
@@ -753,54 +801,6 @@ def create_encoder(enc_type, output_stride=8, pretrained=True):
         return MobileNetV2(pretrained)
     else:
         raise NotImplementedError
-
-
-class SegmentatorTTA(object):
-
-    @staticmethod
-    def hflip(x):
-        return x.flip(3)
-
-    @staticmethod
-    def vflip(x):
-        return x.flip(2)
-
-    @staticmethod
-    def trans(x):
-        return x.transpose(2, 3)
-
-    def pred_resize(self, x, size, net_type='unet'):
-        h, w = size
-        if net_type == 'unet':
-            pred = self.forward(x)
-            if x.shape[2:] == size:
-                return pred
-            else:
-                return F.interpolate(pred, size=(h, w), mode='bilinear',
-                    align_corners=True)
-        else:
-            pred = self.forward(F.pad(x, (0, 1, 0, 1)))
-            return F.interpolate(pred, size=(h + 1, w + 1), mode='bilinear',
-                align_corners=True)[(...), :h, :w]
-
-    def tta(self, x, scales=None, net_type='unet'):
-        size = x.shape[2:]
-        if scales is None:
-            seg_sum = self.pred_resize(x, size, net_type)
-            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size,
-                net_type))
-            return seg_sum / 2
-        else:
-            seg_sum = self.pred_resize(x, size, net_type)
-            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size,
-                net_type))
-            for scale in scales:
-                scaled = F.interpolate(x, scale_factor=scale, mode=
-                    'bilinear', align_corners=True)
-                seg_sum += self.pred_resize(scaled, size, net_type)
-                seg_sum += self.hflip(self.pred_resize(self.hflip(scaled),
-                    size, net_type))
-            return seg_sum / ((len(scales) + 1) * 2)
 
 
 class EncoderDecoderNet(nn.Module, SegmentatorTTA):
@@ -864,23 +864,6 @@ class EncoderDecoderNet(nn.Module, SegmentatorTTA):
         return logits
 
 
-def create_spp(dec_type, in_channels=2048, middle_channels=256, output_stride=8
-    ):
-    if dec_type == 'spp':
-        return SPP(in_channels, middle_channels), SPPDecoder(middle_channels)
-    elif dec_type == 'aspp':
-        return ASPP(in_channels, middle_channels, output_stride), SPPDecoder(
-            middle_channels)
-    elif dec_type == 'oc_base':
-        return BaseOC(in_channels, middle_channels), SPPDecoder(middle_channels
-            )
-    elif dec_type in 'oc_asp':
-        return ASPOC(in_channels, middle_channels, output_stride), SPPDecoder(
-            middle_channels)
-    else:
-        raise NotImplementedError
-
-
 def create_mspp(dec_type):
     if dec_type == 'spp':
         return SPP(320, 256)
@@ -894,6 +877,23 @@ def create_mspp(dec_type):
         return MobileASPP()
     elif dec_type == 'maspp_dec':
         return MobileASPP(), SPPDecoder(24, reduced_layer_num=12)
+    else:
+        raise NotImplementedError
+
+
+def create_spp(dec_type, in_channels=2048, middle_channels=256, output_stride=8
+    ):
+    if dec_type == 'spp':
+        return SPP(in_channels, middle_channels), SPPDecoder(middle_channels)
+    elif dec_type == 'aspp':
+        return ASPP(in_channels, middle_channels, output_stride), SPPDecoder(
+            middle_channels)
+    elif dec_type == 'oc_base':
+        return BaseOC(in_channels, middle_channels), SPPDecoder(middle_channels
+            )
+    elif dec_type in 'oc_asp':
+        return ASPOC(in_channels, middle_channels, output_stride), SPPDecoder(
+            middle_channels)
     else:
         raise NotImplementedError
 

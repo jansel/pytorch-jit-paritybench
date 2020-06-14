@@ -67,6 +67,9 @@ import math
 import torch.nn.init as init
 
 
+import time
+
+
 class ConvEncoder(nn.Module):
 
     @classmethod
@@ -175,6 +178,20 @@ class Discriminator(nn.Module):
         return loss
 
 
+def change_of_basis(motion_3d, basis_vectors=None, project_2d=False):
+    if basis_vectors is None:
+        motion_proj = motion_3d[:, :, ([0, 2]), :]
+    else:
+        if project_2d:
+            basis_vectors = basis_vectors[:, :, :, ([0, 2]), :]
+        _, K, seq_len, _, _ = basis_vectors.size()
+        motion_3d = motion_3d.unsqueeze(1).repeat(1, K, 1, 1, 1)
+        motion_3d = motion_3d.permute([0, 1, 4, 3, 2])
+        motion_proj = basis_vectors @ motion_3d
+        motion_proj = motion_proj.permute([0, 1, 4, 3, 2])
+    return motion_proj
+
+
 def get_body_basis(motion_3d):
     """
     Get the unit vectors for vector rectangular coordinates for given 3D motion
@@ -195,20 +212,6 @@ def get_body_basis(motion_3d):
     vectors = torch.stack([vector_x, vector_y, vector_z], dim=2)
     vectors = vectors.detach()
     return vectors
-
-
-def change_of_basis(motion_3d, basis_vectors=None, project_2d=False):
-    if basis_vectors is None:
-        motion_proj = motion_3d[:, :, ([0, 2]), :]
-    else:
-        if project_2d:
-            basis_vectors = basis_vectors[:, :, :, ([0, 2]), :]
-        _, K, seq_len, _, _ = basis_vectors.size()
-        motion_3d = motion_3d.unsqueeze(1).repeat(1, K, 1, 1, 1)
-        motion_3d = motion_3d.permute([0, 1, 4, 3, 2])
-        motion_proj = basis_vectors @ motion_3d
-        motion_proj = motion_proj.permute([0, 1, 4, 3, 2])
-    return motion_proj
 
 
 def rotate_basis_euler(basis_vectors, angles):
@@ -376,29 +379,6 @@ class Autoencoder3f(nn.Module):
         return batch_out
 
 
-def weights_init(init_type='gaussian'):
-
-    def init_fun(m):
-        classname = m.__class__.__name__
-        if (classname.find('Conv') == 0 or classname.find('Linear') == 0
-            ) and hasattr(m, 'weight'):
-            if init_type == 'gaussian':
-                init.normal_(m.weight.data, 0.0, 0.02)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=math.sqrt(2))
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=math.sqrt(2))
-            elif init_type == 'default':
-                pass
-            else:
-                assert 0, 'Unsupported initialization: {}'.format(init_type)
-            if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
-    return init_fun
-
-
 def get_model_list(dirname, key):
     if os.path.exists(dirname) is False:
         return None
@@ -424,6 +404,29 @@ def get_scheduler(optimizer, hyperparameters, iterations=-1):
             'learning rate policy [%s] is not implemented', hyperparameters
             ['lr_policy'])
     return scheduler
+
+
+def weights_init(init_type='gaussian'):
+
+    def init_fun(m):
+        classname = m.__class__.__name__
+        if (classname.find('Conv') == 0 or classname.find('Linear') == 0
+            ) and hasattr(m, 'weight'):
+            if init_type == 'gaussian':
+                init.normal_(m.weight.data, 0.0, 0.02)
+            elif init_type == 'xavier':
+                init.xavier_normal_(m.weight.data, gain=math.sqrt(2))
+            elif init_type == 'kaiming':
+                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                init.orthogonal_(m.weight.data, gain=math.sqrt(2))
+            elif init_type == 'default':
+                pass
+            else:
+                assert 0, 'Unsupported initialization: {}'.format(init_type)
+            if hasattr(m, 'bias') and m.bias is not None:
+                init.constant_(m.bias.data, 0.0)
+    return init_fun
 
 
 class BaseTrainer(nn.Module):

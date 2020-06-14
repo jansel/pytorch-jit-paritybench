@@ -34,6 +34,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+from time import time
+
+
 class DeepFM(nn.Module):
     """
     A DeepFM network with RMSE loss for rates prediction problem.

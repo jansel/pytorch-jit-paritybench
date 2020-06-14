@@ -236,6 +236,9 @@ import types
 import random
 
 
+import time
+
+
 from torch.nn.parameter import Parameter
 
 
@@ -381,24 +384,6 @@ class bidirectionalRNN(nn.Module):
             rnn.init_inference(bsz)
 
 
-def hasTileSize(name):
-    if 'sgemm' in name or '884gemm' in name or 'hgemm' in name:
-        return True
-    else:
-        return False
-
-
-def ctaTile(name):
-    name = name.split('_')
-    name = list(filter(lambda x: 'x' in x, name))
-    name = list(filter(lambda x: 'slice' not in x, name))
-    assert len(name) == 1
-    name = name[0].split('x')
-    assert len(name) == 2
-    name = list(map(int, name))
-    return name[0], name[1]
-
-
 class OperatorLayerBase(ABC):
     """
 	Base class for all layers and operators.
@@ -503,6 +488,24 @@ class Utility(object):
     @staticmethod
     def isscalar(t):
         return t in ['float', 'int']
+
+
+def ctaTile(name):
+    name = name.split('_')
+    name = list(filter(lambda x: 'x' in x, name))
+    name = list(filter(lambda x: 'slice' not in x, name))
+    assert len(name) == 1
+    name = name[0].split('x')
+    assert len(name) == 2
+    name = list(map(int, name))
+    return name[0], name[1]
+
+
+def hasTileSize(name):
+    if 'sgemm' in name or '884gemm' in name or 'hgemm' in name:
+        return True
+    else:
+        return False
 
 
 class RNNCell(OperatorLayerBase):
@@ -928,62 +931,6 @@ class RNNCell(nn.Module):
         return tuple(self.hidden)
 
 
-class bn_addrelu_NHWC_impl(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, x, z, s, b, rm, riv, mini_m, mini_riv, grid_dim_y,
-        ret_cta, mom, epsilon, is_train, bn_group, my_data, pair_data,
-        magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup,
-        bwd_grid_x, multi_stream):
-        if is_train:
-            bitmask = torch.cuda.IntTensor((x.numel() + 31) // 32 * 2 *
-                grid_dim_y)
-            ctx.save_for_backward(x, s, b, rm, riv, mini_m, mini_riv, bitmask)
-            ctx.epsilon = epsilon
-            ctx.momentum = mom
-            ctx.ret_cta = ret_cta
-            ctx.my_data = my_data
-            ctx.pair_data = pair_data
-            ctx.magic = magic
-            ctx.pair_data2 = pair_data2
-            ctx.pair_data3 = pair_data3
-            ctx.bn_group = bn_group
-            ctx.bwd_occup = bwd_occup
-            ctx.bwd_grid_x = bwd_grid_x
-            ctx.multi_stream = multi_stream
-            res = bnp.bn_addrelu_fwd_nhwc(x, z, s, b, rm, riv, mini_m,
-                mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
-                pair_data, pair_data2, pair_data3, bn_group, magic,
-                fwd_occup, fwd_grid_x, multi_stream)
-            return res
-        else:
-            return bnp.bn_addrelu_fwd_eval_nhwc(x, z, s, b, rm, riv,
-                ret_cta, bn_group, mom, epsilon)
-
-    @staticmethod
-    def backward(ctx, grad_y):
-        x, s, b, rm, riv, mini_m, mini_riv, bitmask = ctx.saved_variables
-        epsilon = ctx.epsilon
-        mom = ctx.momentum
-        ret_cta = ctx.ret_cta
-        my_data = ctx.my_data
-        pair_data = ctx.pair_data
-        magic = ctx.magic
-        pair_data2 = ctx.pair_data2
-        pair_data3 = ctx.pair_data3
-        bn_group = ctx.bn_group
-        bwd_occup = ctx.bwd_occup
-        bwd_grid_x = ctx.bwd_grid_x
-        multi_stream = ctx.multi_stream
-        dx, dz, dscale, dbias = bnp.bn_addrelu_bwd_nhwc(x, grad_y, s, b, rm,
-            riv, mini_m, mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
-            pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup,
-            bwd_grid_x, multi_stream)
-        return (dx, dz, dscale, dbias, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None)
-
-
 class bn_NHWC_impl(torch.autograd.Function):
 
     @staticmethod
@@ -1038,6 +985,62 @@ class bn_NHWC_impl(torch.autograd.Function):
         return (dx, dscale, dbias, None, None, None, None, None, None, None,
             None, None, None, None, None, None, None, None, None, None,
             None, None, None)
+
+
+class bn_addrelu_NHWC_impl(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, z, s, b, rm, riv, mini_m, mini_riv, grid_dim_y,
+        ret_cta, mom, epsilon, is_train, bn_group, my_data, pair_data,
+        magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup,
+        bwd_grid_x, multi_stream):
+        if is_train:
+            bitmask = torch.cuda.IntTensor((x.numel() + 31) // 32 * 2 *
+                grid_dim_y)
+            ctx.save_for_backward(x, s, b, rm, riv, mini_m, mini_riv, bitmask)
+            ctx.epsilon = epsilon
+            ctx.momentum = mom
+            ctx.ret_cta = ret_cta
+            ctx.my_data = my_data
+            ctx.pair_data = pair_data
+            ctx.magic = magic
+            ctx.pair_data2 = pair_data2
+            ctx.pair_data3 = pair_data3
+            ctx.bn_group = bn_group
+            ctx.bwd_occup = bwd_occup
+            ctx.bwd_grid_x = bwd_grid_x
+            ctx.multi_stream = multi_stream
+            res = bnp.bn_addrelu_fwd_nhwc(x, z, s, b, rm, riv, mini_m,
+                mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
+                pair_data, pair_data2, pair_data3, bn_group, magic,
+                fwd_occup, fwd_grid_x, multi_stream)
+            return res
+        else:
+            return bnp.bn_addrelu_fwd_eval_nhwc(x, z, s, b, rm, riv,
+                ret_cta, bn_group, mom, epsilon)
+
+    @staticmethod
+    def backward(ctx, grad_y):
+        x, s, b, rm, riv, mini_m, mini_riv, bitmask = ctx.saved_variables
+        epsilon = ctx.epsilon
+        mom = ctx.momentum
+        ret_cta = ctx.ret_cta
+        my_data = ctx.my_data
+        pair_data = ctx.pair_data
+        magic = ctx.magic
+        pair_data2 = ctx.pair_data2
+        pair_data3 = ctx.pair_data3
+        bn_group = ctx.bn_group
+        bwd_occup = ctx.bwd_occup
+        bwd_grid_x = ctx.bwd_grid_x
+        multi_stream = ctx.multi_stream
+        dx, dz, dscale, dbias = bnp.bn_addrelu_bwd_nhwc(x, grad_y, s, b, rm,
+            riv, mini_m, mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
+            pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup,
+            bwd_grid_x, multi_stream)
+        return (dx, dz, dscale, dbias, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None)
 
 
 class BatchNorm2d_NHWC(_BatchNorm):
@@ -1149,13 +1152,6 @@ class BatchNorm2d_NHWC(_BatchNorm):
                 bnp.close_remote_data(self.pair_handle2)
                 if self.bn_group > 4:
                     bnp.close_remote_data(self.pair_handle3)
-
-
-@torch.jit.script
-def jit_dropout_add(x, residual, prob, is_training):
-    out = F.dropout(x, p=prob, training=True)
-    out = residual + out
-    return out
 
 
 class EncdecAttnFunc(torch.autograd.Function):
@@ -1327,6 +1323,49 @@ class EncdecAttnFunc(torch.autograd.Function):
 encdec_attn_func = EncdecAttnFunc.apply
 
 
+class FastEncdecAttnFunc(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv,
+        input_weights_q, input_weights_kv, output_weights, pad_mask,
+        dropout_prob):
+        heads_t = torch.tensor([heads])
+        dropout_prob_t = torch.tensor([dropout_prob])
+        null_tensor = torch.tensor([])
+        use_mask = pad_mask is not None
+        (input_lin_q_results, input_lin_kv_results, softmax_results,
+            dropout_results, dropout_mask, matmul2_results, outputs) = (
+            fast_encdec_multihead_attn.forward(use_mask, use_time_mask,
+            is_training, heads, inputs_q, inputs_kv, input_weights_q,
+            input_weights_kv, output_weights, pad_mask if use_mask else
+            null_tensor, dropout_prob))
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
+            softmax_results, input_lin_q_results, input_lin_kv_results,
+            inputs_q, inputs_kv, input_weights_q, input_weights_kv,
+            output_weights, dropout_mask, dropout_prob_t)
+        return outputs.detach()
+
+    @staticmethod
+    def backward(ctx, output_grads):
+        (heads_t, matmul2_results, dropout_results, softmax_results,
+            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
+            input_weights_q, input_weights_kv, output_weights, dropout_mask,
+            dropout_prob_t) = ctx.saved_tensors
+        (input_q_grads, input_kv_grads, input_weight_q_grads,
+            input_weight_kv_grads, output_weight_grads) = (
+            fast_encdec_multihead_attn.backward(heads_t[0], output_grads,
+            matmul2_results, dropout_results, softmax_results,
+            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
+            input_weights_q, input_weights_kv, output_weights, dropout_mask,
+            dropout_prob_t[0]))
+        return (None, None, None, input_q_grads, input_kv_grads,
+            input_weight_q_grads, input_weight_kv_grads,
+            output_weight_grads, None, None)
+
+
+fast_encdec_attn_func = FastEncdecAttnFunc.apply
+
+
 class FastEncdecAttnNormAddFunc(torch.autograd.Function):
 
     @staticmethod
@@ -1378,47 +1417,11 @@ class FastEncdecAttnNormAddFunc(torch.autograd.Function):
 fast_encdec_attn_norm_add_func = FastEncdecAttnNormAddFunc.apply
 
 
-class FastEncdecAttnFunc(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv,
-        input_weights_q, input_weights_kv, output_weights, pad_mask,
-        dropout_prob):
-        heads_t = torch.tensor([heads])
-        dropout_prob_t = torch.tensor([dropout_prob])
-        null_tensor = torch.tensor([])
-        use_mask = pad_mask is not None
-        (input_lin_q_results, input_lin_kv_results, softmax_results,
-            dropout_results, dropout_mask, matmul2_results, outputs) = (
-            fast_encdec_multihead_attn.forward(use_mask, use_time_mask,
-            is_training, heads, inputs_q, inputs_kv, input_weights_q,
-            input_weights_kv, output_weights, pad_mask if use_mask else
-            null_tensor, dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_q_results, input_lin_kv_results,
-            inputs_q, inputs_kv, input_weights_q, input_weights_kv,
-            output_weights, dropout_mask, dropout_prob_t)
-        return outputs.detach()
-
-    @staticmethod
-    def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_prob_t) = ctx.saved_tensors
-        (input_q_grads, input_kv_grads, input_weight_q_grads,
-            input_weight_kv_grads, output_weight_grads) = (
-            fast_encdec_multihead_attn.backward(heads_t[0], output_grads,
-            matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_prob_t[0]))
-        return (None, None, None, input_q_grads, input_kv_grads,
-            input_weight_q_grads, input_weight_kv_grads,
-            output_weight_grads, None, None)
-
-
-fast_encdec_attn_func = FastEncdecAttnFunc.apply
+@torch.jit.script
+def jit_dropout_add(x, residual, prob, is_training):
+    out = F.dropout(x, p=prob, training=True)
+    out = residual + out
+    return out
 
 
 class EncdecMultiheadAttn(nn.Module):
@@ -1611,6 +1614,53 @@ class FastSelfAttnFunc(torch.autograd.Function):
 fast_self_attn_func = FastSelfAttnFunc.apply
 
 
+class FastSelfAttnNormAddFunc(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, use_time_mask, is_training, heads, inputs,
+        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
+        output_weights, pad_mask, dropout_prob):
+        heads_t = torch.tensor([heads])
+        dropout_prob_t = torch.tensor([dropout_prob])
+        null_tensor = torch.tensor([])
+        use_mask = pad_mask is not None
+        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results,
+            softmax_results, dropout_results, dropout_mask, matmul2_results,
+            dropout_add_mask, outputs) = (fast_self_multihead_attn_norm_add
+            .forward(use_mask, use_time_mask, is_training, heads, inputs,
+            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
+            output_weights, pad_mask if use_mask else null_tensor,
+            dropout_prob))
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
+            softmax_results, input_lin_results, lyr_nrm_results,
+            lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t)
+        return outputs.detach()
+
+    @staticmethod
+    def backward(ctx, output_grads):
+        (heads_t, matmul2_results, dropout_results, softmax_results,
+            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
+            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
+        (input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads,
+            input_weight_grads, output_weight_grads) = (
+            fast_self_multihead_attn_norm_add.backward(heads_t[0],
+            output_grads, matmul2_results, dropout_results, softmax_results,
+            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
+            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
+            lyr_nrm_beta_weights, input_weights, output_weights,
+            dropout_mask, dropout_add_mask, dropout_prob_t[0]))
+        return (None, None, None, input_grads, lyr_nrm_gamma_grads,
+            lyr_nrm_beta_grads, input_weight_grads, output_weight_grads,
+            None, None)
+
+
+fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
+
+
 class SelfAttnFunc(torch.autograd.Function):
 
     @staticmethod
@@ -1750,53 +1800,6 @@ class SelfAttnFunc(torch.autograd.Function):
 
 
 self_attn_func = SelfAttnFunc.apply
-
-
-class FastSelfAttnNormAddFunc(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs,
-        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-        output_weights, pad_mask, dropout_prob):
-        heads_t = torch.tensor([heads])
-        dropout_prob_t = torch.tensor([dropout_prob])
-        null_tensor = torch.tensor([])
-        use_mask = pad_mask is not None
-        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results,
-            softmax_results, dropout_results, dropout_mask, matmul2_results,
-            dropout_add_mask, outputs) = (fast_self_multihead_attn_norm_add
-            .forward(use_mask, use_time_mask, is_training, heads, inputs,
-            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-            output_weights, pad_mask if use_mask else null_tensor,
-            dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, lyr_nrm_results,
-            lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t)
-        return outputs.detach()
-
-    @staticmethod
-    def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
-        (input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads,
-            input_weight_grads, output_weight_grads) = (
-            fast_self_multihead_attn_norm_add.backward(heads_t[0],
-            output_grads, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t[0]))
-        return (None, None, None, input_grads, lyr_nrm_gamma_grads,
-            lyr_nrm_beta_grads, input_weight_grads, output_weight_grads,
-            None, None)
-
-
-fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
 
 
 class SelfMultiheadAttn(nn.Module):
@@ -2047,31 +2050,6 @@ class MlpFunction(torch.autograd.Function):
         return None, None, *grads
 
 
-class FusedLayerNormFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input, normalized_shape, eps):
-        global fused_layer_norm_cuda
-        if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module(
-                'fused_layer_norm_cuda')
-        ctx.normalized_shape = normalized_shape
-        ctx.eps = eps
-        input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.
-            normalized_shape, ctx.eps)
-        ctx.save_for_backward(input_, mean, invvar)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_, mean, invvar = ctx.saved_tensors
-        grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
-            ), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
-        return grad_input, None, None
-
-
 class FusedLayerNormAffineFunction(torch.autograd.Function):
 
     @staticmethod
@@ -2098,6 +2076,31 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
             backward_affine(grad_output.contiguous(), mean, invvar, input_,
             ctx.normalized_shape, weight_, bias_, ctx.eps))
         return grad_input, grad_weight, grad_bias, None, None
+
+
+class FusedLayerNormFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, normalized_shape, eps):
+        global fused_layer_norm_cuda
+        if fused_layer_norm_cuda is None:
+            fused_layer_norm_cuda = importlib.import_module(
+                'fused_layer_norm_cuda')
+        ctx.normalized_shape = normalized_shape
+        ctx.eps = eps
+        input_ = input.contiguous()
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.
+            normalized_shape, ctx.eps)
+        ctx.save_for_backward(input_, mean, invvar)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_, mean, invvar = ctx.saved_tensors
+        grad_input = None
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
+            ), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
+        return grad_input, None, None
 
 
 class FusedLayerNorm(torch.nn.Module):
@@ -2672,16 +2675,16 @@ class LeNet5(nn.Module):
         return num_features
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
-
-
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
         bias=False)
+
+
+def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class Bottleneck(nn.Module):

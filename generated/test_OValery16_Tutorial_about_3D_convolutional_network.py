@@ -297,3 +297,39 @@ class ConvColumn9(nn.Module):
         x1 = x
         x = self.fc7(x)
         return x, x1
+
+
+class Classifier(nn.Module):
+
+    def __init__(self, num_classes):
+        super(Classifier, self).__init__()
+        self.fc1 = nn.Linear(5 * num_classes, num_classes)
+        """
+        self.fc1 = nn.Linear(372, 512)
+        self.relu = nn.LeakyReLU()
+        self.drop=nn.Dropout(p=0.25)
+        self.fc3 = nn.Linear(512, num_classes)
+        
+        self.dropout = nn.Dropout(p=0.5)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(1024, num_classes)
+        """
+
+    def forward(self, x):
+        x = self.fc1(x)
+        """
+        
+        x=self.relu(x)
+        x=self.fc2(x)
+        """
+        return x
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_OValery16_Tutorial_about_3D_convolutional_network(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([20, 20])], {})
+

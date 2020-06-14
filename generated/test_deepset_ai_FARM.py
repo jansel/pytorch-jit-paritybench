@@ -158,6 +158,185 @@ from torch.nn import BCEWithLogitsLoss
 logger = logging.getLogger(__name__)
 
 
+def pick_single_fn(heads, fn_name):
+    """ Iterates over heads and returns a static method called fn_name
+    if and only if one head has a method of that name. If no heads have such a method, None is returned.
+    If more than one head has such a method, an Exception is thrown"""
+    merge_fns = []
+    for h in heads:
+        merge_fns.append(getattr(h, fn_name, None))
+    merge_fns = [x for x in merge_fns if x is not None]
+    if len(merge_fns) == 0:
+        return None
+    elif len(merge_fns) == 1:
+        return merge_fns[0]
+    else:
+        raise Exception(
+            f'More than one of the prediction heads have a {fn_name}() function'
+            )
+
+
+def stack(list_of_lists):
+    n_lists_final = len(list_of_lists[0])
+    ret = [list() for _ in range(n_lists_final)]
+    for l in list_of_lists:
+        for i, x in enumerate(l):
+            ret[i] += x
+    return ret
+
+
+class BaseAdaptiveModel:
+    """
+    Base Class for implementing AdaptiveModel with frameworks like PyTorch and ONNX.
+    """
+    subclasses = {}
+
+    def __init_subclass__(cls, **kwargs):
+        """ This automatically keeps track of all available subclasses.
+        Enables generic load() for all specific AdaptiveModel implementation.
+        """
+        super().__init_subclass__(**kwargs)
+        cls.subclasses[cls.__name__] = cls
+
+    def __init__(self, prediction_heads):
+        self.prediction_heads = prediction_heads
+
+    @classmethod
+    def load(cls, **kwargs):
+        """
+        Load corresponding AdaptiveModel Class(AdaptiveModel/ONNXAdaptiveModel) based on the
+        files in the load_dir.
+
+        :param kwargs: arguments to pass for loading the model.
+        :return: instance of a model
+        """
+        if (Path(kwargs['load_dir']) / 'model.onnx').is_file():
+            model = cls.subclasses['ONNXAdaptiveModel'].load(**kwargs)
+        else:
+            model = cls.subclasses['AdaptiveModel'].load(**kwargs)
+        return model
+
+    def logits_to_preds(self, logits, **kwargs):
+        """
+        Get predictions from all prediction heads.
+
+        :param logits: logits, can vary in shape and type, depending on task
+        :type logits: object
+        :param label_maps: Maps from label encoding to label string
+        :param label_maps: dict
+        :return: A list of all predictions from all prediction heads
+        """
+        all_preds = []
+        for head, logits_for_head in zip(self.prediction_heads, logits):
+            preds = head.logits_to_preds(logits=logits_for_head, **kwargs)
+            all_preds.append(preds)
+        return all_preds
+
+    def formatted_preds(self, logits, **kwargs):
+        """
+        Format predictions for inference.
+
+        :param logits: model logits
+        :type logits: torch.tensor
+        :param kwargs: placeholder for passing generic parameters
+        :type kwargs: object
+        :return: predictions in the right format
+        """
+        n_heads = len(self.prediction_heads)
+        if n_heads == 0:
+            preds_final = self.language_model.formatted_preds(logits=logits,
+                **kwargs)
+        elif n_heads == 1:
+            preds_final = []
+            try:
+                preds_p = kwargs['preds_p']
+                temp = [y[0] for y in preds_p]
+                preds_p_flat = [item for sublist in temp for item in sublist]
+                kwargs['preds_p'] = preds_p_flat
+            except KeyError:
+                kwargs['preds_p'] = None
+            head = self.prediction_heads[0]
+            logits_for_head = logits[0]
+            preds = head.formatted_preds(logits=logits_for_head, **kwargs)
+            if type(preds) == list:
+                preds_final += preds
+            elif type(preds) == dict and 'predictions' in preds:
+                preds_final.append(preds)
+        else:
+            preds_final = [list() for _ in range(n_heads)]
+            preds = kwargs['preds_p']
+            preds_for_heads = stack(preds)
+            logits_for_heads = [None] * n_heads
+            samples = [s for b in kwargs['baskets'] for s in b.samples]
+            kwargs['samples'] = samples
+            del kwargs['preds_p']
+            for i, (head, preds_p_for_head, logits_for_head) in enumerate(zip
+                (self.prediction_heads, preds_for_heads, logits_for_heads)):
+                preds = head.formatted_preds(logits=logits_for_head,
+                    preds_p=preds_p_for_head, **kwargs)
+                preds_final[i].append(preds)
+            merge_fn = pick_single_fn(self.prediction_heads,
+                'merge_formatted_preds')
+            if merge_fn:
+                preds_final = merge_fn(preds_final)
+        return preds_final
+
+    def connect_heads_with_processor(self, tasks, require_labels=True):
+        """
+        Populates prediction head with information coming from tasks.
+
+        :param tasks: A dictionary where the keys are the names of the tasks and the values are the details of the task (e.g. label_list, metric, tensor name)
+        :param require_labels: If True, an error will be thrown when a task is not supplied with labels)
+        :return:
+        """
+        if 'nextsentence' not in tasks:
+            idx = None
+            for i, ph in enumerate(self.prediction_heads):
+                if ph.task_name == 'nextsentence':
+                    idx = i
+            if idx is not None:
+                logger.info(
+                    'Removing the NextSentenceHead since next_sent_pred is set to False in the BertStyleLMProcessor'
+                    )
+                del self.prediction_heads[i]
+        for head in self.prediction_heads:
+            head.label_tensor_name = tasks[head.task_name]['label_tensor_name']
+            label_list = tasks[head.task_name]['label_list']
+            if not label_list and require_labels:
+                raise Exception(
+                    f"The task '{head.task_name}' is missing a valid set of labels"
+                    )
+            label_list = tasks[head.task_name]['label_list']
+            head.label_list = label_list
+            if 'RegressionHead' in str(type(head)):
+                num_labels = 1
+            else:
+                num_labels = len(label_list)
+            head.metric = tasks[head.task_name]['metric']
+
+    @classmethod
+    def _get_prediction_head_files(cls, load_dir, strict=True):
+        load_dir = Path(load_dir)
+        files = os.listdir(load_dir)
+        model_files = [(load_dir / f) for f in files if '.bin' in f and 
+            'prediction_head' in f]
+        config_files = [(load_dir / f) for f in files if 'config.json' in f and
+            'prediction_head' in f]
+        model_files.sort()
+        config_files.sort()
+        if strict:
+            error_str = (
+                f'There is a mismatch in number of model files ({len(model_files)}) and config files ({len(config_files)}).This might be because the Language Model Prediction Head does not currently support saving and loading'
+                )
+            assert len(model_files) == len(config_files), error_str
+        logger.info(
+            f'Found files for loading {len(model_files)} prediction heads')
+        return model_files, config_files
+
+
+EMBEDDING_VOCAB_FILES_MAP = {}
+
+
 def load_from_cache(pretrained_model_name_or_path, s3_dict, **kwargs):
     cache_dir = kwargs.pop('cache_dir', None)
     force_download = kwargs.pop('force_download', False)
@@ -221,84 +400,6 @@ def run_split_on_punc(text, never_split=None):
             output[-1].append(char)
         i += 1
     return [''.join(x) for x in output]
-
-
-EMBEDDING_VOCAB_FILES_MAP = {}
-
-
-def s3e_pooling(token_embs, token_ids, token_weights, centroids,
-    token_to_cluster, mask, svd_components=None):
-    """
-    Pooling of word/token embeddings as described by Wang et al in their paper
-    "Efficient Sentence Embedding via Semantic Subspace Analysis"
-    (https://arxiv.org/abs/2002.09620)
-    Adjusted their implementation from here: https://github.com/BinWang28/Sentence-Embedding-S3E
-
-    This method takes a fitted "s3e model" and token embeddings from a language model and returns sentence embeddings
-    using the S3E Method. The model can be fitted via `fit_s3e_on_corpus()`.
-
-    Usage: See `examples/embeddings_extraction_s3e_pooling.py`
-
-    :param token_embs: numpy array of shape (batch_size, max_seq_len, emb_dim) containing the embeddings for each token
-    :param token_ids: numpy array of shape (batch_size, max_seq_len) containing the ids for each token in the vocab
-    :param token_weights: dict with key=token_id, value= weight in corpus
-    :param centroids: numpy array of shape (n_cluster, emb_dim) that describes the centroids of our clusters in the embedding space
-    :param token_to_cluster: numpy array of shape (vocab_size, 1) where token_to_cluster[i] = cluster_id that token with id i belongs to
-    :param svd_components: Components from a truncated singular value decomposition (SVD, aka LSA) to be
-                           removed from the final sentence embeddings in a postprocessing step.
-                           SVD must be fit on representative sample of sentence embeddings first and can
-                           then be removed from all subsequent embeddings in this function.
-                           We expect the sklearn.decomposition.TruncatedSVD.fit(<your_embeddings>)._components to be passed here.
-    :return: embeddings matrix of shape (batch_size, emb_dim + (n_clusters*n_clusters+1)/2)
-    """
-    embeddings = []
-    n_clusters = centroids.shape[0]
-    emb_dim = token_embs.shape[2]
-    n_samples = token_embs.shape[0]
-    token_ids[mask] = -1
-    for sample_idx in range(n_samples):
-        stage_vec = [{}]
-        for tok_idx, tok_id in enumerate(token_ids[(sample_idx), :]):
-            if tok_id != -1:
-                stage_vec[-1][tok_id] = token_embs[sample_idx, tok_idx]
-        stage_vec.append({})
-        for k, v in stage_vec[-2].items():
-            cluster = token_to_cluster[k]
-            if cluster in stage_vec[-1]:
-                stage_vec[-1][cluster].append(stage_vec[-2][k] *
-                    token_weights[k])
-            else:
-                stage_vec[-1][cluster] = []
-                stage_vec[-1][cluster].append(stage_vec[-2][k] *
-                    token_weights[k])
-        for k, v in stage_vec[-1].items():
-            centroid_vec = centroids[k]
-            v = [(wv - centroid_vec) for wv in v]
-            stage_vec[-1][k] = np.sum(v, 0)
-        sentvec = []
-        vec = np.zeros(emb_dim)
-        for key, value in stage_vec[0].items():
-            vec = vec + value * token_weights[key]
-        sentvec.append(vec / len(stage_vec[0].keys()))
-        matrix = np.zeros((n_clusters, emb_dim))
-        for j in range(n_clusters):
-            if j in stage_vec[-1]:
-                matrix[(j), :] = stage_vec[-1][j]
-        matrix_no_mean = matrix - matrix.mean(1)[:, (np.newaxis)]
-        cov = matrix_no_mean.dot(matrix_no_mean.T)
-        iu1 = np.triu_indices(cov.shape[0])
-        iu2 = np.triu_indices(cov.shape[0], 1)
-        cov[iu2] = cov[iu2] * np.sqrt(2)
-        vec = cov[iu1]
-        vec = vec / np.linalg.norm(vec)
-        sentvec.append(vec)
-        sentvec = np.concatenate(sentvec)
-        embeddings.append(sentvec)
-    embeddings = np.vstack(embeddings)
-    if svd_components is not None:
-        embeddings = embeddings - embeddings.dot(svd_components.transpose()
-            ) * svd_components
-    return embeddings
 
 
 class WrappedDataParallel(DataParallel):

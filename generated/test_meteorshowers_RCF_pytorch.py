@@ -56,6 +56,9 @@ from torch.nn.modules.conv import _triple
 import torch.nn.functional as F
 
 
+import time
+
+
 from torch.optim import lr_scheduler
 
 
@@ -84,6 +87,13 @@ class DilateConv(nn.Module):
         return self.d_conv(x)
 
 
+def crop(variable, th, tw):
+    h, w = variable.shape[2], variable.shape[3]
+    x1 = int(round((w - tw) / 2.0))
+    y1 = int(round((h - th) / 2.0))
+    return variable[:, :, y1:y1 + th, x1:x1 + tw]
+
+
 def make_bilinear_weights(size, num_channels):
     factor = (size + 1) // 2
     if size % 2 == 1:
@@ -101,13 +111,6 @@ def make_bilinear_weights(size, num_channels):
             if i == j:
                 w[i, j] = filt
     return w
-
-
-def crop(variable, th, tw):
-    h, w = variable.shape[2], variable.shape[3]
-    x1 = int(round((w - tw) / 2.0))
-    y1 = int(round((h - th) / 2.0))
-    return variable[:, :, y1:y1 + th, x1:x1 + tw]
 
 
 class RCF(nn.Module):

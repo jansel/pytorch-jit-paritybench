@@ -37,6 +37,9 @@ import torch.optim as optim
 import numpy as np
 
 
+import time
+
+
 class FCN32s(nn.Module):
 
     def __init__(self, pretrained_net, n_class):

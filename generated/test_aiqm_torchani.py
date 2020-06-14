@@ -75,6 +75,9 @@ import math
 import torch.utils.tensorboard
 
 
+import time
+
+
 from typing import NamedTuple
 
 
@@ -123,39 +126,9 @@ class CustomModule(torch.nn.Module):
         return energies, forces, hessians
 
 
-def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
-    float) ->Tensor:
-    """Compute pairs of atoms that are neighbors (doesn't use PBC)
-
-    This function bypasses the calculation of shifts and duplication
-    of atoms in order to make calculations faster
-
-    Arguments:
-        padding_mask (:class:`torch.Tensor`): boolean tensor of shape
-            (molecules, atoms) for padding mask. 1 == is padding.
-        coordinates (:class:`torch.Tensor`): tensor of shape
-            (molecules * atoms, 3) for atom coordinates.
-        cutoff (float): the cutoff inside which atoms are considered pairs
-    """
-    coordinates = coordinates.detach()
-    current_device = coordinates.device
-    num_atoms = padding_mask.shape[1]
-    num_mols = padding_mask.shape[0]
-    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device
-        )
-    p12_all_flattened = p12_all.view(-1)
-    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1, 3)
-    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1),
-        (...)]).norm(2, -1)
-    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1).any(dim=1)
-    distances.masked_fill_(padding_mask, math.inf)
-    in_cutoff = (distances <= cutoff).nonzero()
-    molecule_index, pair_index = in_cutoff.unbind(1)
-    molecule_index *= num_atoms
-    atom_index12 = p12_all[:, (pair_index)] + molecule_index
-    return atom_index12
+class SpeciesAEV(NamedTuple):
+    species: Tensor
+    aevs: Tensor
 
 
 def cutoff_cosine(distances: Tensor, cutoff: float) ->Tensor:
@@ -187,46 +160,6 @@ def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
     factor2 = torch.exp(-EtaA * (distances12.sum(0) / 2 - ShfA) ** 2)
     ret = 2 * factor1 * factor2 * fcj12.prod(0)
     return ret.flatten(start_dim=-4)
-
-
-def cumsum_from_zero(input_: Tensor) ->Tensor:
-    cumsum = torch.zeros_like(input_)
-    torch.cumsum(input_[:-1], dim=0, out=cumsum[1:])
-    return cumsum
-
-
-def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-    """Input: indices for pairs of atoms that are close to each other.
-    each pair only appear once, i.e. only one of the pairs (1, 2) and
-    (2, 1) exists.
-
-    Output: indices for all central atoms and it pairs of neighbors. For
-    example, if input has pair (0, 1), (0, 2), (0, 3), (0, 4), (1, 2),
-    (1, 3), (1, 4), (2, 3), (2, 4), (3, 4), then the output would have
-    central atom 0, 1, 2, 3, 4 and for cental atom 0, its pairs of neighbors
-    are (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)
-    """
-    ai1 = atom_index12.view(-1)
-    sorted_ai1, rev_indices = ai1.sort()
-    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1,
-        return_inverse=False, return_counts=True)
-    pair_sizes = counts * (counts - 1) // 2
-    pair_indices = torch.repeat_interleave(pair_sizes)
-    central_atom_index = uniqued_central_atom_index.index_select(0,
-        pair_indices)
-    m = counts.max().item() if counts.numel() > 0 else 0
-    n = pair_sizes.shape[0]
-    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device
-        ).unsqueeze(1).expand(-1, n, -1)
-    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) <
-        pair_sizes.unsqueeze(1)).flatten()
-    sorted_local_index12 = intra_pair_indices.flatten(1, 2)[:, (mask)]
-    sorted_local_index12 += cumsum_from_zero(counts).index_select(0,
-        pair_indices)
-    local_index12 = rev_indices[sorted_local_index12]
-    n = atom_index12.shape[1]
-    sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
-    return central_atom_index, local_index12 % n, sign12
 
 
 def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
@@ -275,6 +208,41 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     return molecule_index + atom_index12, shifts
 
 
+def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
+    float) ->Tensor:
+    """Compute pairs of atoms that are neighbors (doesn't use PBC)
+
+    This function bypasses the calculation of shifts and duplication
+    of atoms in order to make calculations faster
+
+    Arguments:
+        padding_mask (:class:`torch.Tensor`): boolean tensor of shape
+            (molecules, atoms) for padding mask. 1 == is padding.
+        coordinates (:class:`torch.Tensor`): tensor of shape
+            (molecules * atoms, 3) for atom coordinates.
+        cutoff (float): the cutoff inside which atoms are considered pairs
+    """
+    coordinates = coordinates.detach()
+    current_device = coordinates.device
+    num_atoms = padding_mask.shape[1]
+    num_mols = padding_mask.shape[0]
+    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device
+        )
+    p12_all_flattened = p12_all.view(-1)
+    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(
+        num_mols, 2, -1, 3)
+    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1),
+        (...)]).norm(2, -1)
+    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(
+        num_mols, 2, -1).any(dim=1)
+    distances.masked_fill_(padding_mask, math.inf)
+    in_cutoff = (distances <= cutoff).nonzero()
+    molecule_index, pair_index = in_cutoff.unbind(1)
+    molecule_index *= num_atoms
+    atom_index12 = p12_all[:, (pair_index)] + molecule_index
+    return atom_index12
+
+
 def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
     ) ->Tensor:
     """Compute the radial subAEV terms of the center atom given neighbors
@@ -293,6 +261,46 @@ def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
     fc = cutoff_cosine(distances, Rcr)
     ret = 0.25 * torch.exp(-EtaR * (distances - ShfR) ** 2) * fc
     return ret.flatten(start_dim=-2)
+
+
+def cumsum_from_zero(input_: Tensor) ->Tensor:
+    cumsum = torch.zeros_like(input_)
+    torch.cumsum(input_[:-1], dim=0, out=cumsum[1:])
+    return cumsum
+
+
+def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
+    """Input: indices for pairs of atoms that are close to each other.
+    each pair only appear once, i.e. only one of the pairs (1, 2) and
+    (2, 1) exists.
+
+    Output: indices for all central atoms and it pairs of neighbors. For
+    example, if input has pair (0, 1), (0, 2), (0, 3), (0, 4), (1, 2),
+    (1, 3), (1, 4), (2, 3), (2, 4), (3, 4), then the output would have
+    central atom 0, 1, 2, 3, 4 and for cental atom 0, its pairs of neighbors
+    are (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)
+    """
+    ai1 = atom_index12.view(-1)
+    sorted_ai1, rev_indices = ai1.sort()
+    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1,
+        return_inverse=False, return_counts=True)
+    pair_sizes = counts * (counts - 1) // 2
+    pair_indices = torch.repeat_interleave(pair_sizes)
+    central_atom_index = uniqued_central_atom_index.index_select(0,
+        pair_indices)
+    m = counts.max().item() if counts.numel() > 0 else 0
+    n = pair_sizes.shape[0]
+    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device
+        ).unsqueeze(1).expand(-1, n, -1)
+    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) <
+        pair_sizes.unsqueeze(1)).flatten()
+    sorted_local_index12 = intra_pair_indices.flatten(1, 2)[:, (mask)]
+    sorted_local_index12 += cumsum_from_zero(counts).index_select(0,
+        pair_indices)
+    local_index12 = rev_indices[sorted_local_index12]
+    n = atom_index12.shape[1]
+    sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
+    return central_atom_index, local_index12 % n, sign12
 
 
 def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
@@ -350,20 +358,6 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
     return torch.cat([radial_aev, angular_aev], dim=-1)
 
 
-class SpeciesAEV(NamedTuple):
-    species: Tensor
-    aevs: Tensor
-
-
-def triu_index(num_species: int) ->Tensor:
-    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
-    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
-    ret = torch.zeros(num_species, num_species, dtype=torch.long)
-    ret[species1, species2] = pair_index
-    ret[species2, species1] = pair_index
-    return ret
-
-
 def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
     """Compute the shifts of unit cell along the given cell vectors to make it
     large enough to contain all pairs of neighbor atoms with PBC under
@@ -396,6 +390,15 @@ def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
         torch.cartesian_prod(r1, -r2, o), torch.cartesian_prod(r1, -r2, -r3
         ), torch.cartesian_prod(o, r2, r3), torch.cartesian_prod(o, r2, o),
         torch.cartesian_prod(o, r2, -r3), torch.cartesian_prod(o, o, r3)])
+
+
+def triu_index(num_species: int) ->Tensor:
+    species1, species2 = torch.triu_indices(num_species, num_species).unbind(0)
+    pair_index = torch.arange(species1.shape[0], dtype=torch.long)
+    ret = torch.zeros(num_species, num_species, dtype=torch.long)
+    ret[species1, species2] = pair_index
+    ret[species2, species1] = pair_index
+    return ret
 
 
 class AEVComputer(torch.nn.Module):
@@ -525,18 +528,6 @@ class AEVComputer(torch.nn.Module):
 class SpeciesEnergies(NamedTuple):
     species: Tensor
     energies: Tensor
-
-
-conv_au_ev = 27.21138505
-
-
-radial_length = 64
-
-
-all_species = ['H', 'C', 'N', 'O']
-
-
-species_indices = {all_species[i]: i for i in range(len(all_species))}
 
 
 class ANIModel(torch.nn.ModuleDict):

@@ -39,6 +39,9 @@ import numpy as np
 from torch.nn.functional import interpolate
 
 
+import time
+
+
 class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
@@ -524,14 +527,20 @@ def bbreg(boundingbox, reg):
     return boundingbox
 
 
-def rerec(bboxA):
-    h = bboxA[:, (3)] - bboxA[:, (1)]
-    w = bboxA[:, (2)] - bboxA[:, (0)]
-    l = torch.max(w, h)
-    bboxA[:, (0)] = bboxA[:, (0)] + w * 0.5 - l * 0.5
-    bboxA[:, (1)] = bboxA[:, (1)] + h * 0.5 - l * 0.5
-    bboxA[:, 2:4] = bboxA[:, :2] + l.repeat(2, 1).permute(1, 0)
-    return bboxA
+def generateBoundingBox(reg, probs, scale, thresh):
+    stride = 2
+    cellsize = 12
+    reg = reg.permute(1, 0, 2, 3)
+    mask = probs >= thresh
+    mask_inds = mask.nonzero()
+    image_inds = mask_inds[:, (0)]
+    score = probs[mask]
+    reg = reg[:, (mask)].permute(1, 0)
+    bb = mask_inds[:, 1:].type(reg.dtype).flip(1)
+    q1 = ((stride * bb + 1) / scale).floor()
+    q2 = ((stride * bb + cellsize - 1 + 1) / scale).floor()
+    boundingbox = torch.cat([q1, q2, score.unsqueeze(1), reg], dim=1)
+    return boundingbox, image_inds
 
 
 def imresample(img, sz):
@@ -552,20 +561,14 @@ def pad(boxes, w, h):
     return y, ey, x, ex
 
 
-def generateBoundingBox(reg, probs, scale, thresh):
-    stride = 2
-    cellsize = 12
-    reg = reg.permute(1, 0, 2, 3)
-    mask = probs >= thresh
-    mask_inds = mask.nonzero()
-    image_inds = mask_inds[:, (0)]
-    score = probs[mask]
-    reg = reg[:, (mask)].permute(1, 0)
-    bb = mask_inds[:, 1:].type(reg.dtype).flip(1)
-    q1 = ((stride * bb + 1) / scale).floor()
-    q2 = ((stride * bb + cellsize - 1 + 1) / scale).floor()
-    boundingbox = torch.cat([q1, q2, score.unsqueeze(1), reg], dim=1)
-    return boundingbox, image_inds
+def rerec(bboxA):
+    h = bboxA[:, (3)] - bboxA[:, (1)]
+    w = bboxA[:, (2)] - bboxA[:, (0)]
+    l = torch.max(w, h)
+    bboxA[:, (0)] = bboxA[:, (0)] + w * 0.5 - l * 0.5
+    bboxA[:, (1)] = bboxA[:, (1)] + h * 0.5 - l * 0.5
+    bboxA[:, 2:4] = bboxA[:, :2] + l.repeat(2, 1).permute(1, 0)
+    return bboxA
 
 
 def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
@@ -693,11 +696,6 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
     return batch_boxes, batch_points
 
 
-def fixed_image_standardization(image_tensor):
-    processed_tensor = (image_tensor - 127.5) / 128.0
-    return processed_tensor
-
-
 def crop_resize(img, box, image_size):
     if isinstance(img, np.ndarray):
         out = cv2.resize(img[box[1]:box[3], box[0]:box[2]], (image_size,
@@ -708,18 +706,18 @@ def crop_resize(img, box, image_size):
     return out
 
 
-def save_img(img, path):
-    if isinstance(img, np.ndarray):
-        cv2.imwrite(path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    else:
-        img.save(path)
-
-
 def get_size(img):
     if isinstance(img, np.ndarray):
         return img.shape[1::-1]
     else:
         return img.size
+
+
+def save_img(img, path):
+    if isinstance(img, np.ndarray):
+        cv2.imwrite(path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+    else:
+        img.save(path)
 
 
 def extract_face(img, box, image_size=160, margin=0, save_path=None):
@@ -750,6 +748,11 @@ def extract_face(img, box, image_size=160, margin=0, save_path=None):
         save_img(face, save_path)
     face = F.to_tensor(np.float32(face))
     return face
+
+
+def fixed_image_standardization(image_tensor):
+    processed_tensor = (image_tensor - 127.5) / 128.0
+    return processed_tensor
 
 
 class MTCNN(nn.Module):

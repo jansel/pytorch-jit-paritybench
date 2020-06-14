@@ -71,6 +71,9 @@ from scipy.stats import entropy
 from torch.nn import functional as F
 
 
+import time
+
+
 import torch.optim as optim
 
 
@@ -78,6 +81,26 @@ from torch.optim import lr_scheduler
 
 
 from torch.utils.data import DataLoader
+
+
+def _get_padding(K, mode):
+    """ Helper method to compute padding size """
+    if mode == 'valid':
+        return 0
+    elif mode == 'same':
+        assert K % 2 == 1, 'Invalid kernel size %d for "same" padding' % K
+        return (K - 1) // 2
+
+
+def _init_conv(layer, method):
+    if not isinstance(layer, nn.Conv2d):
+        return
+    if method == 'default':
+        return
+    elif method == 'kaiming-normal':
+        nn.init.kaiming_normal(layer.weight)
+    elif method == 'kaiming-uniform':
+        nn.init.kaiming_uniform(layer.weight)
 
 
 def get_activation(name):
@@ -103,26 +126,6 @@ def get_normalization_2d(channels, normalization):
     else:
         raise ValueError('Unrecognized normalization type "%s"' % normalization
             )
-
-
-def _get_padding(K, mode):
-    """ Helper method to compute padding size """
-    if mode == 'valid':
-        return 0
-    elif mode == 'same':
-        assert K % 2 == 1, 'Invalid kernel size %d for "same" padding' % K
-        return (K - 1) // 2
-
-
-def _init_conv(layer, method):
-    if not isinstance(layer, nn.Conv2d):
-        return
-    if method == 'default':
-        return
-    elif method == 'kaiming-normal':
-        nn.init.kaiming_normal(layer.weight)
-    elif method == 'kaiming-uniform':
-        nn.init.kaiming_uniform(layer.weight)
 
 
 def build_cnn(arch, normalization='batch', activation='relu', padding=
@@ -612,6 +615,12 @@ class GlobalGenerator(nn.Module):
         return self.model(input)
 
 
+def _init_weights(module):
+    if hasattr(module, 'weight'):
+        if isinstance(module, nn.Linear):
+            nn.init.kaiming_normal_(module.weight)
+
+
 def build_mlp(dim_list, activation='relu', batch_norm='none', dropout=0,
     final_nonlinearity=True):
     layers = []
@@ -629,12 +638,6 @@ def build_mlp(dim_list, activation='relu', batch_norm='none', dropout=0,
         if dropout > 0:
             layers.append(nn.Dropout(p=dropout))
     return nn.Sequential(*layers)
-
-
-def _init_weights(module):
-    if hasattr(module, 'weight'):
-        if isinstance(module, nn.Linear):
-            nn.init.kaiming_normal_(module.weight)
 
 
 class GraphTripleConv(nn.Module):
@@ -953,39 +956,6 @@ class VGGLoss(nn.Module):
         return loss
 
 
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm2d') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-
-
-def get_norm_layer(norm_type='instance'):
-    if norm_type == 'batch':
-        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
-    elif norm_type == 'instance':
-        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
-    elif norm_type == 'conditional':
-        norm_layer = functools.partial(ConditionalBatchNorm2d)
-    else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
-    return norm_layer
-
-
-def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
-    n_blocks_global=9, norm='instance'):
-    norm_layer = get_norm_layer(norm_type=norm)
-    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global,
-        n_blocks_global, norm_layer)
-    assert torch.cuda.is_available()
-    netG.cuda()
-    netG.apply(weights_init)
-    return netG
-
-
 class VectorPool:
 
     def __init__(self, pool_size):
@@ -1016,6 +986,39 @@ class VectorPool:
                 return_vectors.append(tmp)
         return_vectors = torch.stack(return_vectors).to(vectors.device)
         return return_vectors
+
+
+def get_norm_layer(norm_type='instance'):
+    if norm_type == 'batch':
+        norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
+    elif norm_type == 'instance':
+        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
+    elif norm_type == 'conditional':
+        norm_layer = functools.partial(ConditionalBatchNorm2d)
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' %
+            norm_type)
+    return norm_layer
+
+
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm2d') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
+
+
+def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
+    n_blocks_global=9, norm='instance'):
+    norm_layer = get_norm_layer(norm_type=norm)
+    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global,
+        n_blocks_global, norm_layer)
+    assert torch.cuda.is_available()
+    netG.cuda()
+    netG.apply(weights_init)
+    return netG
 
 
 def mask_net(dim, mask_size):

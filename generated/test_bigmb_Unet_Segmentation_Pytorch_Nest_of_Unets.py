@@ -49,6 +49,9 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import random
 
 
+import time
+
+
 class conv_block(nn.Module):
     """
     Convolution Block 

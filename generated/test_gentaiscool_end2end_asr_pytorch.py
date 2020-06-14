@@ -59,6 +59,9 @@ import numpy as np
 import math
 
 
+import time
+
+
 import logging
 
 
@@ -256,15 +259,6 @@ class EncoderLayer(nn.Module):
         return enc_output, self_attn
 
 
-def pad_list(xs, pad_value):
-    n_batch = len(xs)
-    max_len = constant.args.tgt_max_len
-    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
-    for i in range(n_batch):
-        pad[(i), :xs[i].size(0)] = xs[i]
-    return pad
-
-
 def is_chinese_char(cc):
     return unicodedata.category(cc) == 'Lo'
 
@@ -346,6 +340,16 @@ def calculate_lm_score(seq, lm, id2label):
         ) + 1, oov_token
 
 
+def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
+    """
+    For masking out the padding part of key sequence.
+    """
+    len_q = seq_q.size(1)
+    padding_mask = seq_k.eq(pad_idx)
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return padding_mask
+
+
 def get_subsequent_mask(seq):
     """ For masking out the subsequent info. """
     sz_b, len_s = seq.size()
@@ -355,14 +359,13 @@ def get_subsequent_mask(seq):
     return subsequent_mask
 
 
-def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
-    """
-    For masking out the padding part of key sequence.
-    """
-    len_q = seq_q.size(1)
-    padding_mask = seq_k.eq(pad_idx)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return padding_mask
+def pad_list(xs, pad_value):
+    n_batch = len(xs)
+    max_len = constant.args.tgt_max_len
+    pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
+    for i in range(n_batch):
+        pad[(i), :xs[i].size(0)] = xs[i]
+    return pad
 
 
 class Decoder(nn.Module):

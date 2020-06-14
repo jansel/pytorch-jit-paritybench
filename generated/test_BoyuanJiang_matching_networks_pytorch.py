@@ -226,3 +226,17 @@ class MatchingNetwork(nn.Module):
         accuracy = torch.mean((indices.squeeze() == target_y).float())
         crossentropy_loss = F.cross_entropy(preds, target_y.long())
         return accuracy, crossentropy_loss
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_BoyuanJiang_matching_networks_pytorch(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(AttentionalClassify(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Classifier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+

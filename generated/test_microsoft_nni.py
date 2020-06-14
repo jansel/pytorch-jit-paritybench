@@ -345,6 +345,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 import random
 
 
@@ -1100,6 +1103,111 @@ class Mutable(Model):
         return '{} ({})'.format(self.name, self.key)
 
 
+class InputChoice(Mutable):
+    """
+    Input choice selects ``n_chosen`` inputs from ``choose_from`` (contains ``n_candidates`` keys). For beginners,
+    use ``n_candidates`` instead of ``choose_from`` is a safe option. To get the most power out of it, you might want to
+    know about ``choose_from``.
+
+    The keys in ``choose_from`` can be keys that appear in past mutables, or ``NO_KEY`` if there are no suitable ones.
+    The keys are designed to be the keys of the sources. To help mutators make better decisions,
+    mutators might be interested in how the tensors to choose from come into place. For example, the tensor is the
+    output of some operator, some node, some cell, or some module. If this operator happens to be a mutable (e.g.,
+    ``LayerChoice`` or ``InputChoice``), it has a key naturally that can be used as a source key. If it's a
+    module/submodule, it needs to be annotated with a key: that's where a :class:`MutableScope` is needed.
+
+    In the example below, ``input_choice`` is a 4-choose-any. The first 3 is semantically output of cell1, output of cell2,
+    output of cell3 with respectively. Notice that an extra max pooling is followed by cell1, indicating x1 is not
+    "actually" the direct output of cell1.
+
+    .. code-block:: python
+
+        class Cell(MutableScope):
+            pass
+
+        class Net(nn.Module):
+            def __init__(self):
+                self.cell1 = Cell("cell1")
+                self.cell2 = Cell("cell2")
+                self.op = LayerChoice([conv3x3(), conv5x5()], key="op")
+                self.input_choice = InputChoice(choose_from=["cell1", "cell2", "op", InputChoice.NO_KEY])
+
+            def forward(self, x):
+                x1 = max_pooling(self.cell1(x))
+                x2 = self.cell2(x)
+                x3 = self.op(x)
+                x4 = torch.zeros_like(x)
+                return self.input_choice([x1, x2, x3, x4])
+
+    Parameters
+    ----------
+    n_candidates : int
+        Number of inputs to choose from.
+    choose_from : list of str
+        List of source keys to choose from. At least of one of ``choose_from`` and ``n_candidates`` must be fulfilled.
+        If ``n_candidates`` has a value but ``choose_from`` is None, it will be automatically treated as ``n_candidates``
+        number of empty string.
+    n_chosen : int
+        Recommended inputs to choose. If None, mutator is instructed to select any.
+    reduction : str
+        ``mean``, ``concat``, ``sum`` or ``none``. See :class:`LayerChoice`.
+    return_mask : bool
+        If ``return_mask``, return output tensor and a mask. Otherwise return tensor only.
+    key : str
+        Key of the input choice.
+    """
+    NO_KEY = ''
+
+    def __init__(self, n_candidates=None, choose_from=None, n_chosen=None,
+        reduction='sum', return_mask=False, key=None):
+        super().__init__(key=key)
+        assert n_candidates is not None or choose_from is not None, 'At least one of `n_candidates` and `choose_from`must be not None.'
+        if choose_from is not None and n_candidates is None:
+            n_candidates = len(choose_from)
+        elif choose_from is None and n_candidates is not None:
+            choose_from = [self.NO_KEY] * n_candidates
+        assert n_candidates == len(choose_from
+            ), 'Number of candidates must be equal to the length of `choose_from`.'
+        assert n_candidates > 0, 'Number of candidates must be greater than 0.'
+        assert n_chosen is None or 0 <= n_chosen <= n_candidates, 'Expected selected number must be None or no more than number of candidates.'
+        self.n_candidates = n_candidates
+        self.choose_from = choose_from.copy()
+        self.n_chosen = n_chosen
+        self.reduction = reduction
+        self.return_mask = return_mask
+
+    def forward(self, optional_inputs):
+        """
+        Forward method of LayerChoice.
+
+        Parameters
+        ----------
+        optional_inputs : list or dict
+            Recommended to be a dict. As a dict, inputs will be converted to a list that follows the order of
+            ``choose_from`` in initialization. As a list, inputs must follow the semantic order that is the same as
+            ``choose_from``.
+
+        Returns
+        -------
+        tuple of tensors
+            Output and selection mask. If ``return_mask`` is ``False``, only output is returned.
+        """
+        optional_input_list = optional_inputs
+        if isinstance(optional_inputs, dict):
+            optional_input_list = [optional_inputs[tag] for tag in self.
+                choose_from]
+        assert isinstance(optional_input_list, list
+            ), 'Optional input list must be a list, not a {}.'.format(type(
+            optional_input_list))
+        assert len(optional_inputs
+            ) == self.n_candidates, 'Length of the input list must be equal to number of candidates.'
+        out, mask = self.mutator.on_forward_input_choice(self,
+            optional_input_list)
+        if self.return_mask:
+            return out, mask
+        return out
+
+
 class LayerChoice(Mutable):
     """
     Layer choice selects one of the ``op_candidates``, then apply it on inputs and return results.
@@ -1217,111 +1325,6 @@ class LayerChoice(Mutable):
             Output and selection mask. If ``return_mask`` is ``False``, only output is returned.
         """
         out, mask = self.mutator.on_forward_layer_choice(self, *args, **kwargs)
-        if self.return_mask:
-            return out, mask
-        return out
-
-
-class InputChoice(Mutable):
-    """
-    Input choice selects ``n_chosen`` inputs from ``choose_from`` (contains ``n_candidates`` keys). For beginners,
-    use ``n_candidates`` instead of ``choose_from`` is a safe option. To get the most power out of it, you might want to
-    know about ``choose_from``.
-
-    The keys in ``choose_from`` can be keys that appear in past mutables, or ``NO_KEY`` if there are no suitable ones.
-    The keys are designed to be the keys of the sources. To help mutators make better decisions,
-    mutators might be interested in how the tensors to choose from come into place. For example, the tensor is the
-    output of some operator, some node, some cell, or some module. If this operator happens to be a mutable (e.g.,
-    ``LayerChoice`` or ``InputChoice``), it has a key naturally that can be used as a source key. If it's a
-    module/submodule, it needs to be annotated with a key: that's where a :class:`MutableScope` is needed.
-
-    In the example below, ``input_choice`` is a 4-choose-any. The first 3 is semantically output of cell1, output of cell2,
-    output of cell3 with respectively. Notice that an extra max pooling is followed by cell1, indicating x1 is not
-    "actually" the direct output of cell1.
-
-    .. code-block:: python
-
-        class Cell(MutableScope):
-            pass
-
-        class Net(nn.Module):
-            def __init__(self):
-                self.cell1 = Cell("cell1")
-                self.cell2 = Cell("cell2")
-                self.op = LayerChoice([conv3x3(), conv5x5()], key="op")
-                self.input_choice = InputChoice(choose_from=["cell1", "cell2", "op", InputChoice.NO_KEY])
-
-            def forward(self, x):
-                x1 = max_pooling(self.cell1(x))
-                x2 = self.cell2(x)
-                x3 = self.op(x)
-                x4 = torch.zeros_like(x)
-                return self.input_choice([x1, x2, x3, x4])
-
-    Parameters
-    ----------
-    n_candidates : int
-        Number of inputs to choose from.
-    choose_from : list of str
-        List of source keys to choose from. At least of one of ``choose_from`` and ``n_candidates`` must be fulfilled.
-        If ``n_candidates`` has a value but ``choose_from`` is None, it will be automatically treated as ``n_candidates``
-        number of empty string.
-    n_chosen : int
-        Recommended inputs to choose. If None, mutator is instructed to select any.
-    reduction : str
-        ``mean``, ``concat``, ``sum`` or ``none``. See :class:`LayerChoice`.
-    return_mask : bool
-        If ``return_mask``, return output tensor and a mask. Otherwise return tensor only.
-    key : str
-        Key of the input choice.
-    """
-    NO_KEY = ''
-
-    def __init__(self, n_candidates=None, choose_from=None, n_chosen=None,
-        reduction='sum', return_mask=False, key=None):
-        super().__init__(key=key)
-        assert n_candidates is not None or choose_from is not None, 'At least one of `n_candidates` and `choose_from`must be not None.'
-        if choose_from is not None and n_candidates is None:
-            n_candidates = len(choose_from)
-        elif choose_from is None and n_candidates is not None:
-            choose_from = [self.NO_KEY] * n_candidates
-        assert n_candidates == len(choose_from
-            ), 'Number of candidates must be equal to the length of `choose_from`.'
-        assert n_candidates > 0, 'Number of candidates must be greater than 0.'
-        assert n_chosen is None or 0 <= n_chosen <= n_candidates, 'Expected selected number must be None or no more than number of candidates.'
-        self.n_candidates = n_candidates
-        self.choose_from = choose_from.copy()
-        self.n_chosen = n_chosen
-        self.reduction = reduction
-        self.return_mask = return_mask
-
-    def forward(self, optional_inputs):
-        """
-        Forward method of LayerChoice.
-
-        Parameters
-        ----------
-        optional_inputs : list or dict
-            Recommended to be a dict. As a dict, inputs will be converted to a list that follows the order of
-            ``choose_from`` in initialization. As a list, inputs must follow the semantic order that is the same as
-            ``choose_from``.
-
-        Returns
-        -------
-        tuple of tensors
-            Output and selection mask. If ``return_mask`` is ``False``, only output is returned.
-        """
-        optional_input_list = optional_inputs
-        if isinstance(optional_inputs, dict):
-            optional_input_list = [optional_inputs[tag] for tag in self.
-                choose_from]
-        assert isinstance(optional_input_list, list
-            ), 'Optional input list must be a list, not a {}.'.format(type(
-            optional_input_list))
-        assert len(optional_inputs
-            ) == self.n_candidates, 'Length of the input list must be equal to number of candidates.'
-        out, mask = self.mutator.on_forward_input_choice(self,
-            optional_input_list)
         if self.return_mask:
             return out, mask
         return out
@@ -4282,13 +4285,6 @@ class PrunerModuleWrapper(torch.nn.Module):
         return self.module(*inputs)
 
 
-def _check_weight(module):
-    try:
-        return isinstance(module.weight.data, torch.Tensor)
-    except AttributeError:
-        return False
-
-
 class QuantType:
     """
     Enum class for quantization type.
@@ -4296,6 +4292,13 @@ class QuantType:
     QUANT_INPUT = 0
     QUANT_WEIGHT = 1
     QUANT_OUTPUT = 2
+
+
+def _check_weight(module):
+    try:
+        return isinstance(module.weight.data, torch.Tensor)
+    except AttributeError:
+        return False
 
 
 class QuantizerModuleWrapper(torch.nn.Module):
@@ -4351,11 +4354,23 @@ class QuantizerModuleWrapper(torch.nn.Module):
         return result
 
 
-def triudl(X, l):
-    Zl = torch.zeros_like(X, requires_grad=False)
-    U = X * l
-    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
-    return Zl
+class ramp(torch.autograd.Function):
+    """
+    Ensures input is between 0 and 1
+    """
+
+    @staticmethod
+    def forward(ctx, input_data):
+        ctx.save_for_backward(input_data)
+        return input_data.clamp(min=0, max=1)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_data, = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad_input[input_data < 0] = 0.01
+        grad_input[input_data > 1] = -0.01
+        return grad_input
 
 
 class safesqrt(torch.autograd.Function):
@@ -4377,23 +4392,11 @@ class safesqrt(torch.autograd.Function):
         return grad_input
 
 
-class ramp(torch.autograd.Function):
-    """
-    Ensures input is between 0 and 1
-    """
-
-    @staticmethod
-    def forward(ctx, input_data):
-        ctx.save_for_backward(input_data)
-        return input_data.clamp(min=0, max=1)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_data, = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input[input_data < 0] = 0.01
-        grad_input[input_data > 1] = -0.01
-        return grad_input
+def triudl(X, l):
+    Zl = torch.zeros_like(X, requires_grad=False)
+    U = X * l
+    Zl[1:] = X[1:] * U.cumsum(dim=0)[:-1]
+    return Zl
 
 
 def revcumsum(U):
@@ -4408,6 +4411,39 @@ def triudr(X, r):
     U = X * r
     Zr[:-1] = X[:-1] * revcumsum(U)[1:]
     return Zr
+
+
+class MutableScope(Mutable):
+    """
+    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
+
+    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
+    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
+    look like "sub-search-space" in the scope. Scopes can be nested.
+
+    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
+    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
+    the forward method of the class inheriting mutable scope.
+
+    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
+    to appear in the dict of choices.
+
+    Parameters
+    ----------
+    key : str
+        Key of mutable scope.
+    """
+
+    def __init__(self, key):
+        super().__init__(key=key)
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self._check_built()
+            self.mutator.enter_mutable_scope(self)
+            return super().__call__(*args, **kwargs)
+        finally:
+            self.mutator.exit_mutable_scope(self)
 
 
 class StructuredMutableTreeNode:
@@ -4478,39 +4514,6 @@ class StructuredMutableTreeNode:
                 if not deduplicate or self.mutable.key not in memo:
                     memo.add(self.mutable.key)
                     yield self.mutable
-
-
-class MutableScope(Mutable):
-    """
-    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
-
-    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
-    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
-    look like "sub-search-space" in the scope. Scopes can be nested.
-
-    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
-    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
-    the forward method of the class inheriting mutable scope.
-
-    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
-    to appear in the dict of choices.
-
-    Parameters
-    ----------
-    key : str
-        Key of mutable scope.
-    """
-
-    def __init__(self, key):
-        super().__init__(key=key)
-
-    def __call__(self, *args, **kwargs):
-        try:
-            self._check_built()
-            self.mutator.enter_mutable_scope(self)
-            return super().__call__(*args, **kwargs)
-        finally:
-            self.mutator.exit_mutable_scope(self)
 
 
 class BaseMutator(nn.Module):
@@ -5183,12 +5186,12 @@ class StubConcatenate(StubAggregateLayer):
         return TorchConcatenate()
 
 
-def set_torch_weight_to_stub(torch_layer, stub_layer):
-    stub_layer.import_weights(torch_layer)
-
-
 def set_stub_weight_to_torch(stub_layer, torch_layer):
     stub_layer.export_weights(torch_layer)
+
+
+def set_torch_weight_to_stub(torch_layer, stub_layer):
+    stub_layer.import_weights(torch_layer)
 
 
 class TorchModel(torch.nn.Module):

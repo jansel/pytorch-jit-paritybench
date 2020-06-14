@@ -705,61 +705,40 @@ class ModelHooks(Module):
         return move_data_to_device(batch, device)
 
 
-def get_init_args(frame) ->dict:
-    _, _, _, local_vars = inspect.getargvalues(frame)
-    if '__class__' not in local_vars:
-        return
-    cls = local_vars['__class__']
-    spec = inspect.getfullargspec(cls.__init__)
-    init_parameters = inspect.signature(cls.__init__).parameters
-    self_identifier = spec.args[0]
-    varargs_identifier = spec.varargs
-    kwargs_identifier = spec.varkw
-    exclude_argnames = (varargs_identifier, kwargs_identifier,
-        self_identifier, '__class__', 'frame', 'frame_args')
-    local_args = {k: local_vars[k] for k in init_parameters.keys()}
-    local_args.update(local_args.get(kwargs_identifier, {}))
-    local_args = {k: v for k, v in local_args.items() if k not in
-        exclude_argnames}
-    return local_args
+class AttributeDict(dict):
+    """Extended dictionary accesisable with dot notation.
 
-
-def collect_init_args(frame, path_args: list, inside: bool=False) ->list:
+    >>> ad = AttributeDict({'key1': 1, 'key2': 'abc'})
+    >>> ad.key1
+    1
+    >>> ad.update({'my-key': 3.14})
+    >>> ad.update(mew_key=42)
+    >>> ad.key1 = 2
+    >>> ad
+    "key1":    2
+    "key2":    abc
+    "mew_key": 42
+    "my-key":  3.14
     """
-    Recursively collects the arguments passed to the child constructors in the inheritance tree.
 
-    Args:
-        frame: the current stack frame
-        path_args: a list of dictionaries containing the constructor args in all parent classes
-        inside: track if we are inside inheritance path, avoid terminating too soon
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f'Missing attribute "{key}"')
 
-    Return:
-          A list of dictionaries where each dictionary contains the arguments passed to the
-          constructor at that level. The last entry corresponds to the constructor call of the
-          most specific class in the hierarchy.
-    """
-    _, _, _, local_vars = inspect.getargvalues(frame)
-    if '__class__' in local_vars:
-        local_args = get_init_args(frame)
-        path_args.append(local_args)
-        return collect_init_args(frame.f_back, path_args, inside=True)
-    elif not inside:
-        return collect_init_args(frame.f_back, path_args, inside)
-    else:
-        return path_args
+    def __setattr__(self, key, val):
+        self[key] = val
 
-
-def rank_zero_only(fn):
-
-    @wraps(fn)
-    def wrapped_fn(*args, **kwargs):
-        if rank_zero_only.rank == 0:
-            return fn(*args, **kwargs)
-    return wrapped_fn
-
-
-def _warn(*args, **kwargs):
-    warnings.warn(*args, **kwargs)
+    def __repr__(self):
+        if not len(self):
+            return ''
+        max_key_length = max([len(str(k)) for k in self])
+        tmp_name = '{:' + str(max_key_length + 3) + 's} {}'
+        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.
+            keys())]
+        out = '\n'.join(rows)
+        return out
 
 
 class LightningDataParallel(DataParallel):

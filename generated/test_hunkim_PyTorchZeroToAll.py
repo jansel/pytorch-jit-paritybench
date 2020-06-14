@@ -57,6 +57,9 @@ from torch import cuda
 from torch.utils import data
 
 
+import time
+
+
 import torch.nn as nn
 
 
@@ -244,22 +247,22 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
-input_size = 5
-
-
-num_classes = 5
-
-
-sequence_length = 6
-
-
 batch_size = 1
 
 
 hidden_size = 100
 
 
+input_size = 5
+
+
+num_classes = 5
+
+
 num_layers = 1
+
+
+sequence_length = 6
 
 
 class Model(nn.Module):

@@ -47,6 +47,9 @@ import random
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
 from torch import autograd
 
 
@@ -209,12 +212,50 @@ class FineGenerator(nn.Module):
         return x_stage2, offset_flow
 
 
-def reduce_sum(x, axis=None, keepdim=False):
-    if not axis:
-        axis = range(len(x.shape))
-    for i in sorted(axis, reverse=True):
-        x = torch.sum(x, dim=i, keepdim=keepdim)
-    return x
+def same_padding(images, ksizes, strides, rates):
+    assert len(images.size()) == 4
+    batch_size, channel, rows, cols = images.size()
+    out_rows = (rows + strides[0] - 1) // strides[0]
+    out_cols = (cols + strides[1] - 1) // strides[1]
+    effective_k_row = (ksizes[0] - 1) * rates[0] + 1
+    effective_k_col = (ksizes[1] - 1) * rates[1] + 1
+    padding_rows = max(0, (out_rows - 1) * strides[0] + effective_k_row - rows)
+    padding_cols = max(0, (out_cols - 1) * strides[1] + effective_k_col - cols)
+    padding_top = int(padding_rows / 2.0)
+    padding_left = int(padding_cols / 2.0)
+    padding_bottom = padding_rows - padding_top
+    padding_right = padding_cols - padding_left
+    paddings = padding_left, padding_right, padding_top, padding_bottom
+    images = torch.nn.ZeroPad2d(paddings)(images)
+    return images
+
+
+def extract_image_patches(images, ksizes, strides, rates, padding='same'):
+    """
+    Extract patches from images and put them in the C output dimension.
+    :param padding:
+    :param images: [batch, channels, in_rows, in_cols]. A 4-D Tensor with shape
+    :param ksizes: [ksize_rows, ksize_cols]. The size of the sliding window for
+     each dimension of images
+    :param strides: [stride_rows, stride_cols]
+    :param rates: [dilation_rows, dilation_cols]
+    :return: A Tensor
+    """
+    assert len(images.size()) == 4
+    assert padding in ['same', 'valid']
+    batch_size, channel, height, width = images.size()
+    if padding == 'same':
+        images = same_padding(images, ksizes, strides, rates)
+    elif padding == 'valid':
+        pass
+    else:
+        raise NotImplementedError(
+            'Unsupported padding type: {}.                Only "same" or "valid" are supported.'
+            .format(padding))
+    unfold = torch.nn.Unfold(kernel_size=ksizes, dilation=rates, padding=0,
+        stride=strides)
+    patches = unfold(images)
+    return patches
 
 
 def make_color_wheel():
@@ -304,57 +345,19 @@ def flow_to_image(flow):
     return np.float32(np.uint8(out))
 
 
-def same_padding(images, ksizes, strides, rates):
-    assert len(images.size()) == 4
-    batch_size, channel, rows, cols = images.size()
-    out_rows = (rows + strides[0] - 1) // strides[0]
-    out_cols = (cols + strides[1] - 1) // strides[1]
-    effective_k_row = (ksizes[0] - 1) * rates[0] + 1
-    effective_k_col = (ksizes[1] - 1) * rates[1] + 1
-    padding_rows = max(0, (out_rows - 1) * strides[0] + effective_k_row - rows)
-    padding_cols = max(0, (out_cols - 1) * strides[1] + effective_k_col - cols)
-    padding_top = int(padding_rows / 2.0)
-    padding_left = int(padding_cols / 2.0)
-    padding_bottom = padding_rows - padding_top
-    padding_right = padding_cols - padding_left
-    paddings = padding_left, padding_right, padding_top, padding_bottom
-    images = torch.nn.ZeroPad2d(paddings)(images)
-    return images
-
-
-def extract_image_patches(images, ksizes, strides, rates, padding='same'):
-    """
-    Extract patches from images and put them in the C output dimension.
-    :param padding:
-    :param images: [batch, channels, in_rows, in_cols]. A 4-D Tensor with shape
-    :param ksizes: [ksize_rows, ksize_cols]. The size of the sliding window for
-     each dimension of images
-    :param strides: [stride_rows, stride_cols]
-    :param rates: [dilation_rows, dilation_cols]
-    :return: A Tensor
-    """
-    assert len(images.size()) == 4
-    assert padding in ['same', 'valid']
-    batch_size, channel, height, width = images.size()
-    if padding == 'same':
-        images = same_padding(images, ksizes, strides, rates)
-    elif padding == 'valid':
-        pass
-    else:
-        raise NotImplementedError(
-            'Unsupported padding type: {}.                Only "same" or "valid" are supported.'
-            .format(padding))
-    unfold = torch.nn.Unfold(kernel_size=ksizes, dilation=rates, padding=0,
-        stride=strides)
-    patches = unfold(images)
-    return patches
-
-
 def reduce_mean(x, axis=None, keepdim=False):
     if not axis:
         axis = range(len(x.shape))
     for i in sorted(axis, reverse=True):
         x = torch.mean(x, dim=i, keepdim=keepdim)
+    return x
+
+
+def reduce_sum(x, axis=None, keepdim=False):
+    if not axis:
+        axis = range(len(x.shape))
+    for i in sorted(axis, reverse=True):
+        x = torch.sum(x, dim=i, keepdim=keepdim)
     return x
 
 
@@ -652,39 +655,13 @@ def get_model_list(dirname, key, iteration=0):
     return last_model_name
 
 
-def spatial_discounting_mask(config):
-    """Generate spatial discounting mask constant.
-
-    Spatial discounting mask is first introduced in publication:
-        Generative Image Inpainting with Contextual Attention, Yu et al.
-
-    Args:
-        config: Config should have configuration including HEIGHT, WIDTH,
-            DISCOUNTED_MASK.
-
-    Returns:
-        tf.Tensor: spatial discounting mask
-
-    """
-    gamma = config['spatial_discounting_gamma']
-    height, width = config['mask_shape']
-    shape = [1, 1, height, width]
-    if config['discounted_mask']:
-        mask_values = np.ones((height, width))
-        for i in range(height):
-            for j in range(width):
-                mask_values[i, j] = max(gamma ** min(i, height - i), gamma **
-                    min(j, width - j))
-        mask_values = np.expand_dims(mask_values, 0)
-        mask_values = np.expand_dims(mask_values, 0)
-    else:
-        mask_values = np.ones(shape)
-    spatial_discounting_mask_tensor = torch.tensor(mask_values, dtype=torch
-        .float32)
-    if config['cuda']:
-        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor.cuda(
-            )
-    return spatial_discounting_mask_tensor
+def local_patch(x, bbox_list):
+    assert len(x.size()) == 4
+    patches = []
+    for i, bbox in enumerate(bbox_list):
+        t, l, h, w = bbox
+        patches.append(x[(i), :, t:t + h, l:l + w])
+    return torch.stack(patches, dim=0)
 
 
 def date_uid():
@@ -724,13 +701,39 @@ def get_logger(checkpoint_path=None):
 logger = get_logger()
 
 
-def local_patch(x, bbox_list):
-    assert len(x.size()) == 4
-    patches = []
-    for i, bbox in enumerate(bbox_list):
-        t, l, h, w = bbox
-        patches.append(x[(i), :, t:t + h, l:l + w])
-    return torch.stack(patches, dim=0)
+def spatial_discounting_mask(config):
+    """Generate spatial discounting mask constant.
+
+    Spatial discounting mask is first introduced in publication:
+        Generative Image Inpainting with Contextual Attention, Yu et al.
+
+    Args:
+        config: Config should have configuration including HEIGHT, WIDTH,
+            DISCOUNTED_MASK.
+
+    Returns:
+        tf.Tensor: spatial discounting mask
+
+    """
+    gamma = config['spatial_discounting_gamma']
+    height, width = config['mask_shape']
+    shape = [1, 1, height, width]
+    if config['discounted_mask']:
+        mask_values = np.ones((height, width))
+        for i in range(height):
+            for j in range(width):
+                mask_values[i, j] = max(gamma ** min(i, height - i), gamma **
+                    min(j, width - j))
+        mask_values = np.expand_dims(mask_values, 0)
+        mask_values = np.expand_dims(mask_values, 0)
+    else:
+        mask_values = np.ones(shape)
+    spatial_discounting_mask_tensor = torch.tensor(mask_values, dtype=torch
+        .float32)
+    if config['cuda']:
+        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor.cuda(
+            )
+    return spatial_discounting_mask_tensor
 
 
 class Trainer(nn.Module):

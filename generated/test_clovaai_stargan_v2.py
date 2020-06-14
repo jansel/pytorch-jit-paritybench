@@ -45,6 +45,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+import time
+
+
 from collections import namedtuple
 
 
@@ -306,100 +309,34 @@ class Discriminator(nn.Module):
         return out
 
 
-def build_model(args):
-    generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
-    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.
-        num_domains)
-    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.
-        num_domains)
-    discriminator = Discriminator(args.img_size, args.num_domains)
-    generator_ema = copy.deepcopy(generator)
-    mapping_network_ema = copy.deepcopy(mapping_network)
-    style_encoder_ema = copy.deepcopy(style_encoder)
-    nets = Munch(generator=generator, mapping_network=mapping_network,
-        style_encoder=style_encoder, discriminator=discriminator)
-    nets_ema = Munch(generator=generator_ema, mapping_network=
-        mapping_network_ema, style_encoder=style_encoder_ema)
-    if args.w_hpf > 0:
-        fan = FAN(fname_pretrained=args.wing_path).eval()
-        nets.fan = fan
-        nets_ema.fan = fan
-    return nets, nets_ema
+class CheckpointIO(object):
 
+    def __init__(self, fname_template, **kwargs):
+        os.makedirs(os.path.dirname(fname_template), exist_ok=True)
+        self.fname_template = fname_template
+        self.module_dict = kwargs
 
-def r1_reg(d_out, x_in):
-    batch_size = x_in.size(0)
-    grad_dout = torch.autograd.grad(outputs=d_out.sum(), inputs=x_in,
-        create_graph=True, retain_graph=True, only_inputs=True)[0]
-    grad_dout2 = grad_dout.pow(2)
-    assert grad_dout2.size() == x_in.size()
-    reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
-    return reg
+    def register(self, **kwargs):
+        self.module_dict.update(kwargs)
 
+    def save(self, step):
+        fname = self.fname_template.format(step)
+        print('Saving checkpoint into %s...' % fname)
+        outdict = {}
+        for name, module in self.module_dict.items():
+            outdict[name] = module.state_dict()
+        torch.save(outdict, fname)
 
-def adv_loss(logits, target):
-    assert target in [1, 0]
-    targets = torch.full_like(logits, fill_value=target)
-    loss = F.binary_cross_entropy_with_logits(logits, targets)
-    return loss
-
-
-def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None,
-    masks=None):
-    assert (z_trg is None) != (x_ref is None)
-    x_real.requires_grad_()
-    out = nets.discriminator(x_real, y_org)
-    loss_real = adv_loss(out, 1)
-    loss_reg = r1_reg(out, x_real)
-    with torch.no_grad():
-        if z_trg is not None:
-            s_trg = nets.mapping_network(z_trg, y_trg)
+    def load(self, step):
+        fname = self.fname_template.format(step)
+        assert os.path.exists(fname), fname + ' does not exist!'
+        print('Loading checkpoint from %s...' % fname)
+        if torch.cuda.is_available():
+            module_dict = torch.load(fname)
         else:
-            s_trg = nets.style_encoder(x_ref, y_trg)
-        x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
-    loss_fake = adv_loss(out, 0)
-    loss = loss_real + loss_fake + args.lambda_reg * loss_reg
-    return loss, Munch(real=loss_real.item(), fake=loss_fake.item(), reg=
-        loss_reg.item())
-
-
-def moving_average(model, model_test, beta=0.999):
-    for param, param_test in zip(model.parameters(), model_test.parameters()):
-        param_test.data = torch.lerp(param.data, param_test.data, beta)
-
-
-def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=
-    None, masks=None):
-    assert (z_trgs is None) != (x_refs is None)
-    if z_trgs is not None:
-        z_trg, z_trg2 = z_trgs
-    if x_refs is not None:
-        x_ref, x_ref2 = x_refs
-    if z_trgs is not None:
-        s_trg = nets.mapping_network(z_trg, y_trg)
-    else:
-        s_trg = nets.style_encoder(x_ref, y_trg)
-    x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
-    loss_adv = adv_loss(out, 1)
-    s_pred = nets.style_encoder(x_fake, y_trg)
-    loss_sty = torch.mean(torch.abs(s_pred - s_trg))
-    if z_trgs is not None:
-        s_trg2 = nets.mapping_network(z_trg2, y_trg)
-    else:
-        s_trg2 = nets.style_encoder(x_ref2, y_trg)
-    x_fake2 = nets.generator(x_real, s_trg2, masks=masks)
-    x_fake2 = x_fake2.detach()
-    loss_ds = torch.mean(torch.abs(x_fake - x_fake2))
-    masks = nets.fan.get_heatmap(x_fake) if args.w_hpf > 0 else None
-    s_org = nets.style_encoder(x_real, y_org)
-    x_rec = nets.generator(x_fake, s_org, masks=masks)
-    loss_cyc = torch.mean(torch.abs(x_rec - x_real))
-    loss = (loss_adv + args.lambda_sty * loss_sty - args.lambda_ds *
-        loss_ds + args.lambda_cyc * loss_cyc)
-    return loss, Munch(adv=loss_adv.item(), sty=loss_sty.item(), ds=loss_ds
-        .item(), cyc=loss_cyc.item())
+            module_dict = torch.load(fname, map_location=torch.device('cpu'))
+        for name, module in self.module_dict.items():
+            module.load_state_dict(module_dict[name])
 
 
 class InputFetcher:
@@ -444,6 +381,27 @@ class InputFetcher:
         else:
             raise NotImplementedError
         return Munch({k: v.to(self.device) for k, v in inputs.items()})
+
+
+def build_model(args):
+    generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
+    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.
+        num_domains)
+    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.
+        num_domains)
+    discriminator = Discriminator(args.img_size, args.num_domains)
+    generator_ema = copy.deepcopy(generator)
+    mapping_network_ema = copy.deepcopy(mapping_network)
+    style_encoder_ema = copy.deepcopy(style_encoder)
+    nets = Munch(generator=generator, mapping_network=mapping_network,
+        style_encoder=style_encoder, discriminator=discriminator)
+    nets_ema = Munch(generator=generator_ema, mapping_network=
+        mapping_network_ema, style_encoder=style_encoder_ema)
+    if args.w_hpf > 0:
+        fan = FAN(fname_pretrained=args.wing_path).eval()
+        nets.fan = fan
+        nets_ema.fan = fan
+    return nets, nets_ema
 
 
 def frechet_distance(mu, cov, mu2, cov2):
@@ -596,39 +554,26 @@ class ConvBlock(nn.Module):
         return out3
 
 
+def get_preds_fromhm(hm):
+    max, idx = torch.max(hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.
+        size(3)), 2)
+    idx += 1
+    preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
+    preds[..., 0].apply_(lambda x: (x - 1) % hm.size(3) + 1)
+    preds[..., 1].add_(-1).div_(hm.size(2)).floor_().add_(1)
+    for i in range(preds.size(0)):
+        for j in range(preds.size(1)):
+            hm_ = hm[(i), (j), :]
+            pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
+            if pX > 0 and pX < 63 and pY > 0 and pY < 63:
+                diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1],
+                    hm_[pY + 1, pX] - hm_[pY - 1, pX]])
+                preds[i, j].add_(diff.sign_().mul_(0.25))
+    preds.add_(-0.5)
+    return preds
+
+
 OPPAIR = namedtuple('OPPAIR', 'shift resize')
-
-
-def shift(x, N):
-    """Shift N pixels up or down."""
-    up = N >= 0
-    N = abs(N)
-    _, _, H, W = x.size()
-    head = torch.arange(N)
-    tail = torch.arange(H - N)
-    if up:
-        head = torch.arange(H - N) + N
-        tail = torch.arange(N)
-    else:
-        head = torch.arange(N) + (H - N)
-        tail = torch.arange(H - N)
-    perm = torch.cat([head, tail]).to(x.device)
-    out = x[:, :, (perm), :]
-    return out
-
-
-def resize(x, p=2):
-    """Resize heatmaps."""
-    return x ** p
-
-
-def truncate(x, thres=0.1):
-    """Remove small values in heatmaps."""
-    return torch.where(x < thres, torch.zeros_like(x), x)
-
-
-def normalize(x, eps=1e-10):
-    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
 
 
 IDXPAIR = namedtuple('IDXPAIR', 'start end')
@@ -686,6 +631,10 @@ class Conv1x1(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
+
+def normalize(x, eps=1e-10):
+    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
 
 
 class LPIPS(nn.Module):

@@ -54,6 +54,9 @@ import logging
 import copy
 
 
+import time
+
+
 class AugmentCell(nn.Module):
     """ Cell for augmentation
     Each edge is discrete.

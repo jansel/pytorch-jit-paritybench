@@ -728,20 +728,36 @@ class ShortcutBlock(nn.Module):
         return tmpstr
 
 
-def sequential(*args):
-    if len(args) == 1:
-        if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
-        return args[0]
-    modules = []
-    for module in args:
-        if isinstance(module, nn.Sequential):
-            for submodule in module.children():
-                modules.append(submodule)
-        elif isinstance(module, nn.Module):
-            modules.append(module)
-    return nn.Sequential(*modules)
+def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
+    act_type = act_type.lower()
+    if act_type == 'relu':
+        layer = nn.ReLU(inplace)
+    elif act_type == 'leakyrelu':
+        layer = nn.LeakyReLU(neg_slope, inplace)
+    elif act_type == 'prelu':
+        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
+    else:
+        raise NotImplementedError('activation layer [{:s}] is not found'.
+            format(act_type))
+    return layer
+
+
+def get_valid_padding(kernel_size, dilation):
+    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
+    padding = (kernel_size - 1) // 2
+    return padding
+
+
+def norm(norm_type, nc):
+    norm_type = norm_type.lower()
+    if norm_type == 'batch':
+        layer = nn.BatchNorm2d(nc, affine=True)
+    elif norm_type == 'instance':
+        layer = nn.InstanceNorm2d(nc, affine=False)
+    else:
+        raise NotImplementedError('normalization layer [{:s}] is not found'
+            .format(norm_type))
+    return layer
 
 
 def pad(pad_type, padding):
@@ -758,36 +774,20 @@ def pad(pad_type, padding):
     return layer
 
 
-def norm(norm_type, nc):
-    norm_type = norm_type.lower()
-    if norm_type == 'batch':
-        layer = nn.BatchNorm2d(nc, affine=True)
-    elif norm_type == 'instance':
-        layer = nn.InstanceNorm2d(nc, affine=False)
-    else:
-        raise NotImplementedError('normalization layer [{:s}] is not found'
-            .format(norm_type))
-    return layer
-
-
-def get_valid_padding(kernel_size, dilation):
-    kernel_size = kernel_size + (kernel_size - 1) * (dilation - 1)
-    padding = (kernel_size - 1) // 2
-    return padding
-
-
-def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
-    act_type = act_type.lower()
-    if act_type == 'relu':
-        layer = nn.ReLU(inplace)
-    elif act_type == 'leakyrelu':
-        layer = nn.LeakyReLU(neg_slope, inplace)
-    elif act_type == 'prelu':
-        layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
-    else:
-        raise NotImplementedError('activation layer [{:s}] is not found'.
-            format(act_type))
-    return layer
+def sequential(*args):
+    if len(args) == 1:
+        if isinstance(args[0], OrderedDict):
+            raise NotImplementedError(
+                'sequential does not support OrderedDict input.')
+        return args[0]
+    modules = []
+    for module in args:
+        if isinstance(module, nn.Sequential):
+            for submodule in module.children():
+                modules.append(submodule)
+        elif isinstance(module, nn.Module):
+            modules.append(module)
+    return nn.Sequential(*modules)
 
 
 def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
@@ -989,15 +989,15 @@ class PerceptualLoss(torch.nn.Module):
         return self.model.forward(target, pred)
 
 
+def spatial_average(in_tens, keepdim=True):
+    return in_tens.mean([2, 3], keepdim=keepdim)
+
+
 def upsample(in_tens, out_H=64):
     in_H = in_tens.shape[2]
     scale_factor = 1.0 * out_H / in_H
     return nn.Upsample(scale_factor=scale_factor, mode='bilinear',
         align_corners=False)(in_tens)
-
-
-def spatial_average(in_tens, keepdim=True):
-    return in_tens.mean([2, 3], keepdim=keepdim)
 
 
 class PNetLin(nn.Module):

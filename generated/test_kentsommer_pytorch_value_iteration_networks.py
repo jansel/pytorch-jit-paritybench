@@ -44,6 +44,9 @@ import torch.optim as optim
 from torch.nn.parameter import Parameter
 
 
+import time
+
+
 class VIN(nn.Module):
 
     def __init__(self, config):

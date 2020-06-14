@@ -91,6 +91,9 @@ import random
 from collections import OrderedDict
 
 
+import time
+
+
 class SiamRPN(nn.Module):
 
     def __init__(self, tracker_name):
@@ -150,6 +153,9 @@ def Image_to_Tensor(img, mean=[0.5, 0.5, 0.5], std=[0.25, 0.25, 0.25]):
     return zt
 
 
+Rectangle = collections.namedtuple('Rectangle', ['x', 'y', 'width', 'height'])
+
+
 def extract_crops_x(im, npad, pos_x, pos_y, sz_src0, sz_src1, sz_src2, sz_dst):
     c = sz_src2 / 2
     tr_x = npad + int(round(pos_x - c))
@@ -187,24 +193,6 @@ def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
     return crops
 
 
-def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
-    c = patch_sz / 2
-    xleft_pad = max(0, -int(round(pos_x - c)))
-    ytop_pad = max(0, -int(round(pos_y - c)))
-    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
-    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
-    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
-    if avg_chan is not None:
-        avg_chan = tuple([int(round(c)) for c in avg_chan])
-        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
-    else:
-        im_padded = ImageOps.expand(im, border=npad, fill=0)
-    return im_padded, npad
-
-
-Rectangle = collections.namedtuple('Rectangle', ['x', 'y', 'width', 'height'])
-
-
 def gen_xz(img, inbox, to='x', pdrt=1):
     box = Rectangle(inbox.x, inbox.y, inbox.width * pdrt, inbox.height * pdrt)
     x_sz = 255, 255
@@ -220,6 +208,21 @@ def gen_xz(img, inbox, to='x', pdrt=1):
     else:
         raise ValueError('Bbox format: {} was not recognized'.format(to))
     return temp
+
+
+def pad_frame(im, frame_sz, pos_x, pos_y, patch_sz, avg_chan):
+    c = patch_sz / 2
+    xleft_pad = max(0, -int(round(pos_x - c)))
+    ytop_pad = max(0, -int(round(pos_y - c)))
+    xright_pad = max(0, int(round(pos_x + c)) - frame_sz[1])
+    ybottom_pad = max(0, int(round(pos_y + c)) - frame_sz[0])
+    npad = max((xleft_pad, ytop_pad, xright_pad, ybottom_pad))
+    if avg_chan is not None:
+        avg_chan = tuple([int(round(c)) for c in avg_chan])
+        im_padded = ImageOps.expand(im, border=npad, fill=avg_chan)
+    else:
+        im_padded = ImageOps.expand(im, border=npad, fill=0)
+    return im_padded, npad
 
 
 class SiameseNet(nn.Module):
@@ -596,9 +599,6 @@ class DepthwiseXCorr(nn.Module):
         return out
 
 
-eps = 1e-05
-
-
 def center_crop(x):
     """
     center crop layer. crop [1:-2] to eliminate padding influence.
@@ -606,6 +606,9 @@ def center_crop(x):
     input x can be a Variable or Tensor
     """
     return x[:, :, 1:-1, 1:-1].contiguous()
+
+
+eps = 1e-05
 
 
 class Bottleneck_CI(nn.Module):

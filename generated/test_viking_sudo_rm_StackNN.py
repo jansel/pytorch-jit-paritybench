@@ -418,8 +418,9 @@ class Model(nn.Module, metaclass=ABCMeta):
         None
 
 
-def top(num_steps):
-    return num_steps
+class Operation(object):
+    push = 0
+    pop = 1
 
 
 def tensor_to_string(tensor):
@@ -450,11 +451,6 @@ def to_string(obj):
         return tensor_to_string(obj.data)
     else:
         return str(obj)
-
-
-class Operation(object):
-    push = 0
-    pop = 1
 
 
 class Struct(nn.Module):

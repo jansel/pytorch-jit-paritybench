@@ -75,31 +75,6 @@ MOBILENET_V1_CHECKPOINTS = {(50): 'mobilenet_v1_050', (75):
     'mobilenet_v1_075', (100): 'mobilenet_v1_100', (101): 'mobilenet_v1_101'}
 
 
-def _to_output_strided_layers(convolution_def, output_stride):
-    current_stride = 1
-    rate = 1
-    block_id = 0
-    buff = []
-    for c in convolution_def:
-        conv_type = c[0]
-        inp = c[1]
-        outp = c[2]
-        stride = c[3]
-        if current_stride == output_stride:
-            layer_stride = 1
-            layer_rate = rate
-            rate *= stride
-        else:
-            layer_stride = stride
-            layer_rate = 1
-            current_stride *= stride
-        buff.append({'block_id': block_id, 'conv_type': conv_type, 'inp':
-            inp, 'outp': outp, 'stride': layer_stride, 'rate': layer_rate,
-            'output_stride': current_stride})
-        block_id += 1
-    return buff
-
-
 MOBILE_NET_V1_100 = [(InputConv, 3, 32, 2), (SeperableConv, 32, 64, 1), (
     SeperableConv, 64, 128, 2), (SeperableConv, 128, 128, 1), (
     SeperableConv, 128, 256, 2), (SeperableConv, 256, 256, 1), (
@@ -125,6 +100,31 @@ MOBILE_NET_V1_75 = [(InputConv, 3, 24, 2), (SeperableConv, 24, 48, 1), (
     SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
     SeperableConv, 384, 384, 1), (SeperableConv, 384, 384, 1), (
     SeperableConv, 384, 384, 1)]
+
+
+def _to_output_strided_layers(convolution_def, output_stride):
+    current_stride = 1
+    rate = 1
+    block_id = 0
+    buff = []
+    for c in convolution_def:
+        conv_type = c[0]
+        inp = c[1]
+        outp = c[2]
+        stride = c[3]
+        if current_stride == output_stride:
+            layer_stride = 1
+            layer_rate = rate
+            rate *= stride
+        else:
+            layer_stride = stride
+            layer_rate = 1
+            current_stride *= stride
+        buff.append({'block_id': block_id, 'conv_type': conv_type, 'inp':
+            inp, 'outp': outp, 'stride': layer_stride, 'rate': layer_rate,
+            'output_stride': current_stride})
+        block_id += 1
+    return buff
 
 
 class MobileNetV1(nn.Module):

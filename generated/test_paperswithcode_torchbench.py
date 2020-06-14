@@ -80,6 +80,9 @@ from torch.nn import functional as F
 from torch.nn import CrossEntropyLoss
 
 
+import time
+
+
 class FIDInceptionModel(nn.Module):
 
     def __init__(self):

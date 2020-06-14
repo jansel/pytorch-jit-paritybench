@@ -53,20 +53,13 @@ import numpy as np
 import torch.utils.model_zoo as model_zoo
 
 
+import time
+
+
 import torch.utils.data
 
 
 import scipy.io as sio
-
-
-def reg_loss(regr, gt_regr, mask):
-    num = mask.float().sum()
-    mask = mask.unsqueeze(2).expand_as(gt_regr)
-    regr = regr * mask.float()
-    gt_regr = gt_regr * mask.float()
-    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
-    regr_loss = regr_loss / (num + 0.0001)
-    return regr_loss
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -85,6 +78,16 @@ def _tranpose_and_gather_scalar(feat, ind):
     feat = feat.view(feat.size(0), -1, 1)
     feat = _gather_feat(feat, ind)
     return feat
+
+
+def reg_loss(regr, gt_regr, mask):
+    num = mask.float().sum()
+    mask = mask.unsqueeze(2).expand_as(gt_regr)
+    regr = regr * mask.float()
+    gt_regr = gt_regr * mask.float()
+    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
+    regr_loss = regr_loss / (num + 0.0001)
+    return regr_loss
 
 
 class RegLoss(nn.Module):

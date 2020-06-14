@@ -135,23 +135,6 @@ from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 
 
-def load_torch_file(file_path):
-    file_path = Path(file_path)
-    if not file_path.exists():
-        raise FileNotFoundError('Torch file not found: {}'.format(file_path))
-    file_dict = torch.load(str(file_path), map_location=lambda storage, loc:
-        storage)
-    if isinstance(file_dict, Path):
-        linked_path = file_dict
-        if not linked_path.exists():
-            relative_path = file_path.with_name(file_dict.name
-                ) / const.MODEL_FILE
-            if relative_path.exists():
-                linked_path = relative_path
-        return load_torch_file(linked_path)
-    return file_dict
-
-
 class ModelConfig:
     __metaclass__ = ABCMeta
 
@@ -194,6 +177,23 @@ class ModelConfig:
         """
         self.__dict__['__version__'] = kiwi.__version__
         return self.__dict__
+
+
+def load_torch_file(file_path):
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError('Torch file not found: {}'.format(file_path))
+    file_dict = torch.load(str(file_path), map_location=lambda storage, loc:
+        storage)
+    if isinstance(file_dict, Path):
+        linked_path = file_dict
+        if not linked_path.exists():
+            relative_path = file_path.with_name(file_dict.name
+                ) / const.MODEL_FILE
+            if relative_path.exists():
+                linked_path = relative_path
+        return load_torch_file(linked_path)
+    return file_dict
 
 
 class Attention(nn.Module):

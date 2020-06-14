@@ -58,6 +58,9 @@ from random import shuffle
 import torch.nn.functional as F
 
 
+import time
+
+
 import torch.optim as optim
 
 
@@ -147,16 +150,6 @@ def conv2d(filter_in, filter_out, kernel_size):
         0.1))]))
 
 
-def make_last_layers(filters_list, in_filters, out_filter):
-    m = nn.ModuleList([conv2d(in_filters, filters_list[0], 1), conv2d(
-        filters_list[0], filters_list[1], 3), conv2d(filters_list[1],
-        filters_list[0], 1), conv2d(filters_list[0], filters_list[1], 3),
-        conv2d(filters_list[1], filters_list[0], 1), conv2d(filters_list[0],
-        filters_list[1], 3), nn.Conv2d(filters_list[1], out_filter,
-        kernel_size=1, stride=1, padding=0, bias=True)])
-    return m
-
-
 def darknet53(pretrained, **kwargs):
     model = DarkNet([1, 2, 8, 8, 4])
     if pretrained:
@@ -166,6 +159,16 @@ def darknet53(pretrained, **kwargs):
             raise Exception('darknet request a pretrained path. got [{}]'.
                 format(pretrained))
     return model
+
+
+def make_last_layers(filters_list, in_filters, out_filter):
+    m = nn.ModuleList([conv2d(in_filters, filters_list[0], 1), conv2d(
+        filters_list[0], filters_list[1], 3), conv2d(filters_list[1],
+        filters_list[0], 1), conv2d(filters_list[0], filters_list[1], 3),
+        conv2d(filters_list[1], filters_list[0], 1), conv2d(filters_list[0],
+        filters_list[1], 3), nn.Conv2d(filters_list[1], out_filter,
+        kernel_size=1, stride=1, padding=0, bias=True)])
+    return m
 
 
 class YoloBody(nn.Module):
@@ -213,6 +216,21 @@ class YoloBody(nn.Module):
         return out0, out1, out2
 
 
+def clip_by_tensor(t, t_min, t_max):
+    t = t.float()
+    result = (t >= t_min).float() * t + (t < t_min).float() * t_min
+    result = (result <= t_max).float() * result + (result > t_max).float(
+        ) * t_max
+    return result
+
+
+def BCELoss(pred, target):
+    epsilon = 1e-07
+    pred = clip_by_tensor(pred, epsilon, 1.0 - epsilon)
+    output = -target * torch.log(pred) - (1.0 - target) * torch.log(1.0 - pred)
+    return output
+
+
 def MSELoss(pred, target):
     return (pred - target) ** 2
 
@@ -245,21 +263,6 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
     iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
     return iou
-
-
-def clip_by_tensor(t, t_min, t_max):
-    t = t.float()
-    result = (t >= t_min).float() * t + (t < t_min).float() * t_min
-    result = (result <= t_max).float() * result + (result > t_max).float(
-        ) * t_max
-    return result
-
-
-def BCELoss(pred, target):
-    epsilon = 1e-07
-    pred = clip_by_tensor(pred, epsilon, 1.0 - epsilon)
-    output = -target * torch.log(pred) - (1.0 - target) * torch.log(1.0 - pred)
-    return output
 
 
 def jaccard(_box_a, _box_b):

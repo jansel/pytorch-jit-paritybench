@@ -637,6 +637,63 @@ class CallbackContainer(object):
             callback.on_train_end(logs)
 
 
+class Callback(object):
+    """
+    Abstract base class used to build new callbacks.
+    """
+
+    def __init__(self):
+        pass
+
+    def set_params(self, params):
+        self.params = params
+
+    def set_model(self, model: Any):
+        self.model = model
+
+    def on_epoch_begin(self, epoch: int, logs: Optional[Dict]=None):
+        pass
+
+    def on_epoch_end(self, epoch: int, logs: Optional[Dict]=None):
+        pass
+
+    def on_batch_begin(self, batch: int, logs: Optional[Dict]=None):
+        pass
+
+    def on_batch_end(self, batch: int, logs: Optional[Dict]=None):
+        pass
+
+    def on_train_begin(self, logs: Optional[Dict]=None):
+        pass
+
+    def on_train_end(self, logs: Optional[Dict]=None):
+        pass
+
+
+class History(Callback):
+    """
+    Callback that records events into a `History` object.
+    """
+
+    def on_train_begin(self, logs: Optional[Dict]=None):
+        self.epoch: List[int] = []
+        self._history: Dict[str, List[float]] = {}
+
+    def on_epoch_begin(self, epoch: int, logs: Optional[Dict]=None):
+        logs = deepcopy(logs) or {}
+        for k, v in logs.items():
+            self._history.setdefault(k, []).append(v)
+
+    def on_epoch_end(self, epoch: int, logs: Optional[Dict]=None):
+        logs = logs or {}
+        self.epoch.append(epoch)
+        for k, v in logs.items():
+            self._history.setdefault(k, []).append(v)
+
+
+LRScheduler = _LRScheduler
+
+
 class TestDeepText(nn.Module):
 
     def __init__(self):

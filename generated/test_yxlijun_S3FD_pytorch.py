@@ -56,6 +56,9 @@ import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
 import numpy as np
 
 
@@ -101,16 +104,15 @@ class L2Norm(nn.Module):
         return out
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 def encode(matched, priors, variances):
@@ -174,40 +176,16 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
-def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
-    ):
-    """Match each prior box with the ground truth box of the highest jaccard
-    overlap, encode the bounding boxes, then return the matched indices
-    corresponding to both confidence and location preds.
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
     Args:
-        threshold: (float) The overlap threshold used when mathing boxes.
-        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
-        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
-        variances: (tensor) Variances corresponding to each prior coord,
-            Shape: [num_priors, 4].
-        labels: (tensor) All the class labels for the image, Shape: [num_obj].
-        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
-        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
-        idx: (int) current batch index
+        boxes: (tensor) center-size default boxes from priorbox layers.
     Return:
-        The matched indices corresponding to 1)location and 2)confidence preds.
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    overlaps = jaccard(truths, point_form(priors))
-    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
-    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
-    best_truth_idx.squeeze_(0)
-    best_truth_overlap.squeeze_(0)
-    best_prior_idx.squeeze_(1)
-    best_prior_overlap.squeeze_(1)
-    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
-    for j in range(best_prior_idx.size(0)):
-        best_truth_idx[best_prior_idx[j]] = j
-    matches = truths[best_truth_idx]
-    conf = labels[best_truth_idx]
-    conf[best_truth_overlap < threshold] = 0
-    loc = encode(matches, priors, variances)
-    loc_t[idx] = loc
-    conf_t[idx] = conf
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -258,15 +236,40 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
+def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
+    ):
+    """Match each prior box with the ground truth box of the highest jaccard
+    overlap, encode the bounding boxes, then return the matched indices
+    corresponding to both confidence and location preds.
     Args:
-        x (Variable(tensor)): conf_preds from conf layers
+        threshold: (float) The overlap threshold used when mathing boxes.
+        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
+        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
+        variances: (tensor) Variances corresponding to each prior coord,
+            Shape: [num_priors, 4].
+        labels: (tensor) All the class labels for the image, Shape: [num_obj].
+        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
+        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
+        idx: (int) current batch index
+    Return:
+        The matched indices corresponding to 1)location and 2)confidence preds.
     """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
+    overlaps = jaccard(truths, point_form(priors))
+    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
+    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+    best_truth_idx.squeeze_(0)
+    best_truth_overlap.squeeze_(0)
+    best_prior_idx.squeeze_(1)
+    best_prior_overlap.squeeze_(1)
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
+    for j in range(best_prior_idx.size(0)):
+        best_truth_idx[best_prior_idx[j]] = j
+    matches = truths[best_truth_idx]
+    conf = labels[best_truth_idx]
+    conf[best_truth_overlap < threshold] = 0
+    loc = encode(matches, priors, variances)
+    loc_t[idx] = loc
+    conf_t[idx] = conf
 
 
 class MultiBoxLoss(nn.Module):
@@ -367,41 +370,23 @@ class MultiBoxLoss(nn.Module):
         return loss_l, loss_c
 
 
-class PriorBox(object):
-    """Compute priorbox coordinates in center-offset form for each source
-    feature map.
+def decode(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
     """
-
-    def __init__(self, input_size, feature_maps, cfg):
-        super(PriorBox, self).__init__()
-        self.imh = input_size[0]
-        self.imw = input_size[1]
-        self.variance = cfg.VARIANCE or [0.1]
-        self.min_sizes = cfg.ANCHOR_SIZES
-        self.steps = cfg.STEPS
-        self.clip = cfg.CLIP
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-        self.feature_maps = feature_maps
-
-    def forward(self):
-        mean = []
-        for k in range(len(self.feature_maps)):
-            feath = self.feature_maps[k][0]
-            featw = self.feature_maps[k][1]
-            for i, j in product(range(feath), range(featw)):
-                f_kw = self.imw / self.steps[k]
-                f_kh = self.imh / self.steps[k]
-                cx = (j + 0.5) / f_kw
-                cy = (i + 0.5) / f_kh
-                s_kw = self.min_sizes[k] / self.imw
-                s_kh = self.min_sizes[k] / self.imh
-                mean += [cx, cy, s_kw, s_kh]
-        output = torch.Tensor(mean).view(-1, 4)
-        if self.clip:
-            output.clamp_(max=1, min=0)
-        return output
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
+        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):
@@ -461,25 +446,6 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
     return keep, count
 
 
-def decode(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-    return boxes
-
-
 class Detect(Function):
     """At test time, Detect is the final layer of SSD.  Decode location preds,
     apply non-maximum suppression to location predictions based on conf
@@ -531,6 +497,43 @@ class Detect(Function):
                 count = count if count < self.top_k else self.top_k
                 output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
                     unsqueeze(1), boxes_[ids[:count]]), 1)
+        return output
+
+
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, input_size, feature_maps, cfg):
+        super(PriorBox, self).__init__()
+        self.imh = input_size[0]
+        self.imw = input_size[1]
+        self.variance = cfg.VARIANCE or [0.1]
+        self.min_sizes = cfg.ANCHOR_SIZES
+        self.steps = cfg.STEPS
+        self.clip = cfg.CLIP
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+        self.feature_maps = feature_maps
+
+    def forward(self):
+        mean = []
+        for k in range(len(self.feature_maps)):
+            feath = self.feature_maps[k][0]
+            featw = self.feature_maps[k][1]
+            for i, j in product(range(feath), range(featw)):
+                f_kw = self.imw / self.steps[k]
+                f_kh = self.imh / self.steps[k]
+                cx = (j + 0.5) / f_kw
+                cy = (i + 0.5) / f_kh
+                s_kw = self.min_sizes[k] / self.imw
+                s_kh = self.min_sizes[k] / self.imh
+                mean += [cx, cy, s_kw, s_kh]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
         return output
 
 

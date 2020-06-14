@@ -38,6 +38,9 @@ import torch.backends.cudnn as cudnn
 from collections import OrderedDict
 
 
+import time
+
+
 class SpatialCrossMapLRN_temp(Module):
 
     def __init__(self, size, alpha=0.0001, beta=0.75, k=1, gpuDevice=0):
@@ -138,14 +141,14 @@ class LambdaBase(nn.Sequential):
         return output if output else input
 
 
-def Conv2d(in_dim, out_dim, kernel, stride, padding):
-    l = torch.nn.Conv2d(in_dim, out_dim, kernel, stride=stride, padding=padding
-        )
+def BatchNorm(dim):
+    l = torch.nn.BatchNorm2d(dim)
     return l
 
 
-def BatchNorm(dim):
-    l = torch.nn.BatchNorm2d(dim)
+def Conv2d(in_dim, out_dim, kernel, stride, padding):
+    l = torch.nn.Conv2d(in_dim, out_dim, kernel, stride=stride, padding=padding
+        )
     return l
 
 
@@ -219,11 +222,6 @@ class Inception(nn.Module):
         return output
 
 
-def Linear(in_dim, out_dim):
-    l = torch.nn.Linear(in_dim, out_dim)
-    return l
-
-
 class Lambda(LambdaBase):
 
     def forward(self, input):
@@ -239,6 +237,11 @@ def CrossMapLRN(size, alpha, beta, k=1.0, gpuDevice=0):
     else:
         n = nn.LocalResponseNorm(size, alpha, beta, k).cuda(gpuDevice)
     return n
+
+
+def Linear(in_dim, out_dim):
+    l = torch.nn.Linear(in_dim, out_dim)
+    return l
 
 
 class netOpenFace(nn.Module):

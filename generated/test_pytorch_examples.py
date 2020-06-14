@@ -83,6 +83,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 
 
+import time
+
+
 import torch.distributed.autograd as dist_autograd
 
 
@@ -317,22 +320,6 @@ class ResNetBase(nn.Module):
         return nn.Sequential(*layers)
 
 
-def _call_method(method, rref, *args, **kwargs):
-    """
-    a helper function to call a method on the given RRef
-    """
-    return method(rref.local_value(), *args, **kwargs)
-
-
-def _async_on_rref(method, rref, *args, **kwargs):
-    """
-    a helper function to run method on the owner of rref and fetch back the
-    result using RPC
-    """
-    return rpc.rpc_async(rref.owner(), _call_method, args=[method, rref] +
-        list(args), kwargs=kwargs)
-
-
 num_classes = 1000
 
 
@@ -365,17 +352,6 @@ class ResNetPart1(ResNetBase):
         return out.cpu()
 
 
-def _parameter_rrefs(module):
-    """
-    Create one RRef for each parameter in the given local module, and return a
-    list of RRefs.
-    """
-    param_rrefs = []
-    for param in module.parameters():
-        param_rrefs.append(RRef(param))
-    return param_rrefs
-
-
 class ResNetPart2(ResNetBase):
     """
     The second part of ResNet.
@@ -396,6 +372,33 @@ class ResNetPart2(ResNetBase):
         with self._lock:
             out = self.fc(torch.flatten(self.seq(x), 1))
         return out.cpu()
+
+
+def _call_method(method, rref, *args, **kwargs):
+    """
+    a helper function to call a method on the given RRef
+    """
+    return method(rref.local_value(), *args, **kwargs)
+
+
+def _async_on_rref(method, rref, *args, **kwargs):
+    """
+    a helper function to run method on the owner of rref and fetch back the
+    result using RPC
+    """
+    return rpc.rpc_async(rref.owner(), _call_method, args=[method, rref] +
+        list(args), kwargs=kwargs)
+
+
+def _parameter_rrefs(module):
+    """
+    Create one RRef for each parameter in the given local module, and return a
+    list of RRefs.
+    """
+    param_rrefs = []
+    for param in module.parameters():
+        param_rrefs.append(RRef(param))
+    return param_rrefs
 
 
 def _remote_on_rref(method, rref, *args, **kwargs):

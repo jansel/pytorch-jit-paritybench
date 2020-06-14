@@ -50,6 +50,9 @@ import random
 from torch import optim
 
 
+import time
+
+
 class SeqLinear(nn.Module):
     """
     Linear layer for sequences

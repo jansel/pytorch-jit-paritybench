@@ -29,10 +29,19 @@ import torch
 import numpy as np
 
 
+import time
+
+
 from torch.nn import functional as F
 
 
 from torch.autograd import Variable
+
+
+from time import gmtime
+
+
+from time import strftime
 
 
 from torch import nn
@@ -954,16 +963,32 @@ class Test_salesforce_nonauto_nmt(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Attention(*[], **{'d_key': 4, 'drop_ratio': 0.5, 'causal': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Fertility(*[], **{'args': _mock_config(d_model=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DecoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=0.5, d_hidden=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EncoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=0.5, d_hidden=4)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Fertility(*[], **{'args': _mock_config(d_model=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(MultiHead2(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 64, 4]), torch.rand([4, 64, 4]), torch.rand([4, 16, 4, 4])], {})
 

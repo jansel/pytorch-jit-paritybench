@@ -361,17 +361,17 @@ class UnetBlock(nn.Module):
             return torch.cat([self.model(x), x], 1)
 
 
+def conv3x3(in_planes, out_planes):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
+        padding=1, bias=True)
+
+
 def upsampleConv(inplanes, outplanes, kw, padw):
     sequence = []
     sequence += [nn.Upsample(scale_factor=2, mode='nearest')]
     sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=kw, stride=1,
         padding=padw, bias=True)]
     return nn.Sequential(*sequence)
-
-
-def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=True)
 
 
 class BasicBlockUp(nn.Module):

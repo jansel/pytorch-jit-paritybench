@@ -51,6 +51,9 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 
 
+import time
+
+
 import scipy.io
 
 
@@ -273,3 +276,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_layumi_Person_reID_baseline_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
+

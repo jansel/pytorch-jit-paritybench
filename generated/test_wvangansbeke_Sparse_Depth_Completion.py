@@ -41,6 +41,9 @@ import torch.utils.data
 import numpy as np
 
 
+import time
+
+
 import torch.optim
 
 
@@ -497,4 +500,7 @@ class Test_wvangansbeke_Sparse_Depth_Completion(_paritybench_base):
 
     def test_011(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

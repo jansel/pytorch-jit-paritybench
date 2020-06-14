@@ -449,6 +449,9 @@ from torch.nn import Linear
 import torch.nn.functional as F
 
 
+import time
+
+
 from torch import tensor
 
 
@@ -632,22 +635,22 @@ def zeros(tensor):
         tensor.data.fill_(0)
 
 
-_global_config['num_stacks'] = 4
-
-
-_global_config['hidden'] = 4
+_global_config['skip_dropout'] = 0.5
 
 
 _global_config['dropout'] = 0.5
 
 
+_global_config['num_stacks'] = 4
+
+
 _global_config['shared_weights'] = 4
 
 
+_global_config['hidden'] = 4
+
+
 _global_config['num_layers'] = 1
-
-
-_global_config['skip_dropout'] = 0.5
 
 
 class Net(torch.nn.Module):

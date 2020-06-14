@@ -89,31 +89,31 @@ def _make_layers(in_channels, net_cfg):
     return nn.Sequential(*layers), in_channels
 
 
-_global_config['noobject_scale'] = 1.0
+_global_config['multi_scale_inp_size'] = 1.0
 
 
 _global_config['object_scale'] = 1.0
 
 
-_global_config['anchors'] = 4
+_global_config['coord_scale'] = 1.0
 
 
 _global_config['num_classes'] = 4
 
 
-_global_config['multi_scale_inp_size'] = 1.0
+_global_config['anchors'] = 4
 
 
-_global_config['coord_scale'] = 1.0
+_global_config['noobject_scale'] = 1.0
+
+
+_global_config['class_scale'] = 1.0
 
 
 _global_config['multi_scale_out_size'] = 1.0
 
 
 _global_config['iou_thresh'] = 4
-
-
-_global_config['class_scale'] = 1.0
 
 
 def _process_batch(data, size_index):

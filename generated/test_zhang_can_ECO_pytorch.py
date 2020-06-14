@@ -221,6 +221,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
 
 
@@ -389,12 +392,12 @@ class ConsensusModule(torch.nn.Module):
         return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
+LAYER_BUILDER_DICT = dict()
+
+
 def parse_expr(expr):
     parts = expr.split('<=')
     return parts[0].split(','), parts[1], parts[2].split(',')
-
-
-LAYER_BUILDER_DICT = dict()
 
 
 def get_basic_layer(info, channels=None, conv_bias=False, num_segments=4):

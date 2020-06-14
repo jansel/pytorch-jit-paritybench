@@ -8,6 +8,7 @@ class ASTCleanup(ast.NodeTransformer):
     """
     Remove prints, imports, and cudas from a AST.
     """
+
     def visit_Import(self, node):
         return ast.Constant(value=None, kind=None)
 
@@ -27,6 +28,7 @@ class ExtractReadsWrites(ast.NodeVisitor):
     """
     Extract the list of global variables a block of code will read and write
     """
+
     @classmethod
     def run(cls, tree):
         visitor = cls()
@@ -110,3 +112,32 @@ class ExtractConfigUsage(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+class CheckCallableMembers(ast.NodeVisitor):
+    """
+    Find `self.foo()` in the AST then check to make sure `obj.foo` is
+    callable on the constructed module.  Used to find cases where __init__
+    runs, but produces invalid modules.
+    """
+
+    @classmethod
+    def run(cls, tree):
+        visitor = cls()
+        visitor.visit(tree)
+        return visitor
+
+    def __init__(self):
+        super().__init__()
+        self.callable_members = set()
+
+    def check(self, obj):
+        for name in self.callable_members:
+            member = getattr(obj, name, None)
+            if member is not None and not callable(member):
+                raise ValueError(f"member {name} should be a callable object")
+
+    def visit_Call(self, node: ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            attr = node.func
+            if getattr(attr.value, 'id', '') == 'self':
+                self.callable_members.add(attr.attr)
+        return self.generic_visit(node)

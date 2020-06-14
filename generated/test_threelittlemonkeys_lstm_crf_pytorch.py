@@ -38,25 +38,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-DROPOUT = 0.5
-
-
 CUDA = torch.cuda.is_available()
 
 
-Tensor = torch.cuda.FloatTensor if CUDA else torch.FloatTensor
+DROPOUT = 0.5
 
 
 EMBED = {'lookup': 300}
 
 
-zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
+EMBED_SIZE = sum(EMBED.values())
 
 
 PAD_IDX = 0
 
 
-EMBED_SIZE = sum(EMBED.values())
+Tensor = torch.cuda.FloatTensor if CUDA else torch.FloatTensor
+
+
+zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
 
 
 class embed(nn.Module):
@@ -287,16 +287,16 @@ class rnn_crf(nn.Module):
         return self.crf.decode(h, mask)
 
 
-NUM_DIRS = 2
-
-
-RNN_TYPE = 'LSTM'
-
-
 HIDDEN_SIZE = 1000
 
 
+NUM_DIRS = 2
+
+
 NUM_LAYERS = 2
+
+
+RNN_TYPE = 'LSTM'
 
 
 class rnn(nn.Module):
@@ -333,9 +333,6 @@ class rnn(nn.Module):
         return h
 
 
-randn = lambda *x: torch.randn(*x).cuda() if CUDA else torch.randn
-
-
 EOS_IDX = 2
 
 
@@ -348,6 +345,9 @@ SOS_IDX = 1
 def log_sum_exp(x):
     m = torch.max(x, -1)[0]
     return m + torch.log(torch.sum(torch.exp(x - m.unsqueeze(-1)), -1))
+
+
+randn = lambda *x: torch.randn(*x).cuda() if CUDA else torch.randn
 
 
 class crf(nn.Module):

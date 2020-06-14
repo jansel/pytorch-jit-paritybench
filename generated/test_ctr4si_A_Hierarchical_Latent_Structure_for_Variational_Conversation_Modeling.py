@@ -537,6 +537,20 @@ class HRED(nn.Module):
         return samples
 
 
+def bag_of_words_loss(bow_logits, target_bow, weight=None):
+    """ Calculate bag of words representation loss
+    Args
+        - bow_logits: [num_sentences, vocab_size]
+        - target_bow: [num_sentences]
+    """
+    log_probs = F.log_softmax(bow_logits, dim=1)
+    target_distribution = target_bow / (target_bow.sum(1).view(-1, 1) + 1e-23
+        ) + 1e-23
+    entropy = -(torch.log(target_distribution) * target_bow).sum()
+    loss = -(log_probs * target_bow).sum() - entropy
+    return loss
+
+
 def normal_logpdf(x, mean, var):
     """
     Args:

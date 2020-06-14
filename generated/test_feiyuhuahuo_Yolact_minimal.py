@@ -42,6 +42,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+import time
+
+
 import torch.optim as optim
 
 
@@ -185,6 +188,9 @@ class InterpolateModule(nn.Module):
         return F.interpolate(x, *self.args, **self.kwdargs)
 
 
+extra_head_net = [(256, 3, {'padding': 1})]
+
+
 def make_net(in_channels, cfg_net, include_last_relu=True):
 
     def make_layer(layer_cfg):
@@ -213,9 +219,6 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     if not include_last_relu:
         net = net[:-1]
     return nn.Sequential(*net), in_channels
-
-
-extra_head_net = [(256, 3, {'padding': 1})]
 
 
 _global_config['num_classes'] = 4
@@ -290,10 +293,6 @@ class FPN(nn.Module):
         return out
 
 
-mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
-    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
-
-
 def construct_backbone(cfg_backbone):
     backbone = cfg_backbone.type(*cfg_backbone.args)
     num_layers = max(cfg_backbone.selected_layers) + 1
@@ -323,16 +322,20 @@ def make_anchors(conv_h, conv_w, scale):
     return prior_data
 
 
-_global_config['freeze_bn'] = 4
-
-
-_global_config['train_semantic'] = False
+mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
+    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
 _global_config['backbone'] = 4
 
 
 _global_config['scales'] = 1.0
+
+
+_global_config['train_semantic'] = False
+
+
+_global_config['freeze_bn'] = 4
 
 
 class Yolact(nn.Module):
@@ -576,19 +579,19 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     return offsets, conf, each_prior_box, each_prior_index
 
 
+_global_config['bbox_alpha'] = 4
+
+
 _global_config['conf_alpha'] = 4
 
 
 _global_config['mask_alpha'] = 4
 
 
-_global_config['semantic_alpha'] = 4
-
-
-_global_config['bbox_alpha'] = 4
-
-
 _global_config['masks_to_train'] = False
+
+
+_global_config['semantic_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):
@@ -742,10 +745,10 @@ class Multi_Loss(nn.Module):
         return losses
 
 
-STD = 57.38, 57.12, 58.4
-
-
 MEANS = 103.94, 116.78, 123.68
+
+
+STD = 57.38, 57.12, 58.4
 
 
 class FastBaseTransform(torch.nn.Module):

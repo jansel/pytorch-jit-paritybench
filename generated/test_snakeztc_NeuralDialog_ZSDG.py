@@ -417,10 +417,10 @@ class RnnUttEncoder(nn.Module):
             return utt_embedded
 
 
-TEACH_FORCE = 'teacher_forcing'
-
-
 GEN = 'gen'
+
+
+TEACH_FORCE = 'teacher_forcing'
 
 
 class DecoderPointerGen(BaseRNN):

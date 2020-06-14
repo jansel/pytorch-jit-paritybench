@@ -9,7 +9,7 @@ import tempfile
 import types
 import unittest
 import zipfile
-from typing import TextIO
+from typing import TextIO, List
 
 import torch
 from astor import to_source
@@ -36,6 +36,7 @@ IMPORT_WHITELIST = {
     "numpy",
     "random",
     "re",
+    "time",
     "scipy",
     "string",
     "torch",
@@ -80,12 +81,10 @@ class PyTorchModuleExtractor(object):
 
     def __init__(self, tempdir: str, errors: ErrorAggregatorDict, stats: Stats, output_py: TextIO):
         super(PyTorchModuleExtractor, self).__init__()
-        self.tempdir = tempdir
         self.errors = errors
         self.stats = stats
 
-        self.output_module = types.ModuleType(f"{__name__}.output")
-        self.output_py = output_py
+        self.output = IncrementalModule(tempdir, output_py)
 
         self.imports = dict()
         self.constants = []
@@ -114,9 +113,9 @@ class PyTorchModuleExtractor(object):
 
         m = re.search(r"([a-z0-9_]+)/__init__.py$", filename, re.I)
         if m:
-            self.add_module_alias(m.group(1), has_match)
+            self.output.add_module_alias(m.group(1), has_match)
         else:
-            self.add_module_alias(os.path.splitext(os.path.basename(filename))[0], has_match)
+            self.output.add_module_alias(os.path.splitext(os.path.basename(filename))[0], has_match)
 
         self.search_ast(tree, has_match)
 
@@ -218,43 +217,25 @@ class PyTorchModuleExtractor(object):
                 else:
                     self.available_symbols.setdefault(name, node)
 
-    def add_module_alias(self, name: str, overwrite: bool):
-        """
-        We flatten everything we extract into a single module, this adds
-        a symbol to that unified module that points to the same module
-        so that internal a.b.c references work.
-
-        :param name: alternate name for self.output_module
-        :param overwrite: if true, replace an existing symbol
-        """
-        if name in {'global', 'try', 'except', 'if', 'in', 'else', 'for', 'return', 'def'}:
-            return
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
-            return
-        if name in self.output_module.__dict__ and not overwrite:
-            return
-        self.output_module.__dict__[name] = self.output_module
-        self.output_py.write(f"{name} = _module\n")
-
     def construct_module(self):
-        self.run_statement(self.ast_parse(PREFIX, "<string>"), source_required=True)
-        self.global_config = self.output_module.__dict__["_global_config"]
+        self.output.run_statement(self.ast_parse(PREFIX, "<string>"), source_required=True)
+        self.global_config = self.output.output_module.__dict__["_global_config"]
 
         for statement in self.imports.values():
             try:
-                self.run_statement(statement)
+                self.output.run_statement(statement)
             except Exception as e:
                 self.errors.record("import", e, "")
         for statement in self.constants:
             try:
-                self.run_statement(statement)
+                self.output.run_statement(statement)
             except Exception as e:
                 self.errors.record("constant", e, getattr(statement, "name", ""))
         for statement in self.module_statements:
             try:
                 self.add_requirements(statement)
                 statement = ast.fix_missing_locations(ASTCleanup().visit(statement))
-                self.run_statement(statement, source_required=True)
+                self.output.run_statement(statement, source_required=True)
             except Exception as e:
                 self.errors.record("define", e, getattr(statement, "name", ""))
 
@@ -267,11 +248,10 @@ class PyTorchModuleExtractor(object):
         reads, writes = ExtractReadsWrites.run(statement)
         need_config = False
         for name in sorted(reads - writes):
-            if (name in self.available_symbols and
-                    getattr(self.output_module, name, self.output_module) is self.output_module):
+            if name in self.available_symbols and name not in self.output:
                 requirement = self.available_symbols.pop(name)
                 self.add_requirements(requirement)
-                self.run_statement(requirement, source_required=True)
+                self.output.run_statement(requirement, source_required=True)
             elif name in CONFIG_NAMES:
                 need_config = True
 
@@ -280,31 +260,17 @@ class PyTorchModuleExtractor(object):
                 for key in ExtractConfigUsage.run(statement):
                     if key not in self.global_config:
                         value = repr(DeduceParameter.initial_arg_init(key, None))
-                        self.run_statement(self.ast_parse(f"_global_config['{key}'] = {value}\n", "<string>"),
-                                           source_required=True)
+                        self.output.run_statement(
+                            self.ast_parse(f"_global_config['{key}'] = {value}\n", "<string>"),
+                            source_required=True)
             except Exception:
                 log.exception("global_config error")
 
-    def run_statement(self, statement, source_required=False):
-        source = to_source(statement)
-        if not source_required:
-            code = compile(ast.Module([statement], []), "<string>", "exec")
-        else:
-            # TorchScript requires source code to exist on disk
-            assert self.tempdir
-            fn, filename = tempfile.mkstemp(suffix='.py', dir=self.tempdir, prefix="pb")
-            with os.fdopen(fn, "w") as fd:
-                fd.write(source)
-                fd.flush()
-            code = compile(source, filename, "exec")
-        exec(code, self.output_module.__dict__, self.output_module.__dict__)
-        self.output_py.writelines(["\n", source, "\n"])
-
     def test_modules(self):
-        for name, value in list(sorted(self.output_module.__dict__.items())):
+        for name, value in list(sorted(self.output.items())):
             if (isinstance(value, type) and
                     issubclass(value, torch.nn.Module) and
-                    value.__module__ == self.output_module.__name__):
+                    self.output.same_module(value)):
                 self.test_nn_module(name, value)
 
     def test_nn_module(self, name: str, nn_cls: type):
@@ -397,7 +363,7 @@ class PyTorchModuleExtractor(object):
     def main(self, filename: str):
         basename = re.sub(r"[.]zip$", "", os.path.basename(filename))
 
-        self.output_py.writelines([
+        self.output.writelines([
             "import sys\n",
             "_module = sys.modules[__name__]\n",
             "del sys\n"])
@@ -414,15 +380,15 @@ class PyTorchModuleExtractor(object):
         log.info(f"{basename}: {self.stats}")
 
     def write_testcases(self, basename):
-        self.output_py.write(SUFFIX.format(basename=basename))
+        self.output.write(SUFFIX.format(basename=basename))
         index = 0
         for name, init_args, forward_args, compiles in self.testcases:
             script = f"{name}(*{init_args[0]}, **{init_args[1]})"
             args, kwargs = forward_args
             if kwargs:
                 if not compiles:
-                    self.output_py.write("    @_fails_compile()\n")
-                self.output_py.write(TESTCASE_TEMPLATE.format(
+                    self.output.write("    @_fails_compile()\n")
+                self.output.write(TESTCASE_TEMPLATE.format(
                     index=index,
                     script=script,
                     args=args,
@@ -430,3 +396,72 @@ class PyTorchModuleExtractor(object):
                 ))
 
             index += 1
+
+
+class IncrementalModule(object):
+    """
+    Construct a python module statement by statement, recording the result
+    to a generated python file.
+    """
+
+    def __init__(self, tempdir: str, output_py: TextIO):
+        super().__init__()
+        self.tempdir = tempdir
+        self.output_module = types.ModuleType(f"{__name__}.output")
+        self.output_py = output_py
+
+    def __contains__(self, name):
+        """
+        :param name: symbol to check for
+        :return: True if output module contains name (and it is not an alias)
+        """
+        return getattr(self.output_module, name, self.output_module) is not self.output_module
+
+    def items(self):
+        return self.output_module.__dict__.items()
+
+    def same_module(self, obj):
+        """
+        :param obj: a python object
+        :return: True if obj is defined in this module
+        """
+        return obj.__module__ == self.output_module.__name__
+
+    def write(self, data: str):
+        self.output_py.write(data)
+
+    def writelines(self, data: List[str]):
+        self.output_py.writelines(data)
+
+    def run_statement(self, statement, source_required=False):
+        source = to_source(statement)
+        if not source_required:
+            code = compile(ast.Module([statement], []), "<string>", "exec")
+        else:
+            # TorchScript requires source code to exist on disk
+            assert self.tempdir
+            fn, filename = tempfile.mkstemp(suffix='.py', dir=self.tempdir, prefix="pb")
+            with os.fdopen(fn, "w") as fd:
+                fd.write(source)
+                fd.flush()
+            code = compile(source, filename, "exec")
+        exec(code, self.output_module.__dict__, self.output_module.__dict__)
+        self.output_py.writelines(["\n", source, "\n"])
+
+    def add_module_alias(self, name: str, overwrite: bool):
+        """
+        We flatten everything we extract into a single module, this adds
+        a symbol to that unified module that points to the same module
+        so that internal a.b.c references work.
+
+        :param name: alternate name for self.output_module
+        :param overwrite: if true, replace an existing symbol
+        """
+        if name in {'global', 'try', 'except', 'if', 'in', 'else', 'for', 'return', 'def'}:
+            return
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+            return
+        if name in self.output_module.__dict__ and not overwrite:
+            return
+        self.output_module.__dict__[name] = self.output_module
+        self.output_py.write(f"{name} = _module\n")

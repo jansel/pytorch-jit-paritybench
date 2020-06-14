@@ -43,16 +43,19 @@ from torch.autograd import Variable
 import numpy as np
 
 
+import time
+
+
 import torch.optim as optim
 
 
 from torch import nn
 
 
-INPUT_SIZE = 50
-
-
 HIDDEN_SIZE = 100
+
+
+INPUT_SIZE = 50
 
 
 class MyModel(torch.nn.Module):

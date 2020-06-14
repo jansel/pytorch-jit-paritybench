@@ -91,10 +91,131 @@ class GMMLoss(nn.Module):
         return loss
 
 
+f_div = {(1): 1, (2): 1, (3): 2, (4): 2, (5): 4, (6): 4, (7): 8}
+
+
 t_div = {(1): 1, (2): 1, (3): 2, (4): 2, (5): 4, (6): 4}
 
 
-f_div = {(1): 1, (2): 1, (3): 2, (4): 2, (5): 4, (6): 4, (7): 8}
+class TierUtil:
+
+    def __init__(self, hp):
+        self.hp = hp
+        self.n_mels = hp.audio.n_mels
+        self.f_div = f_div[hp.model.tier]
+        self.t_div = t_div[hp.model.tier]
+
+    def cut_divide_tiers(self, x, tierNo):
+        x = x[:, :x.shape[-1] - x.shape[-1] % self.t_div]
+        M, T = x.shape
+        assert M % self.f_div == 0, 'freq(mel) dimension should be divisible by %d, got %d.' % (
+            self.f_div, M)
+        assert T % self.t_div == 0, 'time dimension should be divisible by %d, got %d.' % (
+            self.t_div, T)
+        tiers = list()
+        for i in range(self.hp.model.tier, max(1, tierNo - 1), -1):
+            if i % 2 == 0:
+                tiers.append(x[1::2, :])
+                x = x[::2, :]
+            else:
+                tiers.append(x[:, 1::2])
+                x = x[:, ::2]
+        tiers.append(x)
+        if tierNo == 1:
+            return tiers[-1], tiers[-1].copy()
+        else:
+            return tiers[-1], tiers[-2]
+
+    def interleave(self, x, y, tier):
+        """
+            implements eq. (25)
+            x: x^{<g}
+            y: x^{g}
+            tier: g+1
+        """
+        assert x.size() == y.size(
+            ), 'two inputs for interleave should be identical: got %s, %s' % (x
+            .size(), y.size())
+        B, M, T = x.size()
+        if tier % 2 == 0:
+            temp = x.new_zeros(B, M, 2 * T)
+            temp[:, :, 0::2] = x
+            temp[:, :, 1::2] = y
+        else:
+            temp = x.new_zeros(B, 2 * M, T)
+            temp[:, 0::2, :] = x
+            temp[:, 1::2, :] = y
+        return temp
+
+
+class Dotdict(dict):
+    """
+    a dictionary that supports dot notation 
+    as well as dictionary access notation 
+    usage: d = DotDict() or d = DotDict({'val1':'first'})
+    set attributes: d.val2 = 'second' or d['val2'] = 'second'
+    get attributes: d.val2 or d['val2']
+    """
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __init__(self, dct=None):
+        dct = dict() if not dct else dct
+        for key, value in dct.items():
+            if hasattr(value, 'keys'):
+                value = Dotdict(value)
+            self[key] = value
+
+
+def load_hparam(filename):
+    stream = open(filename, 'r')
+    docs = yaml.load_all(stream, Loader=yaml.Loader)
+    hparam_dict = dict()
+    for doc in docs:
+        for k, v in doc.items():
+            hparam_dict[k] = v
+    return hparam_dict
+
+
+class HParam(Dotdict):
+
+    def __init__(self, file):
+        super(Dotdict, self).__init__()
+        hp_dict = load_hparam(file)
+        hp_dotdict = Dotdict(hp_dict)
+        for k, v in hp_dotdict.items():
+            setattr(self, k, v)
+    __getattr__ = Dotdict.__getitem__
+    __setattr__ = Dotdict.__setitem__
+    __delattr__ = Dotdict.__delitem__
+
+
+def load_hparam_str(hp_str):
+    path = os.path.join('temp-restore.yaml')
+    with open(path, 'w') as f:
+        f.write(hp_str)
+    ret = HParam(path)
+    os.remove(path)
+    return ret
+
+
+def get_pi_indices(pi):
+    cumsum = torch.cumsum(pi.cpu(), dim=-1)
+    rand = torch.rand(pi.shape[:-1] + (1,))
+    indices = (cumsum < rand).sum(dim=-1)
+    return indices.flatten().detach().numpy()
+
+
+def sample_gmm(mu, std, pi):
+    std = std.exp()
+    pi = pi.softmax(dim=-1)
+    indices = get_pi_indices(pi)
+    mu = mu.reshape(-1, mu.shape[-1])
+    mu = mu[np.arange(mu.shape[0]), indices].reshape(std.shape[:-1])
+    std = std.reshape(-1, std.shape[-1])
+    std = std[np.arange(std.shape[0]), indices].reshape(mu.shape)
+    return torch.normal(mu, std).reshape_as(mu).clamp(0.0, 1.0).to(mu.device)
 
 
 EOS = '~'
@@ -239,6 +360,63 @@ class Attention(nn.Module):
         contexts = torch.cat(contexts, dim=1) + input_h_c
         alignment = torch.cat(weights, dim=1)
         return contexts, alignment
+
+
+PAD = '_'
+
+
+en_symbols = (PAD + EOS +
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? ")
+
+
+class TTS(nn.Module):
+
+    def __init__(self, hp, freq, layers):
+        super(TTS, self).__init__()
+        self.hp = hp
+        self.W_t_0 = nn.Linear(1, hp.model.hidden)
+        self.W_f_0 = nn.Linear(1, hp.model.hidden)
+        self.W_c_0 = nn.Linear(freq, hp.model.hidden)
+        self.layers = nn.ModuleList([DelayedRNN(hp) for _ in range(layers)])
+        self.K = hp.model.gmm
+        self.W_theta = nn.Linear(hp.model.hidden, 3 * self.K)
+        if self.hp.data.name == 'KSS':
+            self.embedding_text = nn.Embedding(len(symbols), hp.model.hidden)
+        elif self.hp.data.name == 'Blizzard':
+            self.embedding_text = nn.Embedding(len(en_symbols), hp.model.hidden
+                )
+        else:
+            raise NotImplementedError
+        self.text_lstm = nn.LSTM(input_size=hp.model.hidden, hidden_size=hp
+            .model.hidden // 2, batch_first=True, bidirectional=True)
+        self.attention = Attention(hp)
+
+    def text_encode(self, text, text_lengths):
+        total_length = text.size(1)
+        embed = self.embedding_text(text)
+        packed = nn.utils.rnn.pack_padded_sequence(embed, text_lengths,
+            batch_first=True, enforce_sorted=False)
+        memory, _ = self.text_lstm(packed)
+        unpacked, _ = nn.utils.rnn.pad_packed_sequence(memory, batch_first=
+            True, total_length=total_length)
+        return unpacked
+
+    def forward(self, x, text, text_lengths, audio_lengths):
+        memory = self.text_encode(text, text_lengths)
+        h_t = self.W_t_0(F.pad(x, [1, -1]).unsqueeze(-1))
+        h_f = self.W_f_0(F.pad(x, [0, 0, 1, -1]).unsqueeze(-1))
+        h_c = self.W_c_0(F.pad(x, [1, -1]).transpose(1, 2))
+        for i, layer in enumerate(self.layers):
+            if i != len(self.layers) // 2:
+                h_t, h_f, h_c = layer(h_t, h_f, h_c, audio_lengths)
+            else:
+                h_c, alignment = self.attention(h_c, memory)
+                h_t, h_f, h_c = layer(h_t, h_f, h_c, audio_lengths)
+        theta_hat = self.W_theta(h_f)
+        mu = theta_hat[(...), :self.K]
+        std = theta_hat[(...), self.K:2 * self.K]
+        pi = theta_hat[(...), 2 * self.K:]
+        return mu, std, pi, alignment
 
 
 class UpsampleRNN(nn.Module):

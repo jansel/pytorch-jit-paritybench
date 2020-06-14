@@ -70,6 +70,9 @@ from torch.utils.data import sampler
 import numpy as np
 
 
+import time
+
+
 from scipy.spatial import Delaunay
 
 
@@ -94,6 +97,32 @@ class Generator(nn.Module):
         img = self.model(z)
         img = img.view(img.size(0), *ape)
         return img
+
+
+def init_freudenthal_2d(width, height):
+    """
+    Freudenthal triangulation of 2d grid
+    """
+    s = d.Filtration()
+    for i in range(height):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind]))
+    for i in range(height):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + 1]))
+    for i in range(height - 1):
+        for j in range(width):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width]))
+    for i in range(height - 1):
+        for j in range(width - 1):
+            ind = i * width + j
+            s.append(d.Simplex([ind, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
+            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
+    return s
 
 
 def init_grid_2d(width, height):
@@ -125,32 +154,6 @@ def init_grid_2d(width, height):
             s.append([ind + 1, ind + width])
             s.append([ind + 1, ind + width, ind + width + 1])
             s.append([ind, ind + 1, ind + width])
-    return s
-
-
-def init_freudenthal_2d(width, height):
-    """
-    Freudenthal triangulation of 2d grid
-    """
-    s = d.Filtration()
-    for i in range(height):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind]))
-    for i in range(height):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + 1]))
-    for i in range(height - 1):
-        for j in range(width):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width]))
-    for i in range(height - 1):
-        for j in range(width - 1):
-            ind = i * width + j
-            s.append(d.Simplex([ind, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + 1, ind + width + 1]))
-            s.append(d.Simplex([ind, ind + width, ind + width + 1]))
     return s
 
 
@@ -292,36 +295,6 @@ class TopLoss2(nn.Module):
         return self.topfn(dgminfo)
 
 
-def delaunay_complex(x, maxdim=2):
-    """
-    compute Delaunay triangulation
-    fill in simplices as appropriate
-
-    if x is 1-dimensional, defaults to 1D Delaunay
-    inputs:
-        x - pointcloud
-        maxdim - maximal simplex dimension (default = 2)
-    """
-    if x.shape[1] == 1:
-        x = x.flatten()
-        return alpha_complex_1d(x)
-    tri = Delaunay(x)
-    return unique_simplices(tri.simplices, maxdim)
-
-
-def delaunay_complex_1d(x):
-    """
-    returns Delaunay complex on 1D space
-    """
-    inds = np.argsort(x)
-    s = SimplicialComplex()
-    s.append([inds[0]])
-    for ii in range(len(inds) - 1):
-        s.append([inds[ii + 1]])
-        s.append([inds[ii], inds[ii + 1]])
-    return s
-
-
 class FlagDiagram(Function):
     """
     Compute Flag complex persistence using point coordinates
@@ -361,6 +334,36 @@ class FlagDiagram(Function):
         grad_ret = [gd.cpu() for gd in grad_dgms]
         grad_y = persistenceBackwardFlag(X, ycpu, grad_ret)
         return None, grad_y.to(device), None, None
+
+
+def delaunay_complex(x, maxdim=2):
+    """
+    compute Delaunay triangulation
+    fill in simplices as appropriate
+
+    if x is 1-dimensional, defaults to 1D Delaunay
+    inputs:
+        x - pointcloud
+        maxdim - maximal simplex dimension (default = 2)
+    """
+    if x.shape[1] == 1:
+        x = x.flatten()
+        return alpha_complex_1d(x)
+    tri = Delaunay(x)
+    return unique_simplices(tri.simplices, maxdim)
+
+
+def delaunay_complex_1d(x):
+    """
+    returns Delaunay complex on 1D space
+    """
+    inds = np.argsort(x)
+    s = SimplicialComplex()
+    s.append([inds[0]])
+    for ii in range(len(inds) - 1):
+        s.append([inds[ii + 1]])
+        s.append([inds[ii], inds[ii + 1]])
+    return s
 
 
 class AlphaLayer(nn.Module):
@@ -480,14 +483,6 @@ class SumBarcodeLengths(nn.Module):
         return torch.sum(lengths, dim=0)
 
 
-def remove_zero_bars(dgm):
-    """
-    remove zero bars from diagram
-    """
-    inds = dgm[:, (0)] != dgm[:, (1)]
-    return dgm[(inds), :]
-
-
 def get_barcode_lengths_means(dgm, issublevel):
     """
     return lengths and means of barcode
@@ -502,6 +497,14 @@ def get_barcode_lengths_means(dgm, issublevel):
     lengths[lengths == np.inf] = 0
     lengths[lengths != lengths] = 0
     return lengths, means
+
+
+def remove_zero_bars(dgm):
+    """
+    remove zero bars from diagram
+    """
+    inds = dgm[:, (0)] != dgm[:, (1)]
+    return dgm[(inds), :]
 
 
 class BarcodePolyFeature(nn.Module):

@@ -84,14 +84,6 @@ import itertools
 from torch.utils.data import DataLoader
 
 
-def torchify_anchor_attributes(cfg):
-    attr = {}
-    for key in ['wlh', 'center_z', 'yaw']:
-        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
-        attr[key] = torch.stack(vals).float()
-    return dict(attr)
-
-
 def _linspace_midpoint(x0, x1, nx):
     """
     Mimics np.linspace with endpoint=False except
@@ -107,6 +99,14 @@ def meshgrid_midpoint(*arrays):
     spaces = [_linspace_midpoint(*x) for x in arrays]
     grid = torch.stack(torch.meshgrid(spaces), -1)
     return grid
+
+
+def torchify_anchor_attributes(cfg):
+    attr = {}
+    for key in ['wlh', 'center_z', 'yaw']:
+        vals = [torch.tensor(anchor[key]) for anchor in cfg.ANCHORS]
+        attr[key] = torch.stack(vals).float()
+    return dict(attr)
 
 
 class AnchorGenerator(nn.Module):
@@ -591,14 +591,11 @@ def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
     return layer
 
 
-def decode(deltas, anchors):
-    """Both inputs of shape (*, 7)."""
-    P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
-    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
-    A_norm = _anchor_diagonal(A_wlh)
-    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
-        A_yaw), dim=-1)
-    return boxes
+def make_subm_layer(C_in, C_out, *args, **kwargs):
+    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
+        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
+        0.01), nn.ReLU())
+    return layer
 
 
 def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
@@ -790,13 +787,6 @@ class RoiGridPool(nn.Module):
         return features
 
 
-def make_subm_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
-    return layer
-
-
 class RPN(nn.Module):
     """OneStage RPN from SECOND."""
 
@@ -837,19 +827,19 @@ class RPN(nn.Module):
         return x
 
 
-def random_choice(x, n, dim=0):
-    """Emulate numpy.random.choice."""
-    assert dim == 0, 'Currently support only dim 0.'
-    inds = torch.randint(0, x.size(dim), (n,), device=x.device)
-    return x[inds]
-
-
 def compute_grid_shape(cfg):
     voxel_size = np.r_[cfg.VOXEL_SIZE]
     lower, upper = np.reshape(cfg.GRID_BOUNDS, (2, 3))
     grid_shape = (upper - lower) / voxel_size + [0, 0, 1]
     grid_shape = np.int32(grid_shape)[::-1].tolist()
     return grid_shape
+
+
+def random_choice(x, n, dim=0):
+    """Emulate numpy.random.choice."""
+    assert dim == 0, 'Currently support only dim 0.'
+    inds = torch.randint(0, x.size(dim), (n,), device=x.device)
+    return x[inds]
 
 
 class SparseCNNBase(nn.Module):

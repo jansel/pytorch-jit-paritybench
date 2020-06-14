@@ -47,6 +47,9 @@ import random
 import numpy as np
 
 
+import time
+
+
 import functools
 
 
@@ -77,16 +80,16 @@ from torch.utils.data import DataLoader
 from collections import OrderedDict
 
 
-_global_config['exemplar_size'] = 4
-
-
-_global_config['instance_size'] = 4
-
-
 _global_config['total_stride'] = 1
 
 
+_global_config['exemplar_size'] = 4
+
+
 _global_config['anchor_num'] = 4
+
+
+_global_config['instance_size'] = 4
 
 
 class SiameseAlexNet(nn.Module):

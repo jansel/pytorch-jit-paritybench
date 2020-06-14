@@ -252,6 +252,25 @@ class WeightMaskLoss(nn.Module):
         return result
 
 
+def _fspecial_gauss(window_size, sigma=1.5):
+    coords = np.arange(0, window_size, dtype=np.float32)
+    coords -= (window_size - 1) / 2.0
+    g = coords ** 2
+    g *= -0.5 / sigma ** 2
+    g = np.reshape(g, (1, -1)) + np.reshape(g, (-1, 1))
+    g = torch.from_numpy(np.reshape(g, (1, -1)))
+    g = torch.softmax(g, dim=1)
+    g = g / g.sum()
+    return g
+
+
+def butterworth(window_size, sigma=1.5, n=2):
+    nn = 2 * n
+    bw = torch.Tensor([(1 / (1 + ((x - window_size // 2) / sigma) ** nn)) for
+        x in range(window_size)])
+    return bw / bw.sum()
+
+
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
         sigma ** 2)) for x in range(window_size)])
@@ -266,25 +285,6 @@ def tile(a, dim, n_tile):
     order_index = torch.LongTensor(np.concatenate([(init_dim * np.arange(
         n_tile) + i) for i in range(init_dim)]))
     return torch.index_select(a, dim, order_index)
-
-
-def butterworth(window_size, sigma=1.5, n=2):
-    nn = 2 * n
-    bw = torch.Tensor([(1 / (1 + ((x - window_size // 2) / sigma) ** nn)) for
-        x in range(window_size)])
-    return bw / bw.sum()
-
-
-def _fspecial_gauss(window_size, sigma=1.5):
-    coords = np.arange(0, window_size, dtype=np.float32)
-    coords -= (window_size - 1) / 2.0
-    g = coords ** 2
-    g *= -0.5 / sigma ** 2
-    g = np.reshape(g, (1, -1)) + np.reshape(g, (-1, 1))
-    g = torch.from_numpy(np.reshape(g, (1, -1)))
-    g = torch.softmax(g, dim=1)
-    g = g / g.sum()
-    return g
 
 
 def create_window(window_size, channel=3, sigma=1.5, gauss='original', n=2):

@@ -57,6 +57,9 @@ import re
 import math
 
 
+import time
+
+
 import scipy
 
 
@@ -901,10 +904,10 @@ class Hourglass(nn.Module):
         return self._hour_glass_forward(self.depth, x)
 
 
-NUM_LIMBS = 38
-
-
 NUM_JOINTS = 18
+
+
+NUM_LIMBS = 38
 
 
 class HourglassNet(nn.Module):

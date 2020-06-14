@@ -341,6 +341,63 @@ class GraphConv(nn.Module):
         return 'GraphConv(%d -> %d, directed=%r)' % (Din, Dout, directed)
 
 
+def _extend_tensor(input_tensor: torch.Tensor, N: int) ->torch.Tensor:
+    """
+    Extend a tensor `input_tensor` with ndim > 2, `N` times along the batch
+    dimension. This is done in the following sequence of steps (where `B` is
+    the batch dimension):
+
+    .. code-block:: python
+
+        input_tensor (B, ...)
+        -> add leading empty dimension (1, B, ...)
+        -> expand (N, B, ...)
+        -> reshape (N * B, ...)
+
+    Args:
+        input_tensor: torch.Tensor with ndim > 2 representing a batched input.
+        N: number of times to extend each element of the batch.
+    """
+    if input_tensor.ndim < 2:
+        raise ValueError('Input tensor must have ndimensions >= 2.')
+    B = input_tensor.shape[0]
+    non_batch_dims = tuple(input_tensor.shape[1:])
+    constant_dims = (-1,) * input_tensor.ndim
+    return input_tensor.clone()[None, ...].expand(N, *constant_dims).transpose(
+        0, 1).reshape(N * B, *non_batch_dims)
+
+
+def _pad_texture_maps(images: List[torch.Tensor]) ->torch.Tensor:
+    """
+    Pad all texture images so they have the same height and width.
+
+    Args:
+        images: list of N tensors of shape (H, W, 3)
+
+    Returns:
+        tex_maps: Tensor of shape (N, max_H, max_W, 3)
+    """
+    tex_maps = []
+    max_H = 0
+    max_W = 0
+    for im in images:
+        h, w, _3 = im.shape
+        if h > max_H:
+            max_H = h
+        if w > max_W:
+            max_W = w
+        tex_maps.append(im)
+    max_shape = max_H, max_W
+    for i, image in enumerate(tex_maps):
+        if image.shape[:2] != max_shape:
+            image_BCHW = image.permute(2, 0, 1)[None]
+            new_image_BCHW = interpolate(image_BCHW, size=max_shape, mode=
+                'bilinear', align_corners=False)
+            tex_maps[i] = new_image_BCHW[0].permute(1, 2, 0)
+    tex_maps = torch.stack(tex_maps, dim=0)
+    return tex_maps
+
+
 def padded_to_list(x: torch.Tensor, split_size: Union[list, tuple, None]=None):
     """
     Transforms a padded tensor of shape (N, M, K) into a list of N tensors
@@ -375,32 +432,6 @@ def padded_to_list(x: torch.Tensor, split_size: Union[list, tuple, None]=None):
                 'Support only for 2-dimensional unbinded tensor.                     Split size for more dimensions provided'
                 )
     return x_list
-
-
-def _extend_tensor(input_tensor: torch.Tensor, N: int) ->torch.Tensor:
-    """
-    Extend a tensor `input_tensor` with ndim > 2, `N` times along the batch
-    dimension. This is done in the following sequence of steps (where `B` is
-    the batch dimension):
-
-    .. code-block:: python
-
-        input_tensor (B, ...)
-        -> add leading empty dimension (1, B, ...)
-        -> expand (N, B, ...)
-        -> reshape (N * B, ...)
-
-    Args:
-        input_tensor: torch.Tensor with ndim > 2 representing a batched input.
-        N: number of times to extend each element of the batch.
-    """
-    if input_tensor.ndim < 2:
-        raise ValueError('Input tensor must have ndimensions >= 2.')
-    B = input_tensor.shape[0]
-    non_batch_dims = tuple(input_tensor.shape[1:])
-    constant_dims = (-1,) * input_tensor.ndim
-    return input_tensor.clone()[None, ...].expand(N, *constant_dims).transpose(
-        0, 1).reshape(N * B, *non_batch_dims)
 
 
 class _PaddedToPacked(Function):
@@ -479,37 +510,6 @@ def padded_to_packed(inputs, first_idxs, num_inputs):
     if flat:
         inputs_packed = inputs_packed.squeeze(1)
     return inputs_packed
-
-
-def _pad_texture_maps(images: List[torch.Tensor]) ->torch.Tensor:
-    """
-    Pad all texture images so they have the same height and width.
-
-    Args:
-        images: list of N tensors of shape (H, W, 3)
-
-    Returns:
-        tex_maps: Tensor of shape (N, max_H, max_W, 3)
-    """
-    tex_maps = []
-    max_H = 0
-    max_W = 0
-    for im in images:
-        h, w, _3 = im.shape
-        if h > max_H:
-            max_H = h
-        if w > max_W:
-            max_W = w
-        tex_maps.append(im)
-    max_shape = max_H, max_W
-    for i, image in enumerate(tex_maps):
-        if image.shape[:2] != max_shape:
-            image_BCHW = image.permute(2, 0, 1)[None]
-            new_image_BCHW = interpolate(image_BCHW, size=max_shape, mode=
-                'bilinear', align_corners=False)
-            tex_maps[i] = new_image_BCHW[0].permute(1, 2, 0)
-    tex_maps = torch.stack(tex_maps, dim=0)
-    return tex_maps
 
 
 class Textures(object):
@@ -1825,40 +1825,6 @@ class Meshes(object):
             textures=tex)
 
 
-def create_verts_index(verts_per_mesh, edges_per_mesh, device=None):
-    """
-    Helper function to group the vertex indices for each mesh. New vertices are
-    stacked at the end of the original verts tensor, so in order to have
-    sequential packing, the verts tensor needs to be reordered so that the
-    vertices corresponding to each mesh are grouped together.
-
-    Args:
-        verts_per_mesh: Tensor of shape (N,) giving the number of vertices
-            in each mesh in the batch where N is the batch size.
-        edges_per_mesh: Tensor of shape (N,) giving the number of edges
-            in each mesh in the batch
-
-    Returns:
-        verts_idx: A tensor with vert indices for each mesh ordered sequentially
-            by mesh index.
-    """
-    V = verts_per_mesh.sum()
-    E = edges_per_mesh.sum()
-    verts_per_mesh_cumsum = verts_per_mesh.cumsum(dim=0)
-    edges_per_mesh_cumsum = edges_per_mesh.cumsum(dim=0)
-    v_to_e_idx = verts_per_mesh_cumsum.clone()
-    v_to_e_idx[1:] += edges_per_mesh_cumsum[:-1]
-    v_to_e_offset = V - verts_per_mesh_cumsum
-    v_to_e_offset[1:] += edges_per_mesh_cumsum[:-1]
-    e_to_v_idx = verts_per_mesh_cumsum[:-1] + edges_per_mesh_cumsum[:-1]
-    e_to_v_offset = verts_per_mesh_cumsum[:-1] - edges_per_mesh_cumsum[:-1] - V
-    idx_diffs = torch.ones(V + E, device=device, dtype=torch.int64)
-    idx_diffs[v_to_e_idx] += v_to_e_offset
-    idx_diffs[e_to_v_idx] += e_to_v_offset
-    verts_idx = idx_diffs.cumsum(dim=0) - 1
-    return verts_idx
-
-
 def create_faces_index(faces_per_mesh, device=None):
     """
     Helper function to group the faces indices for each mesh. New faces are
@@ -1891,6 +1857,40 @@ def create_faces_index(faces_per_mesh, device=None):
     idx_diffs[switch4_idx] -= 3 * F
     faces_idx = idx_diffs.cumsum(dim=0) - 1
     return faces_idx
+
+
+def create_verts_index(verts_per_mesh, edges_per_mesh, device=None):
+    """
+    Helper function to group the vertex indices for each mesh. New vertices are
+    stacked at the end of the original verts tensor, so in order to have
+    sequential packing, the verts tensor needs to be reordered so that the
+    vertices corresponding to each mesh are grouped together.
+
+    Args:
+        verts_per_mesh: Tensor of shape (N,) giving the number of vertices
+            in each mesh in the batch where N is the batch size.
+        edges_per_mesh: Tensor of shape (N,) giving the number of edges
+            in each mesh in the batch
+
+    Returns:
+        verts_idx: A tensor with vert indices for each mesh ordered sequentially
+            by mesh index.
+    """
+    V = verts_per_mesh.sum()
+    E = edges_per_mesh.sum()
+    verts_per_mesh_cumsum = verts_per_mesh.cumsum(dim=0)
+    edges_per_mesh_cumsum = edges_per_mesh.cumsum(dim=0)
+    v_to_e_idx = verts_per_mesh_cumsum.clone()
+    v_to_e_idx[1:] += edges_per_mesh_cumsum[:-1]
+    v_to_e_offset = V - verts_per_mesh_cumsum
+    v_to_e_offset[1:] += edges_per_mesh_cumsum[:-1]
+    e_to_v_idx = verts_per_mesh_cumsum[:-1] + edges_per_mesh_cumsum[:-1]
+    e_to_v_offset = verts_per_mesh_cumsum[:-1] - edges_per_mesh_cumsum[:-1] - V
+    idx_diffs = torch.ones(V + E, device=device, dtype=torch.int64)
+    idx_diffs[v_to_e_idx] += v_to_e_offset
+    idx_diffs[e_to_v_idx] += e_to_v_offset
+    verts_idx = idx_diffs.cumsum(dim=0) - 1
+    return verts_idx
 
 
 class SubdivideMeshes(nn.Module):
@@ -2148,7 +2148,21 @@ class Fragments(NamedTuple):
     dists: torch.Tensor
 
 
-kMaxFacesPerBin = 22
+class RasterizationSettings:
+    __slots__ = ['image_size', 'blur_radius', 'faces_per_pixel', 'bin_size',
+        'max_faces_per_bin', 'perspective_correct', 'cull_backfaces']
+
+    def __init__(self, image_size: int=256, blur_radius: float=0.0,
+        faces_per_pixel: int=1, bin_size: Optional[int]=None,
+        max_faces_per_bin: Optional[int]=None, perspective_correct: bool=
+        False, cull_backfaces: bool=False):
+        self.image_size = image_size
+        self.blur_radius = blur_radius
+        self.faces_per_pixel = faces_per_pixel
+        self.bin_size = bin_size
+        self.max_faces_per_bin = max_faces_per_bin
+        self.perspective_correct = perspective_correct
+        self.cull_backfaces = cull_backfaces
 
 
 class _RasterizeFaceVerts(torch.autograd.Function):
@@ -2211,6 +2225,9 @@ class _RasterizeFaceVerts(torch.autograd.Function):
             grad_faces_per_pixel, grad_bin_size, grad_max_faces_per_bin,
             grad_perspective_correct, grad_cull_backfaces)
         return grads
+
+
+kMaxFacesPerBin = 22
 
 
 def rasterize_meshes(meshes, image_size: int=256, blur_radius: float=0.0,
@@ -2310,23 +2327,6 @@ def rasterize_meshes(meshes, image_size: int=256, blur_radius: float=0.0,
     return _RasterizeFaceVerts.apply(face_verts, mesh_to_face_first_idx,
         num_faces_per_mesh, image_size, blur_radius, faces_per_pixel,
         bin_size, max_faces_per_bin, perspective_correct, cull_backfaces)
-
-
-class RasterizationSettings:
-    __slots__ = ['image_size', 'blur_radius', 'faces_per_pixel', 'bin_size',
-        'max_faces_per_bin', 'perspective_correct', 'cull_backfaces']
-
-    def __init__(self, image_size: int=256, blur_radius: float=0.0,
-        faces_per_pixel: int=1, bin_size: Optional[int]=None,
-        max_faces_per_bin: Optional[int]=None, perspective_correct: bool=
-        False, cull_backfaces: bool=False):
-        self.image_size = image_size
-        self.blur_radius = blur_radius
-        self.faces_per_pixel = faces_per_pixel
-        self.bin_size = bin_size
-        self.max_faces_per_bin = max_faces_per_bin
-        self.perspective_correct = perspective_correct
-        self.cull_backfaces = cull_backfaces
 
 
 class MeshRasterizer(nn.Module):
@@ -2530,161 +2530,22 @@ class MeshRenderer(nn.Module):
         return images
 
 
-def interpolate_vertex_colors(fragments, meshes) ->torch.Tensor:
-    """
-    Detemine the color for each rasterized face. Interpolate the colors for
-    vertices which form the face using the barycentric coordinates.
-    Args:
-        meshes: A Meshes class representing a batch of meshes.
-        fragments:
-            The outputs of rasterization. From this we use
-
-            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
-              of the faces (in the packed representation) which
-              overlap each pixel in the image.
-            - barycentric_coords: FloatTensor of shape (N, H, W, K, 3) specifying
-              the barycentric coordianates of each pixel
-              relative to the faces (in the packed
-              representation) which overlap the pixel.
-
-    Returns:
-        texels: An texture per pixel of shape (N, H, W, K, C).
-        There will be one C dimensional value for each element in
-        fragments.pix_to_face.
-    """
-    vertex_textures = meshes.textures.verts_rgb_padded().reshape(-1, 3)
-    vertex_textures = vertex_textures[(meshes.verts_padded_to_packed_idx()), :]
-    faces_packed = meshes.faces_packed()
-    faces_textures = vertex_textures[faces_packed]
-    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.
-        bary_coords, faces_textures)
-    return texels
-
-
-def format_tensor(input, dtype=torch.float32, device: str='cpu'
-    ) ->torch.Tensor:
-    """
-    Helper function for converting a scalar value to a tensor.
-
-    Args:
-        input: Python scalar, Python list/tuple, torch scalar, 1D torch tensor
-        dtype: data type for the input
-        device: torch device on which the tensor should be placed.
-
-    Returns:
-        input_vec: torch tensor with optional added batch dimension.
-    """
-    if not torch.is_tensor(input):
-        input = torch.tensor(input, dtype=dtype, device=device)
-    if input.dim() == 0:
-        input = input.view(1)
-    if input.device != device:
-        input = input.to(device=device)
-    return input
-
-
-def convert_to_tensors_and_broadcast(*args, dtype=torch.float32, device:
-    str='cpu'):
-    """
-    Helper function to handle parsing an arbitrary number of inputs (*args)
-    which all need to have the same batch dimension.
-    The output is a list of tensors.
-
-    Args:
-        *args: an arbitrary number of inputs
-            Each of the values in `args` can be one of the following
-                - Python scalar
-                - Torch scalar
-                - Torch tensor of shape (N, K_i) or (1, K_i) where K_i are
-                  an arbitrary number of dimensions which can vary for each
-                  value in args. In this case each input is broadcast to a
-                  tensor of shape (N, K_i)
-        dtype: data type to use when creating new tensors.
-        device: torch device on which the tensors should be placed.
-
-    Output:
-        args: A list of tensors of shape (N, K_i)
-    """
-    args_1d = [format_tensor(c, dtype, device) for c in args]
-    sizes = [c.shape[0] for c in args_1d]
-    N = max(sizes)
-    args_Nd = []
-    for c in args_1d:
-        if c.shape[0] != 1 and c.shape[0] != N:
-            msg = 'Got non-broadcastable sizes %r' % sizes
-            raise ValueError(msg)
-        expand_sizes = (N,) + (-1,) * len(c.shape[1:])
-        args_Nd.append(c.expand(*expand_sizes))
-    if len(args) == 1:
-        args_Nd = args_Nd[0]
-    return args_Nd
+class BlendParams(NamedTuple):
+    sigma: float = 0.0001
+    gamma: float = 0.0001
+    background_color: Sequence = (1.0, 1.0, 1.0)
 
 
 BROADCAST_TYPES = float, int, list, tuple, torch.Tensor, np.ndarray
 
 
-def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
-    zfar: float=100) ->torch.Tensor:
-    """
-    RGB and alpha channel blending to return an RGBA image based on the method
-    proposed in [1]
-      - **RGB** - blend the colors based on the 2D distance based probability map and
-        relative z distances.
-      - **A** - blend based on the 2D distance based probability map.
-
-    Args:
-        colors: (N, H, W, K, 3) RGB color for each of the top K faces per pixel.
-        fragments: namedtuple with outputs of rasterization. We use properties
-            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
-              of the faces (in the packed representation) which
-              overlap each pixel in the image.
-            - dists: FloatTensor of shape (N, H, W, K) specifying
-              the 2D euclidean distance from the center of each pixel
-              to each of the top K overlapping faces.
-            - zbuf: FloatTensor of shape (N, H, W, K) specifying
-              the interpolated depth from each pixel to to each of the
-              top K overlapping faces.
-        blend_params: instance of BlendParams dataclass containing properties
-            - sigma: float, parameter which controls the width of the sigmoid
-              function used to calculate the 2D distance based probability.
-              Sigma controls the sharpness of the edges of the shape.
-            - gamma: float, parameter which controls the scaling of the
-              exponential function used to control the opacity of the color.
-            - background_color: (3) element list/tuple/torch.Tensor specifying
-              the RGB values for the background color.
-        znear: float, near clipping plane in the z direction
-        zfar: float, far clipping plane in the z direction
-
-    Returns:
-        RGBA pixel_colors: (N, H, W, 4)
-
-    [0] Shichen Liu et al, 'Soft Rasterizer: A Differentiable Renderer for
-    Image-based 3D Reasoning'
-    """
-    N, H, W, K = fragments.pix_to_face.shape
-    device = fragments.pix_to_face.device
-    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=
-        colors.device)
-    background = blend_params.background_color
-    if not torch.is_tensor(background):
-        background = torch.tensor(background, dtype=torch.float32, device=
-            device)
-    delta = np.exp(1e-10 / blend_params.gamma) * 1e-10
-    delta = torch.tensor(delta, device=device)
-    mask = fragments.pix_to_face >= 0
-    prob_map = torch.sigmoid(-fragments.dists / blend_params.sigma) * mask
-    alpha = torch.prod(1.0 - prob_map, dim=-1)
-    z_inv = (zfar - fragments.zbuf) / (zfar - znear) * mask
-    z_inv_max = torch.max(z_inv, dim=-1).values[..., None]
-    weights_num = prob_map * torch.exp((z_inv - z_inv_max) / blend_params.gamma
-        )
-    denom = weights_num.sum(dim=-1)[..., None] + delta
-    weights = weights_num / denom
-    weighted_colors = (weights[..., None] * colors).sum(dim=-2)
-    weighted_background = delta / denom * background
-    pixel_colors[(...), :3] = weighted_colors + weighted_background
-    pixel_colors[..., 3] = 1.0 - alpha
-    return pixel_colors
+def _validate_light_properties(obj):
+    props = 'ambient_color', 'diffuse_color', 'specular_color'
+    for n in props:
+        t = getattr(obj, n)
+        if t.shape[-1] != 3:
+            msg = 'Expected %s to have shape (N, 3); got %r'
+            raise ValueError(msg % (n, t.shape))
 
 
 def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[
@@ -2782,12 +2643,6 @@ def hard_rgb_blend(colors, fragments, blend_params) ->torch.Tensor:
     return torch.cat([pixel_colors, alpha], dim=-1)
 
 
-class BlendParams(NamedTuple):
-    sigma: float = 0.0001
-    gamma: float = 0.0001
-    background_color: Sequence = (1.0, 1.0, 1.0)
-
-
 class HardGouraudShader(nn.Module):
     """
     Per vertex lighting - the lighting model is applied to the vertex colors and
@@ -2830,6 +2685,70 @@ class HardGouraudShader(nn.Module):
         return images
 
 
+def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
+    zfar: float=100) ->torch.Tensor:
+    """
+    RGB and alpha channel blending to return an RGBA image based on the method
+    proposed in [1]
+      - **RGB** - blend the colors based on the 2D distance based probability map and
+        relative z distances.
+      - **A** - blend based on the 2D distance based probability map.
+
+    Args:
+        colors: (N, H, W, K, 3) RGB color for each of the top K faces per pixel.
+        fragments: namedtuple with outputs of rasterization. We use properties
+            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
+              of the faces (in the packed representation) which
+              overlap each pixel in the image.
+            - dists: FloatTensor of shape (N, H, W, K) specifying
+              the 2D euclidean distance from the center of each pixel
+              to each of the top K overlapping faces.
+            - zbuf: FloatTensor of shape (N, H, W, K) specifying
+              the interpolated depth from each pixel to to each of the
+              top K overlapping faces.
+        blend_params: instance of BlendParams dataclass containing properties
+            - sigma: float, parameter which controls the width of the sigmoid
+              function used to calculate the 2D distance based probability.
+              Sigma controls the sharpness of the edges of the shape.
+            - gamma: float, parameter which controls the scaling of the
+              exponential function used to control the opacity of the color.
+            - background_color: (3) element list/tuple/torch.Tensor specifying
+              the RGB values for the background color.
+        znear: float, near clipping plane in the z direction
+        zfar: float, far clipping plane in the z direction
+
+    Returns:
+        RGBA pixel_colors: (N, H, W, 4)
+
+    [0] Shichen Liu et al, 'Soft Rasterizer: A Differentiable Renderer for
+    Image-based 3D Reasoning'
+    """
+    N, H, W, K = fragments.pix_to_face.shape
+    device = fragments.pix_to_face.device
+    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=
+        colors.device)
+    background = blend_params.background_color
+    if not torch.is_tensor(background):
+        background = torch.tensor(background, dtype=torch.float32, device=
+            device)
+    delta = np.exp(1e-10 / blend_params.gamma) * 1e-10
+    delta = torch.tensor(delta, device=device)
+    mask = fragments.pix_to_face >= 0
+    prob_map = torch.sigmoid(-fragments.dists / blend_params.sigma) * mask
+    alpha = torch.prod(1.0 - prob_map, dim=-1)
+    z_inv = (zfar - fragments.zbuf) / (zfar - znear) * mask
+    z_inv_max = torch.max(z_inv, dim=-1).values[..., None]
+    weights_num = prob_map * torch.exp((z_inv - z_inv_max) / blend_params.gamma
+        )
+    denom = weights_num.sum(dim=-1)[..., None] + delta
+    weights = weights_num / denom
+    weighted_colors = (weights[..., None] * colors).sum(dim=-2)
+    weighted_background = delta / denom * background
+    pixel_colors[(...), :3] = weighted_colors + weighted_background
+    pixel_colors[..., 3] = 1.0 - alpha
+    return pixel_colors
+
+
 class SoftGouraudShader(nn.Module):
     """
     Per vertex lighting - the lighting model is applied to the vertex colors and
@@ -2869,41 +2788,6 @@ class SoftGouraudShader(nn.Module):
             lights=lights, cameras=cameras, materials=materials)
         images = softmax_rgb_blend(pixel_colors, fragments, self.blend_params)
         return images
-
-
-def phong_shading(meshes, fragments, lights, cameras, materials, texels
-    ) ->torch.Tensor:
-    """
-    Apply per pixel shading. First interpolate the vertex normals and
-    vertex coordinates using the barycentric coordinates to get the position
-    and normal at each pixel. Then compute the illumination for each pixel.
-    The pixel color is obtained by multiplying the pixel textures by the ambient
-    and diffuse illumination and adding the specular component.
-
-    Args:
-        meshes: Batch of meshes
-        fragments: Fragments named tuple with the outputs of rasterization
-        lights: Lights class containing a batch of lights
-        cameras: Cameras class containing a batch of cameras
-        materials: Materials class containing a batch of material properties
-        texels: texture per pixel of shape (N, H, W, K, 3)
-
-    Returns:
-        colors: (N, H, W, K, 3)
-    """
-    verts = meshes.verts_packed()
-    faces = meshes.faces_packed()
-    vertex_normals = meshes.verts_normals_packed()
-    faces_verts = verts[faces]
-    faces_normals = vertex_normals[faces]
-    pixel_coords = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_verts)
-    pixel_normals = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_normals)
-    ambient, diffuse, specular = _apply_lighting(pixel_coords,
-        pixel_normals, lights, cameras, materials)
-    colors = (ambient + diffuse) * texels + specular
-    return colors
 
 
 def interpolate_texture_map(fragments, meshes) ->torch.Tensor:
@@ -2954,6 +2838,41 @@ def interpolate_texture_map(fragments, meshes) ->torch.Tensor:
     texels = F.grid_sample(texture_maps, pixel_uvs, align_corners=False)
     texels = texels.reshape(N, K, C, H_out, W_out).permute(0, 3, 4, 1, 2)
     return texels
+
+
+def phong_shading(meshes, fragments, lights, cameras, materials, texels
+    ) ->torch.Tensor:
+    """
+    Apply per pixel shading. First interpolate the vertex normals and
+    vertex coordinates using the barycentric coordinates to get the position
+    and normal at each pixel. Then compute the illumination for each pixel.
+    The pixel color is obtained by multiplying the pixel textures by the ambient
+    and diffuse illumination and adding the specular component.
+
+    Args:
+        meshes: Batch of meshes
+        fragments: Fragments named tuple with the outputs of rasterization
+        lights: Lights class containing a batch of lights
+        cameras: Cameras class containing a batch of cameras
+        materials: Materials class containing a batch of material properties
+        texels: texture per pixel of shape (N, H, W, K, 3)
+
+    Returns:
+        colors: (N, H, W, K, 3)
+    """
+    verts = meshes.verts_packed()
+    faces = meshes.faces_packed()
+    vertex_normals = meshes.verts_normals_packed()
+    faces_verts = verts[faces]
+    faces_normals = vertex_normals[faces]
+    pixel_coords = interpolate_face_attributes(fragments.pix_to_face,
+        fragments.bary_coords, faces_verts)
+    pixel_normals = interpolate_face_attributes(fragments.pix_to_face,
+        fragments.bary_coords, faces_normals)
+    ambient, diffuse, specular = _apply_lighting(pixel_coords,
+        pixel_normals, lights, cameras, materials)
+    colors = (ambient + diffuse) * texels + specular
+    return colors
 
 
 class TexturedSoftPhongShader(nn.Module):
@@ -3038,6 +2957,37 @@ def flat_shading(meshes, fragments, lights, cameras, materials, texels
         pixel_normals, lights, cameras, materials)
     colors = (ambient + diffuse) * texels + specular
     return colors
+
+
+def interpolate_vertex_colors(fragments, meshes) ->torch.Tensor:
+    """
+    Detemine the color for each rasterized face. Interpolate the colors for
+    vertices which form the face using the barycentric coordinates.
+    Args:
+        meshes: A Meshes class representing a batch of meshes.
+        fragments:
+            The outputs of rasterization. From this we use
+
+            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
+              of the faces (in the packed representation) which
+              overlap each pixel in the image.
+            - barycentric_coords: FloatTensor of shape (N, H, W, K, 3) specifying
+              the barycentric coordianates of each pixel
+              relative to the faces (in the packed
+              representation) which overlap the pixel.
+
+    Returns:
+        texels: An texture per pixel of shape (N, H, W, K, C).
+        There will be one C dimensional value for each element in
+        fragments.pix_to_face.
+    """
+    vertex_textures = meshes.textures.verts_rgb_padded().reshape(-1, 3)
+    vertex_textures = vertex_textures[(meshes.verts_padded_to_packed_idx()), :]
+    faces_packed = meshes.faces_packed()
+    faces_textures = vertex_textures[faces_packed]
+    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.
+        bary_coords, faces_textures)
+    return texels
 
 
 class HardFlatShader(nn.Module):
@@ -3357,59 +3307,29 @@ class PointsRasterizationSettings:
         self.max_points_per_bin = max_points_per_bin
 
 
-def _check_valid_rotation_matrix(R, tol: float=1e-07):
+def _axis_angle_rotation(axis: str, angle):
     """
-    Determine if R is a valid rotation matrix by checking it satisfies the
-    following conditions:
-
-    ``RR^T = I and det(R) = 1``
+    Return the rotation matrices for one of the rotations about an axis
+    of which Euler angles describe, for each value of the angle given.
 
     Args:
-        R: an (N, 3, 3) matrix
+        axis: Axis label "X" or "Y or "Z".
+        angle: any shape tensor of Euler angles in radians
 
     Returns:
-        None
-
-    Emits a warning if R is an invalid rotation matrix.
+        Rotation matrices as tensor of shape (..., 3, 3).
     """
-    N = R.shape[0]
-    eye = torch.eye(3, dtype=R.dtype, device=R.device)
-    eye = eye.view(1, 3, 3).expand(N, -1, -1)
-    orthogonal = torch.allclose(R.bmm(R.transpose(1, 2)), eye, atol=tol)
-    det_R = torch.det(R)
-    no_distortion = torch.allclose(det_R, torch.ones_like(det_R))
-    if not (orthogonal and no_distortion):
-        msg = 'R is not a valid rotation matrix'
-        warnings.warn(msg)
-    return
-
-
-def _broadcast_bmm(a, b):
-    """
-    Batch multiply two matrices and broadcast if necessary.
-
-    Args:
-        a: torch tensor of shape (P, K) or (M, P, K)
-        b: torch tensor of shape (N, K, K)
-
-    Returns:
-        a and b broadcast multipled. The output batch dimension is max(N, M).
-
-    To broadcast transforms across a batch dimension if M != N then
-    expect that either M = 1 or N = 1. The tensor with batch dimension 1 is
-    expanded to have shape N or M.
-    """
-    if a.dim() == 2:
-        a = a[None]
-    if len(a) != len(b):
-        if not (len(a) == 1 or len(b) == 1):
-            msg = 'Expected batch dim for bmm to be equal or 1; got %r, %r'
-            raise ValueError(msg % (a.shape, b.shape))
-        if len(a) == 1:
-            a = a.expand(len(b), -1, -1)
-        if len(b) == 1:
-            b = b.expand(len(a), -1, -1)
-    return a.bmm(b)
+    cos = torch.cos(angle)
+    sin = torch.sin(angle)
+    one = torch.ones_like(angle)
+    zero = torch.zeros_like(angle)
+    if axis == 'X':
+        R_flat = one, zero, zero, zero, cos, -sin, zero, sin, cos
+    if axis == 'Y':
+        R_flat = cos, zero, sin, zero, one, zero, -sin, zero, cos
+    if axis == 'Z':
+        R_flat = cos, -sin, zero, sin, cos, zero, zero, zero, one
+    return torch.stack(R_flat, -1).reshape(angle.shape + (3, 3))
 
 
 def _handle_coord(c, dtype, device):
@@ -3444,31 +3364,6 @@ def _handle_angle_input(x, dtype, device: str, name: str):
         raise ValueError(msg % (x.shape, name))
     else:
         return _handle_coord(x, dtype, device)
-
-
-def _axis_angle_rotation(axis: str, angle):
-    """
-    Return the rotation matrices for one of the rotations about an axis
-    of which Euler angles describe, for each value of the angle given.
-
-    Args:
-        axis: Axis label "X" or "Y or "Z".
-        angle: any shape tensor of Euler angles in radians
-
-    Returns:
-        Rotation matrices as tensor of shape (..., 3, 3).
-    """
-    cos = torch.cos(angle)
-    sin = torch.sin(angle)
-    one = torch.ones_like(angle)
-    zero = torch.zeros_like(angle)
-    if axis == 'X':
-        R_flat = one, zero, zero, zero, cos, -sin, zero, sin, cos
-    if axis == 'Y':
-        R_flat = cos, zero, sin, zero, one, zero, -sin, zero, cos
-    if axis == 'Z':
-        R_flat = cos, -sin, zero, sin, cos, zero, zero, zero, one
-    return torch.stack(R_flat, -1).reshape(angle.shape + (3, 3))
 
 
 class PointsRenderer(nn.Module):

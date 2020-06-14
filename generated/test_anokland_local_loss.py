@@ -127,6 +127,21 @@ def similarity_matrix(x):
     return R
 
 
+_global_config['nonlin'] = 4
+
+
+_global_config['backprop'] = 4
+
+
+_global_config['momentum'] = 4
+
+
+_global_config['no_print_stats'] = 4
+
+
+_global_config['target_proj_size'] = 4
+
+
 class LocalLossBlockLinear(nn.Module):
     """A module containing nn.Linear -> nn.BatchNorm1d -> nn.ReLU -> nn.Dropout
        The block can be trained by backprop or by locally generated error signal based on cross-entropy and/or similarity matching loss.
@@ -533,13 +548,10 @@ _global_config['pre_act'] = 4
 _global_config['no_detach'] = 4
 
 
-_global_config['momentum'] = 4
+_global_config['optim'] = 4
 
 
 _global_config['weight_decay'] = 4
-
-
-_global_config['optim'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -663,9 +675,6 @@ class Bottleneck(nn.Module):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
         return out, y, y_onehot, loss_total
-
-
-_global_config['backprop'] = 4
 
 
 class ResNet(nn.Module):

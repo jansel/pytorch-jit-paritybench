@@ -63,6 +63,9 @@ import scipy.io as sio
 import random
 
 
+import time
+
+
 import torch.nn.parallel
 
 
@@ -116,6 +119,27 @@ class cross_entropy2d(nn.Module):
 
 
 dilation = {'16': 1, '8': 2}
+
+
+mom_bn = 0.01
+
+
+def prediction_stat(outputs, labels, n_classes):
+    lbl = labels.data
+    valid = lbl < n_classes
+    classwise_pixel_acc = []
+    classwise_gtpixels = []
+    classwise_predpixels = []
+    for output in outputs:
+        _, pred = output.data.max(dim=1)
+        for m in range(n_classes):
+            mask1 = lbl == m
+            mask2 = pred[valid] == m
+            diff = pred[mask1] - lbl[mask1]
+            classwise_pixel_acc += [torch.sum(diff == 0)]
+            classwise_gtpixels += [torch.sum(mask1)]
+            classwise_predpixels += [torch.sum(mask2)]
+    return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
 
 
 checkpoint = 'pretrained/SUNets'
@@ -348,25 +372,9 @@ def stackedunet64(output_stride='32'):
         64, num_classes=1000, depth=4, ost=output_stride)
 
 
-def prediction_stat(outputs, labels, n_classes):
-    lbl = labels.data
-    valid = lbl < n_classes
-    classwise_pixel_acc = []
-    classwise_gtpixels = []
-    classwise_predpixels = []
-    for output in outputs:
-        _, pred = output.data.max(dim=1)
-        for m in range(n_classes):
-            mask1 = lbl == m
-            mask2 = pred[valid] == m
-            diff = pred[mask1] - lbl[mask1]
-            classwise_pixel_acc += [torch.sum(diff == 0)]
-            classwise_gtpixels += [torch.sum(mask1)]
-            classwise_predpixels += [torch.sum(mask2)]
-    return classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
-
-
-mom_bn = 0.01
+def stackedunet128(output_stride='32'):
+    return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
+        128, num_classes=1000, depth=4, ost=output_stride)
 
 
 def stackedunet7128(output_stride='32'):
@@ -430,3 +438,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_shahsohil_sunets(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4, 'dprob': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(UNetConv(*[], **{'in_planes': 4, 'out_planes': 4, 'dprob': 0.5, 'mod_in_planes': 4, 'is_input_bn': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(UNetDeConv(*[], **{'in_planes': 4, 'out_planes': 4, 'dprob': 0.5, 'mod_in_planes': 4, 'max_planes': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(UNetModule(*[], **{'in_planes': 4, 'nblock': 1, 'filter_size': 4, 'dprob': 0.5, 'in_dim': 4, 'index': 4, 'max_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

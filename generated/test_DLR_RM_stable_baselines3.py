@@ -130,6 +130,9 @@ import numpy as np
 from functools import partial
 
 
+import time
+
+
 def get_device(device: Union[th.device, str]='auto') ->th.device:
     """
     Retrieve PyTorch device.

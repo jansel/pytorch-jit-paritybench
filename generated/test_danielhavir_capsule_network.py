@@ -35,6 +35,9 @@ from numpy import prod
 import torch.optim as optim
 
 
+from time import time
+
+
 def squash(s, dim=-1):
     """
 	"Squashing" non-linearity that shrunks short vectors to almost zero length and long vectors to a length slightly below 1

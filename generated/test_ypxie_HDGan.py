@@ -95,6 +95,9 @@ from torch.nn import Parameter
 from torch.nn.utils import clip_grad_norm
 
 
+import time
+
+
 import functools
 
 
@@ -312,6 +315,13 @@ class Sent2FeatMap(nn.Module):
         return output
 
 
+def branch_out(in_dim, out_dim=3):
+    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
+        kernel_size=3, padding=0, bias=False)]
+    _layers += [nn.Tanh()]
+    return nn.Sequential(*_layers)
+
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -320,13 +330,6 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
-
-
-def branch_out(in_dim, out_dim=3):
-    _layers = [nn.ReflectionPad2d(1), nn.Conv2d(in_dim, out_dim,
-        kernel_size=3, padding=0, bias=False)]
-    _layers += [nn.Tanh()]
-    return nn.Sequential(*_layers)
 
 
 class Generator(nn.Module):

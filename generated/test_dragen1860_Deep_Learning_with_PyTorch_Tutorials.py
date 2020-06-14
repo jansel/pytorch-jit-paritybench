@@ -84,6 +84,9 @@ import random
 import math
 
 
+import time
+
+
 class Net(nn.Module):
 
     def __init__(self):
@@ -406,10 +409,10 @@ class ResNet18(nn.Module):
         return x
 
 
-input_size = 1
-
-
 hidden_size = 16
+
+
+input_size = 1
 
 
 output_size = 1

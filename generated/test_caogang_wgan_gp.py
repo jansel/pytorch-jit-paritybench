@@ -34,6 +34,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import numpy as np
 
 
@@ -124,13 +127,16 @@ class ResBlock(nn.Module):
         return input + 0.3 * output
 
 
+BATCH_SIZE = 256
+
+
 SEQ_LEN = 32
 
 
-MAX_N_EXAMPLES = 10000000
-
-
 DATA_DIR = './data_language'
+
+
+MAX_N_EXAMPLES = 10000000
 
 
 class Discriminator(nn.Module):

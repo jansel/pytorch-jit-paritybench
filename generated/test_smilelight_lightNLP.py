@@ -177,9 +177,6 @@ from torch.nn.utils import clip_grad_norm_
 from typing import List
 
 
-FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
-
-
 LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
     'ERROR': 'red', 'CRITICAL': 'red,bg_white'}
 
@@ -218,16 +215,19 @@ class ColoredFormatter(logging.Formatter):
         return message
 
 
+FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+FILE_LOG_FMT = (
+    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
+    )
+
+
 STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
 STDOUT_LOG_FMT = (
     '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
-    )
-
-
-FILE_LOG_FMT = (
-    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
     )
 
 
@@ -519,6 +519,88 @@ class AttachmentMethod(Metric):
         return self.correct_rels / (self.total + self.eps)
 
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+class BiaffineParser(BaseModel):
+
+    def __init__(self, args):
+        super(BiaffineParser, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.lstm_hidden
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.lstm_layters = args.lstm_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        word_dim = args.word_dim
+        pos_num = args.pos_num
+        pos_dim = args.pos_dim
+        self.word_embedding = nn.Embedding(vocabulary_size, word_dim).to(DEVICE
+            )
+        vectors = Vectors(args.vector_path).vectors
+        self.pretrained_embedding = nn.Embedding.from_pretrained(vectors).to(
+            DEVICE)
+        self.pos_embedding = nn.Embedding(pos_num, pos_dim).to(DEVICE)
+        self.embed_dropout = IndependentDropout(p=args.embed_dropout).to(DEVICE
+            )
+        self.lstm = LSTM(word_dim + pos_dim, self.hidden_dim, bidirectional
+            =self.bidirectional, num_layers=self.lstm_layters, dropout=args
+            .lstm_dropout).to(DEVICE)
+        self.lstm_dropout = SharedDropout(p=args.lstm_dropout).to(DEVICE)
+        self.mlp_arc_h = MLP(n_in=args.lstm_hidden * 2, n_hidden=args.
+            mlp_arc, dropout=args.mlp_dropout).to(DEVICE)
+        self.mlp_arc_d = MLP(n_in=args.lstm_hidden * 2, n_hidden=args.
+            mlp_arc, dropout=args.mlp_dropout).to(DEVICE)
+        self.mlp_rel_h = MLP(n_in=args.lstm_hidden * 2, n_hidden=args.
+            mlp_rel, dropout=args.mlp_dropout).to(DEVICE)
+        self.mlp_rel_d = MLP(n_in=args.lstm_hidden * 2, n_hidden=args.
+            mlp_rel, dropout=args.mlp_dropout).to(DEVICE)
+        self.arc_attn = Biaffine(n_in=args.mlp_arc, bias_x=True, bias_y=False
+            ).to(DEVICE)
+        self.rel_attn = Biaffine(n_in=args.mlp_rel, n_out=args.ref_num,
+            bias_x=True, bias_y=True).to(DEVICE)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.zeros_(self.word_embedding.weight)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def forward(self, words, tags):
+        mask = words.ne(self.pad_index)
+        lens = mask.sum(dim=1)
+        embed = self.pretrained_embedding(words)
+        embed += self.word_embedding(words.masked_fill_(words.ge(self.
+            word_embedding.num_embeddings), 0))
+        tag_embed = self.pos_embedding(tags)
+        embed, tag_embed = self.embed_dropout(embed, tag_embed)
+        x = torch.cat((embed, tag_embed), dim=-1)
+        sorted_lens, indices = torch.sort(lens, descending=True)
+        inverse_indices = indices.argsort()
+        x = pack_padded_sequence(x[indices], sorted_lens, True)
+        x = self.lstm(x)
+        x, _ = pad_packed_sequence(x, True)
+        x = self.lstm_dropout(x)[inverse_indices]
+        arc_h = self.mlp_arc_h(x)
+        arc_d = self.mlp_arc_d(x)
+        rel_h = self.mlp_rel_h(x)
+        rel_d = self.mlp_rel_d(x)
+        s_arc = self.arc_attn(arc_d, arc_h)
+        s_rel = self.rel_attn(rel_d, rel_h).permute(0, 2, 3, 1)
+        s_arc.masked_fill_((1 - mask).unsqueeze(1), float('-inf'))
+        return s_arc, s_rel
+
+
 DEFAULT_CONFIG = {'save_path': './saves'}
 
 
@@ -561,11 +643,116 @@ class Config(BaseConfig):
             setattr(self, name, value)
 
 
-ROOT = '<ROOT>'
+class BiLstmCrf(BaseModel):
+
+    def __init__(self, args):
+        super(BiLstmCrf, self).__init__(args)
+        self.args = args
+        self.hidden_dim = 300
+        self.tag_num = args.tag_num
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.num_layers = args.num_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        pos_size = args.pos_size
+        pos_dim = args.pos_dim
+        self.word_embedding = nn.Embedding(vocabulary_size, embedding_dimension
+            ).to(DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.word_embedding = nn.Embedding.from_pretrained(vectors,
+                freeze=not args.non_static).to(DEVICE)
+        self.pos_embedding = nn.Embedding(pos_size, pos_dim).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension + pos_dim + 1, self.
+            hidden_dim // 2, bidirectional=self.bidirectional, num_layers=
+            self.num_layers, dropout=self.dropout).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
+        self.crflayer = CRF(self.tag_num).to(DEVICE)
+
+    def init_weight(self):
+        nn.init.xavier_normal_(self.embedding.weight)
+        for name, param in self.lstm.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_normal_(param)
+        nn.init.xavier_normal_(self.hidden2label.weight)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def loss(self, x, sent_lengths, pos, rel, y):
+        mask = torch.ne(x, self.pad_index)
+        emissions = self.lstm_forward(x, pos, rel, sent_lengths)
+        return self.crflayer(emissions, y, mask=mask)
+
+    def forward(self, x, poses, rels, sent_lengths):
+        mask = torch.ne(x, self.pad_index)
+        emissions = self.lstm_forward(x, poses, rels, sent_lengths)
+        return self.crflayer.decode(emissions, mask=mask)
+
+    def lstm_forward(self, sentence, poses, rels, sent_lengths):
+        word = self.word_embedding(sentence.to(DEVICE)).to(DEVICE)
+        pos = self.pos_embedding(poses.to(DEVICE)).to(DEVICE)
+        rels = rels.view(rels.size(0), rels.size(1), 1).float().to(DEVICE)
+        x = torch.cat((word, pos, rels), dim=2)
+        x = pack_padded_sequence(x, sent_lengths)
+        self.hidden = self.init_hidden(batch_size=len(sent_lengths))
+        lstm_out, self.hidden = self.lstm(x, self.hidden)
+        lstm_out, new_batch_size = pad_packed_sequence(lstm_out)
+        assert torch.equal(sent_lengths, new_batch_size.to(DEVICE))
+        y = self.hidden2label(lstm_out.to(DEVICE))
+        return y.to(DEVICE)
 
 
-def post_process(arr, _):
-    return [[int(item) for item in arr_item] for arr_item in arr]
+def adjust_learning_rate(optimizer, new_lr):
+    """
+    Shrinks learning rate by a specified factor.
+
+    :param optimizer: optimizer whose learning rates must be decayed
+    :param new_lr: new learning rate
+    """
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+
+
+def bis_pos(words, tags):
+    assert len(words) == len(tags)
+    poses = []
+    for i, tag in enumerate(tags):
+        if tag.split('-')[0] in ['B', 'S']:
+            begin = i
+            temp_type = tag.split('-')[1]
+        if i == len(tags) - 1:
+            poses.append((''.join(words[begin:i + 1]), temp_type))
+        elif tags[i + 1].split('-')[0] != 'I' or tags[i + 1].split('-')[1
+            ] != temp_type:
+            poses.append((''.join(words[begin:i + 1]), temp_type))
+            begin = i + 1
+            temp_type = tags[i + 1].split('-')[1]
+    return poses
+
+
+def get_free_tcp_port():
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(('', 0))
+    addr, port = tcp.getsockname()
+    tcp.close()
+    return port
+
+
+def light_tokenize(sequence: str):
+    return [sequence]
 
 
 class Actions:
@@ -575,9 +762,6 @@ class Actions:
     REDUCE_R = 2
     NUM_ACTIONS = 3
     action_to_ix = {'SHIFT': SHIFT, 'REDUCE_L': REDUCE_L, 'REDUCE_R': REDUCE_R}
-
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class ActionChooserNetwork(nn.Module):
@@ -706,27 +890,62 @@ class BiLSTMWordEmbeddingLookup(nn.Module):
         self.hidden = self.init_hidden()
 
 
-def adjust_learning_rate(optimizer, new_lr):
-    """
-    Shrinks learning rate by a specified factor.
-
-    :param optimizer: optimizer whose learning rates must be decayed
-    :param new_lr: new learning rate
-    """
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
-
-
-def light_tokenize(sequence: str):
+def action_tokenize(sequence: str):
     return [sequence]
 
 
-def get_free_tcp_port():
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind(('', 0))
-    addr, port = tcp.getsockname()
-    tcp.close()
-    return port
+class SharedLSTM(BaseModel):
+
+    def __init__(self, args):
+        super(SharedLSTM, self).__init__(args)
+        self.args = args
+        self.hidden_dim = 300
+        self.class_num = args.class_num
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.num_layers = args.num_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        self.embedding = nn.Embedding(vocabulary_size, embedding_dimension).to(
+            DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.embedding = self.embedding.from_pretrained(vectors, freeze
+                =not args.non_static).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension, self.hidden_dim // 2,
+            bidirectional=self.bidirectional, num_layers=self.num_layers,
+            dropout=self.dropout).to(DEVICE)
+        self.dropout_layer = nn.Dropout(self.dropout).to(DEVICE)
+        self.batch_norm = nn.BatchNorm1d(self.hidden_dim * 2).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim * 2, self.class_num).to(
+            DEVICE)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def forward(self, left, right):
+        left_vec = self.embedding(left.to(DEVICE)).to(DEVICE)
+        right_vec = self.embedding(right.to(DEVICE)).to(DEVICE)
+        self.hidden = self.init_hidden(batch_size=left.size(1))
+        left_lstm_out, (left_lstm_hidden, _) = self.lstm(left_vec, self.hidden)
+        right_lstm_out, (right_lstm_hidden, _) = self.lstm(right_vec, self.
+            hidden)
+        merged = torch.cat((left_lstm_out[-1], right_lstm_out[-1]), dim=1)
+        merged = self.dropout_layer(merged)
+        merged = self.batch_norm(merged)
+        predict = self.hidden2label(merged)
+        return predict
 
 
 class TextCNN(BaseModel):
@@ -808,6 +1027,14 @@ class REDataset(Dataset):
                 examples.append(Example.fromlist((sentence_list, relation),
                     fields))
         super(REDataset, self).__init__(examples, fields, **kwargs)
+
+
+def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
+    padded_seq = sequence[:]
+    if len(padded_seq) < seq_length:
+        padded_seq.extend([pad_token for _ in range(len(padded_seq),
+            seq_length)])
+    return padded_seq[:seq_length]
 
 
 class Attention(nn.Module):
@@ -956,6 +1183,19 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
+class CBConfig(BaseConfig):
+
+    def __init__(self, word_vocab, vector_path, **kwargs):
+        super(CBConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        self.vector_path = vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
 class CBSeq2Seq(BaseModel):
 
     def __init__(self, args):
@@ -982,6 +1222,19 @@ class CBSeq2Seq(BaseModel):
 
     def predict(self, src, src_lens, sos, max_len):
         return self.seq2seq.predict(src, src_lens, sos, max_len)
+
+
+class LMConfig(BaseConfig):
+
+    def __init__(self, word_vocab, vector_path, **kwargs):
+        super(LMConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        self.vector_path = vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
 
 
 class RNNLM(BaseModel):
@@ -1183,6 +1436,55 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
+class MTConfig(BaseConfig):
+
+    def __init__(self, source_word_vocab, target_word_vocab,
+        source_vector_path, target_vector_path, **kwargs):
+        super(MTConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.source_word_vocab = source_word_vocab
+        self.source_vocabulary_size = len(self.source_word_vocab)
+        self.source_vector_path = source_vector_path
+        self.target_word_vocab = target_word_vocab
+        self.target_vocabulary_size = len(self.target_word_vocab)
+        self.target_vector_path = target_vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
+class MTSeq2Seq(BaseModel):
+
+    def __init__(self, args):
+        super(MTSeq2Seq, self).__init__(args)
+        self.args = args
+        self.hidden_dim = args.hidden_dim
+        self.source_embedding_dim = args.source_embedding_dim
+        self.target_embedding_dim = args.target_embedding_dim
+        self.source_vector_path = args.source_vector_path
+        self.target_vector_path = args.target_vector_path
+        self.source_vocabulary_size = args.source_vocabulary_size
+        self.target_vocabulary_size = args.target_vocabulary_size
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        self.num_layers = args.num_layers
+        self.dropout = args.dropout
+        self.teacher_forcing_ratio = args.teacher_forcing_ratio
+        encoder = Encoder(self.source_vocabulary_size, self.
+            source_embedding_dim, self.hidden_dim, self.num_layers, self.
+            dropout).to(DEVICE)
+        decoder = Decoder(self.hidden_dim, self.target_embedding_dim, self.
+            target_vocabulary_size, self.num_layers, self.dropout, args.method
+            ).to(DEVICE)
+        self.seq2seq = Seq2Seq(encoder, decoder).to(DEVICE)
+
+    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        return self.seq2seq(src, trg, teacher_forcing_ratio)
+
+    def predict(self, src, src_lens, sos, max_len):
+        return self.seq2seq.predict(src, src_lens, sos, max_len)
+
+
 def eng_tokenize(text):
     return nltk.word_tokenize(text)
 
@@ -1333,6 +1635,19 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
+class TSConfig(BaseConfig):
+
+    def __init__(self, word_vocab, vector_path, **kwargs):
+        super(TSConfig, self).__init__()
+        for name, value in DEFAULT_CONFIG.items():
+            setattr(self, name, value)
+        self.word_vocab = word_vocab
+        self.vocabulary_size = len(self.word_vocab)
+        self.vector_path = vector_path
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+
 class TSSeq2Seq(BaseModel):
 
     def __init__(self, args):
@@ -1361,26 +1676,56 @@ class TSSeq2Seq(BaseModel):
         return self.seq2seq.predict(src, src_lens, sos, max_len)
 
 
+class CBOWBase(BaseModel):
+
+    def __init__(self, args):
+        super(CBOWBase, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
+            ).to(DEVICE)
+
+    def forward(self, context):
+        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
+        target_embedding = self.linear(context_embedding)
+        return target_embedding
+
+    def loss(self, context, target):
+        context_embedding = torch.sum(self.word_embeddings(context), dim=1)
+        target_embedding = self.linear(context_embedding)
+        return F.cross_entropy(target_embedding, target.view(-1))
+
+
+ROOT = '<ROOT>'
+
+
+class SkipGramBase(BaseModel):
+
+    def __init__(self, args):
+        super(SkipGramBase, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.linear = nn.Linear(self.embedding_dimension, self.vocabulary_size
+            ).to(DEVICE)
+
+    def forward(self, target):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.linear(target_embedding).squeeze()
+        return context_embedding
+
+    def loss(self, target, context):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.linear(target_embedding).reshape(
+            target_embedding.size(0), -1)
+        return F.cross_entropy(context_embedding, context.view(-1))
+
+
 def default_tokenize(sentence):
     return list(jieba.cut(sentence))
-
-
-class CBOWDataset(Dataset):
-
-    def __init__(self, path, fields, window_size=3, tokenize=
-        default_tokenize, encoding='utf-8', **kwargs):
-        examples = []
-        with open(path, 'r', encoding=encoding) as f:
-            for line in f:
-                words = tokenize(line.strip())
-                if len(words) < window_size + 1:
-                    continue
-                for i in range(len(words)):
-                    example = words[max(0, i - window_size):i] + words[min(
-                        i + 1, len(words)):min(len(words), i + window_size) + 1
-                        ], words[i]
-                    examples.append(Example.fromlist(example, fields))
-        super(CBOWDataset, self).__init__(examples, fields, **kwargs)
 
 
 class SkipGramDataset(Dataset):
@@ -1401,37 +1746,6 @@ class SkipGramDataset(Dataset):
                         examples.append(Example.fromlist((context, words[i]
                             ), fields))
         super(SkipGramDataset, self).__init__(examples, fields, **kwargs)
-
-
-class SkipGramNegativeSampling(BaseModel):
-
-    def __init__(self, args):
-        super(SkipGramNegativeSampling, self).__init__(args)
-        self.vocabulary_size = args.vocabulary_size
-        self.embedding_dimension = args.embedding_dim
-        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
-        self.context_embeddings = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
-
-    def forward(self, target, context):
-        target_embedding = self.word_embeddings(target)
-        context_embedding = self.context_embeddings(context)
-        target_score = torch.matmul(target_embedding, context_embedding.
-            transpose(2, 1)).squeeze()
-        return torch.sigmoid(target_score)
-
-    def loss(self, target, pos, neg):
-        target_embedding = self.word_embeddings(target)
-        pos_embedding = self.context_embeddings(pos)
-        neg_embedding = self.context_embeddings(neg).squeeze()
-        pos_score = torch.matmul(target_embedding, pos_embedding.transpose(
-            2, 1)).squeeze()
-        neg_score = torch.matmul(target_embedding, neg_embedding.transpose(
-            1, 2)).squeeze()
-        pos_score = torch.sum(F.logsigmoid(pos_score), dim=0)
-        neg_score = torch.sum(F.logsigmoid(-1 * neg_score), dim=0)
-        return -1 * (torch.sum(pos_score) + torch.sum(neg_score))
 
 
 import torch

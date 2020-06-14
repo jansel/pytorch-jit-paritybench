@@ -316,18 +316,6 @@ def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3,
     return sequential(pool, pool_tail)
 
 
-def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
-    stride=2, padding=0, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
-    kernel_size = int(mode[0])
-    stride = int(mode[0])
-    mode = mode.replace(mode[0], 'C')
-    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
-        bias, mode)
-    return down1
-
-
 def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
     stride=1, padding=0, bias=True, mode='2R'):
     assert len(mode) < 4 and mode[0] in ['2', '3'
@@ -339,6 +327,18 @@ def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
     pool_tail = conv(in_channels, out_channels, kernel_size, stride,
         padding, bias, mode=mode[1:])
     return sequential(pool, pool_tail)
+
+
+def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
+    stride=2, padding=0, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
+        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
+    kernel_size = int(mode[0])
+    stride = int(mode[0])
+    mode = mode.replace(mode[0], 'C')
+    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
+        bias, mode)
+    return down1
 
 
 class NonLocalBlock2D(nn.Module):
@@ -458,6 +458,13 @@ class ResUNet(nn.Module):
         return x
 
 
+def cdiv(x, y):
+    a, b = x[..., 0], x[..., 1]
+    c, d = y[..., 0], y[..., 1]
+    cd2 = c ** 2 + d ** 2
+    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
+
+
 def cmul(t1, t2):
     """
     complex multiplication
@@ -472,13 +479,6 @@ def cmul(t1, t2):
 
 def csum(x, y):
     return torch.stack([x[..., 0] + y, x[..., 1]], -1)
-
-
-def cdiv(x, y):
-    a, b = x[..., 0], x[..., 1]
-    c, d = y[..., 0], y[..., 1]
-    cd2 = c ** 2 + d ** 2
-    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
 
 
 def splits(a, sf):
@@ -523,6 +523,21 @@ class HyPaNet(nn.Module):
         return x
 
 
+def cabs2(x):
+    return x[..., 0] ** 2 + x[..., 1] ** 2
+
+
+def cconj(t, inplace=False):
+    """
+    # complex's conjugation
+    t: NxCxHxWx2
+    output: NxCxHxWx2
+    """
+    c = t.clone() if not inplace else t
+    c[..., 1] *= -1
+    return c
+
+
 def p2o(psf, shape):
     """
     Args:
@@ -544,6 +559,10 @@ def p2o(psf, shape):
     return otf
 
 
+def r2c(x):
+    return torch.stack([x, torch.zeros_like(x)], -1)
+
+
 def upsample(x, sf=3, center=False):
     """
     x: tensor image, NxCxWxH
@@ -553,25 +572,6 @@ def upsample(x, sf=3, center=False):
         ).type_as(x)
     z[(...), st::sf, st::sf].copy_(x)
     return z
-
-
-def r2c(x):
-    return torch.stack([x, torch.zeros_like(x)], -1)
-
-
-def cabs2(x):
-    return x[..., 0] ** 2 + x[..., 1] ** 2
-
-
-def cconj(t, inplace=False):
-    """
-    # complex's conjugation
-    t: NxCxHxWx2
-    output: NxCxHxWx2
-    """
-    c = t.clone() if not inplace else t
-    c[..., 1] *= -1
-    return c
 
 
 class USRNet(nn.Module):

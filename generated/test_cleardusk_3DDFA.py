@@ -53,6 +53,9 @@ import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
 import numpy as np
 
 
@@ -160,6 +163,30 @@ class MobileNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+def _parse_param_batch(param):
+    """Work for both numpy and tensor"""
+    N = param.shape[0]
+    p_ = param[:, :12].view(N, 3, -1)
+    p = p_[:, :, :3]
+    offset = p_[:, :, (-1)].view(N, 3, 1)
+    alpha_shp = param[:, 12:52].view(N, -1, 1)
+    alpha_exp = param[:, 52:].view(N, -1, 1)
+    return p, offset, alpha_shp, alpha_exp
+
+
+def _tensor_to_cuda(x):
+    if x.is_cuda:
+        return x
+    else:
+        return x.cuda()
+
+
+_numpy_to_cuda = lambda x: _tensor_to_cuda(torch.from_numpy(x))
+
+
+_to_tensor = _numpy_to_cuda
 
 
 def _get_suffix(filename):

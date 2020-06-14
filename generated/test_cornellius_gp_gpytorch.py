@@ -414,6 +414,9 @@ import random
 from torch import optim
 
 
+import time
+
+
 class _DenseLayer(nn.Sequential):
 
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
@@ -682,126 +685,157 @@ class Distance(torch.nn.Module):
         return self._postprocess(res) if postprocess else res
 
 
-def is_in_cache(obj, name):
-    return hasattr(obj, '_memoize_cache') and name in obj._memoize_cache
-
-
-def get_from_cache(obj, name):
-    """Get an item from the cache."""
-    if not is_in_cache(obj, name):
-        raise RuntimeError('Object does not have item {} stored in cache.'.
-            format(name))
-    return obj._memoize_cache[name]
-
-
-def add_to_cache(obj, name, val):
-    """Add a result to the cache of an object."""
-    if not hasattr(obj, '_memoize_cache'):
-        obj._memoize_cache = dict()
-    obj._memoize_cache[name] = val
-    return obj
-
-
-def cached(method=None, name=None):
-    """A decorator allowing for specifying the name of a cache, allowing it to be modified elsewhere."""
-    if method is None:
-        return functools.partial(cached, name=name)
-
-    @functools.wraps(method)
-    def g(self, *args, **kwargs):
-        cache_name = name if name is not None else method
-        if not is_in_cache(self, cache_name):
-            add_to_cache(self, cache_name, method(self, *args, **kwargs))
-        return get_from_cache(self, cache_name)
-    return g
-
-
-class NumericalWarning(RuntimeWarning):
-    """
-    Warning thrown when convergence criteria are not met, or when comptuations require extra stability.
-    """
-    pass
-
-
-def _mul_broadcast_shape(*shapes, error_msg=None):
-    """Compute dimension suggested by multiple tensor indices (supports broadcasting)"""
-    num_dims = max(len(shape) for shape in shapes)
-    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in
-        shapes)
-    final_size = []
-    for size_by_dim in zip(*shapes):
-        non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
-        if len(non_singleton_sizes):
-            if any(size != non_singleton_sizes[0] for size in
-                non_singleton_sizes):
-                if error_msg is None:
-                    raise RuntimeError(
-                        'Shapes are not broadcastable for mul operation')
-                else:
-                    raise RuntimeError(error_msg)
-            final_size.append(non_singleton_sizes[0])
-        else:
-            final_size.append(1)
-    return torch.Size(final_size)
-
-
-_noop_index = slice(None, None, None)
-
-
-def _is_noop_index(index):
-    """
-    Determine if a given index is a noop (e.g. ":")
-    """
-    return isinstance(index, slice) and index == _noop_index
-
-
-class LazyTensorRepresentationTree(object):
-
-    def __init__(self, lazy_tsr):
-        self._cls = lazy_tsr.__class__
-        self._kwargs = lazy_tsr._kwargs
-        counter = 0
-        self.children = []
-        for arg in lazy_tsr._args:
-            if hasattr(arg, 'representation') and callable(arg.representation):
-                representation_size = len(arg.representation())
-                self.children.append((slice(counter, counter +
-                    representation_size, None), arg.representation_tree()))
-                counter += representation_size
-            else:
-                self.children.append((counter, None))
-                counter += 1
-
-    def __call__(self, *flattened_representation):
-        unflattened_representation = []
-        for index, subtree in self.children:
-            if subtree is None:
-                unflattened_representation.append(flattened_representation[
-                    index])
-            else:
-                sub_representation = flattened_representation[index]
-                unflattened_representation.append(subtree(*sub_representation))
-        return self._cls(*unflattened_representation, **self._kwargs)
-
-
-def lanczos_tridiag_to_diag(t_mat):
-    """
-    Given a num_init_vecs x num_batch x k x k tridiagonal matrix t_mat,
-    returns a num_init_vecs x num_batch x k set of eigenvalues
-    and a num_init_vecs x num_batch x k x k set of eigenvectors.
-
-    TODO: make the eigenvalue computations done in batch mode.
-    """
-    orig_device = t_mat.device
-    if t_mat.size(-1) < 32:
-        retr = torch.symeig(t_mat.cpu(), eigenvectors=True)
+def _solve(lazy_tsr, rhs):
+    if settings.fast_computations.solves.off() or lazy_tsr.size(-1
+        ) <= settings.max_cholesky_size.value():
+        return lazy_tsr._cholesky()._cholesky_solve(rhs)
     else:
-        retr = torch.symeig(t_mat, eigenvectors=True)
-    evals, evecs = retr
-    mask = evals.ge(0)
-    evecs = evecs * mask.type_as(evecs).unsqueeze(-2)
-    evals = evals.masked_fill_(~mask, 1)
-    return evals.to(orig_device), evecs.to(orig_device)
+        with torch.no_grad():
+            preconditioner = lazy_tsr.detach()._inv_matmul_preconditioner()
+        return lazy_tsr._solve(rhs, preconditioner)
+
+
+class InvMatmul(Function):
+
+    @staticmethod
+    def forward(ctx, representation_tree, has_left, *args):
+        left_tensor = None
+        right_tensor = None
+        matrix_args = None
+        ctx.representation_tree = representation_tree
+        ctx.has_left = has_left
+        if ctx.has_left:
+            left_tensor, right_tensor, *matrix_args = args
+        else:
+            right_tensor, *matrix_args = args
+        orig_right_tensor = right_tensor
+        lazy_tsr = ctx.representation_tree(*matrix_args)
+        ctx.is_vector = False
+        if right_tensor.ndimension() == 1:
+            right_tensor = right_tensor.unsqueeze(-1)
+            ctx.is_vector = True
+        if ctx.has_left:
+            rhs = torch.cat([left_tensor.transpose(-1, -2), right_tensor], -1)
+            solves = _solve(lazy_tsr, rhs)
+            res = solves[(...), left_tensor.size(-2):]
+            res = left_tensor @ res
+        else:
+            solves = _solve(lazy_tsr, right_tensor)
+            res = solves
+        if ctx.is_vector:
+            res = res.squeeze(-1)
+        if ctx.has_left:
+            args = [solves, left_tensor, orig_right_tensor] + list(matrix_args)
+        else:
+            args = [solves, orig_right_tensor] + list(matrix_args)
+        ctx.save_for_backward(*args)
+        if settings.memory_efficient.off():
+            ctx._lazy_tsr = lazy_tsr
+        return res
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.has_left:
+            solves, left_tensor, right_tensor, *matrix_args = ctx.saved_tensors
+            left_solves = solves[(...), :left_tensor.size(-2)]
+            right_solves = solves[(...), left_tensor.size(-2):]
+        else:
+            right_solves, right_tensor, *matrix_args = ctx.saved_tensors
+        if hasattr(ctx, '_lazy_tsr'):
+            lazy_tsr = ctx._lazy_tsr
+        else:
+            lazy_tsr = ctx.representation_tree(*matrix_args)
+        arg_grads = [None] * len(matrix_args)
+        left_grad = None
+        right_grad = None
+        if any(ctx.needs_input_grad):
+            if ctx.is_vector:
+                right_tensor = right_tensor.unsqueeze(-1)
+                grad_output = grad_output.unsqueeze(-1)
+            if not ctx.has_left:
+                left_solves = InvMatmul.apply(ctx.representation_tree, 
+                    False, grad_output, *matrix_args)
+                if any(ctx.needs_input_grad[3:]):
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
+                        left_solves, right_solves], -1), torch.cat([
+                        right_solves, left_solves], -1).mul(-0.5))
+                if ctx.needs_input_grad[2]:
+                    right_grad = left_solves
+                    if ctx.is_vector:
+                        right_grad.squeeze_(-1)
+                return tuple([None, None] + [right_grad] + list(arg_grads))
+            else:
+                left_solves = left_solves @ grad_output
+                if ctx.needs_input_grad[3]:
+                    left_grad = grad_output @ right_solves.transpose(-1, -2)
+                if any(ctx.needs_input_grad[4:]):
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
+                        left_solves, right_solves], -1), torch.cat([
+                        right_solves, left_solves], -1).mul(-0.5))
+                if ctx.needs_input_grad[2]:
+                    right_grad = left_solves
+                    if ctx.is_vector:
+                        right_grad.squeeze_(-1)
+                return tuple([None, None] + [left_grad, right_grad] + list(
+                    arg_grads))
+
+
+class InvQuad(Function):
+    """
+    Given a PSD matrix A (or a batch of PSD matrices A), this function computes b A^{-1} b
+    where b is a vector or batch of vectors
+    """
+
+    @staticmethod
+    def forward(ctx, representation_tree, *args):
+        """
+        *args - The arguments representing the PSD matrix A (or batch of PSD matrices A)
+        If inv_quad is true, the first entry in *args is inv_quad_rhs (Tensor)
+        - the RHS of the matrix solves.
+
+        Returns:
+        - (Scalar) The inverse quadratic form (or None, if inv_quad is False)
+        - (Scalar) The log determinant (or None, if logdet is False)
+        """
+        inv_quad_rhs, *matrix_args = args
+        ctx.representation_tree = representation_tree
+        lazy_tsr = ctx.representation_tree(*matrix_args)
+        ctx.is_vector = False
+        if inv_quad_rhs.ndimension() == 1:
+            inv_quad_rhs = inv_quad_rhs.unsqueeze(-1)
+            ctx.is_vector = True
+        inv_quad_solves = _solve(lazy_tsr, inv_quad_rhs)
+        inv_quad_term = (inv_quad_solves * inv_quad_rhs).sum(-2)
+        to_save = matrix_args + [inv_quad_solves]
+        ctx.save_for_backward(*to_save)
+        if settings.memory_efficient.off():
+            ctx._lazy_tsr = lazy_tsr
+        return inv_quad_term
+
+    @staticmethod
+    def backward(ctx, inv_quad_grad_output):
+        *matrix_args, inv_quad_solves = ctx.saved_tensors
+        if hasattr(ctx, '_lazy_tsr'):
+            lazy_tsr = ctx._lazy_tsr
+        else:
+            lazy_tsr = ctx.representation_tree(*matrix_args)
+        inv_quad_grad_output = inv_quad_grad_output.unsqueeze(-2)
+        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
+            inv_quad_grad_output).mul(-1)
+        matrix_arg_grads = [None] * len(matrix_args)
+        if any(ctx.needs_input_grad[2:]):
+            left_factors = neg_inv_quad_solves_times_grad_out
+            right_factors = inv_quad_solves
+            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
+                right_factors)
+        if ctx.needs_input_grad[1]:
+            inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul(-2)
+        else:
+            inv_quad_rhs_grad = torch.zeros_like(inv_quad_solves)
+        if ctx.is_vector:
+            inv_quad_rhs_grad.squeeze_(-1)
+        res = tuple([None] + [inv_quad_rhs_grad] + list(matrix_arg_grads))
+        return tuple(res)
 
 
 def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape,
@@ -972,6 +1006,26 @@ class StochasticLQ(object):
                 results[i] = results[i] + matrix_shape[-1] / float(
                     num_random_probes) * dot_products
         return results
+
+
+def lanczos_tridiag_to_diag(t_mat):
+    """
+    Given a num_init_vecs x num_batch x k x k tridiagonal matrix t_mat,
+    returns a num_init_vecs x num_batch x k set of eigenvalues
+    and a num_init_vecs x num_batch x k x k set of eigenvectors.
+
+    TODO: make the eigenvalue computations done in batch mode.
+    """
+    orig_device = t_mat.device
+    if t_mat.size(-1) < 32:
+        retr = torch.symeig(t_mat.cpu(), eigenvectors=True)
+    else:
+        retr = torch.symeig(t_mat, eigenvectors=True)
+    evals, evecs = retr
+    mask = evals.ge(0)
+    evecs = evecs * mask.type_as(evecs).unsqueeze(-2)
+    evals = evals.masked_fill_(~mask, 1)
+    return evals.to(orig_device), evecs.to(orig_device)
 
 
 class InvQuadLogDet(Function):
@@ -1189,160 +1243,89 @@ class InvQuadLogDet(Function):
         return tuple([None] * 9 + res)
 
 
-def delazify(obj):
-    """
-    A function which ensures that `obj` is a (normal) Tensor.
+class LazyTensorRepresentationTree(object):
 
-    If `obj` is a Tensor, this function does nothing.
-    If `obj` is a LazyTensor, this function evaluates it.
-    """
-    if torch.is_tensor(obj):
-        return obj
-    elif isinstance(obj, LazyTensor):
-        return obj.evaluate()
-    else:
-        raise TypeError('object of class {} cannot be made into a Tensor'.
-            format(obj.__class__.__name__))
+    def __init__(self, lazy_tsr):
+        self._cls = lazy_tsr.__class__
+        self._kwargs = lazy_tsr._kwargs
+        counter = 0
+        self.children = []
+        for arg in lazy_tsr._args:
+            if hasattr(arg, 'representation') and callable(arg.representation):
+                representation_size = len(arg.representation())
+                self.children.append((slice(counter, counter +
+                    representation_size, None), arg.representation_tree()))
+                counter += representation_size
+            else:
+                self.children.append((counter, None))
+                counter += 1
+
+    def __call__(self, *flattened_representation):
+        unflattened_representation = []
+        for index, subtree in self.children:
+            if subtree is None:
+                unflattened_representation.append(flattened_representation[
+                    index])
+            else:
+                sub_representation = flattened_representation[index]
+                unflattened_representation.append(subtree(*sub_representation))
+        return self._cls(*unflattened_representation, **self._kwargs)
 
 
-def _solve(lazy_tsr, rhs):
-    if settings.fast_computations.solves.off() or lazy_tsr.size(-1
-        ) <= settings.max_cholesky_size.value():
-        return lazy_tsr._cholesky()._cholesky_solve(rhs)
-    else:
-        with torch.no_grad():
-            preconditioner = lazy_tsr.detach()._inv_matmul_preconditioner()
-        return lazy_tsr._solve(rhs, preconditioner)
-
-
-class InvMatmul(Function):
+class Matmul(Function):
 
     @staticmethod
-    def forward(ctx, representation_tree, has_left, *args):
-        left_tensor = None
-        right_tensor = None
-        matrix_args = None
+    def forward(ctx, representation_tree, rhs, *matrix_args):
         ctx.representation_tree = representation_tree
-        ctx.has_left = has_left
-        if ctx.has_left:
-            left_tensor, right_tensor, *matrix_args = args
+        orig_rhs = rhs
+        if rhs.ndimension() == 1:
+            is_vector = True
+            rhs = rhs.unsqueeze(-1)
         else:
-            right_tensor, *matrix_args = args
-        orig_right_tensor = right_tensor
+            is_vector = False
         lazy_tsr = ctx.representation_tree(*matrix_args)
-        ctx.is_vector = False
-        if right_tensor.ndimension() == 1:
-            right_tensor = right_tensor.unsqueeze(-1)
-            ctx.is_vector = True
-        if ctx.has_left:
-            rhs = torch.cat([left_tensor.transpose(-1, -2), right_tensor], -1)
-            solves = _solve(lazy_tsr, rhs)
-            res = solves[(...), left_tensor.size(-2):]
-            res = left_tensor @ res
-        else:
-            solves = _solve(lazy_tsr, right_tensor)
-            res = solves
-        if ctx.is_vector:
-            res = res.squeeze(-1)
-        if ctx.has_left:
-            args = [solves, left_tensor, orig_right_tensor] + list(matrix_args)
-        else:
-            args = [solves, orig_right_tensor] + list(matrix_args)
-        ctx.save_for_backward(*args)
+        res = lazy_tsr._matmul(rhs)
+        to_save = [orig_rhs] + list(matrix_args)
+        ctx.save_for_backward(*to_save)
         if settings.memory_efficient.off():
             ctx._lazy_tsr = lazy_tsr
+        if is_vector:
+            res = res.squeeze(-1)
         return res
 
     @staticmethod
     def backward(ctx, grad_output):
-        if ctx.has_left:
-            solves, left_tensor, right_tensor, *matrix_args = ctx.saved_tensors
-            left_solves = solves[(...), :left_tensor.size(-2)]
-            right_solves = solves[(...), left_tensor.size(-2):]
-        else:
-            right_solves, right_tensor, *matrix_args = ctx.saved_tensors
-        if hasattr(ctx, '_lazy_tsr'):
-            lazy_tsr = ctx._lazy_tsr
-        else:
-            lazy_tsr = ctx.representation_tree(*matrix_args)
+        rhs = ctx.saved_tensors[0]
+        matrix_args = ctx.saved_tensors[1:]
+        rhs_shape = rhs.shape
+        rhs_grad = None
         arg_grads = [None] * len(matrix_args)
-        left_grad = None
-        right_grad = None
-        if any(ctx.needs_input_grad):
-            if ctx.is_vector:
-                right_tensor = right_tensor.unsqueeze(-1)
-                grad_output = grad_output.unsqueeze(-1)
-            if not ctx.has_left:
-                left_solves = InvMatmul.apply(ctx.representation_tree, 
-                    False, grad_output, *matrix_args)
-                if any(ctx.needs_input_grad[3:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
-                if ctx.needs_input_grad[2]:
-                    right_grad = left_solves
-                    if ctx.is_vector:
-                        right_grad.squeeze_(-1)
-                return tuple([None, None] + [right_grad] + list(arg_grads))
+        if any(ctx.needs_input_grad[2:]):
+            rhs = rhs.unsqueeze(-1) if rhs.ndimension() == 1 else rhs
+            grad_output_matrix = grad_output.unsqueeze(-1
+                ) if grad_output.ndimension() == 1 else grad_output
+            arg_grads = ctx.representation_tree(*matrix_args
+                )._quad_form_derivative(grad_output_matrix, rhs)
+        if ctx.needs_input_grad[1]:
+            if hasattr(ctx, '_lazy_tsr'):
+                lazy_tsr = ctx._lazy_tsr
             else:
-                left_solves = left_solves @ grad_output
-                if ctx.needs_input_grad[3]:
-                    left_grad = grad_output @ right_solves.transpose(-1, -2)
-                if any(ctx.needs_input_grad[4:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
-                if ctx.needs_input_grad[2]:
-                    right_grad = left_solves
-                    if ctx.is_vector:
-                        right_grad.squeeze_(-1)
-                return tuple([None, None] + [left_grad, right_grad] + list(
-                    arg_grads))
+                lazy_tsr = ctx.representation_tree(*matrix_args)
+            if grad_output.dim() == 1:
+                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)
+                    ).squeeze(-1)
+            else:
+                rhs_grad = lazy_tsr._t_matmul(grad_output)
+            if rhs_grad.dim() > len(rhs_shape):
+                rhs_grad = rhs_grad.reshape(-1, *rhs_shape).sum(0)
+        return tuple([None] + [rhs_grad] + list(arg_grads))
 
 
-class NanError(RuntimeError):
-    pass
-
-
-def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
-    """Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
-    Args:
-        :attr:`A` (Tensor):
-            The tensor to compute the Cholesky decomposition of
-        :attr:`upper` (bool, optional):
-            See torch.cholesky
-        :attr:`out` (Tensor, optional):
-            See torch.cholesky
-        :attr:`jitter` (float, optional):
-            The jitter to add to the diagonal of A in case A is only p.s.d. If omitted, chosen
-            as 1e-6 (float) or 1e-8 (double)
+class NumericalWarning(RuntimeWarning):
     """
-    try:
-        L = torch.cholesky(A, upper=upper, out=out)
-        return L
-    except RuntimeError as e:
-        isnan = torch.isnan(A)
-        if isnan.any():
-            raise NanError(
-                f'cholesky_cpu: {isnan.sum().item()} of {A.numel()} elements of the {A.shape} tensor are NaN.'
-                )
-        if jitter is None:
-            jitter = 1e-06 if A.dtype == torch.float32 else 1e-08
-        Aprime = A.clone()
-        jitter_prev = 0
-        for i in range(3):
-            jitter_new = jitter * 10 ** i
-            Aprime.diagonal(dim1=-2, dim2=-1).add_(jitter_new - jitter_prev)
-            jitter_prev = jitter_new
-            try:
-                L = torch.cholesky(Aprime, upper=upper, out=out)
-                warnings.warn(
-                    f'A not p.d., added jitter of {jitter_new} to the diagonal'
-                    , NumericalWarning)
-                return L
-            except RuntimeError:
-                continue
-        raise e
+    Warning thrown when convergence criteria are not met, or when comptuations require extra stability.
+    """
+    pass
 
 
 class RootDecomposition(Function):
@@ -1474,6 +1457,31 @@ class RootDecomposition(Function):
             return tuple([None] * 9 + list(res))
         else:
             pass
+
+
+def _mul_broadcast_shape(*shapes, error_msg=None):
+    """Compute dimension suggested by multiple tensor indices (supports broadcasting)"""
+    num_dims = max(len(shape) for shape in shapes)
+    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in
+        shapes)
+    final_size = []
+    for size_by_dim in zip(*shapes):
+        non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
+        if len(non_singleton_sizes):
+            if any(size != non_singleton_sizes[0] for size in
+                non_singleton_sizes):
+                if error_msg is None:
+                    raise RuntimeError(
+                        'Shapes are not broadcastable for mul operation')
+                else:
+                    raise RuntimeError(error_msg)
+            final_size.append(non_singleton_sizes[0])
+        else:
+            final_size.append(1)
+    return torch.Size(final_size)
+
+
+_noop_index = slice(None, None, None)
 
 
 def _compute_getitem_size(obj, indices):
@@ -1631,111 +1639,11 @@ def _convert_indices_to_tensors(obj, indices):
     return tuple(new_indices)
 
 
-class Matmul(Function):
-
-    @staticmethod
-    def forward(ctx, representation_tree, rhs, *matrix_args):
-        ctx.representation_tree = representation_tree
-        orig_rhs = rhs
-        if rhs.ndimension() == 1:
-            is_vector = True
-            rhs = rhs.unsqueeze(-1)
-        else:
-            is_vector = False
-        lazy_tsr = ctx.representation_tree(*matrix_args)
-        res = lazy_tsr._matmul(rhs)
-        to_save = [orig_rhs] + list(matrix_args)
-        ctx.save_for_backward(*to_save)
-        if settings.memory_efficient.off():
-            ctx._lazy_tsr = lazy_tsr
-        if is_vector:
-            res = res.squeeze(-1)
-        return res
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        rhs = ctx.saved_tensors[0]
-        matrix_args = ctx.saved_tensors[1:]
-        rhs_shape = rhs.shape
-        rhs_grad = None
-        arg_grads = [None] * len(matrix_args)
-        if any(ctx.needs_input_grad[2:]):
-            rhs = rhs.unsqueeze(-1) if rhs.ndimension() == 1 else rhs
-            grad_output_matrix = grad_output.unsqueeze(-1
-                ) if grad_output.ndimension() == 1 else grad_output
-            arg_grads = ctx.representation_tree(*matrix_args
-                )._quad_form_derivative(grad_output_matrix, rhs)
-        if ctx.needs_input_grad[1]:
-            if hasattr(ctx, '_lazy_tsr'):
-                lazy_tsr = ctx._lazy_tsr
-            else:
-                lazy_tsr = ctx.representation_tree(*matrix_args)
-            if grad_output.dim() == 1:
-                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)
-                    ).squeeze(-1)
-            else:
-                rhs_grad = lazy_tsr._t_matmul(grad_output)
-            if rhs_grad.dim() > len(rhs_shape):
-                rhs_grad = rhs_grad.reshape(-1, *rhs_shape).sum(0)
-        return tuple([None] + [rhs_grad] + list(arg_grads))
-
-
-class InvQuad(Function):
+def _is_noop_index(index):
     """
-    Given a PSD matrix A (or a batch of PSD matrices A), this function computes b A^{-1} b
-    where b is a vector or batch of vectors
+    Determine if a given index is a noop (e.g. ":")
     """
-
-    @staticmethod
-    def forward(ctx, representation_tree, *args):
-        """
-        *args - The arguments representing the PSD matrix A (or batch of PSD matrices A)
-        If inv_quad is true, the first entry in *args is inv_quad_rhs (Tensor)
-        - the RHS of the matrix solves.
-
-        Returns:
-        - (Scalar) The inverse quadratic form (or None, if inv_quad is False)
-        - (Scalar) The log determinant (or None, if logdet is False)
-        """
-        inv_quad_rhs, *matrix_args = args
-        ctx.representation_tree = representation_tree
-        lazy_tsr = ctx.representation_tree(*matrix_args)
-        ctx.is_vector = False
-        if inv_quad_rhs.ndimension() == 1:
-            inv_quad_rhs = inv_quad_rhs.unsqueeze(-1)
-            ctx.is_vector = True
-        inv_quad_solves = _solve(lazy_tsr, inv_quad_rhs)
-        inv_quad_term = (inv_quad_solves * inv_quad_rhs).sum(-2)
-        to_save = matrix_args + [inv_quad_solves]
-        ctx.save_for_backward(*to_save)
-        if settings.memory_efficient.off():
-            ctx._lazy_tsr = lazy_tsr
-        return inv_quad_term
-
-    @staticmethod
-    def backward(ctx, inv_quad_grad_output):
-        *matrix_args, inv_quad_solves = ctx.saved_tensors
-        if hasattr(ctx, '_lazy_tsr'):
-            lazy_tsr = ctx._lazy_tsr
-        else:
-            lazy_tsr = ctx.representation_tree(*matrix_args)
-        inv_quad_grad_output = inv_quad_grad_output.unsqueeze(-2)
-        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
-            inv_quad_grad_output).mul(-1)
-        matrix_arg_grads = [None] * len(matrix_args)
-        if any(ctx.needs_input_grad[2:]):
-            left_factors = neg_inv_quad_solves_times_grad_out
-            right_factors = inv_quad_solves
-            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
-                right_factors)
-        if ctx.needs_input_grad[1]:
-            inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul(-2)
-        else:
-            inv_quad_rhs_grad = torch.zeros_like(inv_quad_solves)
-        if ctx.is_vector:
-            inv_quad_rhs_grad.squeeze_(-1)
-        res = tuple([None] + [inv_quad_rhs_grad] + list(matrix_arg_grads))
-        return tuple(res)
+    return isinstance(index, slice) and index == _noop_index
 
 
 def _matmul_broadcast_shape(shape_a, shape_b, error_msg=None):
@@ -1766,8 +1674,122 @@ def _matmul_broadcast_shape(shape_a, shape_b, error_msg=None):
     return bc_shape + tail_shape
 
 
+def add_to_cache(obj, name, val):
+    """Add a result to the cache of an object."""
+    if not hasattr(obj, '_memoize_cache'):
+        obj._memoize_cache = dict()
+    obj._memoize_cache[name] = val
+    return obj
+
+
+def is_in_cache(obj, name):
+    return hasattr(obj, '_memoize_cache') and name in obj._memoize_cache
+
+
+def get_from_cache(obj, name):
+    """Get an item from the cache."""
+    if not is_in_cache(obj, name):
+        raise RuntimeError('Object does not have item {} stored in cache.'.
+            format(name))
+    return obj._memoize_cache[name]
+
+
+def cached(method=None, name=None):
+    """A decorator allowing for specifying the name of a cache, allowing it to be modified elsewhere."""
+    if method is None:
+        return functools.partial(cached, name=name)
+
+    @functools.wraps(method)
+    def g(self, *args, **kwargs):
+        cache_name = name if name is not None else method
+        if not is_in_cache(self, cache_name):
+            add_to_cache(self, cache_name, method(self, *args, **kwargs))
+        return get_from_cache(self, cache_name)
+    return g
+
+
+def delazify(obj):
+    """
+    A function which ensures that `obj` is a (normal) Tensor.
+
+    If `obj` is a Tensor, this function does nothing.
+    If `obj` is a LazyTensor, this function evaluates it.
+    """
+    if torch.is_tensor(obj):
+        return obj
+    elif isinstance(obj, LazyTensor):
+        return obj.evaluate()
+    else:
+        raise TypeError('object of class {} cannot be made into a Tensor'.
+            format(obj.__class__.__name__))
+
+
+class NanError(RuntimeError):
+    pass
+
+
+def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
+    """Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
+    Args:
+        :attr:`A` (Tensor):
+            The tensor to compute the Cholesky decomposition of
+        :attr:`upper` (bool, optional):
+            See torch.cholesky
+        :attr:`out` (Tensor, optional):
+            See torch.cholesky
+        :attr:`jitter` (float, optional):
+            The jitter to add to the diagonal of A in case A is only p.s.d. If omitted, chosen
+            as 1e-6 (float) or 1e-8 (double)
+    """
+    try:
+        L = torch.cholesky(A, upper=upper, out=out)
+        return L
+    except RuntimeError as e:
+        isnan = torch.isnan(A)
+        if isnan.any():
+            raise NanError(
+                f'cholesky_cpu: {isnan.sum().item()} of {A.numel()} elements of the {A.shape} tensor are NaN.'
+                )
+        if jitter is None:
+            jitter = 1e-06 if A.dtype == torch.float32 else 1e-08
+        Aprime = A.clone()
+        jitter_prev = 0
+        for i in range(3):
+            jitter_new = jitter * 10 ** i
+            Aprime.diagonal(dim1=-2, dim2=-1).add_(jitter_new - jitter_prev)
+            jitter_prev = jitter_new
+            try:
+                L = torch.cholesky(Aprime, upper=upper, out=out)
+                warnings.warn(
+                    f'A not p.d., added jitter of {jitter_new} to the diagonal'
+                    , NumericalWarning)
+                return L
+            except RuntimeError:
+                continue
+        raise e
+
+
 class Noise(Module):
     pass
+
+
+class DeprecationError(Exception):
+    pass
+
+
+def _extract_named_added_loss_terms(module, memo=None, prefix=''):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_added_loss_terms'):
+        for name, strategy in module._added_loss_terms.items():
+            if strategy is not None and strategy not in memo:
+                memo.add(strategy)
+                yield prefix + ('.' if prefix else '') + name, strategy
+    for mname, module_ in module.named_children():
+        submodule_prefix = prefix + ('.' if prefix else '') + mname
+        for name, strategy in _extract_named_added_loss_terms(module=
+            module_, memo=memo, prefix=submodule_prefix):
+            yield name, strategy
 
 
 def _extract_named_constraints(module, memo=None, prefix=''):
@@ -1786,41 +1808,6 @@ def _extract_named_constraints(module, memo=None, prefix=''):
             yield name, constraint
 
 
-def _set_strict(module, value, memo=None):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_strict_init'):
-        module._strict_init = value
-    for mname, module_ in module.named_children():
-        _set_strict(module_, value)
-
-
-def _extract_named_added_loss_terms(module, memo=None, prefix=''):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_added_loss_terms'):
-        for name, strategy in module._added_loss_terms.items():
-            if strategy is not None and strategy not in memo:
-                memo.add(strategy)
-                yield prefix + ('.' if prefix else '') + name, strategy
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, strategy in _extract_named_added_loss_terms(module=
-            module_, memo=memo, prefix=submodule_prefix):
-            yield name, strategy
-
-
-def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_priors'):
-        module.local_load_samples(samples_dict, memo, prefix)
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=
-            submodule_prefix)
-
-
 def _extract_named_priors(module, memo=None, prefix=''):
     if memo is None:
         memo = set()
@@ -1837,8 +1824,15 @@ def _extract_named_priors(module, memo=None, prefix=''):
             yield name, prior, closure, inv_closure
 
 
-class DeprecationError(Exception):
-    pass
+def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_priors'):
+        module.local_load_samples(samples_dict, memo, prefix)
+    for mname, module_ in module.named_children():
+        submodule_prefix = prefix + ('.' if prefix else '') + mname
+        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=
+            submodule_prefix)
 
 
 def _pyro_sample_from_prior(module, memo=None, prefix=''):
@@ -1866,6 +1860,15 @@ def _pyro_sample_from_prior(module, memo=None, prefix=''):
         submodule_prefix = prefix + ('.' if prefix else '') + mname
         _pyro_sample_from_prior(module=module_, memo=memo, prefix=
             submodule_prefix)
+
+
+def _set_strict(module, value, memo=None):
+    if memo is None:
+        memo = set()
+    if hasattr(module, '_strict_init'):
+        module._strict_init = value
+    for mname, module_ in module.named_children():
+        _set_strict(module_, value)
 
 
 def _validate_module_outputs(outputs):

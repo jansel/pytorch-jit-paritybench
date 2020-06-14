@@ -86,6 +86,9 @@ from torch.utils import model_zoo
 from torch.nn import init
 
 
+import time
+
+
 import torch.nn.parallel
 
 
@@ -3758,15 +3761,6 @@ class SENet(nn.Module):
         return x
 
 
-def conv1x1(in_channels, out_channels, groups=1):
-    """1x1 convolution with padding
-    - Normal pointwise convolution When groups == 1
-    - Grouped pointwise convolution when groups > 1
-    """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=
-        groups, stride=1)
-
-
 def channel_shuffle(x, groups):
     batchsize, num_channels, height, width = x.data.size()
     channels_per_group = num_channels // groups
@@ -3774,6 +3768,15 @@ def channel_shuffle(x, groups):
     x = torch.transpose(x, 1, 2).contiguous()
     x = x.view(batchsize, -1, height, width)
     return x
+
+
+def conv1x1(in_channels, out_channels, groups=1):
+    """1x1 convolution with padding
+    - Normal pointwise convolution When groups == 1
+    - Grouped pointwise convolution when groups > 1
+    """
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=
+        groups, stride=1)
 
 
 class ShuffleUnit(nn.Module):

@@ -97,6 +97,9 @@ import torch.multiprocessing as mp
 import torch.nn.functional as F
 
 
+import time
+
+
 class CNN(torch.nn.Module):
 
     def __init__(self, input_shape, output_shape, device=torch.device('cpu')):

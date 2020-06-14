@@ -155,6 +155,9 @@ from torch.nn.parameter import Parameter
 from copy import deepcopy
 
 
+import time
+
+
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
@@ -738,39 +741,6 @@ class BaseAttack(Module):
             sp.save_npz(osp.join(root, name), modified_features)
 
 
-def glorot_uniform(t):
-    if len(t.size()) == 2:
-        fan_in, fan_out = t.size()
-    elif len(t.size()) == 3:
-        fan_in = t.size()[1] * t.size()[2]
-        fan_out = t.size()[0] * t.size()[2]
-    else:
-        fan_in = np.prod(t.size())
-        fan_out = np.prod(t.size())
-    limit = np.sqrt(6.0 / (fan_in + fan_out))
-    t.uniform_(-limit, limit)
-
-
-def _param_init(m):
-    if isinstance(m, Parameter):
-        glorot_uniform(m.data)
-    elif isinstance(m, nn.Linear):
-        m.bias.data.zero_()
-        glorot_uniform(m.weight.data)
-
-
-def weights_init(m):
-    for p in m.modules():
-        if isinstance(p, nn.ParameterList):
-            for pp in p:
-                _param_init(pp)
-        else:
-            _param_init(p)
-    for name, p in m.named_parameters():
-        if not '.' in name:
-            _param_init(p)
-
-
 class StaticGraph(object):
     graph = None
 
@@ -813,6 +783,39 @@ class GraphNormTool(object):
                 new_adj = utils.degree_normalize_adj_tensor(new_adj, sparse
                     =True)
         return new_adj
+
+
+def glorot_uniform(t):
+    if len(t.size()) == 2:
+        fan_in, fan_out = t.size()
+    elif len(t.size()) == 3:
+        fan_in = t.size()[1] * t.size()[2]
+        fan_out = t.size()[0] * t.size()[2]
+    else:
+        fan_in = np.prod(t.size())
+        fan_out = np.prod(t.size())
+    limit = np.sqrt(6.0 / (fan_in + fan_out))
+    t.uniform_(-limit, limit)
+
+
+def _param_init(m):
+    if isinstance(m, Parameter):
+        glorot_uniform(m.data)
+    elif isinstance(m, nn.Linear):
+        m.bias.data.zero_()
+        glorot_uniform(m.weight.data)
+
+
+def weights_init(m):
+    for p in m.modules():
+        if isinstance(p, nn.ParameterList):
+            for pp in p:
+                _param_init(pp)
+        else:
+            _param_init(p)
+    for name, p in m.named_parameters():
+        if not '.' in name:
+            _param_init(p)
 
 
 class QNetNode(nn.Module):

@@ -47,6 +47,9 @@ import random
 import re
 
 
+import time
+
+
 def batchnorm(in_planes):
     """batch norm 2d"""
     return nn.BatchNorm2d(in_planes, affine=True, eps=1e-05, momentum=0.1)

@@ -66,6 +66,9 @@ from torch import nn
 import numpy as np
 
 
+import time
+
+
 import math
 
 
@@ -91,15 +94,6 @@ class L2Norm(nn.Module):
         out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
             ) * x
         return out
-
-
-extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
-
-
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 def GetFileMd5(filename):
@@ -158,6 +152,15 @@ def add_vgg(cfg, batch_norm=False):
     return layers
 
 
+extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
+
+
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
+    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
+    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+
+
 class VGG(nn.Module):
 
     def __init__(self, cfg):
@@ -210,84 +213,10 @@ class VGG(nn.Module):
             None
 
 
-def vgg(cfg, pretrained=True):
-    print(' --- base_model = vgg16_ssd{} --- '.format(cfg.MODEL.INPUT.
-        IMAGE_SIZE))
-    model = VGG(cfg)
-    if pretrained:
-        model.load_weights()
-    else:
-        model.reset_parameters()
-    return model
-
-
-def corner_form_to_center_form(boxes):
-    return torch.cat([(boxes[(...), :2] + boxes[(...), 2:]) / 2, boxes[(...
-        ), 2:] - boxes[(...), :2]], boxes.dim() - 1)
-
-
-def center_form_to_corner_form(locations):
-    return torch.cat([locations[(...), :2] - locations[(...), 2:] / 2, 
-        locations[(...), :2] + locations[(...), 2:] / 2], locations.dim() - 1)
-
-
-class priorbox:
-
-    def __init__(self, cfg):
-        """
-        SSD默认检测框生成器
-        :param cfg:
-        """
-        self.image_size = cfg.MODEL.INPUT.IMAGE_SIZE
-        anchor_config = cfg.MODEL.ANCHORS
-        self.feature_maps = anchor_config.FEATURE_MAPS
-        self.min_sizes = anchor_config.MIN_SIZES
-        self.max_sizes = anchor_config.MAX_SIZES
-        self.aspect_ratios = anchor_config.ASPECT_RATIOS
-        self.clip = anchor_config.CLIP
-
-    def __call__(self):
-        """SSD默认检测框生成
-            :return
-                Tensor(num_priors,boxes)
-                其中boxes(x, y, w, h)
-                检测框为比例存储,0~1
-        """
-        priors = []
-        for k, (feature_map_w, feature_map_h) in enumerate(self.feature_maps):
-            for i in range(feature_map_w):
-                for j in range(feature_map_h):
-                    cx = (j + 0.5) / feature_map_w
-                    cy = (i + 0.5) / feature_map_h
-                    size = self.min_sizes[k]
-                    h = w = size / self.image_size
-                    priors.append([cx, cy, w, h])
-                    size = sqrt(self.min_sizes[k] * self.max_sizes[k])
-                    h = w = size / self.image_size
-                    priors.append([cx, cy, w, h])
-                    size = self.min_sizes[k]
-                    h = w = size / self.image_size
-                    for ratio in self.aspect_ratios[k]:
-                        ratio = sqrt(ratio)
-                        priors.append([cx, cy, w * ratio, h / ratio])
-                        priors.append([cx, cy, w / ratio, h * ratio])
-        priors = torch.tensor(priors)
-        if self.clip:
-            priors = center_form_to_corner_form(priors)
-            priors.clamp_(max=1, min=0)
-            priors = corner_form_to_center_form(priors)
-        return priors
-
-
-class ToPercentCoords(object):
+class ConvertFromInts(object):
 
     def __call__(self, image, boxes=None, labels=None):
-        height, width, channels = image.shape
-        boxes[:, (0)] /= width
-        boxes[:, (2)] /= width
-        boxes[:, (1)] /= height
-        boxes[:, (3)] /= height
-        return image, boxes, labels
+        return image.astype(np.float32), boxes, labels
 
 
 class Expand(object):
@@ -310,20 +239,93 @@ class Expand(object):
         return image, boxes, labels
 
 
-class ToTensor(object):
+class Compose(object):
+    """Composes several augmentations together.
+    Args:
+        transforms (List[Transform]): list of transforms to compose.
+    Example:
+        >>> Compose([
+        >>>         transforms.CenterCrop(10),
+        >>>         transforms.ToTensor(),
+        >>>         ])
+    """
 
-    def __call__(self, cvimage, boxes=None, labels=None):
-        return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1
-            ), boxes, labels
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, img, boxes=None, labels=None):
+        for t in self.transforms:
+            img, boxes, labels = t(img, boxes, labels)
+        return img, boxes, labels
 
 
-class Resize(object):
+class ConvertColor(object):
+    """
+        H色调用角度度量,取值范围为0°～360°.从红色开始按逆时针方向计算,红色为0°,绿色为120°,蓝色为240°.它们的补色是:黄色为60°,青色为180°,品红为300°;
+        S饱和度表示颜色接近光谱色的程度.一种颜色,可以看成是某种光谱色与白色混合的结果.其中光谱色所占的比例愈大，颜色接近光谱色的程度就愈高，颜色的饱和度也就愈高;
+        明度表示颜色明亮的程度，对于光源色，明度值与发光体的光亮度有关；对于物体色，此值和物体的透射比或反射比有关。通常取值范围为0%（黑）到100%（白）。
+    """
 
-    def __init__(self, size=300):
-        self.size = size
+    def __init__(self, current, transform):
+        self.transform = transform
+        self.current = current
 
     def __call__(self, image, boxes=None, labels=None):
-        image = cv2.resize(image, (self.size, self.size))
+        if self.current == 'BGR' and self.transform == 'HSV':
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        elif self.current == 'RGB' and self.transform == 'HSV':
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        elif self.current == 'BGR' and self.transform == 'RGB':
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        elif self.current == 'HSV' and self.transform == 'BGR':
+            image = cv2.cvtColor(image, cv2.COLOR_HSV2BGR)
+        elif self.current == 'HSV' and self.transform == 'RGB':
+            image = cv2.cvtColor(image, cv2.COLOR_HSV2RGB)
+        else:
+            raise NotImplementedError
+        return image, boxes, labels
+
+
+class RandomBrightness(object):
+
+    def __init__(self, delta=32):
+        assert delta >= 0.0
+        assert delta <= 255.0
+        self.delta = delta
+
+    def __call__(self, image, boxes=None, labels=None):
+        if random.randint(2):
+            delta = random.uniform(-self.delta, self.delta)
+            image += delta
+        return image, boxes, labels
+
+
+class RandomContrast(object):
+
+    def __init__(self, lower=0.5, upper=1.5):
+        self.lower = lower
+        self.upper = upper
+        assert self.upper >= self.lower, 'contrast upper must be >= lower.'
+        assert self.lower >= 0, 'contrast lower must be non-negative.'
+
+    def __call__(self, image, boxes=None, labels=None):
+        if random.randint(2):
+            alpha = random.uniform(self.lower, self.upper)
+            image *= alpha
+        return image, boxes, labels
+
+
+class RandomHue(object):
+
+    def __init__(self, delta=18.0):
+        assert delta >= 0.0 and delta <= 360.0
+        self.delta = delta
+
+    def __call__(self, image, boxes=None, labels=None):
+        if random.randint(2):
+            image[:, :, (0)] += random.uniform(-self.delta, self.delta)
+            image[:, :, (0)][image[:, :, (0)] > 360.0] -= 360.0
+            image[:, :, (0)][image[:, :, (0)] < 0.0] += 360.0
         return image, boxes, labels
 
 
@@ -363,34 +365,6 @@ class RandomLightingNoise(object):
         return image, boxes, labels
 
 
-class RandomHue(object):
-
-    def __init__(self, delta=18.0):
-        assert delta >= 0.0 and delta <= 360.0
-        self.delta = delta
-
-    def __call__(self, image, boxes=None, labels=None):
-        if random.randint(2):
-            image[:, :, (0)] += random.uniform(-self.delta, self.delta)
-            image[:, :, (0)][image[:, :, (0)] > 360.0] -= 360.0
-            image[:, :, (0)][image[:, :, (0)] < 0.0] += 360.0
-        return image, boxes, labels
-
-
-class RandomBrightness(object):
-
-    def __init__(self, delta=32):
-        assert delta >= 0.0
-        assert delta <= 255.0
-        self.delta = delta
-
-    def __call__(self, image, boxes=None, labels=None):
-        if random.randint(2):
-            delta = random.uniform(-self.delta, self.delta)
-            image += delta
-        return image, boxes, labels
-
-
 class RandomSaturation(object):
 
     def __init__(self, lower=0.5, upper=1.5):
@@ -403,68 +377,6 @@ class RandomSaturation(object):
         if random.randint(2):
             image[:, :, (1)] *= random.uniform(self.lower, self.upper)
         return image, boxes, labels
-
-
-class RandomContrast(object):
-
-    def __init__(self, lower=0.5, upper=1.5):
-        self.lower = lower
-        self.upper = upper
-        assert self.upper >= self.lower, 'contrast upper must be >= lower.'
-        assert self.lower >= 0, 'contrast lower must be non-negative.'
-
-    def __call__(self, image, boxes=None, labels=None):
-        if random.randint(2):
-            alpha = random.uniform(self.lower, self.upper)
-            image *= alpha
-        return image, boxes, labels
-
-
-class ConvertColor(object):
-    """
-        H色调用角度度量,取值范围为0°～360°.从红色开始按逆时针方向计算,红色为0°,绿色为120°,蓝色为240°.它们的补色是:黄色为60°,青色为180°,品红为300°;
-        S饱和度表示颜色接近光谱色的程度.一种颜色,可以看成是某种光谱色与白色混合的结果.其中光谱色所占的比例愈大，颜色接近光谱色的程度就愈高，颜色的饱和度也就愈高;
-        明度表示颜色明亮的程度，对于光源色，明度值与发光体的光亮度有关；对于物体色，此值和物体的透射比或反射比有关。通常取值范围为0%（黑）到100%（白）。
-    """
-
-    def __init__(self, current, transform):
-        self.transform = transform
-        self.current = current
-
-    def __call__(self, image, boxes=None, labels=None):
-        if self.current == 'BGR' and self.transform == 'HSV':
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        elif self.current == 'RGB' and self.transform == 'HSV':
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        elif self.current == 'BGR' and self.transform == 'RGB':
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        elif self.current == 'HSV' and self.transform == 'BGR':
-            image = cv2.cvtColor(image, cv2.COLOR_HSV2BGR)
-        elif self.current == 'HSV' and self.transform == 'RGB':
-            image = cv2.cvtColor(image, cv2.COLOR_HSV2RGB)
-        else:
-            raise NotImplementedError
-        return image, boxes, labels
-
-
-class Compose(object):
-    """Composes several augmentations together.
-    Args:
-        transforms (List[Transform]): list of transforms to compose.
-    Example:
-        >>> Compose([
-        >>>         transforms.CenterCrop(10),
-        >>>         transforms.ToTensor(),
-        >>>         ])
-    """
-
-    def __init__(self, transforms):
-        self.transforms = transforms
-
-    def __call__(self, img, boxes=None, labels=None):
-        for t in self.transforms:
-            img, boxes, labels = t(img, boxes, labels)
-        return img, boxes, labels
 
 
 class PhotometricDistort(object):
@@ -487,21 +399,15 @@ class PhotometricDistort(object):
         return self.rand_light_noise(im, boxes, labels)
 
 
-class SubtractMeans(object):
+class RandomMirror(object):
 
-    def __init__(self, mean):
-        self.mean = np.array(mean, dtype=np.float32)
-
-    def __call__(self, image, boxes=None, labels=None):
-        image = image.astype(np.float32)
-        image -= self.mean
-        return image.astype(np.float32), boxes, labels
-
-
-class ConvertFromInts(object):
-
-    def __call__(self, image, boxes=None, labels=None):
-        return image.astype(np.float32), boxes, labels
+    def __call__(self, image, boxes, classes):
+        _, width, _ = image.shape
+        if random.randint(2):
+            image = image[:, ::-1]
+            boxes = boxes.copy()
+            boxes[:, 0::2] = width - boxes[:, 2::-2]
+        return image, boxes, classes
 
 
 def intersect(box_a, box_b):
@@ -592,15 +498,43 @@ class RandomSampleCrop(object):
                 return current_image, current_boxes, current_labels
 
 
-class RandomMirror(object):
+class Resize(object):
 
-    def __call__(self, image, boxes, classes):
-        _, width, _ = image.shape
-        if random.randint(2):
-            image = image[:, ::-1]
-            boxes = boxes.copy()
-            boxes[:, 0::2] = width - boxes[:, 2::-2]
-        return image, boxes, classes
+    def __init__(self, size=300):
+        self.size = size
+
+    def __call__(self, image, boxes=None, labels=None):
+        image = cv2.resize(image, (self.size, self.size))
+        return image, boxes, labels
+
+
+class SubtractMeans(object):
+
+    def __init__(self, mean):
+        self.mean = np.array(mean, dtype=np.float32)
+
+    def __call__(self, image, boxes=None, labels=None):
+        image = image.astype(np.float32)
+        image -= self.mean
+        return image.astype(np.float32), boxes, labels
+
+
+class ToPercentCoords(object):
+
+    def __call__(self, image, boxes=None, labels=None):
+        height, width, channels = image.shape
+        boxes[:, (0)] /= width
+        boxes[:, (2)] /= width
+        boxes[:, (1)] /= height
+        boxes[:, (3)] /= height
+        return image, boxes, labels
+
+
+class ToTensor(object):
+
+    def __call__(self, cvimage, boxes=None, labels=None):
+        return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1
+            ), boxes, labels
 
 
 class SSDTramsfrom:
@@ -624,6 +558,28 @@ class SSDTramsfrom:
         for t in self.transforms:
             img, boxes, labels = t(img, boxes, labels)
         return img, boxes, labels
+
+
+def boxes_nms(boxes, scores, nms_thresh, max_count=-1):
+    """ Performs non-maximum suppression, run on GPU or CPU according to
+    boxes's device.
+    Args:
+        boxes(Tensor): `xyxy` mode boxes, use absolute coordinates(or relative coordinates), shape is (n, 4)
+        scores(Tensor): scores, shape is (n, )
+        nms_thresh(float): thresh
+        max_count (int): if > 0, then only the top max_proposals are kept  after non-maximum suppression
+    Returns:
+        indices kept.
+    """
+    keep = torchvision.ops.nms(boxes, scores, nms_thresh)
+    if max_count > 0:
+        keep = keep[:max_count]
+    return keep
+
+
+def center_form_to_corner_form(locations):
+    return torch.cat([locations[(...), :2] - locations[(...), 2:] / 2, 
+        locations[(...), :2] + locations[(...), 2:] / 2], locations.dim() - 1)
 
 
 def convert_locations_to_boxes(locations, priors, center_variance,
@@ -650,21 +606,57 @@ def convert_locations_to_boxes(locations, priors, center_variance,
         size_variance) * priors[(...), 2:]], dim=locations.dim() - 1)
 
 
-def boxes_nms(boxes, scores, nms_thresh, max_count=-1):
-    """ Performs non-maximum suppression, run on GPU or CPU according to
-    boxes's device.
-    Args:
-        boxes(Tensor): `xyxy` mode boxes, use absolute coordinates(or relative coordinates), shape is (n, 4)
-        scores(Tensor): scores, shape is (n, )
-        nms_thresh(float): thresh
-        max_count (int): if > 0, then only the top max_proposals are kept  after non-maximum suppression
-    Returns:
-        indices kept.
-    """
-    keep = torchvision.ops.nms(boxes, scores, nms_thresh)
-    if max_count > 0:
-        keep = keep[:max_count]
-    return keep
+def corner_form_to_center_form(boxes):
+    return torch.cat([(boxes[(...), :2] + boxes[(...), 2:]) / 2, boxes[(...
+        ), 2:] - boxes[(...), :2]], boxes.dim() - 1)
+
+
+class priorbox:
+
+    def __init__(self, cfg):
+        """
+        SSD默认检测框生成器
+        :param cfg:
+        """
+        self.image_size = cfg.MODEL.INPUT.IMAGE_SIZE
+        anchor_config = cfg.MODEL.ANCHORS
+        self.feature_maps = anchor_config.FEATURE_MAPS
+        self.min_sizes = anchor_config.MIN_SIZES
+        self.max_sizes = anchor_config.MAX_SIZES
+        self.aspect_ratios = anchor_config.ASPECT_RATIOS
+        self.clip = anchor_config.CLIP
+
+    def __call__(self):
+        """SSD默认检测框生成
+            :return
+                Tensor(num_priors,boxes)
+                其中boxes(x, y, w, h)
+                检测框为比例存储,0~1
+        """
+        priors = []
+        for k, (feature_map_w, feature_map_h) in enumerate(self.feature_maps):
+            for i in range(feature_map_w):
+                for j in range(feature_map_h):
+                    cx = (j + 0.5) / feature_map_w
+                    cy = (i + 0.5) / feature_map_h
+                    size = self.min_sizes[k]
+                    h = w = size / self.image_size
+                    priors.append([cx, cy, w, h])
+                    size = sqrt(self.min_sizes[k] * self.max_sizes[k])
+                    h = w = size / self.image_size
+                    priors.append([cx, cy, w, h])
+                    size = self.min_sizes[k]
+                    h = w = size / self.image_size
+                    for ratio in self.aspect_ratios[k]:
+                        ratio = sqrt(ratio)
+                        priors.append([cx, cy, w * ratio, h / ratio])
+                        priors.append([cx, cy, w / ratio, h * ratio])
+        priors = torch.tensor(priors)
+        if self.clip:
+            priors = center_form_to_corner_form(priors)
+            priors.clamp_(max=1, min=0)
+            priors = corner_form_to_center_form(priors)
+        return priors
 
 
 class postprocessor:
@@ -725,6 +717,17 @@ class postprocessor:
             results.append([processed_boxes, processed_labels,
                 processed_scores])
         return results
+
+
+def vgg(cfg, pretrained=True):
+    print(' --- base_model = vgg16_ssd{} --- '.format(cfg.MODEL.INPUT.
+        IMAGE_SIZE))
+    model = VGG(cfg)
+    if pretrained:
+        model.load_weights()
+    else:
+        model.reset_parameters()
+    return model
 
 
 def hard_negative_mining(loss, labels, neg_pos_ratio=3):

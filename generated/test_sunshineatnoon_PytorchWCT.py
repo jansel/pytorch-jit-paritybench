@@ -35,6 +35,9 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
+import time
+
+
 class encoder1(nn.Module):
 
     def __init__(self, vgg1):

@@ -46,6 +46,9 @@ from scipy import sparse
 from scipy.sparse import csr_matrix
 
 
+from time import time
+
+
 class LRSchedule(object):
 
     @staticmethod

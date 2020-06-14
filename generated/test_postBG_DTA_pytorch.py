@@ -241,12 +241,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-def l2_normalize(d):
-    d_reshaped = d.view(d.size(0), -1, *(1 for _ in range(d.dim() - 2)))
-    d /= torch.norm(d_reshaped, dim=1, keepdim=True) + 1e-08
-    return d
-
-
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

@@ -212,6 +212,21 @@ from typing import Optional
 import numpy as np
 
 
+def _get_default_args(func):
+    """Get the default arguments of a function.
+
+    Args:
+        func (function): a valid Python function
+
+    Returns:
+        dict: dictionary containing the argument name and tuple
+        (positional idx, default value)
+    """
+    signature = inspect.signature(func)
+    return {k: (idx, v.default) for idx, (k, v) in enumerate(signature.
+        parameters.items()) if v.default is not inspect.Parameter.empty}
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

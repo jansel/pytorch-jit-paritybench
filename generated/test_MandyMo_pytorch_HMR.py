@@ -75,6 +75,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data import ConcatDataset
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -534,6 +537,38 @@ class BasicBlock(nn.Module):
         return out
 
 
+def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
+    N = Rs.shape[0]
+    if rotate_base:
+        np_rot_x = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float
+            )
+        np_rot_x = np.reshape(np.tile(np_rot_x, [N, 1]), [N, 3, 3])
+        rot_x = Variable(torch.from_numpy(np_rot_x).float()).cuda()
+        root_rotation = torch.matmul(Rs[:, (0), :, :], rot_x)
+    else:
+        root_rotation = Rs[:, (0), :, :]
+    Js = torch.unsqueeze(Js, -1)
+
+    def make_A(R, t):
+        R_homo = F.pad(R, [0, 0, 0, 1, 0, 0])
+        t_homo = torch.cat([t, Variable(torch.ones(N, 1, 1)).cuda()], dim=1)
+        return torch.cat([R_homo, t_homo], 2)
+    A0 = make_A(root_rotation, Js[:, (0)])
+    results = [A0]
+    for i in range(1, parent.shape[0]):
+        j_here = Js[:, (i)] - Js[:, (parent[i])]
+        A_here = make_A(Rs[:, (i)], j_here)
+        res_here = torch.matmul(results[parent[i]], A_here)
+        results.append(res_here)
+    results = torch.stack(results, dim=1)
+    new_J = results[:, :, :3, (3)]
+    Js_w0 = torch.cat([Js, Variable(torch.zeros(N, 24, 1, 1)).cuda()], dim=2)
+    init_bone = torch.matmul(results, Js_w0)
+    init_bone = F.pad(init_bone, [3, 0, 0, 0, 0, 0, 0, 0])
+    A = results - init_bone
+    return new_J, A
+
+
 def quat2mat(quat):
     """Convert quaternion coefficients to rotation matrix.
     Args:
@@ -567,45 +602,13 @@ def batch_rodrigues(theta):
     return quat2mat(quat)
 
 
-def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
-    N = Rs.shape[0]
-    if rotate_base:
-        np_rot_x = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float
-            )
-        np_rot_x = np.reshape(np.tile(np_rot_x, [N, 1]), [N, 3, 3])
-        rot_x = Variable(torch.from_numpy(np_rot_x).float()).cuda()
-        root_rotation = torch.matmul(Rs[:, (0), :, :], rot_x)
-    else:
-        root_rotation = Rs[:, (0), :, :]
-    Js = torch.unsqueeze(Js, -1)
-
-    def make_A(R, t):
-        R_homo = F.pad(R, [0, 0, 0, 1, 0, 0])
-        t_homo = torch.cat([t, Variable(torch.ones(N, 1, 1)).cuda()], dim=1)
-        return torch.cat([R_homo, t_homo], 2)
-    A0 = make_A(root_rotation, Js[:, (0)])
-    results = [A0]
-    for i in range(1, parent.shape[0]):
-        j_here = Js[:, (i)] - Js[:, (parent[i])]
-        A_here = make_A(Rs[:, (i)], j_here)
-        res_here = torch.matmul(results[parent[i]], A_here)
-        results.append(res_here)
-    results = torch.stack(results, dim=1)
-    new_J = results[:, :, :3, (3)]
-    Js_w0 = torch.cat([Js, Variable(torch.zeros(N, 24, 1, 1)).cuda()], dim=2)
-    init_bone = torch.matmul(results, Js_w0)
-    init_bone = F.pad(init_bone, [3, 0, 0, 0, 0, 0, 0, 0])
-    A = results - init_bone
-    return new_J, A
+_global_config['batch_3d_size'] = 4
 
 
 _global_config['eval_batch_size'] = 4
 
 
 _global_config['batch_size'] = 4
-
-
-_global_config['batch_3d_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -803,6 +806,43 @@ class DenseNet(nn.Module):
         return out
 
 
+class ThetaRegressor(LinearModel):
+
+    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func,
+        iterations):
+        super(ThetaRegressor, self).__init__(fc_layers, use_dropout,
+            drop_prob, use_ac_func)
+        self.iterations = iterations
+        batch_size = max(args.batch_size + args.batch_3d_size, args.
+            eval_batch_size)
+        mean_theta = np.tile(util.load_mean_theta(), batch_size).reshape((
+            batch_size, -1))
+        self.register_buffer('mean_theta', torch.from_numpy(mean_theta).float()
+            )
+    """
+        param:
+            inputs: is the output of encoder, which has 2048 features
+        
+        return:
+            a list contains [ [theta1, theta1, ..., theta1], [theta2, theta2, ..., theta2], ... , ], shape is iterations X N X 85(or other theta count)
+    """
+
+    def forward(self, inputs):
+        thetas = []
+        shape = inputs.shape
+        theta = self.mean_theta[:shape[0], :]
+        for _ in range(self.iterations):
+            total_inputs = torch.cat([inputs, theta], 1)
+            theta = theta + self.fc_blocks(total_inputs)
+            thetas.append(theta)
+        return thetas
+
+
+def _create_hourglass_net():
+    return HourGlass(nStack=2, nBlockCount=4, nResidualEachBlock=1,
+        nMidChannels=128, nChannels=256, nJointCount=1, bUseBn=True)
+
+
 model_urls = {'densenet121':
     'https://download.pytorch.org/models/densenet121-a639ec97.pth',
     'densenet169':
@@ -811,6 +851,30 @@ model_urls = {'densenet121':
     'https://download.pytorch.org/models/densenet201-c1103571.pth',
     'densenet161':
     'https://download.pytorch.org/models/densenet161-8d451a50.pth'}
+
+
+def densenet121(pretrained=False, **kwargs):
+    """Densenet-121 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
+        12, 24, 16), **kwargs)
+    if pretrained:
+        pattern = re.compile(
+            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
+            )
+        state_dict = model_zoo.load_url(model_urls['densenet121'])
+        for key in list(state_dict.keys()):
+            res = pattern.match(key)
+            if res:
+                new_key = res.group(1) + res.group(2)
+                state_dict[new_key] = state_dict[key]
+                del state_dict[key]
+        model.load_state_dict(state_dict)
+    return model
 
 
 def densenet161(pretrained=False, **kwargs):
@@ -861,30 +925,6 @@ def densenet169(pretrained=False, **kwargs):
     return model
 
 
-def densenet121(pretrained=False, **kwargs):
-    """Densenet-121 model from
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 24, 16), **kwargs)
-    if pretrained:
-        pattern = re.compile(
-            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
-            )
-        state_dict = model_zoo.load_url(model_urls['densenet121'])
-        for key in list(state_dict.keys()):
-            res = pattern.match(key)
-            if res:
-                new_key = res.group(1) + res.group(2)
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        model.load_state_dict(state_dict)
-    return model
-
-
 def densenet201(pretrained=False, **kwargs):
     """Densenet-201 model from
     `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
@@ -923,41 +963,22 @@ def load_denseNet(net_type):
         sys.exit(msg)
 
 
-def _create_hourglass_net():
-    return HourGlass(nStack=2, nBlockCount=4, nResidualEachBlock=1,
-        nMidChannels=128, nChannels=256, nJointCount=1, bUseBn=True)
+_global_config['smpl_model'] = 4
 
 
-class ThetaRegressor(LinearModel):
+_global_config['smpl_mean_theta_path'] = 4
 
-    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func,
-        iterations):
-        super(ThetaRegressor, self).__init__(fc_layers, use_dropout,
-            drop_prob, use_ac_func)
-        self.iterations = iterations
-        batch_size = max(args.batch_size + args.batch_3d_size, args.
-            eval_batch_size)
-        mean_theta = np.tile(util.load_mean_theta(), batch_size).reshape((
-            batch_size, -1))
-        self.register_buffer('mean_theta', torch.from_numpy(mean_theta).float()
-            )
-    """
-        param:
-            inputs: is the output of encoder, which has 2048 features
-        
-        return:
-            a list contains [ [theta1, theta1, ..., theta1], [theta2, theta2, ..., theta2], ... , ], shape is iterations X N X 85(or other theta count)
-    """
 
-    def forward(self, inputs):
-        thetas = []
-        shape = inputs.shape
-        theta = self.mean_theta[:shape[0], :]
-        for _ in range(self.iterations):
-            total_inputs = torch.cat([inputs, theta], 1)
-            theta = theta + self.fc_blocks(total_inputs)
-            thetas.append(theta)
-        return thetas
+_global_config['encoder_feature_count'] = 4
+
+
+_global_config['crop_size'] = 4
+
+
+_global_config['joint_count'] = 4
+
+
+_global_config['allowed_encoder_net'] = 4
 
 
 _global_config['beta_count'] = 4
@@ -966,31 +987,13 @@ _global_config['beta_count'] = 4
 _global_config['encoder_network'] = 4
 
 
-_global_config['smpl_mean_theta_path'] = 4
+_global_config['total_theta_count'] = 4
 
 
 _global_config['feature_count'] = 4
 
 
-_global_config['joint_count'] = 4
-
-
-_global_config['smpl_model'] = 4
-
-
-_global_config['allowed_encoder_net'] = 4
-
-
-_global_config['encoder_feature_count'] = 4
-
-
 _global_config['enable_inter_supervision'] = 4
-
-
-_global_config['total_theta_count'] = 4
-
-
-_global_config['crop_size'] = 4
 
 
 class HMRNetBase(nn.Module):

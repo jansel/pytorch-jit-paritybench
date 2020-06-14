@@ -42,6 +42,9 @@ from torch.nn.init import xavier_uniform_
 import random
 
 
+import time
+
+
 from torch.backends import cudnn
 
 
@@ -143,15 +146,15 @@ class GenBlock(nn.Module):
         return out
 
 
-def snlinear(in_features, out_features):
-    return spectral_norm(nn.Linear(in_features=in_features, out_features=
-        out_features))
-
-
 def init_weights(m):
     if type(m) == nn.Linear or type(m) == nn.Conv2d:
         xavier_uniform_(m.weight)
         m.bias.data.fill_(0.0)
+
+
+def snlinear(in_features, out_features):
+    return spectral_norm(nn.Linear(in_features=in_features, out_features=
+        out_features))
 
 
 class Generator(nn.Module):

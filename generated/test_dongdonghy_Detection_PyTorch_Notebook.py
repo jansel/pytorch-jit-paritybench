@@ -142,6 +142,9 @@ import math
 import numpy as np
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -528,16 +531,16 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
-_global_config['POOLING_MODE'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
-_global_config['POOLING_SIZE'] = 4
+_global_config['POOLING_MODE'] = 4
 
 
 _global_config['TRAIN'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 class _fasterRCNN(nn.Module):
@@ -1930,13 +1933,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
-_global_config['ANCHOR_RATIOS'] = 4
+_global_config['FEAT_STRIDE'] = 4
 
 
 _global_config['ANCHOR_SCALES'] = 4
 
 
-_global_config['FEAT_STRIDE'] = 4
+_global_config['ANCHOR_RATIOS'] = 4
 
 
 class _RPN(nn.Module):
@@ -2055,31 +2058,31 @@ def _make_layers(in_channels, net_cfg):
     return nn.Sequential(*layers), in_channels
 
 
-_global_config['noobject_scale'] = 1.0
+_global_config['multi_scale_inp_size'] = 1.0
 
 
 _global_config['object_scale'] = 1.0
 
 
-_global_config['anchors'] = 4
+_global_config['coord_scale'] = 1.0
 
 
 _global_config['num_classes'] = 4
 
 
-_global_config['multi_scale_inp_size'] = 1.0
+_global_config['anchors'] = 4
 
 
-_global_config['coord_scale'] = 1.0
+_global_config['noobject_scale'] = 1.0
+
+
+_global_config['class_scale'] = 1.0
 
 
 _global_config['multi_scale_out_size'] = 1.0
 
 
 _global_config['iou_thresh'] = 4
-
-
-_global_config['class_scale'] = 1.0
 
 
 def _process_batch(data, size_index):

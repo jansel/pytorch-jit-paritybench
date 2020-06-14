@@ -50,6 +50,9 @@ __version__ = '1.0.0'
 import torch
 
 
+import time
+
+
 import numpy as np
 
 
@@ -605,6 +608,20 @@ class ControlPeripheral(nn.Module):
         return self.control_embeddings(control_ids)
 
 
+def get_attn_key_pad_mask(pad_mask, seq_q):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    pad_mask = pad_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return pad_mask
+
+
+def get_non_pad_mask(seq, pad_mask):
+    if pad_mask is None:
+        return None
+    else:
+        return pad_mask.ne(1).type(torch.float).unsqueeze(-1)
+
+
 def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
     """ Sinusoid position encoding table """
 
@@ -620,20 +637,6 @@ def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
     if padding_idx is not None:
         sinusoid_table[padding_idx] = 0.0
     return torch.FloatTensor(sinusoid_table)
-
-
-def get_non_pad_mask(seq, pad_mask):
-    if pad_mask is None:
-        return None
-    else:
-        return pad_mask.ne(1).type(torch.float).unsqueeze(-1)
-
-
-def get_attn_key_pad_mask(pad_mask, seq_q):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    pad_mask = pad_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return pad_mask
 
 
 class TemporalCacheEncoder(nn.Module):

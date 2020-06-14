@@ -50,6 +50,9 @@ import math
 import random
 
 
+import time
+
+
 import torch.nn.modules.sparse
 
 
@@ -269,5 +272,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_salesforce_matchbox(_paritybench_base):
     pass
     def test_000(self):
+        self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
         self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 

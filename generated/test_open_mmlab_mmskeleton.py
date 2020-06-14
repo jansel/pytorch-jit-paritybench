@@ -109,6 +109,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -648,16 +651,6 @@ class HRModule(nn.Module):
         return x_fuse
 
 
-url_error_message = """
-
-==================================================
-MMSkeleton fail to load checkpoint from url: 
-    {}
-Please check your network connection. Or manually download checkpoints according to the instructor:
-    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
-"""
-
-
 mmskeleton_model_urls = {'st_gcn/kinetics-skeleton':
     'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.kinetics-6fa43f73.pth'
     , 'st_gcn/ntu-xsub':
@@ -679,6 +672,16 @@ def get_mmskeleton_url(filename):
         model_url = mmskeleton_model_urls[model_name]
         return model_url
     return filename
+
+
+url_error_message = """
+
+==================================================
+MMSkeleton fail to load checkpoint from url: 
+    {}
+Please check your network connection. Or manually download checkpoints according to the instructor:
+    https://github.com/open-mmlab/mmskeleton/blob/master/doc/MODEL_ZOO.md
+"""
 
 
 def load_checkpoint(model, filename, *args, **kwargs):

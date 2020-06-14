@@ -60,6 +60,9 @@ import torch.optim as optim
 import torch.utils.data
 
 
+import time
+
+
 class BidirectionalLSTM(nn.Module):
 
     def __init__(self, nIn, nHidden, nOut):

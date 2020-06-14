@@ -626,7 +626,10 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-with_cuda = False
+defines = []
+
+
+extra_objects = ['src/nms_cuda_kernel.cu.o']
 
 
 headers = []
@@ -635,10 +638,7 @@ headers = []
 sources = []
 
 
-defines = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
+with_cuda = False
 
 
 class RoIPoolFunction(Function):
@@ -692,10 +692,10 @@ class _RoIPooling(Module):
             spatial_scale)(features, rois)
 
 
-LOWEST_BACKBONE_LVL = 2
-
-
 HIGHEST_BACKBONE_LVL = 5
+
+
+LOWEST_BACKBONE_LVL = 2
 
 
 _global_config['FPN'] = 4
@@ -896,15 +896,6 @@ class topdown_lateral_module(nn.Module):
         return lat + td
 
 
-def _whctrs(anchor):
-    """Return width, height, x center, and y center for an anchor (window)."""
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
 def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
@@ -914,6 +905,15 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """Return width, height, x center, and y center for an anchor (window)."""
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):
@@ -957,10 +957,10 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
         stride, np.array(aspect_ratios, dtype=np.float))
 
 
-_global_config['RPN'] = 4
-
-
 _global_config['MODEL'] = 4
+
+
+_global_config['RPN'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -1051,41 +1051,6 @@ class fpn_rpn_outputs(nn.Module):
 _global_config['RESNETS'] = 4
 
 
-def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
-    res_id):
-    """Construct weight mapping relation for a residual stage with `num_blocks` of
-    residual blocks given the stage id: `res_id`
-    """
-    if cfg.RESNETS.USE_GN:
-        norm_suffix = '_gn'
-    else:
-        norm_suffix = '_bn'
-    mapping_to_detectron = {}
-    orphan_in_detectron = []
-    for blk_id in range(num_blocks):
-        detectron_prefix = 'res%d_%d' % (res_id, blk_id)
-        my_prefix = '%s.%d' % (module_name, blk_id)
-        if getattr(module_ref[blk_id], 'downsample'):
-            dtt_bp = detectron_prefix + '_branch1'
-            mapping_to_detectron[my_prefix + '.downsample.0.weight'
-                ] = dtt_bp + '_w'
-            orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.downsample.1.weight'
-                ] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.downsample.1.bias'
-                ] = dtt_bp + norm_suffix + '_b'
-        for i, c in zip([1, 2, 3], ['a', 'b', 'c']):
-            dtt_bp = detectron_prefix + '_branch2' + c
-            mapping_to_detectron[my_prefix + '.conv%d.weight' % i
-                ] = dtt_bp + '_w'
-            orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
-    return mapping_to_detectron, orphan_in_detectron
-
-
 def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
     """Return a residual block module, including residual connection, """
     if stride != 1 or inplanes != outplanes:
@@ -1121,6 +1086,41 @@ def freeze_params(m):
     """
     for p in m.parameters():
         p.requires_grad = False
+
+
+def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
+    res_id):
+    """Construct weight mapping relation for a residual stage with `num_blocks` of
+    residual blocks given the stage id: `res_id`
+    """
+    if cfg.RESNETS.USE_GN:
+        norm_suffix = '_gn'
+    else:
+        norm_suffix = '_bn'
+    mapping_to_detectron = {}
+    orphan_in_detectron = []
+    for blk_id in range(num_blocks):
+        detectron_prefix = 'res%d_%d' % (res_id, blk_id)
+        my_prefix = '%s.%d' % (module_name, blk_id)
+        if getattr(module_ref[blk_id], 'downsample'):
+            dtt_bp = detectron_prefix + '_branch1'
+            mapping_to_detectron[my_prefix + '.downsample.0.weight'
+                ] = dtt_bp + '_w'
+            orphan_in_detectron.append(dtt_bp + '_b')
+            mapping_to_detectron[my_prefix + '.downsample.1.weight'
+                ] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.downsample.1.bias'
+                ] = dtt_bp + norm_suffix + '_b'
+        for i, c in zip([1, 2, 3], ['a', 'b', 'c']):
+            dtt_bp = detectron_prefix + '_branch2' + c
+            mapping_to_detectron[my_prefix + '.conv%d.weight' % i
+                ] = dtt_bp + '_w'
+            orphan_in_detectron.append(dtt_bp + '_b')
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
+                '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
+                '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
+    return mapping_to_detectron, orphan_in_detectron
 
 
 class ResNet_convX_body(nn.Module):
@@ -2075,6 +2075,26 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         return x
 
 
+_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
+
+
+def check_inference(net_func):
+
+    @wraps(net_func)
+    def wrapper(self, *args, **kwargs):
+        if not self.training:
+            if cfg.PYTORCH_VERSION_LESS_THAN_040:
+                return net_func(self, *args, **kwargs)
+            else:
+                with torch.no_grad():
+                    return net_func(self, *args, **kwargs)
+        else:
+            raise ValueError(
+                'You should call this function only on inference.Set the network in inference mode by net.eval().'
+                )
+    return wrapper
+
+
 def compare_state_dict(sa, sb):
     if sa.keys() != sb.keys():
         return False
@@ -2114,30 +2134,10 @@ def get_func(func_name):
         raise
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
-def check_inference(net_func):
-
-    @wraps(net_func)
-    def wrapper(self, *args, **kwargs):
-        if not self.training:
-            if cfg.PYTORCH_VERSION_LESS_THAN_040:
-                return net_func(self, *args, **kwargs)
-            else:
-                with torch.no_grad():
-                    return net_func(self, *args, **kwargs)
-        else:
-            raise ValueError(
-                'You should call this function only on inference.Set the network in inference mode by net.eval().'
-                )
-    return wrapper
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 _global_config['TRAIN'] = 4
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class Generalized_RCNN(nn.Module):

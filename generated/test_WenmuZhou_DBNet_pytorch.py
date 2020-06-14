@@ -121,6 +121,138 @@ class DBLoss(nn.Module):
         return metrics
 
 
+model_urls = {'shufflenetv2_x0.5':
+    'https://download.pytorch.org/models/shufflenetv2_x0.5-f707e7126e.pth',
+    'shufflenetv2_x1.0':
+    'https://download.pytorch.org/models/shufflenetv2_x1-5666bf0f80.pth',
+    'shufflenetv2_x1.5': None, 'shufflenetv2_x2.0': None}
+
+
+def deformable_resnet18(pretrained=True, **kwargs):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], dcn=dict(deformable_groups=1))
+    if pretrained:
+        print('load from imagenet')
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']),
+            strict=False)
+    return model
+
+
+def deformable_resnet50(pretrained=True, **kwargs):
+    """Constructs a ResNet-50 model with deformable conv.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], dcn=dict(deformable_groups=1),
+        **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']),
+            strict=False)
+    return model
+
+
+def resnet101(pretrained=True, **kwargs):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']),
+            strict=False)
+    return model
+
+
+def resnet152(pretrained=True, **kwargs):
+    """Constructs a ResNet-152 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']),
+            strict=False)
+    return model
+
+
+def resnet18(pretrained=True, **kwargs):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        print('load from imagenet')
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']),
+            strict=False)
+    return model
+
+
+def resnet34(pretrained=True, **kwargs):
+    """Constructs a ResNet-34 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']),
+            strict=False)
+    return model
+
+
+def resnet50(pretrained=True, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']),
+            strict=False)
+    return model
+
+
+def _shufflenetv2(arch, pretrained, progress, *args, **kwargs):
+    model = ShuffleNetV2(*args, **kwargs)
+    if pretrained:
+        model_url = model_urls[arch]
+        if model_url is None:
+            raise NotImplementedError(
+                'pretrained {} is not supported as of now'.format(arch))
+        else:
+            state_dict = load_state_dict_from_url(model_url, progress=progress)
+            model.load_state_dict(state_dict, strict=False)
+    return model
+
+
+def shufflenet_v2_x1_0(pretrained=False, progress=True, **kwargs):
+    """
+    Constructs a ShuffleNetV2 with 1.0x output channels, as described in
+    `"ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design"
+    <https://arxiv.org/abs/1807.11164>`_.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _shufflenetv2('shufflenetv2_x1.0', pretrained, progress, [4, 8, 
+        4], [24, 116, 232, 464, 1024], **kwargs)
+
+
+backbone_dict = {'resnet18': {'models': resnet18, 'out': [64, 128, 256, 512
+    ]}, 'deformable_resnet18': {'models': deformable_resnet18, 'out': [64, 
+    128, 256, 512]}, 'resnet34': {'models': resnet34, 'out': [64, 128, 256,
+    512]}, 'resnet50': {'models': resnet50, 'out': [256, 512, 1024, 2048]},
+    'deformable_resnet50': {'models': deformable_resnet50, 'out': [256, 512,
+    1024, 2048]}, 'resnet101': {'models': resnet101, 'out': [256, 512, 1024,
+    2048]}, 'resnet152': {'models': resnet152, 'out': [256, 512, 1024, 2048
+    ]}, 'shufflenetv2': {'models': shufflenet_v2_x1_0, 'out': [24, 116, 232,
+    464]}}
+
+
 class ConvBnRelu(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,

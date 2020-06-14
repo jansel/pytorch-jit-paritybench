@@ -76,6 +76,9 @@ import torch.optim as optim
 import numpy as np
 
 
+import time
+
+
 import torch.backends.cudnn as cudnn
 
 
@@ -1205,17 +1208,6 @@ model_urls = {'resnet18':
     'https://s3.amazonaws.com/pytorch/models/resnet152-b121ed2d.pth'}
 
 
-def resnet152(pretrained=False):
-    """Constructs a ResNet-152 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 8, 36, 3])
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
-    return model
-
-
 def resnet101(pretrained=False):
     """Constructs a ResNet-101 model.
     Args:
@@ -1224,6 +1216,17 @@ def resnet101(pretrained=False):
     model = ResNet(Bottleneck, [3, 4, 23, 3])
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+def resnet152(pretrained=False):
+    """Constructs a ResNet-152 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 8, 36, 3])
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
     return model
 
 
@@ -1590,16 +1593,6 @@ def precook(s, n=4, out=False):
     return counts
 
 
-def cook_test(test, n=4):
-    """Takes a test sentence and returns an object that
-    encapsulates everything that BLEU needs to know about it.
-    :param test: list of string : hypothesis sentence for some image
-    :param n: int : number of ngrams for which (ngram) representation is calculated
-    :return: result (dict)
-    """
-    return precook(test, n, True)
-
-
 def cook_refs(refs, n=4):
     """Takes a list of reference sentences for a single segment
     and returns an object that encapsulates everything that BLEU
@@ -1609,6 +1602,16 @@ def cook_refs(refs, n=4):
     :return: result (list of dict)
     """
     return [precook(ref, n) for ref in refs]
+
+
+def cook_test(test, n=4):
+    """Takes a test sentence and returns an object that
+    encapsulates everything that BLEU needs to know about it.
+    :param test: list of string : hypothesis sentence for some image
+    :param n: int : number of ngrams for which (ngram) representation is calculated
+    :return: result (dict)
+    """
+    return precook(test, n, True)
 
 
 class CiderScorer(object):

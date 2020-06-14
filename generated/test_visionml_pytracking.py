@@ -202,6 +202,9 @@ import torch.optim as optim
 import torch.nn
 
 
+import time
+
+
 class MultiGPU(nn.DataParallel):
     """Wraps a network to allow simple multi-GPU training."""
 

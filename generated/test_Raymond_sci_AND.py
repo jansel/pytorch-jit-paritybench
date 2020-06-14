@@ -69,13 +69,16 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
+_global_config['ANs_size'] = 4
+
+
 _global_config['ANs_select_rate'] = 4
 
 
 _global_config['device'] = 4
-
-
-_global_config['ANs_size'] = 4
 
 
 class ANsDiscovery(nn.Module):

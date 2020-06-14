@@ -76,6 +76,9 @@ __version__ = '1.0.0'
 import numpy as np
 
 
+import time
+
+
 import torch
 
 
@@ -239,6 +242,27 @@ class SnetExtractor(nn.Module):
         return cem_out
 
 
+def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
+    bbox_outside_weights, sigma=1.0, dim=[1], reduce='mean'):
+    sigma_2 = sigma ** 2
+    box_diff = bbox_pred - bbox_targets
+    in_box_diff = bbox_inside_weights * box_diff
+    abs_in_box_diff = torch.abs(in_box_diff)
+    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
+    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
+        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
+        smoothL1_sign)
+    out_loss_box = bbox_outside_weights * in_loss_box
+    loss_box = out_loss_box
+    for i in sorted(dim, reverse=True):
+        loss_box = loss_box.sum(i)
+    if reduce == 'mean':
+        loss_box = loss_box.mean()
+    elif reduce == 'sum':
+        loss_box = loss_box.sum()
+    return loss_box
+
+
 def hard_negative_mining(loss, labels, neg_pos_ratio=3):
     """
     It used to suppress the presence of a large number of negative prediction.
@@ -260,27 +284,6 @@ def hard_negative_mining(loss, labels, neg_pos_ratio=3):
     _, orders = indexes.sort()
     neg_mask = orders < num_neg
     return pos_mask | neg_mask, num_pos.cpu().numpy()[0]
-
-
-def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
-    bbox_outside_weights, sigma=1.0, dim=[1], reduce='mean'):
-    sigma_2 = sigma ** 2
-    box_diff = bbox_pred - bbox_targets
-    in_box_diff = bbox_inside_weights * box_diff
-    abs_in_box_diff = torch.abs(in_box_diff)
-    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
-    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
-        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
-        smoothL1_sign)
-    out_loss_box = bbox_outside_weights * in_loss_box
-    loss_box = out_loss_box
-    for i in sorted(dim, reverse=True):
-        loss_box = loss_box.sum(i)
-    if reduce == 'mean':
-        loss_box = loss_box.mean()
-    elif reduce == 'sum':
-        loss_box = loss_box.sum()
-    return loss_box
 
 
 _global_config['FEAT_STRIDE'] = 4
@@ -587,6 +590,22 @@ class FocalLoss(nn.Module):
         return self.neg_loss(out, target)
 
 
+def _reg_loss(regr, gt_regr, mask):
+    """ L1 regression loss
+      Arguments:
+        regr (batch x max_objects x dim)
+        gt_regr (batch x max_objects x dim)
+        mask (batch x max_objects)
+    """
+    num = mask.float().sum()
+    mask = mask.unsqueeze(2).expand_as(gt_regr).float()
+    regr = regr * mask
+    gt_regr = gt_regr * mask
+    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
+    regr_loss = regr_loss / (num + 0.0001)
+    return regr_loss
+
+
 def _gather_feat(feat, ind, mask=None):
     dim = feat.size(2)
     ind = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
@@ -603,22 +622,6 @@ def _tranpose_and_gather_feat(feat, ind):
     feat = feat.view(feat.size(0), -1, feat.size(3))
     feat = _gather_feat(feat, ind)
     return feat
-
-
-def _reg_loss(regr, gt_regr, mask):
-    """ L1 regression loss
-      Arguments:
-        regr (batch x max_objects x dim)
-        gt_regr (batch x max_objects x dim)
-        mask (batch x max_objects)
-    """
-    num = mask.float().sum()
-    mask = mask.unsqueeze(2).expand_as(gt_regr).float()
-    regr = regr * mask
-    gt_regr = gt_regr * mask
-    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
-    regr_loss = regr_loss / (num + 0.0001)
-    return regr_loss
 
 
 class RegLoss(nn.Module):
@@ -743,6 +746,61 @@ class BinRotLoss(nn.Module):
         return loss
 
 
+def bbox_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
+        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
+            ) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
+            ) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
+            gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
+            expand_as(gt_heights))
+    elif ex_rois.dim() == 3:
+        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
+        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
+        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
+        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths)
+        targets_dh = torch.log(gt_heights / ex_heights)
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
+    return targets
+
+
+def _compute_targets_batch(ex_rois, gt_rois):
+    """Compute bounding-box regression targets for an image."""
+    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
+
+
+def _unmap(data, count, inds, batch_size, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 2:
+        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
+        ret[:, (inds)] = data
+    else:
+        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
+            ).type_as(data)
+        ret[:, (inds), :] = data
+    return ret
+
+
 def bbox_overlaps_batch(anchors, gt_boxes):
     """
     anchors: (N, 4) ndarray of float
@@ -817,17 +875,6 @@ def bbox_overlaps_batch(anchors, gt_boxes):
     return overlaps
 
 
-def _whctrs(anchor):
-    """
-    Return width, height, x center, and y center for an anchor (window).
-    """
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
 def _mkanchors(ws, hs, x_ctr, y_ctr):
     """
     Given a vector of widths (ws) and heights (hs) around a center
@@ -838,6 +885,17 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
         x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """
+    Return width, height, x center, and y center for an anchor (window).
+    """
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
 
 
 def _ratio_enum(anchor, ratios):
@@ -875,61 +933,6 @@ def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
     anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
         xrange(ratio_anchors.shape[0])])
     return anchors
-
-
-def _unmap(data, count, inds, batch_size, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 2:
-        ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
-        ret[:, (inds)] = data
-    else:
-        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
-            ).type_as(data)
-        ret[:, (inds), :] = data
-    return ret
-
-
-def bbox_transform_batch(ex_rois, gt_rois):
-    if ex_rois.dim() == 2:
-        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
-        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
-            ) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
-            gt_widths))
-        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
-            expand_as(gt_heights))
-    elif ex_rois.dim() == 3:
-        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
-        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths)
-        targets_dh = torch.log(gt_heights / ex_heights)
-    else:
-        raise ValueError('ex_roi input dimension is not correct.')
-    targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh), 2)
-    return targets
-
-
-def _compute_targets_batch(ex_rois, gt_rois):
-    """Compute bounding-box regression targets for an image."""
-    return bbox_transform_batch(ex_rois, gt_rois[:, :, :4])
 
 
 class _AnchorTargetLayer(nn.Module):
@@ -1210,15 +1213,6 @@ class _RPN(nn.Module):
         return rois, self.rpn_loss_cls, self.rpn_loss_box
 
 
-def clip_boxes(boxes, im_shape, batch_size):
-    for i in range(batch_size):
-        boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 1::4].clamp_(0, im_shape[i, 0] - 1)
-        boxes[(i), :, 2::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 3::4].clamp_(0, im_shape[i, 0] - 1)
-    return boxes
-
-
 def bbox_transform_inv(boxes, deltas, batch_size):
     widths = boxes[:, :, (2)] - boxes[:, :, (0)] + 1.0
     heights = boxes[:, :, (3)] - boxes[:, :, (1)] + 1.0
@@ -1238,6 +1232,15 @@ def bbox_transform_inv(boxes, deltas, batch_size):
     pred_boxes[:, :, 2::4] = pred_ctr_x + 0.5 * pred_w
     pred_boxes[:, :, 3::4] = pred_ctr_y + 0.5 * pred_h
     return pred_boxes
+
+
+def clip_boxes(boxes, im_shape, batch_size):
+    for i in range(batch_size):
+        boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[(i), :, 1::4].clamp_(0, im_shape[i, 0] - 1)
+        boxes[(i), :, 2::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[(i), :, 3::4].clamp_(0, im_shape[i, 0] - 1)
+    return boxes
 
 
 class _ProposalLayer(nn.Module):

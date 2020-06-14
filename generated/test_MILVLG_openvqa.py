@@ -79,6 +79,9 @@ from torch.nn.utils.weight_norm import weight_norm
 import math
 
 
+import time
+
+
 def feat_filter(dataset, frcn_feat, grid_feat, bbox_feat):
     feat_dict = {}
     if dataset in ['vqa']:

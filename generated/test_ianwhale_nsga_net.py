@@ -63,6 +63,9 @@ import torch.utils
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
 import torch.optim as optim
 
 
@@ -832,35 +835,6 @@ class ChannelBasedDecoder(Decoder):
         raise NotImplementedError()
 
 
-class ResidualGenomeDecoder(ChannelBasedDecoder):
-    """
-    Genetic CNN genome decoder with residual bit.
-    """
-
-    def __init__(self, list_genome, channels, preact=False, repeats=None):
-        """
-        Constructor.
-        :param list_genome: list, genome describing the connections in a network.
-        :param channels: list, list of tuples describing the channel size changes.
-        :param repeats: None | list, list of integers describing how many times to repeat each phase.
-        """
-        super().__init__(list_genome, channels, repeats=repeats)
-        if self._model is not None:
-            return
-        phases = []
-        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
-            _genome, self._channels)):
-            phases.append(ResidualPhase(gene, in_channels, out_channels,
-                idx, preact=preact))
-        self._model = nn.Sequential(*self.build_layers(phases))
-
-    def get_model(self):
-        """
-        :return: nn.Module
-        """
-        return self._model
-
-
 class DenseGenomeDecoder(ChannelBasedDecoder):
     """
     Genetic CNN genome decoder with residual bit.
@@ -890,6 +864,35 @@ class DenseGenomeDecoder(ChannelBasedDecoder):
         :return: list
         """
         return [gene for gene in genome if phase_active(gene)]
+
+    def get_model(self):
+        """
+        :return: nn.Module
+        """
+        return self._model
+
+
+class ResidualGenomeDecoder(ChannelBasedDecoder):
+    """
+    Genetic CNN genome decoder with residual bit.
+    """
+
+    def __init__(self, list_genome, channels, preact=False, repeats=None):
+        """
+        Constructor.
+        :param list_genome: list, genome describing the connections in a network.
+        :param channels: list, list of tuples describing the channel size changes.
+        :param repeats: None | list, list of integers describing how many times to repeat each phase.
+        """
+        super().__init__(list_genome, channels, repeats=repeats)
+        if self._model is not None:
+            return
+        phases = []
+        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
+            _genome, self._channels)):
+            phases.append(ResidualPhase(gene, in_channels, out_channels,
+                idx, preact=preact))
+        self._model = nn.Sequential(*self.build_layers(phases))
 
     def get_model(self):
         """

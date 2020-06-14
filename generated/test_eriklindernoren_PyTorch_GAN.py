@@ -87,6 +87,9 @@ import torch.nn.functional as F
 import torch
 
 
+import time
+
+
 import scipy
 
 
@@ -97,20 +100,6 @@ parser = argparse.ArgumentParser()
 
 
 opt = parser.parse_args()
-
-
-cuda = True if torch.cuda.is_available() else False
-
-
-Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-
-
-def reparameterization(mu, logvar):
-    std = torch.exp(logvar / 2)
-    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.
-        latent_dim))))
-    z = sampled_z * std + mu
-    return z
 
 
 class Decoder(nn.Module):

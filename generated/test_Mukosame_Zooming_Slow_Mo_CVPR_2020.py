@@ -81,6 +81,9 @@ from torch.nn.modules.utils import _pair
 from torch.autograd.function import once_differentiable
 
 
+import time
+
+
 from torch.autograd import gradcheck
 
 
@@ -666,6 +669,20 @@ class CharbonnierLoss(nn.Module):
         return loss
 
 
+def build_gauss_kernel(size=5, sigma=1.0, n_channels=1, cuda=False):
+    if size % 2 != 1:
+        raise ValueError('kernel size must be uneven')
+    grid = np.float32(np.mgrid[0:size, 0:size].T)
+    gaussian = lambda x: np.exp((x - size // 2) ** 2 / (-2 * sigma ** 2)) ** 2
+    kernel = np.sum(gaussian(grid), axis=2)
+    kernel /= np.sum(kernel)
+    kernel = np.tile(kernel, (n_channels, 1, 1))
+    kernel = torch.FloatTensor(kernel[:, (None), :, :])
+    if cuda:
+        kernel = kernel.cuda()
+    return Variable(kernel, requires_grad=False)
+
+
 def conv_gauss(img, kernel):
     """ convolve img with a gaussian kernel that has been built with build_gauss_kernel """
     n_channels, _, kw, kh = kernel.shape
@@ -683,20 +700,6 @@ def laplacian_pyramid(img, kernel, max_levels=5):
         current = fnn.avg_pool2d(filtered, 2)
     pyr.append(current)
     return pyr
-
-
-def build_gauss_kernel(size=5, sigma=1.0, n_channels=1, cuda=False):
-    if size % 2 != 1:
-        raise ValueError('kernel size must be uneven')
-    grid = np.float32(np.mgrid[0:size, 0:size].T)
-    gaussian = lambda x: np.exp((x - size // 2) ** 2 / (-2 * sigma ** 2)) ** 2
-    kernel = np.sum(gaussian(grid), axis=2)
-    kernel /= np.sum(kernel)
-    kernel = np.tile(kernel, (n_channels, 1, 1))
-    kernel = torch.FloatTensor(kernel[:, (None), :, :])
-    if cuda:
-        kernel = kernel.cuda()
-    return Variable(kernel, requires_grad=False)
 
 
 class LapLoss(nn.Module):

@@ -61,6 +61,9 @@ from torch.nn import init
 from torch.optim import lr_scheduler
 
 
+import time
+
+
 from scipy.optimize import fsolve
 
 
@@ -1680,8 +1683,11 @@ class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(simple_net(*[], **{'nclasses': 4}), [torch.rand([4, 3, 64, 64])], {})
 

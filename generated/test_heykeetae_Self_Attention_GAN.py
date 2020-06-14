@@ -52,6 +52,9 @@ from torch import Tensor
 from torch.nn import Parameter
 
 
+import time
+
+
 class Self_Attn(nn.Module):
     """ Self attention Layer"""
 

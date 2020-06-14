@@ -53,6 +53,9 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 
 
+import time
+
+
 import math
 
 
@@ -739,4 +742,8 @@ class Test_layumi_AICIty_reID_2020(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(ArcLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
 

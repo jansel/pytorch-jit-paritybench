@@ -166,6 +166,15 @@ def assert_dims(value: Sequence[Array], dims: List[Optional[int]]) ->Sequence[
     return value
 
 
+def get_kwarg(kwargs, name, default_value=None, remove=True):
+    """Returns the value for the parameter if it exists in the kwargs otherwise the default value provided"""
+    if remove:
+        value = kwargs.pop(name) if name in kwargs else default_value
+    else:
+        value = kwargs.get(name, default_value)
+    return value
+
+
 def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
     if isinstance(value, list):
         assert len(value
@@ -175,13 +184,31 @@ def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
     return value
 
 
-def get_kwarg(kwargs, name, default_value=None, remove=True):
-    """Returns the value for the parameter if it exists in the kwargs otherwise the default value provided"""
-    if remove:
-        value = kwargs.pop(name) if name in kwargs else default_value
+States = Union[List[Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]],
+    torch.Tensor]
+
+
+def concat_layer_bidir_state(states: States, bidir):
+    if isinstance(states, (list, tuple)) and bidir:
+        return states[0].transpose(1, 0).contiguous().view(1, -1, 2 *
+            states[0].size(-1)), states[1].transpose(1, 0).contiguous().view(
+            1, -1, 2 * states[1].size(-1))
+    elif bidir:
+        return states.transpose(1, 0).contiguous().view(1, -1, 2 * states[0
+            ].size(-1))
     else:
-        value = kwargs.get(name, default_value)
-    return value
+        return states
+
+
+def concat_bidir_state(states: States, bidir: bool, cell_type: str, nlayers:
+    int) ->States:
+    if isinstance(states, list):
+        state = []
+        for index in range(len(states)):
+            state.append(concat_layer_bidir_state(states[index], bidir=bidir))
+    else:
+        state = concat_layer_bidir_state(states, bidir=bidir)
+    return state
 
 
 def repeat_cell_state(hidden, num_beams):
@@ -286,20 +313,6 @@ class MultiHeadAttention(nn.Module):
         return assert_dims(output, [slq, bs, self.out_dim])
 
 
-def select_hidden_by_index(hidden, indices):
-    if hidden is None:
-        return hidden
-    results = []
-    for row in hidden:
-        if isinstance(row, (list, tuple)):
-            state = torch.index_select(row[0], 1, indices), torch.index_select(
-                row[1], 1, indices)
-        else:
-            state = torch.index_select(row, 1, indices)
-        results.append(state)
-    return results
-
-
 class RandomUniform:
 
     def __init__(self, numbers=1000000):
@@ -314,6 +327,20 @@ class RandomUniform:
         rand = self.array[self.count]
         self.count += 1
         return rand
+
+
+def select_hidden_by_index(hidden, indices):
+    if hidden is None:
+        return hidden
+    results = []
+    for row in hidden:
+        if isinstance(row, (list, tuple)):
+            state = torch.index_select(row[0], 1, indices), torch.index_select(
+                row[1], 1, indices)
+        else:
+            state = torch.index_select(row, 1, indices)
+        results.append(state)
+    return results
 
 
 class Decoder(nn.Module):

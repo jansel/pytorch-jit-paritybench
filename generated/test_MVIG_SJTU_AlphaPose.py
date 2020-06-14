@@ -166,6 +166,9 @@ from torch.nn.functional import one_hot
 from collections import defaultdict
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -1487,36 +1490,6 @@ class RoIAlignFunction(Function):
 roi_align = RoIAlignFunction.apply
 
 
-def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
-    """Generates mapping from output level to a list of anchor configurations.
-
-    A configuration is a tuple of (num_anchors, scale, aspect_ratio).
-
-    Args:
-        min_level: integer number of minimum level of the output feature pyramid.
-
-        max_level: integer number of maximum level of the output feature pyramid.
-
-        num_scales: integer number representing intermediate scales added on each level.
-            For instances, num_scales=2 adds two additional anchor scales [2^0, 2^0.5] on each level.
-
-        aspect_ratios: list of tuples representing the aspect ratio anchors added on each level.
-            For instances, aspect_ratios = [(1, 1), (1.4, 0.7), (0.7, 1.4)] adds three anchors on each level.
-
-    Returns:
-        anchor_configs: a dictionary with keys as the levels of anchors and
-            values as a list of anchor configuration.
-    """
-    anchor_configs = {}
-    for level in range(min_level, max_level + 1):
-        anchor_configs[level] = []
-        for scale_octave in range(num_scales):
-            for aspect in aspect_ratios:
-                anchor_configs[level].append((2 ** level, scale_octave /
-                    float(num_scales), aspect))
-    return anchor_configs
-
-
 def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
     """Generates multiscale anchor boxes.
 
@@ -1559,6 +1532,36 @@ def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
         boxes_all.append(boxes_level.reshape([-1, 4]))
     anchor_boxes = np.vstack(boxes_all)
     return anchor_boxes
+
+
+def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
+    """Generates mapping from output level to a list of anchor configurations.
+
+    A configuration is a tuple of (num_anchors, scale, aspect_ratio).
+
+    Args:
+        min_level: integer number of minimum level of the output feature pyramid.
+
+        max_level: integer number of maximum level of the output feature pyramid.
+
+        num_scales: integer number representing intermediate scales added on each level.
+            For instances, num_scales=2 adds two additional anchor scales [2^0, 2^0.5] on each level.
+
+        aspect_ratios: list of tuples representing the aspect ratio anchors added on each level.
+            For instances, aspect_ratios = [(1, 1), (1.4, 0.7), (0.7, 1.4)] adds three anchors on each level.
+
+    Returns:
+        anchor_configs: a dictionary with keys as the levels of anchors and
+            values as a list of anchor configuration.
+    """
+    anchor_configs = {}
+    for level in range(min_level, max_level + 1):
+        anchor_configs[level] = []
+        for scale_octave in range(num_scales):
+            for aspect in aspect_ratios:
+                anchor_configs[level].append((2 ** level, scale_octave /
+                    float(num_scales), aspect))
+    return anchor_configs
 
 
 class Anchors(nn.Module):
@@ -1998,17 +2001,17 @@ def bifpn_sum_config(base_reduction=8):
     return p
 
 
-def bifpn_fa_config():
-    """BiFPN config with fast weighted sum."""
-    p = bifpn_sum_config()
-    p.weight_method = 'fastattn'
-    return p
-
-
 def bifpn_attn_config():
     """BiFPN config with fast weighted sum."""
     p = bifpn_sum_config()
     p.weight_method = 'attn'
+    return p
+
+
+def bifpn_fa_config():
+    """BiFPN config with fast weighted sum."""
+    p = bifpn_sum_config()
+    p.weight_method = 'fastattn'
     return p
 
 
@@ -2159,17 +2162,6 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
     return inter_area / (b1_area + b2_area - inter_area + 1e-16)
 
 
-def generate_anchor(nGh, nGw, anchor_wh):
-    nA = len(anchor_wh)
-    yy, xx = torch.meshgrid(torch.arange(nGh), torch.arange(nGw))
-    mesh = torch.stack([xx, yy], dim=0).to(anchor_wh)
-    mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()
-    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1,
-        nGh, nGw)
-    anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)
-    return anchor_mesh
-
-
 def encode_delta(gt_box_list, fg_anchor_list):
     px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
         ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
@@ -2180,6 +2172,17 @@ def encode_delta(gt_box_list, fg_anchor_list):
     dw = torch.log(gw / pw)
     dh = torch.log(gh / ph)
     return torch.stack([dx, dy, dw, dh], dim=1)
+
+
+def generate_anchor(nGh, nGw, anchor_wh):
+    nA = len(anchor_wh)
+    yy, xx = torch.meshgrid(torch.arange(nGh), torch.arange(nGw))
+    mesh = torch.stack([xx, yy], dim=0).to(anchor_wh)
+    mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()
+    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1,
+        nGh, nGw)
+    anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)
+    return anchor_mesh
 
 
 def build_targets_thres(target, anchor_wh, nA, nC, nGh, nGw):
@@ -2230,6 +2233,17 @@ def build_targets_thres(target, anchor_wh, nA, nC, nGh, nGw):
     return tconf, tbox, tid
 
 
+def create_grids(self, img_size, nGh, nGw):
+    self.stride = img_size[0] / nGw
+    assert self.stride == img_size[1] / nGh
+    grid_x = torch.arange(nGw).repeat((nGh, 1)).view((1, 1, nGh, nGw)).float()
+    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1,
+        nGh, nGw)).float()
+    self.grid_xy = torch.stack((grid_x, grid_y), 4)
+    self.anchor_vec = self.anchors / self.stride
+    self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
+
+
 def decode_delta(delta, fg_anchor_list):
     px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
         ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
@@ -2253,17 +2267,6 @@ def decode_delta_map(delta_map, anchors):
     pred_list = decode_delta(delta_map.view(-1, 4), anchor_mesh.view(-1, 4))
     pred_map = pred_list.view(nB, nA, nGh, nGw, 4)
     return pred_map
-
-
-def create_grids(self, img_size, nGh, nGw):
-    self.stride = img_size[0] / nGw
-    assert self.stride == img_size[1] / nGh
-    grid_x = torch.arange(nGw).repeat((nGh, 1)).view((1, 1, nGh, nGw)).float()
-    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1,
-        nGh, nGw)).float()
-    self.grid_xy = torch.stack((grid_x, grid_y), 4)
-    self.anchor_vec = self.anchors / self.stride
-    self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
 
 
 class YOLOLayer(nn.Module):

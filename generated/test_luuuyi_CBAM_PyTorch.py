@@ -54,6 +54,9 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 
 
+import time
+
+
 class ChannelAttention(nn.Module):
 
     def __init__(self, in_planes, ratio=16):

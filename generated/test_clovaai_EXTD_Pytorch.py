@@ -74,6 +74,9 @@ import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 
 
+import time
+
+
 from torch.autograd import Function
 
 
@@ -1444,3 +1447,151 @@ class gated_conv1x1(nn.Module):
         g_2 = F.sigmoid(self.gate_2(x_2))
         ret = torch.cat((a_1 * g_1, a_2 * g_2), 1)
         return ret
+
+
+class InvertedResidual_dwc(nn.Module):
+
+    def __init__(self, inp, oup, stride, expand_ratio):
+        super(InvertedResidual_dwc, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        hidden_dim = int(round(inp * expand_ratio))
+        self.use_res_connect = self.stride == 1 and inp == oup
+        self.conv = []
+        if expand_ratio == 1:
+            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3),
+                stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.BatchNorm2d(hidden_dim))
+            self.conv.append(nn.PReLU())
+            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(oup))
+        else:
+            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(hidden_dim))
+            self.conv.append(nn.PReLU())
+            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=
+                (3, 3), stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.BatchNorm2d(hidden_dim))
+            self.conv.append(nn.PReLU())
+            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(oup))
+        self.conv = nn.Sequential(*self.conv)
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class InvertedResidual(nn.Module):
+
+    def __init__(self, inp, oup, stride, expand_ratio):
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        hidden_dim = int(round(inp * expand_ratio))
+        self.use_res_connect = self.stride == 1 and inp == oup
+        self.conv = []
+        if expand_ratio == 1:
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
+                padding=1))
+            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(oup))
+        else:
+            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(hidden_dim))
+            self.conv.append(nn.PReLU())
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
+                padding=1))
+            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
+            self.conv.append(nn.BatchNorm2d(oup))
+        self.conv = nn.Sequential(*self.conv)
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class Net(nn.Module):
+
+    def __init__(self, embedding_size=128, input_size=224, width_mult=1.0):
+        super(Net, self).__init__()
+        block = InvertedResidual
+        block_dwc = InvertedResidual_dwc
+        input_channel = 64
+        last_channel = 256
+        interverted_residual_setting = [[1, 64, 1, 1], [2, 64, 2, 1], [4, 
+            64, 2, 2], [2, 64, 2, 1], [4, 64, 5, 1], [2, 64, 2, 2], [2, 64,
+            6, 2]]
+        input_channel = int(input_channel * width_mult)
+        self.last_channel = int(last_channel * width_mult
+            ) if width_mult > 1.0 else last_channel
+        self.features = [conv_bn(3, input_channel, 2)]
+        cnt = 0
+        for t, c, n, s in interverted_residual_setting:
+            output_channel = int(c * width_mult)
+            for i in range(n):
+                if cnt > 1:
+                    if i == n - 1:
+                        self.features.append(block_dwc(input_channel,
+                            output_channel, s, expand_ratio=t))
+                    else:
+                        self.features.append(block_dwc(input_channel,
+                            output_channel, 1, expand_ratio=t))
+                    input_channel = output_channel
+                else:
+                    if i == n - 1:
+                        self.features.append(block_dwc(input_channel,
+                            output_channel, s, expand_ratio=t))
+                    else:
+                        self.features.append(block_dwc(input_channel,
+                            output_channel, 1, expand_ratio=t))
+                    input_channel = output_channel
+            cnt += 1
+        self.features.append(gated_conv1x1(input_channel, self.last_channel))
+        self.features_sequential = nn.Sequential(*self.features)
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features_sequential(x).view(-1, 256 * 4)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_clovaai_EXTD_Pytorch(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(InvertedResidual_dwc(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Max_AvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

@@ -103,6 +103,9 @@ import torch.nn as nn
 import numpy as np
 
 
+import time
+
+
 import torch
 
 
@@ -2199,4 +2202,63 @@ class PyramidPooling(nn.Module):
         ppm_out = torch.cat(ppm_out, 1)
         ppm_out = self.conv6(ppm_out)
         return ppm_out
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_ycszen_TorchSeg(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(AttentionRefinement(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(BiSeNet(*[], **{'out_planes': 4, 'is_training': False, 'criterion': 4, 'ohem_criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_002(self):
+        self._check(BiSeNetHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Block(*[], **{'in_channels': 4, 'mid_out_channels': 4, 'has_proj': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ConvBnRelu(*[], **{'in_planes': 4, 'out_planes': 4, 'ksize': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(DFN(*[], **{'out_planes': 4, 'criterion': 4, 'aux_criterion': 4, 'alpha': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(DFNHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(FCN(*[], **{'out_planes': 4, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(FeatureFusion(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_009(self):
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(PSPNet(*[], **{'out_planes': 4, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_011(self):
+        self._check(PyramidPooling(*[], **{'name': 4, 'out_planes': 4}), [torch.rand([4, 4096, 4, 4])], {})
+
+    def test_012(self):
+        self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(SpatialPath(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(_FCNHead(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

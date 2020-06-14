@@ -152,6 +152,9 @@ from torch.nn.parallel.data_parallel import DataParallel
 from collections import OrderedDict
 
 
+import time
+
+
 from torch.autograd import Variable
 
 
@@ -651,10 +654,10 @@ class Attention(nn.Module):
         return (beta * hidden).unsqueeze(1)
 
 
-PAD = 0
-
-
 BOS = 2
+
+
+PAD = 0
 
 
 class Actor(nn.Module):
@@ -1258,6 +1261,9 @@ class AtteMatchLay(nn.Module):
         return temp.view(bsz, sent_len, self.mp_dim)
 
 
+PF_POS = 1
+
+
 def cosine_cont(repr_context, relevancy, norm=False):
     """
     cosine siminlarity betwen context and relevancy
@@ -1277,6 +1283,9 @@ def cosine_cont(repr_context, relevancy, norm=False):
         relevancy = relevancy.unsqueeze(2)
         buff = buff.div(relevancy)
     return buff
+
+
+eps = 1e-12
 
 
 def max_repres(repre_cos):
@@ -1308,12 +1317,6 @@ def max_repres(repre_cos):
     repres, cos_simi = repre_cos
     index = torch.max(cos_simi, 2)[1]
     return tf_gather(repres, index)
-
-
-eps = 1e-12
-
-
-PF_POS = 1
 
 
 class biMPModule(nn.Module):
@@ -2262,14 +2265,14 @@ class Beauty(nn.Module):
         return filter(lambda m: m.requires_grad, self.parameters())
 
 
+FINAL_EPSILON = 0.01
+
+
 INITIAL_EPSILON = 0.5
 
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state',
     'reward'))
-
-
-FINAL_EPSILON = 0.01
 
 
 class DQN(nn.Module):
@@ -3736,9 +3739,6 @@ class VAE(nn.Module):
             else:
                 portry += self.idx2word[next_word]
         return portry[:-1] + '。'
-
-
-LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
 
 
 def load_classes(inp='data/coco.names'):

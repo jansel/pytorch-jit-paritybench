@@ -52,6 +52,9 @@ from torch.optim import Adam
 from torch.optim import SGD
 
 
+from time import time
+
+
 class MultiLayerLSTM(nn.Module):
     """
     MultiLayer LSTM of any type.

@@ -51,6 +51,9 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 import torch.backends.cudnn as cudnn
 
 
@@ -696,4 +699,7 @@ class Test_Eromera_erfnet_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

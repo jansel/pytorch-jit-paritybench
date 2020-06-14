@@ -94,6 +94,9 @@ from torch.autograd import Variable
 import torch.utils.data as data
 
 
+import time
+
+
 from torch.autograd import Function
 
 
@@ -234,16 +237,15 @@ class FocalLossSoftmax(nn.Module):
         return loss
 
 
-def point_form(boxes):
-    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
-    representation for comparison to point form ground truth data.
+def log_sum_exp(x):
+    """Utility function for computing log_sum_exp while determining
+    This will be used to determine unaveraged confidence loss across
+    all examples in a batch.
     Args:
-        boxes: (tensor) center-size default boxes from priorbox layers.
-    Return:
-        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+        x (Variable(tensor)): conf_preds from conf layers
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    x_max = x.data.max()
+    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 def encode(matched, priors, variances):
@@ -307,6 +309,18 @@ def jaccard(box_a, box_b):
     return inter / union
 
 
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
+    Args:
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
@@ -340,17 +354,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-def log_sum_exp(x):
-    """Utility function for computing log_sum_exp while determining
-    This will be used to determine unaveraged confidence loss across
-    all examples in a batch.
-    Args:
-        x (Variable(tensor)): conf_preds from conf layers
-    """
-    x_max = x.data.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
 class MultiBoxLoss(nn.Module):
@@ -1040,6 +1043,16 @@ class L2Norm(nn.Module):
         return out
 
 
+base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
+    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
+    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+
+
+extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
+    'S', 256]}
+
+
 def vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
@@ -1061,16 +1074,6 @@ def vgg(cfg, i, batch_norm=False):
     layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
         True)]
     return layers
-
-
-extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128,
-    'S', 256]}
-
-
-base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 
-    512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256,
-    256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class VGG16Extractor(nn.Module):
@@ -1344,25 +1347,6 @@ class MobileNet2(nn.Module):
         return sources
 
 
-def get_func(func_name):
-    """Helper to return a function object by name. func_name must identify a
-    function in this module or the path to a function relative to the base
-    'modeling' module.
-    """
-    if func_name == '':
-        return None
-    try:
-        parts = func_name.split('.')
-        if len(parts) == 1:
-            return globals()[parts[0]]
-        module_name = 'models.' + '.'.join(parts[:-1])
-        module = importlib.import_module(module_name)
-        return getattr(module, parts[-1])
-    except Exception:
-        print('Failed to find function: %s', func_name)
-        raise
-
-
 class PriorBox(object):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
@@ -1420,6 +1404,25 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
+
+
+def get_func(func_name):
+    """Helper to return a function object by name. func_name must identify a
+    function in this module or the path to a function relative to the base
+    'modeling' module.
+    """
+    if func_name == '':
+        return None
+    try:
+        parts = func_name.split('.')
+        if len(parts) == 1:
+            return globals()[parts[0]]
+        module_name = 'models.' + '.'.join(parts[:-1])
+        module = importlib.import_module(module_name)
+        return getattr(module, parts[-1])
+    except Exception:
+        print('Failed to find function: %s', func_name)
+        raise
 
 
 class SSD(nn.Module):
@@ -1536,10 +1539,10 @@ class SSD(nn.Module):
         return output
 
 
-def up_layers(fpn_num):
+def latent_layers(fpn_num):
     layers = []
-    for i in range(fpn_num - 1):
-        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
+    for i in range(fpn_num):
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
     return layers
 
 
@@ -1552,10 +1555,10 @@ def trans_layers(block, fpn_num):
     return layers
 
 
-def latent_layers(fpn_num):
+def up_layers(fpn_num):
     layers = []
-    for i in range(fpn_num):
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+    for i in range(fpn_num - 1):
+        layers += [nn.Upsample(scale_factor=2, mode='bilinear')]
     return layers
 
 
@@ -1675,8 +1678,23 @@ class WeaveBlock(nn.Module):
         return out
 
 
+def adaptive_pool(x, size):
+    return F.adaptive_max_pool2d(x, size)
+
+
 def adaptive_upsample(x, size):
     return F.upsample(x, size, mode='bilinear')
+
+
+def trans_layers_2(raw_channels, inner_channels):
+    layers = list()
+    fpn_num = len(raw_channels)
+    for i in range(fpn_num):
+        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
+            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
+            stride=1, padding=1))]
+    return layers
 
 
 def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
@@ -1695,10 +1713,6 @@ def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
     return layers
 
 
-def adaptive_pool(x, size):
-    return F.adaptive_max_pool2d(x, size)
-
-
 def weave_layers_2(raw_channels, weave_add_channels):
     layers = list()
     num = 2
@@ -1709,17 +1723,6 @@ def weave_layers_2(raw_channels, weave_add_channels):
                 num - 1)]
         else:
             layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num)]
-    return layers
-
-
-def trans_layers_2(raw_channels, inner_channels):
-    layers = list()
-    fpn_num = len(raw_channels)
-    for i in range(fpn_num):
-        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[
-            i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3,
-            stride=1, padding=1))]
     return layers
 
 

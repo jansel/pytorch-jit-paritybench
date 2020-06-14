@@ -118,6 +118,11 @@ class SubNet(nn.Module):
         return x
 
 
+def _sigmoid(x):
+    x = torch.clamp(x.sigmoid_(), min=0.0001, max=1 - 0.0001)
+    return x
+
+
 def _gather_feat(feat, ind, mask=None):
     dim = feat.size(2)
     ind = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
@@ -129,11 +134,12 @@ def _gather_feat(feat, ind, mask=None):
     return feat
 
 
-def _tranpose_and_gather_feat(feat, ind):
-    feat = feat.permute(0, 2, 3, 1).contiguous()
-    feat = feat.view(feat.size(0), -1, feat.size(3))
-    feat = _gather_feat(feat, ind)
-    return feat
+def _nms(heat, kernel=1):
+    pad = (kernel - 1) // 2
+    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1,
+        padding=pad)
+    keep = (hmax == heat).float()
+    return heat * keep
 
 
 def _topk(scores, K=20):
@@ -146,12 +152,11 @@ def _topk(scores, K=20):
     return topk_scores, topk_inds, topk_clses, topk_ys, topk_xs
 
 
-def _nms(heat, kernel=1):
-    pad = (kernel - 1) // 2
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1,
-        padding=pad)
-    keep = (hmax == heat).float()
-    return heat * keep
+def _tranpose_and_gather_feat(feat, ind):
+    feat = feat.permute(0, 2, 3, 1).contiguous()
+    feat = feat.view(feat.size(0), -1, feat.size(3))
+    feat = _gather_feat(feat, ind)
+    return feat
 
 
 def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
@@ -285,16 +290,6 @@ class model(nn.Module):
         return self._test(*xs, **kwargs)
 
 
-def _regr_loss(regr, gt_regr, mask):
-    num = mask.float().sum()
-    mask = mask.unsqueeze(2).expand_as(gt_regr)
-    regr = regr[mask]
-    gt_regr = gt_regr[mask]
-    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, reduction='sum')
-    regr_loss = regr_loss
-    return regr_loss, num
-
-
 def _neg_loss(preds, gt):
     pos_inds = gt.eq(1)
     neg_inds = gt.lt(1)
@@ -315,6 +310,16 @@ def _neg_loss(preds, gt):
         else:
             loss = loss - (pos_loss + neg_loss)
     return loss, num_pos
+
+
+def _regr_loss(regr, gt_regr, mask):
+    num = mask.float().sum()
+    mask = mask.unsqueeze(2).expand_as(gt_regr)
+    regr = regr[mask]
+    gt_regr = gt_regr[mask]
+    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, reduction='sum')
+    regr_loss = regr_loss
+    return regr_loss, num
 
 
 class MatrixNetAnchorsLoss(nn.Module):
@@ -383,24 +388,6 @@ class SubNet(nn.Module):
             x = self.base_activation(layer(x))
         x = self.subnet_output(x)
         return x
-
-
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152':
-    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'resnext50_32x4d':
-    'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
-    'resnext101_32x8d':
-    'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
-    'wide_resnet50_2':
-    'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
-    'wide_resnet101_2':
-    'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth'}
 
 
 class model(nn.Module):

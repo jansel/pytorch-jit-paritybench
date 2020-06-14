@@ -31,6 +31,9 @@ from torch.optim import lr_scheduler
 from torch.autograd import Variable
 
 
+import time
+
+
 import torch
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 

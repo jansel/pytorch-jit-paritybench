@@ -94,6 +94,9 @@ from torch.autograd import Variable
 import numpy as np
 
 
+import time
+
+
 import math
 
 
@@ -223,10 +226,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
 _global_config['POOLING_MODE'] = 4
 
 
-_global_config['POOLING_SIZE'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 class _fasterRCNN(nn.Module):
@@ -1706,13 +1709,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
-_global_config['ANCHOR_RATIOS'] = 4
+_global_config['FEAT_STRIDE'] = 4
 
 
 _global_config['ANCHOR_SCALES'] = 4
 
 
-_global_config['FEAT_STRIDE'] = 4
+_global_config['ANCHOR_RATIOS'] = 4
 
 
 class _RPN(nn.Module):

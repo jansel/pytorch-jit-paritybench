@@ -80,6 +80,9 @@ from torch.autograd import Variable
 import numpy as np
 
 
+import time
+
+
 class feature_extractor(nn.Module):
 
     def __init__(self, filter_size):

@@ -368,6 +368,16 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_huggingface_pytorch_openai_transformer_lm(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'cfg': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}), [torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ClfHead(*[], **{'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5), 'n_class': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(LayerNorm(*[], **{'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(MultipleChoiceHead(*[], **{'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

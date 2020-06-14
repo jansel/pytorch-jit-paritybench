@@ -207,6 +207,10 @@ class SimpleEncoder(nn.Module):
         return x
 
 
+def l_relu(x, n_slope=0.01):
+    return F.leaky_relu(x, n_slope)
+
+
 def load_dict(filename):
     word2id = dict()
     with open(filename) as f_in:
@@ -214,10 +218,6 @@ def load_dict(filename):
             word = line.strip()
             word2id[word] = len(word2id)
     return word2id
-
-
-def l_relu(x, n_slope=0.01):
-    return F.leaky_relu(x, n_slope)
 
 
 class KAReader(nn.Module):

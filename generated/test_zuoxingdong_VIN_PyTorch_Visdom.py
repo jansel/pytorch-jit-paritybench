@@ -37,6 +37,9 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 
+import time
+
+
 def attention(tensor, params):
     """Attention model for grid world
     """

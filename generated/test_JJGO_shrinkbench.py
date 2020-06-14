@@ -294,10 +294,10 @@ class LeNet(nn.Module):
         return x
 
 
-def _same_shape(x_mask, x):
-    if isinstance(x, torch.Tensor):
-        x = x.cpu().detach().numpy()
-    return x.shape == x_mask.shape
+def _ensure_tensor(x):
+    if not isinstance(x, torch.Tensor) and x is not None:
+        return torch.from_numpy(x)
+    return x
 
 
 def _same_device(x_mask, x):
@@ -306,10 +306,10 @@ def _same_device(x_mask, x):
     return x_mask
 
 
-def _ensure_tensor(x):
-    if not isinstance(x, torch.Tensor) and x is not None:
-        return torch.from_numpy(x)
-    return x
+def _same_shape(x_mask, x):
+    if isinstance(x, torch.Tensor):
+        x = x.cpu().detach().numpy()
+    return x.shape == x_mask.shape
 
 
 class MaskedModule(nn.Module):

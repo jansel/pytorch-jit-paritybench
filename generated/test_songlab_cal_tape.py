@@ -297,10 +297,6 @@ class ProteinBertAttention(nn.Module):
         return outputs
 
 
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different
@@ -309,6 +305,10 @@ def gelu(x):
         Also see https://arxiv.org/abs/1606.08415
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+
+def swish(x):
+    return x * torch.sigmoid(x)
 
 
 def get_activation_fn(name: str) ->typing.Callable:
@@ -692,40 +692,7 @@ class mLSTM(nn.Module):
         return torch.stack(steps, 1), (hx, cx)
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
 CONFIG_NAME = 'config.json'
-
-
-def s3_request(func):
-    """
-    Wrapper function for s3 requests in order to create more helpful error
-    messages.
-    """
-
-    @wraps(func)
-    def wrapper(url, *args, **kwargs):
-        try:
-            return func(url, *args, **kwargs)
-        except ClientError as exc:
-            if int(exc.response['Error']['Code']) == 404:
-                raise EnvironmentError('file {} not found'.format(url))
-            else:
-                raise
-    return wrapper
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
 
 
 class SimpleMLP(nn.Module):

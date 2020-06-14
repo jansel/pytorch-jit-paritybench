@@ -305,6 +305,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+import time
+
+
 from functools import partial
 
 
@@ -398,13 +401,44 @@ class _RoITemporalPooling(Module):
             ctx_ratio)(features, rois)
 
 
-def _whctrs(anchor):
-    """
-    Return width, height, x center, and y center for an anchor (window).
-    """
-    l = anchor[1] - anchor[0] + 1
-    x_ctr = anchor[0] + 0.5 * (l - 1)
-    return l, x_ctr
+def twin_transform_batch(ex_rois, gt_rois):
+    if ex_rois.dim() == 2:
+        ex_lengths = ex_rois[:, (1)] - ex_rois[:, (0)] + 1.0
+        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_lengths
+        gt_lengths = gt_rois[:, :, (1)] - gt_rois[:, :, (0)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_lengths
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
+            ) / ex_lengths
+        targets_dl = torch.log(gt_lengths / ex_lengths.view(1, -1).
+            expand_as(gt_lengths))
+    elif ex_rois.dim() == 3:
+        ex_lengths = ex_rois[:, :, (1)] - ex_rois[:, :, (0)] + 1.0
+        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_lengths
+        gt_lengths = gt_rois[:, :, (1)] - gt_rois[:, :, (0)] + 1.0
+        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_lengths
+        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_lengths
+        targets_dl = torch.log(gt_lengths / ex_lengths)
+    else:
+        raise ValueError('ex_roi input dimension is not correct.')
+    targets = torch.stack((targets_dx, targets_dl), 2)
+    return targets
+
+
+def _compute_targets_batch(ex_rois, gt_rois):
+    """Compute bounding-box regression targets for an video."""
+    return twin_transform_batch(ex_rois, gt_rois[:, :, :2])
+
+
+def _unmap(data, count, inds, batch_size, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 2:
+        ret = data.new(batch_size, count).fill_(fill)
+        ret[:, (inds)] = data
+    else:
+        ret = data.new(batch_size, count, data.size(2)).fill_(fill)
+        ret[:, (inds), :] = data
+    return ret
 
 
 def _mkanchors(ls, x_ctr):
@@ -415,6 +449,15 @@ def _mkanchors(ls, x_ctr):
     ls = ls[:, (np.newaxis)]
     anchors = np.hstack((x_ctr - 0.5 * (ls - 1), x_ctr + 0.5 * (ls - 1)))
     return anchors
+
+
+def _whctrs(anchor):
+    """
+    Return width, height, x center, and y center for an anchor (window).
+    """
+    l = anchor[1] - anchor[0] + 1
+    x_ctr = anchor[0] + 0.5 * (l - 1)
+    return l, x_ctr
 
 
 def _scale_enum(anchor, scales):
@@ -498,46 +541,6 @@ def twins_overlaps_batch(anchors, gt_twins):
     else:
         raise ValueError('anchors input dimension is not correct.')
     return overlaps
-
-
-def _unmap(data, count, inds, batch_size, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 2:
-        ret = data.new(batch_size, count).fill_(fill)
-        ret[:, (inds)] = data
-    else:
-        ret = data.new(batch_size, count, data.size(2)).fill_(fill)
-        ret[:, (inds), :] = data
-    return ret
-
-
-def twin_transform_batch(ex_rois, gt_rois):
-    if ex_rois.dim() == 2:
-        ex_lengths = ex_rois[:, (1)] - ex_rois[:, (0)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_lengths
-        gt_lengths = gt_rois[:, :, (1)] - gt_rois[:, :, (0)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_lengths
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_lengths
-        targets_dl = torch.log(gt_lengths / ex_lengths.view(1, -1).
-            expand_as(gt_lengths))
-    elif ex_rois.dim() == 3:
-        ex_lengths = ex_rois[:, :, (1)] - ex_rois[:, :, (0)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_lengths
-        gt_lengths = gt_rois[:, :, (1)] - gt_rois[:, :, (0)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_lengths
-        targets_dx = (gt_ctr_x - ex_ctr_x) / ex_lengths
-        targets_dl = torch.log(gt_lengths / ex_lengths)
-    else:
-        raise ValueError('ex_roi input dimension is not correct.')
-    targets = torch.stack((targets_dx, targets_dl), 2)
-    return targets
-
-
-def _compute_targets_batch(ex_rois, gt_rois):
-    """Compute bounding-box regression targets for an video."""
-    return twin_transform_batch(ex_rois, gt_rois[:, :, :2])
 
 
 _global_config['TRAIN'] = 4
@@ -667,6 +670,17 @@ class _AnchorTargetLayer(nn.Module):
         pass
 
 
+DEBUG = False
+
+
+def clip_twins(wins, video_length, batch_size):
+    """
+    Clip wins to video boundaries.
+    """
+    wins.clamp_(0, video_length - 1)
+    return wins
+
+
 def nms(dets, thresh=0.4):
     """Pure Python NMS baseline."""
     if len(dets) == 0:
@@ -689,14 +703,6 @@ def nms(dets, thresh=0.4):
     return keep
 
 
-def clip_twins(wins, video_length, batch_size):
-    """
-    Clip wins to video boundaries.
-    """
-    wins.clamp_(0, video_length - 1)
-    return wins
-
-
 def twin_transform_inv(wins, deltas, batch_size):
     lengths = wins[:, :, (1)] - wins[:, :, (0)] + 1.0
     ctr_x = wins[:, :, (0)] + 0.5 * lengths
@@ -708,9 +714,6 @@ def twin_transform_inv(wins, deltas, batch_size):
     pred_wins[:, :, 0::2] = pred_ctr_x - 0.5 * pred_l
     pred_wins[:, :, 1::2] = pred_ctr_x + 0.5 * pred_l
     return pred_wins
-
-
-DEBUG = False
 
 
 _global_config['USE_GPU_NMS'] = 4
@@ -1670,12 +1673,12 @@ class test_PSRoIPooling(Module):
         return self.psroi_pool(feature, rois)
 
 
+LAYER_BUILDER_DICT = dict()
+
+
 def parse_expr(expr):
     parts = expr.split('<=')
     return parts[0].split(','), parts[1], parts[2].split(',')
-
-
-LAYER_BUILDER_DICT = dict()
 
 
 def get_basic_layer(info, channels=None, conv_bias=False, num_segments=4):
@@ -2447,25 +2450,37 @@ class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_010(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
 
     @_fails_compile()
     def test_011(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_013(self):
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_015(self):
         self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 

@@ -183,3 +183,7 @@ class Test_matthew_z_R_net(_paritybench_base):
     def test_000(self):
         self._check(Gate(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_001(self):
+        self._check(RNNDropout(*[], **{'p': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+

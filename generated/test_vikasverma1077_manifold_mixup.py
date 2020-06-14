@@ -66,6 +66,9 @@ __version__ = '1.0.0'
 import torch
 
 
+import time
+
+
 import numpy as np
 
 
@@ -475,10 +478,10 @@ class FirstResBlockDiscriminator(nn.Module):
         return self.model(x) + self.bypass(x)
 
 
-channels = 3
-
-
 GEN_SIZE = 128
+
+
+channels = 3
 
 
 class Generator(nn.Module):
@@ -1532,15 +1535,6 @@ class PreActBottleneck(nn.Module):
         return out
 
 
-def mixup_process(out, target_reweighted, lam):
-    indices = np.random.permutation(out.size(0))
-    out = out * lam + out[indices] * (1 - lam)
-    target_shuffled_onehot = target_reweighted[indices]
-    target_reweighted = target_reweighted * lam + target_shuffled_onehot * (
-        1 - lam)
-    return out, target_reweighted
-
-
 def get_lambda(alpha=1.0):
     """Return lambda"""
     if alpha > 0.0:
@@ -1548,6 +1542,15 @@ def get_lambda(alpha=1.0):
     else:
         lam = 1.0
     return lam
+
+
+def mixup_process(out, target_reweighted, lam):
+    indices = np.random.permutation(out.size(0))
+    out = out * lam + out[indices] * (1 - lam)
+    target_shuffled_onehot = target_reweighted[indices]
+    target_reweighted = target_reweighted * lam + target_shuffled_onehot * (
+        1 - lam)
+    return out, target_reweighted
 
 
 def to_one_hot(inp, num_classes):

@@ -110,6 +110,15 @@ from torch.utils.data.sampler import RandomSampler
 from torch.utils.data.sampler import BatchSampler
 
 
+import time
+
+
+from time import gmtime
+
+
+from time import strftime
+
+
 from math import pi
 
 
@@ -144,6 +153,38 @@ from torch.nn.parameter import Parameter
 
 
 from torch.nn.functional import *
+
+
+def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
+    kaiming_normal=True, silent=False):
+    """ Note: gaussian_std is fully connected layer (nn.Linear) only.
+        For nn.Conv2d:
+           If kaiming_normal is enable, nn.Conv2d is initialized by kaiming_normal.
+           Otherwise, initialized based on kernel size.
+    """
+    if not silent:
+        print(
+            '[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s'
+             % (gaussian_std, kaiming_normal, nn_module_or_seq))
+    for name, m in nn_module_or_seq.named_modules():
+        if isinstance(m, nn.Conv2d):
+            if kaiming_normal:
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+            else:
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.BatchNorm2d):
+            if m.weight is not None:
+                m.weight.data.fill_(1)
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            m.weight.data.normal_(mean=0, std=gaussian_std)
+            m.bias.data.zero_()
+    return nn_module_or_seq
 
 
 class down(nn.Module):
@@ -212,119 +253,6 @@ class up(nn.Module):
             x1 = self.uppool(x1, poolInd, output_size=x2.size())
             x1 = torch.cat([x2, x1], dim=1)
         return x1
-
-
-def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
-    kaiming_normal=True, silent=False):
-    """ Note: gaussian_std is fully connected layer (nn.Linear) only.
-        For nn.Conv2d:
-           If kaiming_normal is enable, nn.Conv2d is initialized by kaiming_normal.
-           Otherwise, initialized based on kernel size.
-    """
-    if not silent:
-        print(
-            '[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s'
-             % (gaussian_std, kaiming_normal, nn_module_or_seq))
-    for name, m in nn_module_or_seq.named_modules():
-        if isinstance(m, nn.Conv2d):
-            if kaiming_normal:
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
-            else:
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            if m.bias is not None:
-                m.bias.data.zero_()
-        elif isinstance(m, nn.BatchNorm2d):
-            if m.weight is not None:
-                m.weight.data.fill_(1)
-            if m.bias is not None:
-                m.bias.data.zero_()
-        elif isinstance(m, nn.Linear):
-            m.weight.data.normal_(mean=0, std=gaussian_std)
-            m.bias.data.zero_()
-    return nn_module_or_seq
-
-
-_global_config['torchmodel'] = 4
-
-
-def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
-    strict=True, src2dsts=None):
-    from torch.nn.parameter import Parameter
-    print('-----------------------')
-    print('[Info] Copy from  %s ' % pretrained_type)
-    print('-----------------------')
-    src_state = model_zoo.load_url(cfg.torchmodel[pretrained_type].model_url)
-    not_copied = list(own_state.keys())
-    if src2dsts is not None:
-        for src, dsts in src2dsts.items():
-            if not isinstance(dsts, list):
-                dsts = [dsts]
-            for dst in dsts:
-                if dst in own_state.keys():
-                    own_state[dst].copy_(src_state[src])
-                    not_copied.remove(dst)
-                    print('%-20s  -->  %-20s' % (src, dst))
-                else:
-                    dst_w_name, src_w_name = ('%s.weight' % dst, 
-                        '%s.weight' % src)
-                    dst_b_name, src_b_name = '%s.bias' % dst, '%s.bias' % src
-                    if (dst_w_name not in own_state.keys() or dst_b_name not in
-                        own_state.keys()) and not strict:
-                        print('%-20s  -->  %-20s   [ignored] Missing dst.' %
-                            (src, dst))
-                        continue
-                    print('%-20s  -->  %-20s' % (src, dst))
-                    assert own_state[dst_w_name].shape == src_state[src_w_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name,
-                        own_state[dst_w_name].shape, src_state[src_w_name].
-                        shape)
-                    own_state[dst_w_name].copy_(src_state[src_w_name])
-                    not_copied.remove(dst_w_name)
-                    assert own_state[dst_b_name].shape == src_state[src_b_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name,
-                        own_state[dst_b_name].shape, src_state[src_b_name].
-                        shape)
-                    own_state[dst_b_name].copy_(src_state[src_b_name])
-                    not_copied.remove(dst_b_name)
-    else:
-        for name, param in src_state.items():
-            if name in own_state:
-                if isinstance(param, Parameter):
-                    param = param.data
-                try:
-                    print('%-30s  -->  %-30s' % (name, name))
-                    own_state[name].copy_(param)
-                    not_copied.remove(name)
-                except Exception:
-                    raise RuntimeError(
-                        'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                        .format(name, own_state[name].size(), param.size()))
-            elif strict:
-                raise KeyError('unexpected key "{}" in state_dict'.format(name)
-                    )
-            else:
-                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name,
-                    name))
-    for name in not_copied:
-        if name.endswith('.weight'):
-            own_state[name].normal_(mean=0.0, std=0.005)
-            print('%-20s  -->  %-20s' % ('[filler] gaussian005', name))
-        elif name.endswith('.bias'):
-            own_state[name].fill_(0)
-            print('%-30s  -->  %-30s' % ('[filler] 0', name))
-        elif name.endswith('.running_mean') or name.endswith('.running_var'
-            ) or name.endswith('num_batches_tracked'):
-            print('*************************** pass', name)
-        else:
-            print('Unknow parameter type: ', name)
-            raise NotImplementedError
-    if strict:
-        missing = set(own_state.keys()) - set(src_state.keys())
-        if len(missing) > 0:
-            raise KeyError('missing keys in state_dict: "{}"'.format(missing))
-    print('-----------------------')
 
 
 def get_weights_from_caffesnapeshot(proto_file, model_file):
@@ -411,6 +339,87 @@ def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
         else:
             print('Unknow parameter type: ', name)
             raise NotImplementedError
+    print('-----------------------')
+
+
+_global_config['torchmodel'] = 4
+
+
+def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
+    strict=True, src2dsts=None):
+    from torch.nn.parameter import Parameter
+    print('-----------------------')
+    print('[Info] Copy from  %s ' % pretrained_type)
+    print('-----------------------')
+    src_state = model_zoo.load_url(cfg.torchmodel[pretrained_type].model_url)
+    not_copied = list(own_state.keys())
+    if src2dsts is not None:
+        for src, dsts in src2dsts.items():
+            if not isinstance(dsts, list):
+                dsts = [dsts]
+            for dst in dsts:
+                if dst in own_state.keys():
+                    own_state[dst].copy_(src_state[src])
+                    not_copied.remove(dst)
+                    print('%-20s  -->  %-20s' % (src, dst))
+                else:
+                    dst_w_name, src_w_name = ('%s.weight' % dst, 
+                        '%s.weight' % src)
+                    dst_b_name, src_b_name = '%s.bias' % dst, '%s.bias' % src
+                    if (dst_w_name not in own_state.keys() or dst_b_name not in
+                        own_state.keys()) and not strict:
+                        print('%-20s  -->  %-20s   [ignored] Missing dst.' %
+                            (src, dst))
+                        continue
+                    print('%-20s  -->  %-20s' % (src, dst))
+                    assert own_state[dst_w_name].shape == src_state[src_w_name
+                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name,
+                        own_state[dst_w_name].shape, src_state[src_w_name].
+                        shape)
+                    own_state[dst_w_name].copy_(src_state[src_w_name])
+                    not_copied.remove(dst_w_name)
+                    assert own_state[dst_b_name].shape == src_state[src_b_name
+                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name,
+                        own_state[dst_b_name].shape, src_state[src_b_name].
+                        shape)
+                    own_state[dst_b_name].copy_(src_state[src_b_name])
+                    not_copied.remove(dst_b_name)
+    else:
+        for name, param in src_state.items():
+            if name in own_state:
+                if isinstance(param, Parameter):
+                    param = param.data
+                try:
+                    print('%-30s  -->  %-30s' % (name, name))
+                    own_state[name].copy_(param)
+                    not_copied.remove(name)
+                except Exception:
+                    raise RuntimeError(
+                        'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
+                        .format(name, own_state[name].size(), param.size()))
+            elif strict:
+                raise KeyError('unexpected key "{}" in state_dict'.format(name)
+                    )
+            else:
+                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name,
+                    name))
+    for name in not_copied:
+        if name.endswith('.weight'):
+            own_state[name].normal_(mean=0.0, std=0.005)
+            print('%-20s  -->  %-20s' % ('[filler] gaussian005', name))
+        elif name.endswith('.bias'):
+            own_state[name].fill_(0)
+            print('%-30s  -->  %-30s' % ('[filler] 0', name))
+        elif name.endswith('.running_mean') or name.endswith('.running_var'
+            ) or name.endswith('num_batches_tracked'):
+            print('*************************** pass', name)
+        else:
+            print('Unknow parameter type: ', name)
+            raise NotImplementedError
+    if strict:
+        missing = set(own_state.keys()) - set(src_state.keys())
+        if len(missing) > 0:
+            raise KeyError('missing keys in state_dict: "{}"'.format(missing))
     print('-----------------------')
 
 
@@ -1299,12 +1308,6 @@ class nnAdd(nn.Module):
         return x0 + x1
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
-
-
 def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
     """ E.g.
          Fixed BN:   xNorm='BN', affine=False
@@ -1317,6 +1320,12 @@ def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
         return nn.InstanceNorm2d(num_channels, **kwargs)
     elif xNorm == 'LN':
         raise NotImplementedError
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -1497,38 +1506,31 @@ class _ResNet_Trunk(nn.Module):
         return self
 
 
-class ResNet101_Trunk(_ResNet_Trunk):
-
-    def __init__(self, **kwargs):
-        _ResNet_Trunk.__init__(self, res_type='resnet101', **kwargs)
-
-
-class Test_Net(nn.Module):
-
-    def __init__(self, nr_cate=3, _Trunk=ResNet101_Trunk):
-        super(Test_Net, self).__init__()
-        self.truck = _Trunk()
-        self.nr_cate = nr_cate
-        self.head_s2 = nn.Sequential(nn.Linear(2048, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 3))
-        self.head_s1 = nn.Sequential(nn.Linear(2048, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 2))
-        self.maskout = Maskout(nr_cate=nr_cate)
-        init_weights_by_filling(self.head_s2)
-        init_weights_by_filling(self.head_s1)
-
-    def forward(self, x, label):
-        x = self.truck(x)
-        batchsize = x.size(0)
-        x = x.view(batchsize, -1)
-        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3
-            ), label)
-        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2
-            ), label)
-        x_s2 = norm2unit(x_s2)
-        x_s1 = norm2unit(x_s1)
-        Pred = edict(s2=x_s2, s1=x_s1)
-        return Pred
+def get_caffeSrc2Dst(net_arch='vgg16'):
+    if net_arch == 'vgg16':
+        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
+            'features.5', conv2_2='features.7', conv3_1='features.10',
+            conv3_2='features.12', conv3_3='features.14', conv4_1=
+            'features.17', conv4_2='features.19', conv4_3='features.21',
+            conv5_1='features.24', conv5_2='features.26', conv5_3=
+            'features.28', fc6='classifier.0', fc7='classifier.3')
+    elif net_arch == 'vgg19':
+        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
+            'features.5', conv2_2='features.7', conv3_1='features.10',
+            conv3_2='features.12', conv3_3='features.14', conv3_4=
+            'features.16', conv4_1='features.19', conv4_2='features.21',
+            conv4_3='features.23', conv4_4='features.25', conv5_1=
+            'features.28', conv5_2='features.30', conv5_3='features.32',
+            conv5_4='features.34', fc6='classifier.0', fc7='classifier.3')
+    elif net_arch in ['vgg16_bn', 'vgg19_bn']:
+        print('No pretrained model for vgg16_bn, vgg19_bn.')
+        raise NotImplementedError
+    elif net_arch == 'vggm':
+        return odict(conv1='features.0', conv2='features.4', conv3=
+            'features.8', conv4='features.10', conv5='features.12', fc6=
+            'classifier.0', fc7='classifier.3')
+    else:
+        raise NotImplementedError
 
 
 def make_layers(cfg, batch_norm=False):
@@ -1559,37 +1561,10 @@ def make_layers_vggm():
         nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
 
 
-def get_caffeSrc2Dst(net_arch='vgg16'):
-    if net_arch == 'vgg16':
-        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
-            'features.5', conv2_2='features.7', conv3_1='features.10',
-            conv3_2='features.12', conv3_3='features.14', conv4_1=
-            'features.17', conv4_2='features.19', conv4_3='features.21',
-            conv5_1='features.24', conv5_2='features.26', conv5_3=
-            'features.28', fc6='classifier.0', fc7='classifier.3')
-    elif net_arch == 'vgg19':
-        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
-            'features.5', conv2_2='features.7', conv3_1='features.10',
-            conv3_2='features.12', conv3_3='features.14', conv3_4=
-            'features.16', conv4_1='features.19', conv4_2='features.21',
-            conv4_3='features.23', conv4_4='features.25', conv5_1=
-            'features.28', conv5_2='features.30', conv5_3='features.32',
-            conv5_4='features.34', fc6='classifier.0', fc7='classifier.3')
-    elif net_arch in ['vgg16_bn', 'vgg19_bn']:
-        print('No pretrained model for vgg16_bn, vgg19_bn.')
-        raise NotImplementedError
-    elif net_arch == 'vggm':
-        return odict(conv1='features.0', conv2='features.4', conv3=
-            'features.8', conv4='features.10', conv5='features.12', fc6=
-            'classifier.0', fc7='classifier.3')
-    else:
-        raise NotImplementedError
+_global_config['E'] = 4
 
 
 _global_config['D'] = 4
-
-
-_global_config['E'] = 4
 
 
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])

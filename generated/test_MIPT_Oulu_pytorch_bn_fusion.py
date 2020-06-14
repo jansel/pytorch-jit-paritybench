@@ -30,6 +30,9 @@ from torch.nn import functional as F
 import numpy as np
 
 
+import time
+
+
 class Net(nn.Module):
 
     def __init__(self, features, classifer):

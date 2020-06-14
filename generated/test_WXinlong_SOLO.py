@@ -455,6 +455,9 @@ import inspect
 from functools import partial
 
 
+import time
+
+
 class AnchorGenerator(object):
     """
     Examples:

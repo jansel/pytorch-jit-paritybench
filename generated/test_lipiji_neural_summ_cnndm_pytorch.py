@@ -45,6 +45,9 @@ from torch.autograd import Variable
 import math
 
 
+import time
+
+
 import numpy as np
 
 
@@ -57,12 +60,12 @@ import random
 from random import shuffle
 
 
-def init_ortho_weight(w):
-    nn.init.orthogonal_(w)
-
-
 def init_bias(b):
     nn.init.constant_(b, 0.0)
+
+
+def init_ortho_weight(w):
+    nn.init.orthogonal_(w)
 
 
 class GRUAttentionDecoder(nn.Module):
@@ -466,10 +469,6 @@ def init_gru_weight(gru):
             init_bias(param.data)
 
 
-def init_uniform_weight(w):
-    nn.init.uniform_(w, -0.1, 0.1)
-
-
 def init_xavier_weight(w):
     nn.init.xavier_normal_(w)
 
@@ -478,6 +477,10 @@ def init_linear_weight(linear):
     init_xavier_weight(linear.weight)
     if linear.bias is not None:
         init_bias(linear.bias)
+
+
+def init_uniform_weight(w):
+    nn.init.uniform_(w, -0.1, 0.1)
 
 
 class Model(nn.Module):

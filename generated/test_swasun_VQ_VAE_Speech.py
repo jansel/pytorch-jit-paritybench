@@ -117,6 +117,9 @@ from torch.utils.data import DataLoader
 from torch.distributions.normal import Normal
 
 
+import time
+
+
 from torch import nn
 
 
@@ -850,19 +853,6 @@ class Wavenet(nn.Module):
         return out
 
 
-class Conv1DBuilder(object):
-
-    @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
-        use_kaiming_normal=False):
-        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding)
-        if use_kaiming_normal:
-            conv = nn.utils.weight_norm(conv)
-            nn.init.kaiming_normal_(conv.weight)
-        return conv
-
-
 class ColorPrint(object):
     """ Colored printing functions for strings that use universal ANSI escape sequences.
 
@@ -947,6 +937,19 @@ class ConsoleLogger(object):
             print(error_message)
         else:
             ColorPrint.print_major_fail(error_message)
+
+
+class Conv1DBuilder(object):
+
+    @staticmethod
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
+        use_kaiming_normal=False):
+        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels,
+            kernel_size=kernel_size, stride=stride, padding=padding)
+        if use_kaiming_normal:
+            conv = nn.utils.weight_norm(conv)
+            nn.init.kaiming_normal_(conv.weight)
+        return conv
 
 
 class ConvolutionalEncoder(nn.Module):
@@ -1760,16 +1763,6 @@ class Conv1d(nn.Conv1d):
         self._linearized_weight = None
 
 
-def _conv1x1_forward(conv, x, is_incremental):
-    """Conv1x1 forward
-    """
-    if is_incremental:
-        x = conv.incremental_forward(x)
-    else:
-        x = conv(x)
-    return x
-
-
 def Conv1d1x1(in_channels, out_channels, bias=True, weight_normalization=True):
     """1-by-1 convolution layer
     """
@@ -1780,6 +1773,16 @@ def Conv1d1x1(in_channels, out_channels, bias=True, weight_normalization=True):
     else:
         return conv.Conv1d(in_channels, out_channels, kernel_size=1,
             padding=0, dilation=1, bias=bias)
+
+
+def _conv1x1_forward(conv, x, is_incremental):
+    """Conv1x1 forward
+    """
+    if is_incremental:
+        x = conv.incremental_forward(x)
+    else:
+        x = conv(x)
+    return x
 
 
 class ResidualConv1dGLU(nn.Module):
@@ -1893,25 +1896,16 @@ class ResidualConv1dGLU(nn.Module):
                 c.clear_buffer()
 
 
-def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
-    x: 2 ** x):
-    """Compute receptive field size
-
-    Args:
-        total_layers (int): total layers
-        num_cycles (int): cycles
-        kernel_size (int): kernel size
-        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
-          to disable dilated convolution.
-
-    Returns:
-        int: receptive field size in sample
-
-    """
-    assert total_layers % num_cycles == 0
-    layers_per_cycle = total_layers // num_cycles
-    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
-    return (kernel_size - 1) * sum(dilations) + 1
+def ConvTranspose2d(in_channels, out_channels, kernel_size,
+    weight_normalization=True, **kwargs):
+    freq_axis_kernel_size = kernel_size[0]
+    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
+    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
+    m.bias.data.zero_()
+    if weight_normalization:
+        return nn.utils.weight_norm(m)
+    else:
+        return m
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
@@ -1943,16 +1937,25 @@ def _expand_global_features(B, T, g, bct=True):
         return g_btc.contiguous()
 
 
-def ConvTranspose2d(in_channels, out_channels, kernel_size,
-    weight_normalization=True, **kwargs):
-    freq_axis_kernel_size = kernel_size[0]
-    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
-    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
-    m.bias.data.zero_()
-    if weight_normalization:
-        return nn.utils.weight_norm(m)
-    else:
-        return m
+def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
+    x: 2 ** x):
+    """Compute receptive field size
+
+    Args:
+        total_layers (int): total layers
+        num_cycles (int): cycles
+        kernel_size (int): kernel size
+        dilation (lambda): lambda to compute dilation factor. ``lambda x : 1``
+          to disable dilated convolution.
+
+    Returns:
+        int: receptive field size in sample
+
+    """
+    assert total_layers % num_cycles == 0
+    layers_per_cycle = total_layers // num_cycles
+    dilations = [dilation(i % layers_per_cycle) for i in range(total_layers)]
+    return (kernel_size - 1) * sum(dilations) + 1
 
 
 def to_one_hot(tensor, n, fill_with=1.0):

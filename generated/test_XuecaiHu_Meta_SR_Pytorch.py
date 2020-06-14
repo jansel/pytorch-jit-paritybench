@@ -65,6 +65,9 @@ from torch.autograd import Variable
 import math
 
 
+import time
+
+
 class Loss(nn.modules.loss._Loss):
 
     def __init__(self, args, ckp):

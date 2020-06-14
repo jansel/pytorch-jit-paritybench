@@ -54,6 +54,9 @@ import math
 import numpy as np
 
 
+import time
+
+
 class LSTMLayer(nn.Module):
     """ A wrapper for LSTM with sequence packing. """
 

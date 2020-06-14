@@ -74,6 +74,7 @@ def write_helpers():
              helpers.__dict__, helpers.__dict__)
         sys.modules["_paritybench_helpers"] = helpers
 
+
 def test_all(download_dir, limit=None):
     start = time.time()
     stats = Stats()
@@ -81,6 +82,7 @@ def test_all(download_dir, limit=None):
     zipfiles = [os.path.join(download_dir, f)
                 for f in os.listdir(download_dir)
                 if f.endswith(".zip")]
+    zipfiles.sort()
 
     if limit:
         zipfiles = zipfiles[:limit]
@@ -123,7 +125,7 @@ def call_with_timeout(fn, args, kwargs, timeout=10):
             proc.join()
             return result
         if time.time() - start > timeout:
-            os.kill(proc.pid, signal.SIGINT)
+            os.kill(proc.pid, signal.SIGINT)  # maybe generate a stack trace for debugging
             time.sleep(1)
             proc.terminate()
             proc.join(10)
@@ -141,9 +143,10 @@ def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
     resource.setrlimit(resource.RLIMIT_AS, (10 * 1024 ** 3, hard))
     try:
         result = fn(*args, *kwargs)
+        return_pipe.send(result)
     except Exception:
         log.exception("Error from subprocess")
-    return_pipe.send(result)
+        sys.exit(1)
 
 
 def test_zipfile_subproc(tempdir: str, path: str):
@@ -163,6 +166,8 @@ def test_zipfile_subproc(tempdir: str, path: str):
 
 
 def main():
+    assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--download", action="store_true")

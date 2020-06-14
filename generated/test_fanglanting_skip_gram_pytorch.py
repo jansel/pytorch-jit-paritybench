@@ -51,6 +51,9 @@ import torch.nn.functional as Func
 from torch.optim.lr_scheduler import StepLR
 
 
+import time
+
+
 class skipgram(nn.Module):
 
     def __init__(self, vocab_size, embedding_dim):

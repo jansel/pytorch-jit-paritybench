@@ -34,10 +34,10 @@ import torch.nn.functional as F
 from torch import nn
 
 
-STOP_TAG = 'STOP'
-
-
 START_TAG = 'START'
+
+
+STOP_TAG = 'STOP'
 
 
 def log_sum_exp(vec):

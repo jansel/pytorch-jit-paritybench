@@ -345,12 +345,6 @@ class Generator(nn.Module):
         return z
 
 
-CONFIG_NAME = 'config.json'
-
-
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
 class BigGANConfig(object):
     """ Configuration class to store the configuration of a `BigGAN`. 
         Defaults are for the 128x128 model.
@@ -399,6 +393,45 @@ class BigGANConfig(object):
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
+
+
+CONFIG_NAME = 'config.json'
+
+
+PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json'
+    , 'biggan-deep-256':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-config.json'
+    , 'biggan-deep-512':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-config.json'
+    }
+
+
+PRETRAINED_MODEL_ARCHIVE_MAP = {'biggan-deep-128':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin'
+    , 'biggan-deep-256':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-pytorch_model.bin'
+    , 'biggan-deep-512':
+    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-pytorch_model.bin'
+    }
+
+
+WEIGHTS_NAME = 'pytorch_model.bin'
+
+
+def http_get(url, temp_file):
+    req = requests.get(url, stream=True)
+    content_length = req.headers.get('Content-Length')
+    total = int(content_length) if content_length is not None else None
+    progress = tqdm(unit='B', total=total)
+    for chunk in req.iter_content(chunk_size=1024):
+        if chunk:
+            progress.update(len(chunk))
+            temp_file.write(chunk)
+    progress.close()
+
+
+logger = logging.getLogger(__name__)
 
 
 def s3_request(func):

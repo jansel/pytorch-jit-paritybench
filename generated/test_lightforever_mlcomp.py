@@ -425,45 +425,6 @@ class FullyConvolutionalLinear(nn.Module):
         return x
 
 
-def r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups,
-    inplace_relu, bn_eps, bn_mmt, dim_mid=None):
-    """
-    Implementation of `R(2+1)D unit <https://arxiv.org/abs/1711.11248>`_.
-    Decompose one 3D conv into one 2D spatial conv and one 1D temporal conv.
-    Choose the middle dimensionality so that the total No. of parameters
-    in 2D spatial conv and 1D temporal conv is unchanged.
-
-    Args:
-        dim_in (int): the channel dimensions of the input.
-        dim_out (int): the channel dimension of the output.
-        temporal_stride (int): the temporal stride of the bottleneck.
-        spatial_stride (int): the spatial_stride of the bottleneck.
-        groups (int): number of groups for the convolution.
-        inplace_relu (bool): calculate the relu on the original input
-            without allocating new memory.
-        bn_eps (float): epsilon for batch norm.
-        bn_mmt (float): momentum for batch norm. Noted that BN momentum in
-            PyTorch = 1 - BN momentum in Caffe2.
-        dim_mid (Optional[int]): If not None, use the provided channel dimension
-            for the output of the 2D spatial conv. If None, compute the output
-            channel dimension of the 2D spatial conv so that the total No. of
-            model parameters remains unchanged.
-    """
-    if dim_mid is None:
-        dim_mid = int(dim_out * dim_in * 3 * 3 * 3 / (dim_in * 3 * 3 + 
-            dim_out * 3))
-        logging.info('dim_in: %d, dim_out: %d. Set dim_mid to %d' % (dim_in,
-            dim_out, dim_mid))
-    conv_middle = nn.Conv3d(dim_in, dim_mid, [1, 3, 3], stride=[1,
-        spatial_stride, spatial_stride], padding=[0, 1, 1], groups=groups,
-        bias=False)
-    conv_middle_bn = nn.BatchNorm3d(dim_mid, eps=bn_eps, momentum=bn_mmt)
-    conv_middle_relu = nn.ReLU(inplace=inplace_relu)
-    conv = nn.Conv3d(dim_mid, dim_out, [3, 1, 1], stride=[temporal_stride, 
-        1, 1], padding=[1, 0, 0], groups=groups, bias=False)
-    return nn.Sequential(conv_middle, conv_middle_bn, conv_middle_relu, conv)
-
-
 class BasicTransformation(nn.Module):
     """
     Basic transformation: 3x3x3 group conv, 3x3x3 group conv
@@ -693,9 +654,43 @@ class PreactivatedShortcutTransformation(nn.Module):
         return x
 
 
-skip_transformations = {'postactivated_shortcut':
-    PostactivatedShortcutTransformation, 'preactivated_shortcut':
-    PreactivatedShortcutTransformation}
+def r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups,
+    inplace_relu, bn_eps, bn_mmt, dim_mid=None):
+    """
+    Implementation of `R(2+1)D unit <https://arxiv.org/abs/1711.11248>`_.
+    Decompose one 3D conv into one 2D spatial conv and one 1D temporal conv.
+    Choose the middle dimensionality so that the total No. of parameters
+    in 2D spatial conv and 1D temporal conv is unchanged.
+
+    Args:
+        dim_in (int): the channel dimensions of the input.
+        dim_out (int): the channel dimension of the output.
+        temporal_stride (int): the temporal stride of the bottleneck.
+        spatial_stride (int): the spatial_stride of the bottleneck.
+        groups (int): number of groups for the convolution.
+        inplace_relu (bool): calculate the relu on the original input
+            without allocating new memory.
+        bn_eps (float): epsilon for batch norm.
+        bn_mmt (float): momentum for batch norm. Noted that BN momentum in
+            PyTorch = 1 - BN momentum in Caffe2.
+        dim_mid (Optional[int]): If not None, use the provided channel dimension
+            for the output of the 2D spatial conv. If None, compute the output
+            channel dimension of the 2D spatial conv so that the total No. of
+            model parameters remains unchanged.
+    """
+    if dim_mid is None:
+        dim_mid = int(dim_out * dim_in * 3 * 3 * 3 / (dim_in * 3 * 3 + 
+            dim_out * 3))
+        logging.info('dim_in: %d, dim_out: %d. Set dim_mid to %d' % (dim_in,
+            dim_out, dim_mid))
+    conv_middle = nn.Conv3d(dim_in, dim_mid, [1, 3, 3], stride=[1,
+        spatial_stride, spatial_stride], padding=[0, 1, 1], groups=groups,
+        bias=False)
+    conv_middle_bn = nn.BatchNorm3d(dim_mid, eps=bn_eps, momentum=bn_mmt)
+    conv_middle_relu = nn.ReLU(inplace=inplace_relu)
+    conv = nn.Conv3d(dim_mid, dim_out, [3, 1, 1], stride=[temporal_stride, 
+        1, 1], padding=[1, 0, 0], groups=groups, bias=False)
+    return nn.Sequential(conv_middle, conv_middle_bn, conv_middle_relu, conv)
 
 
 class BasicR2Plus1DTransformation(BasicTransformation):
@@ -742,6 +737,11 @@ residual_transformations = {'basic_r2plus1d_transformation':
     PostactivatedBottleneckTransformation,
     'preactivated_bottleneck_transformation':
     PreactivatedBottleneckTransformation}
+
+
+skip_transformations = {'postactivated_shortcut':
+    PostactivatedShortcutTransformation, 'preactivated_shortcut':
+    PreactivatedShortcutTransformation}
 
 
 class ResBlock(nn.Module):
@@ -1891,6 +1891,10 @@ class Decoder(nn.Module):
                 m.bias.data.zero_()
 
 
+def build_aspp(backbone, output_stride, BatchNorm):
+    return ASPP(backbone, output_stride, BatchNorm)
+
+
 def build_backbone(backbone, output_stride, BatchNorm):
     if backbone == 'resnet':
         return resnet.ResNet101(output_stride, BatchNorm)
@@ -1906,10 +1910,6 @@ def build_backbone(backbone, output_stride, BatchNorm):
 
 def build_decoder(num_classes, backbone, BatchNorm):
     return Decoder(num_classes, backbone, BatchNorm)
-
-
-def build_aspp(backbone, output_stride, BatchNorm):
-    return ASPP(backbone, output_stride, BatchNorm)
 
 
 class DeepLab(nn.Module):
@@ -2193,13 +2193,16 @@ class Test_lightforever_mlcomp(_paritybench_base):
     def test_005(self):
         self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
+        self._check(PostactivatedBottleneckTransformation(*[], **{'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'num_groups': 1, 'dim_inner': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(PyramidStage(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(SCSEModule(*[], **{'ch': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

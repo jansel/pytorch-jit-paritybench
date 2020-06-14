@@ -158,22 +158,6 @@ class Unsqueeze(nn.Module):
         return x.unsqueeze(self.dim)
 
 
-def add_normalization_1d(layers, fn, n_out):
-    if fn == 'none':
-        pass
-    elif fn == 'batchnorm':
-        layers.append(nn.BatchNorm1d(n_out))
-    elif fn == 'instancenorm':
-        layers.append(Unsqueeze(-1))
-        layers.append(nn.InstanceNorm1d(n_out, affine=True))
-        layers.append(Squeeze(-1))
-    elif fn == 'switchnorm':
-        layers.append(SwitchNorm1d(n_out))
-    else:
-        raise Exception('Unsupported normalization: ' + str(fn))
-    return layers
-
-
 def add_activation(layers, fn):
     if fn == 'none':
         pass
@@ -187,6 +171,22 @@ def add_activation(layers, fn):
         layers.append(nn.Tanh())
     else:
         raise Exception('Unsupported activation function: ' + str(fn))
+    return layers
+
+
+def add_normalization_1d(layers, fn, n_out):
+    if fn == 'none':
+        pass
+    elif fn == 'batchnorm':
+        layers.append(nn.BatchNorm1d(n_out))
+    elif fn == 'instancenorm':
+        layers.append(Unsqueeze(-1))
+        layers.append(nn.InstanceNorm1d(n_out, affine=True))
+        layers.append(Squeeze(-1))
+    elif fn == 'switchnorm':
+        layers.append(SwitchNorm1d(n_out))
+    else:
+        raise Exception('Unsupported normalization: ' + str(fn))
     return layers
 
 

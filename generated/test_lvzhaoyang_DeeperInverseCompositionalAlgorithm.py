@@ -65,6 +65,9 @@ from torch.nn import init
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 def color_normalize(color):
     rgb_mean = torch.Tensor([0.4914, 0.4822, 0.4465]).type_as(color)
     rgb_std = torch.Tensor([0.2023, 0.1994, 0.201]).type_as(color)
@@ -257,6 +260,21 @@ class LeastSquareTracking(nn.Module):
             ).view(B, 1, H, W)
 
 
+def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
+    """ chained gradient of image w.r.t. the pose
+    :param the Jacobian of the feature map in x direction
+    :param the Jacobian of the feature map in y direction
+    :param the Jacobian of the x map to manifold p
+    :param the Jacobian of the y map to manifold p
+    ------------
+    :return the image jacobian in x, y, direction, Bx2x6 each
+    """
+    B, C, H, W = Jf_x.shape
+    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
+        -1, 1) * Jy_p.view(B, 1, -1, 6)
+    return Jf_p.view(B, -1, 6)
+
+
 def compute_jacobian_warping(p_invdepth, K, px, py):
     """ Compute the Jacobian matrix of the warped (x,y) w.r.t. the inverse depth
     (linearized at origin)
@@ -329,21 +347,6 @@ def feature_gradient(img, normalize_gradient=True):
         img_dx = img_dx / mag
         img_dy = img_dy / mag
     return img_dx.view(B, C, H, W), img_dy.view(B, C, H, W)
-
-
-def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
-    """ chained gradient of image w.r.t. the pose
-    :param the Jacobian of the feature map in x direction
-    :param the Jacobian of the feature map in y direction
-    :param the Jacobian of the x map to manifold p
-    :param the Jacobian of the y map to manifold p
-    ------------
-    :return the image jacobian in x, y, direction, Bx2x6 each
-    """
-    B, C, H, W = Jf_x.shape
-    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
-        -1, 1) * Jy_p.view(B, 1, -1, 6)
-    return Jf_p.view(B, -1, 6)
 
 
 class TrustRegionBase(nn.Module):

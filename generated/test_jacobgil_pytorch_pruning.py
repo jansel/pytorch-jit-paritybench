@@ -45,6 +45,9 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 
+import time
+
+
 class ModifiedVGG16Model(torch.nn.Module):
 
     def __init__(self):
