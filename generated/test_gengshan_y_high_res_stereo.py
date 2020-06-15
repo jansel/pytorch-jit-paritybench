@@ -540,3 +540,7 @@ class Test_gengshan_y_high_res_stereo(_paritybench_base):
     def test_004(self):
         self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_005(self):
+        self._check(sepConv3dBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+

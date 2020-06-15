@@ -398,7 +398,7 @@ class LiteralGuess(Guess):
                 (r"multiple of (?P<m>\d{1,3})",
                  lambda m: m),
                 (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
-                 lambda v: 0.5 if v == self.value else None)
+                 lambda v: 0.5 if v == self.value else None),
             ])
 
         if isinstance(self.value, list):

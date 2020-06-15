@@ -746,10 +746,10 @@ def _build_graph(boxes, iou_threshold):
     return (overlaps > iou_threshold).astype(np.float32)
 
 
-_global_config['RNG_SEED'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['RNG_SEED'] = 4
 
 
 def _get_top_ranking_propoals(probs):
@@ -928,13 +928,13 @@ def get_func(func_name):
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
-_global_config['REFINE_TIMES'] = 4
+_global_config['FAST_RCNN'] = 4
 
 
 _global_config['MODEL'] = 4
 
 
-_global_config['FAST_RCNN'] = 4
+_global_config['REFINE_TIMES'] = 4
 
 
 class Generalized_RCNN(nn.Module):

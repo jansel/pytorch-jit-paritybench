@@ -3189,10 +3189,10 @@ def _to_tuple(size):
         raise ValueError('Unsupport datatype: {}'.format(type(size)))
 
 
-_global_config['ROOT_PATH'] = 4
-
-
 _global_config['AUG'] = 4
+
+
+_global_config['ROOT_PATH'] = 4
 
 
 class SegmentationDataset(object):
@@ -4210,10 +4210,10 @@ model_urls = {'resnet18':
     }
 
 
-_global_config['PHASE'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['PHASE'] = 4
 
 
 def load_backbone_pretrained(model, backbone):

@@ -1233,10 +1233,10 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
         stride, np.array(aspect_ratios, dtype=np.float))
 
 
-_global_config['MODEL'] = 4
-
-
 _global_config['RPN'] = 4
+
+
+_global_config['MODEL'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -2523,10 +2523,10 @@ def get_func(func_name):
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['CASCADE_RCNN'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 class RoIAlign(Module):

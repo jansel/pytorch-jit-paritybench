@@ -88,10 +88,10 @@ def init_wt_normal(wt):
 _global_config['vocab_size'] = 4
 
 
-_global_config['hidden_dim'] = 4
-
-
 _global_config['emb_dim'] = 4
+
+
+_global_config['hidden_dim'] = 4
 
 
 class Encoder(nn.Module):

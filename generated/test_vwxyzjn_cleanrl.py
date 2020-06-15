@@ -327,10 +327,10 @@ class QNetwork(nn.Module):
         return self.network(x)
 
 
-_global_config['pol_layer_norm'] = 1
-
-
 _global_config['weights_init'] = 4
+
+
+_global_config['pol_layer_norm'] = 1
 
 
 class Policy(nn.Module):

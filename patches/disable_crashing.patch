@@ -1,3 +1,24 @@
+diff --git a/generated/test_implus_PytorchInsight.py b/generated/test_implus_PytorchInsight.py
+index 39a4dd5..bc23957 100644
+--- a/generated/test_implus_PytorchInsight.py
++++ b/generated/test_implus_PytorchInsight.py
+@@ -6586,7 +6586,7 @@ class RoIPool(Module):
+     def forward(self, features, rois):
+         return roi_pool(features, rois, self.out_size, self.spatial_scale)
+ 
+-
++import unittest
+ import torch
+ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+ 
+@@ -6640,6 +6640,7 @@ class Test_implus_PytorchInsight(_paritybench_base):
+     def test_013(self):
+         self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
+ 
++    @unittest.skip("crashes")
+     def test_014(self):
+         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+ 
 diff --git a/generated/test_lxtGH_OctaveConv_pytorch.py b/generated/test_lxtGH_OctaveConv_pytorch.py
 index 8d44ffc..ef53705 100644
 --- a/generated/test_lxtGH_OctaveConv_pytorch.py
@@ -20,23 +41,24 @@ index 8d44ffc..ef53705 100644
          self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
  
 diff --git a/patches/disable_crashing.patch b/patches/disable_crashing.patch
-index e74cc49..e69de29 100644
+index 3c34043..e69de29 100644
 --- a/patches/disable_crashing.patch
 +++ b/patches/disable_crashing.patch
-@@ -1,47 +0,0 @@
+@@ -1,73 +0,0 @@
 -diff --git a/generated/test_lxtGH_OctaveConv_pytorch.py b/generated/test_lxtGH_OctaveConv_pytorch.py
--index cfef0fa..d69b23f 100644
+-index 8d44ffc..ef53705 100644
 ---- a/generated/test_lxtGH_OctaveConv_pytorch.py
 -+++ b/generated/test_lxtGH_OctaveConv_pytorch.py
--@@ -1819,6 +1819,7 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
+-@@ -1821,7 +1821,7 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
+-         input = F.log_softmax(input, 1)
 -         return self.criterion(input, one_hot)
 - 
-- 
+--
 -+import unittest
 - import torch
 - from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 - 
--@@ -1848,6 +1849,7 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
+-@@ -1851,6 +1851,7 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
 -     def test_007(self):
 -         self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 - 
@@ -45,29 +67,54 @@ index e74cc49..e69de29 100644
 -         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 - 
 -diff --git a/patches/disable_crashing.patch b/patches/disable_crashing.patch
--index 67e6166..e69de29 100644
+-index e74cc49..e69de29 100644
 ---- a/patches/disable_crashing.patch
 -+++ b/patches/disable_crashing.patch
--@@ -1,22 +0,0 @@
+-@@ -1,47 +0,0 @@
 --diff --git a/generated/test_lxtGH_OctaveConv_pytorch.py b/generated/test_lxtGH_OctaveConv_pytorch.py
---index 0eb665a..75b283e 100644
+--index cfef0fa..d69b23f 100644
 ----- a/generated/test_lxtGH_OctaveConv_pytorch.py
 --+++ b/generated/test_lxtGH_OctaveConv_pytorch.py
---@@ -1818,9 +1818,9 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
---         input = F.log_softmax(input, 1)
+--@@ -1819,6 +1819,7 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
 --         return self.criterion(input, one_hot)
 -- 
----
+-- 
+--+import unittest
 -- import torch
 -- from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
---+import unittest
 -- 
--- class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
---     pass
---@@ -1852,5 +1852,6 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
---     def test_008(self):
+--@@ -1848,6 +1849,7 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
+--     def test_007(self):
 --         self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 -- 
 --+    @unittest.skip("crashes")
---     def test_009(self):
+--     def test_008(self):
 --         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+-- 
+--diff --git a/patches/disable_crashing.patch b/patches/disable_crashing.patch
+--index 67e6166..e69de29 100644
+----- a/patches/disable_crashing.patch
+--+++ b/patches/disable_crashing.patch
+--@@ -1,22 +0,0 @@
+---diff --git a/generated/test_lxtGH_OctaveConv_pytorch.py b/generated/test_lxtGH_OctaveConv_pytorch.py
+---index 0eb665a..75b283e 100644
+------ a/generated/test_lxtGH_OctaveConv_pytorch.py
+---+++ b/generated/test_lxtGH_OctaveConv_pytorch.py
+---@@ -1818,9 +1818,9 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
+---         input = F.log_softmax(input, 1)
+---         return self.criterion(input, one_hot)
+--- 
+----
+--- import torch
+--- from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+---+import unittest
+--- 
+--- class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
+---     pass
+---@@ -1852,5 +1852,6 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
+---     def test_008(self):
+---         self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+--- 
+---+    @unittest.skip("crashes")
+---     def test_009(self):
+---         self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})

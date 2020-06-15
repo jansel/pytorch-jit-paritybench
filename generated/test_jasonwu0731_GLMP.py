@@ -166,22 +166,22 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     return bleu_score
 
 
-_global_config['genSample'] = 4
-
-
-_global_config['dataset'] = torch.rand([4, 4, 4, 4])
-
-
 _global_config['teacher_forcing_ratio'] = 4
-
-
-_global_config['batch'] = 4
 
 
 _global_config['addName'] = 4
 
 
+_global_config['batch'] = 4
+
+
 _global_config['unk_mask'] = 4
+
+
+_global_config['genSample'] = 4
+
+
+_global_config['dataset'] = torch.rand([4, 4, 4, 4])
 
 
 class GLMP(nn.Module):

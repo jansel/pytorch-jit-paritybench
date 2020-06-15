@@ -408,11 +408,8 @@ class Test_dragonbook_V2V_PoseNet_pytorch(_paritybench_base):
         self._check(Pool3DBlock(*[], **{'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Res3DBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
-
-    def test_003(self):
         self._check(SoftmaxCrossEntropyWithLogits(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(VolumetricSoftmax(*[], **{'channel': 4, 'sizes': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

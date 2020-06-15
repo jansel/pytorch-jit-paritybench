@@ -6925,25 +6925,3 @@ class TrajConv(Module):
         return TrajConvFunction.apply(input, offset, self.weight, self.bias,
             self.stride, self.padding, self.dilation, self.
             num_deformable_groups, self.im2col_step)
-
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_open_mmlab_mmaction(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(AnchorHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 256, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(BBoxHead(*[], **{}), [torch.rand([12544, 12544])], {})
-
-    def test_002(self):
-        self._check(BNInception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(STPPReorganized(*[], **{'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}), [torch.rand([0, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-

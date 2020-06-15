@@ -62,10 +62,10 @@ def apply_attention(input, attention):
     return weighted_mean.view(n, -1)
 
 
-_global_config['max_answers'] = 4
-
-
 _global_config['output_features'] = 4
+
+
+_global_config['max_answers'] = 4
 
 
 class Net(nn.Module):

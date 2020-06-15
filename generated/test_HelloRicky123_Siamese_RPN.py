@@ -83,10 +83,10 @@ from collections import OrderedDict
 _global_config['total_stride'] = 1
 
 
-_global_config['exemplar_size'] = 4
-
-
 _global_config['anchor_num'] = 4
+
+
+_global_config['exemplar_size'] = 4
 
 
 _global_config['instance_size'] = 4

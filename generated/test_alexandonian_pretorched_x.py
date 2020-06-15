@@ -6035,13 +6035,3 @@ class Xception(nn.Module):
         x = self.features(input)
         x = self.logits(x)
         return x
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-

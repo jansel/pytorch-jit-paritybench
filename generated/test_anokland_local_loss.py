@@ -127,19 +127,7 @@ def similarity_matrix(x):
     return R
 
 
-_global_config['nonlin'] = 4
-
-
-_global_config['backprop'] = 4
-
-
-_global_config['momentum'] = 4
-
-
-_global_config['no_print_stats'] = 4
-
-
-_global_config['target_proj_size'] = 4
+_global_config['beta'] = 4
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -310,9 +298,6 @@ class LocalLossBlockLinear(nn.Module):
         else:
             loss = 0.0
         return h_return, loss
-
-
-_global_config['dim_in_decoder'] = 4
 
 
 class LocalLossBlockConv(nn.Module):
@@ -542,16 +527,19 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
-_global_config['pre_act'] = 4
-
-
 _global_config['no_detach'] = 4
 
 
 _global_config['optim'] = 4
 
 
+_global_config['momentum'] = 4
+
+
 _global_config['weight_decay'] = 4
+
+
+_global_config['pre_act'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -675,6 +663,9 @@ class Bottleneck(nn.Module):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
         return out, y, y_onehot, loss_total
+
+
+_global_config['backprop'] = 4
 
 
 class ResNet(nn.Module):
@@ -978,10 +969,10 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_hidden'] = 4
-
-
 _global_config['num_layers'] = 1
+
+
+_global_config['num_hidden'] = 4
 
 
 class VGGn(nn.Module):

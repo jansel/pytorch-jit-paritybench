@@ -604,3 +604,73 @@ class Net_inpaint(nn.Module):
                     x = torch.cat((x, feat_map), dim=1)
             outputs[layer_name] = x
         return outputs
+
+
+class spherical_backprojection(nn.Module):
+
+    def __init__(self, grid, vox_res=128):
+        super(camera_backprojection, self).__init__()
+        self.vox_res = vox_res
+        self.backprojection_layer = SphericalBackProjection()
+        assert type(grid) == torch.FloatTensor
+        self.grid = Variable(grid)
+
+    def forward(self, spherical):
+        return self.backprojection_layer(spherical, self.grid, self.vox_res)
+
+
+class Camera_back_projection_layer(nn.Module):
+
+    def __init__(self, res=128):
+        super(Camera_back_projection_layer, self).__init__()
+        assert res == 128
+        self.res = 128
+
+    def forward(self, depth_t, fl=418.3, cam_dist=2.2, shift=True):
+        n = depth_t.size(0)
+        if type(fl) == float:
+            fl_v = fl
+            fl = torch.FloatTensor(n, 1)
+            fl.fill_(fl_v)
+        if type(cam_dist) == float:
+            cmd_v = cam_dist
+            cam_dist = torch.FloatTensor(n, 1)
+            cam_dist.fill_(cmd_v)
+        df = CameraBackProjection.apply(depth_t, fl, cam_dist, self.res)
+        return self.shift_tdf(df) if shift else df
+
+    @staticmethod
+    def shift_tdf(input_tdf, res=128):
+        out_tdf = 1 - res * input_tdf
+        return out_tdf
+
+
+class camera_backprojection(nn.Module):
+
+    def __init__(self, vox_res=128):
+        super(camera_backprojection, self).__init__()
+        self.vox_res = vox_res
+        self.backprojection_layer = CameraBackProjection()
+
+    def forward(self, depth, fl, camdist):
+        return self.backprojection_layer(depth, fl, camdist, self.voxel_res)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(Conv3d_block(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_001(self):
+        self._check(Deconv3d_skip(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {})
+
+    def test_002(self):
+        self._check(RevBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
