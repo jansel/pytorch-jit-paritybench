@@ -783,5 +783,8 @@ class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
         self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_013(self):
+        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
         self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

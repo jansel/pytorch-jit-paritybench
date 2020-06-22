@@ -1034,8 +1034,11 @@ class Test_guochengqian_TENet(_paritybench_base):
         self._check(ResBlock(*[], **{'n_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(SkipUpDownBlock(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(SkipUpDownBlock(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(TV_L1LOSS(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

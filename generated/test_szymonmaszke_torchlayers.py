@@ -1298,17 +1298,26 @@ class Test_szymonmaszke_torchlayers(_paritybench_base):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Poly(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StochasticDepth(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
         self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

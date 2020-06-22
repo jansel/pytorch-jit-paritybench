@@ -255,8 +255,11 @@ class Test_rafellerc_Pytorch_SiamFC(_paritybench_base):
         self._check(BaselineEmbeddingNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
-        self._check(VGG11EmbeddingNet_5c(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SiameseNet(*[], **{'embedding_net': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
+        self._check(VGG11EmbeddingNet_5c(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
         self._check(VGG16EmbeddingNet_8c(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -839,3 +839,6 @@ class Test_bearpaw_pytorch_classification(_paritybench_base):
     def test_002(self):
         self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(VGG(*[], **{'features': ReLU()}), [torch.rand([512, 512])], {})
+

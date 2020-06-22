@@ -1561,10 +1561,10 @@ def make_layers_vggm():
         nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
 
 
-_global_config['D'] = 4
-
-
 _global_config['E'] = 4
+
+
+_global_config['D'] = 4
 
 
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])

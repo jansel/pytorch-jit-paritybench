@@ -4598,127 +4598,133 @@ class Test_LoSealL_VideoSuperResolution(_paritybench_base):
         self._check(CascadedBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_007(self):
+        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
         self._check(ConvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(DBPNMaker(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(D_DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(D_UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(DeconvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(DenseBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(Dilated_block(*[], **{'inChannel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(DnCnn(*[], **{'channel': 4, 'layers': 1, 'bn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(EasyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_019(self):
         self._check(MotionCompensation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_020(self):
         self._check(MotionEstimation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(NCL(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_022(self):
         self._check(Net(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(NoiseExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_023(self):
+    def test_024(self):
         self._check(NoiseShifter(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_024(self):
+    def test_025(self):
         self._check(RB(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_025(self):
+    def test_026(self):
         self._check(RDB(*[], **{'nDenselayer': 1, 'channels': 4, 'growth': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
         self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
+    def test_028(self):
         self._check(Rcab(*[], **{'channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_028(self):
+    def test_029(self):
         self._check(Rdb(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_029(self):
+    def test_030(self):
         self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_030(self):
+    def test_031(self):
         self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_032(self):
         self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
+    def test_033(self):
         self._check(ResnetBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_033(self):
+    def test_034(self):
         self._check(SRnet(*[], **{'s': 4, 'c': 4, 'd': 4}), [torch.rand([4, 144, 64, 64])], {})
 
+    def test_035(self):
+        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_034(self):
+    def test_036(self):
         self._check(SpaceToBatch(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_035(self):
+    def test_037(self):
         self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_036(self):
+    def test_038(self):
         self._check(Srcnn(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_037(self):
+    def test_039(self):
         self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_038(self):
+    def test_040(self):
         self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_039(self):
+    def test_041(self):
         self._check(UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}), [torch.rand([4, 4, 4, 4]), 0], {})
 
-    def test_040(self):
+    def test_042(self):
         self._check(Vdsr(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_041(self):
+    def test_043(self):
         self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_042(self):
+    def test_044(self):
         self._check(_UpsampleLinear(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_043(self):
+    def test_045(self):
         self._check(_UpsampleNearest(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_044(self):
+    def test_046(self):
         self._check(make_dense(*[], **{'channels_in': 4, 'channels_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

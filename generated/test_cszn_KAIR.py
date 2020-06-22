@@ -1528,41 +1528,47 @@ class Test_cszn_KAIR(_paritybench_base):
         self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_003(self):
+        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+
+    def test_004(self):
         self._check(IMDBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(MSRResNet1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(NonLocalBlock2D(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(SSIMLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
+        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
         self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

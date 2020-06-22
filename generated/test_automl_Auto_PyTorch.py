@@ -1766,68 +1766,71 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
         self._check(AdaptiveCatAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseNet(*[], **{'config': _mock_config(), 'in_features': 4, 'out_features': 4, 'final_activation': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(NoEmbedding(*[], **{'config': _mock_config(), 'in_features': 4, 'one_hot_encoder': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(PrintNode(*[], **{'msg': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(Reshape(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(ResidualBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'filter_size': 4, 'stride': 1, 'branch_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(SelectAdaptivePool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(SkipConnection(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

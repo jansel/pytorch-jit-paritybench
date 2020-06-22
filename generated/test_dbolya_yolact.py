@@ -722,13 +722,13 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
 _global_config['crowd_iou_threshold'] = 4
 
 
-_global_config['use_change_matching'] = 4
+_global_config['use_prediction_matching'] = 4
 
 
 _global_config['use_yolo_regressors'] = 4
 
 
-_global_config['use_prediction_matching'] = 4
+_global_config['use_change_matching'] = 4
 
 
 def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
@@ -776,6 +776,9 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     loc_t[idx] = loc
     conf_t[idx] = conf
     idx_t[idx] = best_truth_idx
+
+
+_global_config['bbox_alpha'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -1557,55 +1560,55 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['eval_mask_branch'] = 4
-
-
-_global_config['num_instance_coeffs'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
+_global_config['use_prediction_module'] = 4
 
 
 _global_config['extra_layers'] = 1
 
 
-_global_config['mask_proto_coeff_gate'] = 4
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['_tmp_img_h'] = 4
-
-
-_global_config['extra_head_net'] = 4
-
-
-_global_config['mask_proto_coeff_activation'] = 4
-
-
-_global_config['head_layer_params'] = 1
-
-
-_global_config['num_heads'] = 4
-
-
-_global_config['use_prediction_module'] = 4
-
-
-_global_config['mask_proto_split_prototypes_by_head'] = 4
+_global_config['_tmp_img_w'] = 4
 
 
 _global_config['use_mask_scoring'] = 4
 
 
-_global_config['mask_proto_prototypes_as_features'] = 4
+_global_config['num_classes'] = 4
+
+
+_global_config['num_heads'] = 4
+
+
+_global_config['use_instance_coeff'] = 4
+
+
+_global_config['eval_mask_branch'] = 4
+
+
+_global_config['mask_proto_coeff_gate'] = 4
+
+
+_global_config['head_layer_params'] = 1
+
+
+_global_config['mask_proto_split_prototypes_by_head'] = 4
 
 
 _global_config['mask_type'] = 4
 
 
-_global_config['use_instance_coeff'] = 4
+_global_config['num_instance_coeffs'] = 4
+
+
+_global_config['extra_head_net'] = 4
+
+
+_global_config['mask_proto_prototypes_as_features'] = 4
+
+
+_global_config['_tmp_img_h'] = 4
+
+
+_global_config['mask_proto_coeff_activation'] = 4
 
 
 _global_config['mask_dim'] = 4
@@ -2086,13 +2089,25 @@ def construct_backbone(cfg):
     return backbone
 
 
-_global_config['mask_proto_prototypes_as_features_no_grad'] = 4
+_global_config['mask_proto_net'] = 4
+
+
+_global_config['freeze_bn'] = 4
+
+
+_global_config['mask_proto_src'] = 4
+
+
+_global_config['nms_thresh'] = 4
+
+
+_global_config['mask_size'] = 4
 
 
 _global_config['nms_top_k'] = 4
 
 
-_global_config['freeze_bn'] = 4
+_global_config['use_objectness_score'] = 4
 
 
 class Yolact(nn.Module):

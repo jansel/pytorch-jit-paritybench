@@ -229,3 +229,6 @@ class Test_hejingwenhejingwen_AdaFM(_paritybench_base):
     def test_002(self):
         self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_003(self):
+        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

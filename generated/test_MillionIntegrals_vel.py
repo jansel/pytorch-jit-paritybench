@@ -1150,17 +1150,20 @@ class Test_MillionIntegrals_vel(_paritybench_base):
     def test_006(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(OneHotEncode(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'cardinality': 4, 'divisor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(ValueHead(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

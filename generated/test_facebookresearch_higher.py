@@ -359,5 +359,15 @@ class Test_facebookresearch_higher(_paritybench_base):
         self._check(_Enc(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
+        self._check(_NestedEnc(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(_PartiallyUsed(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(_ReferenceNet(*[], **{'features': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(_TargetNet(*[], **{'features': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

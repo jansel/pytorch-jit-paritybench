@@ -223,13 +223,13 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
+_global_config['POOLING_MODE'] = 4
+
+
 _global_config['POOLING_SIZE'] = 4
 
 
 _global_config['TRAIN'] = 4
-
-
-_global_config['POOLING_MODE'] = 4
 
 
 class _fasterRCNN(nn.Module):

@@ -253,3 +253,7 @@ class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
     def test_003(self):
         self._check(Residual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_004(self):
+        self._check(Trainer(*[], **{'model': ReLU(), 'inference_keys': 4}), [torch.rand([4, 4, 4, 4])], {})
+

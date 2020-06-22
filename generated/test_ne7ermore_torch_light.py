@@ -4085,3 +4085,6 @@ class Test_ne7ermore_torch_light(_paritybench_base):
     def test_031(self):
         self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_032(self):
+        self._check(highway_layer(*[], **{'hsz': 4, 'active': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

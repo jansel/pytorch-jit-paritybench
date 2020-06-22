@@ -911,31 +911,34 @@ class Test_songlab_cal_tape(_paritybench_base):
         self._check(PairwiseContactPredictionHead(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(ProteinBertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(ProteinBertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(ProteinLSTMLayer(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(ProteinResNetPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(SequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(SequenceToSequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(SimpleConv(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(SimpleMLP(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(ValuePredictionHead(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

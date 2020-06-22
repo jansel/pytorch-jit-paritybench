@@ -2798,3 +2798,115 @@ class STFT(torch.nn.Module):
         self.magnitude, self.phase = self.transform(input_data)
         reconstruction = self.inverse(self.magnitude, self.phase)
         return reconstruction
+
+
+def dynamic_range_compression(x, C=1, clip_val=1e-05):
+    """
+    PARAMS
+    ------
+    C: compression factor
+    """
+    return torch.log(torch.clamp(x, min=clip_val) * C)
+
+
+def dynamic_range_decompression(x, C=1):
+    """
+    PARAMS
+    ------
+    C: compression factor used to compress
+    """
+    return torch.exp(x) / C
+
+
+class TacotronSTFT(torch.nn.Module):
+
+    def __init__(self, filter_length=1024, hop_length=256, win_length=1024,
+        n_mel_channels=80, sampling_rate=22050, mel_fmin=0.0, mel_fmax=None):
+        super(TacotronSTFT, self).__init__()
+        self.n_mel_channels = n_mel_channels
+        self.sampling_rate = sampling_rate
+        self.stft_fn = STFT(filter_length, hop_length, win_length)
+        mel_basis = librosa_mel_fn(sampling_rate, filter_length,
+            n_mel_channels, mel_fmin, mel_fmax)
+        mel_basis = torch.from_numpy(mel_basis).float()
+        self.register_buffer('mel_basis', mel_basis)
+
+    def spectral_normalize(self, magnitudes):
+        output = dynamic_range_compression(magnitudes)
+        return output
+
+    def spectral_de_normalize(self, magnitudes):
+        output = dynamic_range_decompression(magnitudes)
+        return output
+
+    def mel_spectrogram(self, y):
+        """Computes mel-spectrograms from a batch of waves
+        PARAMS
+        ------
+        y: Variable(torch.FloatTensor) with shape (B, T) in range [-1, 1]
+
+        RETURNS
+        -------
+        mel_output: torch.FloatTensor of shape (B, n_mel_channels, T)
+        """
+        assert torch.min(y.data) >= -1
+        assert torch.max(y.data) <= 1
+        magnitudes, phases = self.stft_fn.transform(y)
+        magnitudes = magnitudes.data
+        mel_output = torch.matmul(self.mel_basis, magnitudes)
+        mel_output = self.spectral_normalize(mel_output)
+        return mel_output
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_Xilinx_brevitas(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(AffineRescaling(*[], **{'affine_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(AudioPreprocessor(*[], **{'win_length': 4, 'hop_length': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(GreedyCTCDecoder(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(GroupShuffle(*[], **{'groups': 1, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(MultiplyBatch(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4]), torch.rand([4, 4]), torch.rand([4])], {})
+
+    def test_006(self):
+        self._check(ScaleBias(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(SpecAugment(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(SpecCutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(SpectrogramAugmentation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(SqrHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(TensorNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(WeightReg(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(ZeroLsbTruncBitWidth(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

@@ -447,3 +447,6 @@ class Test_kakaobrain_autoclint(_paritybench_base):
     def test_012(self):
         self._check(ToDevice(*[], **{}), [], {})
 
+    def test_013(self):
+        self._check(Toggle(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

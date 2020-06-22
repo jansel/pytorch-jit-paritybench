@@ -1289,3 +1289,6 @@ class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
     def test_012(self):
         self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_013(self):
+        self._check(VGG(*[], **{'features': ReLU()}), [torch.rand([512, 512])], {})
+

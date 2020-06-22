@@ -2890,29 +2890,33 @@ class Test_mpariente_asteroid(_paritybench_base):
     def test_001(self):
         self._check(AdaptiveEncoder1D(*[], **{'freq_res': 4, 'sample_res': 4}), [torch.rand([4, 1, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(BaseTasNet(*[], **{'encoder': ReLU(), 'masker': ReLU(), 'decoder': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(Chimera(*[], **{'in_chan': 4, 'n_src': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(GlobLN(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(PairwiseMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(SeparableDilatedConv1DBlock(*[], **{}), [torch.rand([4, 256, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(SimpleModel(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

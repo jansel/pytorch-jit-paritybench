@@ -1,5 +1,8 @@
 import ast
 import re
+import logging
+
+log = logging.getLogger(__name__)
 
 CONFIG_NAMES = {"argv", "args", "config", "cfg", "params", "_global_config"}
 
@@ -122,7 +125,8 @@ class CheckCallableMembers(ast.NodeVisitor):
     @classmethod
     def run(cls, tree):
         visitor = cls()
-        visitor.visit(tree)
+        if tree:
+            visitor.visit(tree)
         return visitor
 
     def __init__(self):
@@ -133,7 +137,7 @@ class CheckCallableMembers(ast.NodeVisitor):
         for name in self.callable_members:
             member = getattr(obj, name, None)
             if member is not None and not callable(member):
-                raise ValueError(f"member {name} should be a callable object")
+                raise ValueError(f"member {repr(name)} should be callable")
 
     def visit_Call(self, node: ast.Call):
         if isinstance(node.func, ast.Attribute):

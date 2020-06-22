@@ -356,3 +356,6 @@ class Test_JJGO_shrinkbench(_paritybench_base):
     def test_001(self):
         self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

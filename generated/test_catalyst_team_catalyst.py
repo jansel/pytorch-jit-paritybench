@@ -3500,77 +3500,87 @@ class Test_catalyst_team_catalyst(_paritybench_base):
     def test_013(self):
         self._check(LamaPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_014(self):
-        self._check(LovaszLossBinary(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'lambda_fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_015(self):
-        self._check(LovaszLossMultiClass(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LovaszLossBinary(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_016(self):
-        self._check(LovaszLossMultiLabel(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LovaszLossMultiClass(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_017(self):
+        self._check(LovaszLossMultiLabel(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
         self._check(MarginLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(MeanOutputLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(NaiveCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(PSPBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(Projector(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_024(self):
         self._check(PyramidBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(RMSNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_025(self):
-        self._check(TemporalAttentionPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
     def test_026(self):
-        self._check(TemporalAvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualWrapper(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_027(self):
-        self._check(TemporalConcatPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalAttentionPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_028(self):
-        self._check(TemporalLastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalAvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_029(self):
-        self._check(TemporalMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalConcatPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_030(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(TemporalDropLastWrapper(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_031(self):
-        self._check(TripletLossV2(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(TemporalLastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_032(self):
-        self._check(TripletPairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(TemporalMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_033(self):
+        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_034(self):
+        self._check(TripletLossV2(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_035(self):
+        self._check(TripletPairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_036(self):
         self._check(WingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

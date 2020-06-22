@@ -340,3 +340,7 @@ class Test_pytorchbearer_torchbearer(_paritybench_base):
     def test_004(self):
         self._check(ToyModel(*[], **{}), [torch.rand([784, 784])], {})
 
+    @_fails_compile()
+    def test_005(self):
+        self._check(_CAMWrapper(*[], **{'input_size': 4, 'base_model': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

@@ -119,3 +119,6 @@ class Test_miguelvr_dropblock(_paritybench_base):
     def test_000(self):
         self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(LinearScheduler(*[], **{'dropblock': ReLU(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -304,20 +304,26 @@ class Test_cszn_DPSR(_paritybench_base):
         self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
-        self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_003(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_005(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_006(self):
+        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_007(self):
         self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_008(self):
+        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -226,3 +226,6 @@ class Test_pingpong_ai_chatspace(_paritybench_base):
     def test_002(self):
         self._check(SequentialFNN(*[], **{'config': _mock_config(cnn_features=4)}), [torch.rand([16, 16, 4])], {})
 
+    def test_003(self):
+        self._check(TimeDistributed(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

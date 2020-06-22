@@ -1618,13 +1618,16 @@ class Test_DSE_MSU_DeepRobust(_paritybench_base):
     def test_005(self):
         self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
+        self._check(Hamiltonian(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

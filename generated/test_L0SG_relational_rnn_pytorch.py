@@ -690,22 +690,22 @@ class RNNModel(nn.Module):
 output_size = 1
 
 
-_global_config['numblocks'] = 1
+_global_config['forgetbias'] = 4
 
 
 _global_config['input_size'] = 4
-
-
-_global_config['inputbias'] = 4
-
-
-_global_config['forgetbias'] = 4
 
 
 _global_config['numheads'] = 4
 
 
 _global_config['memslots'] = 4
+
+
+_global_config['inputbias'] = 4
+
+
+_global_config['numblocks'] = 1
 
 
 _global_config['headsize'] = 4

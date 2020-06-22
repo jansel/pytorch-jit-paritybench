@@ -1070,3 +1070,6 @@ class Test_microsoft_multiview_human_pose_estimation_pytorch(_paritybench_base):
     def test_003(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    def test_004(self):
+        self._check(MultiViewPose(*[], **{'PoseResNet': ReLU(), 'Aggre': ReLU(), 'CFG': 4}), [torch.rand([4, 4, 4, 4])], {})
+

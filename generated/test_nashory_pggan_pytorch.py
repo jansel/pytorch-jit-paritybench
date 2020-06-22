@@ -557,28 +557,31 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_nashory_pggan_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatTable(*[], **{'layer1': ReLU(), 'layer2': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(equalized_conv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(equalized_deconv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(equalized_conv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(equalized_linear(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(equalized_deconv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_004(self):
+        self._check(equalized_linear(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(fadein_layer(*[], **{'config': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(generalized_drop_out(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(minibatch_std_concat_layer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(pixelwise_norm_layer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

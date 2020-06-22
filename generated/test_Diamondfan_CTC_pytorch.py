@@ -511,3 +511,7 @@ class Test_Diamondfan_CTC_pytorch(_paritybench_base):
     def test_003(self):
         self._check(LayerCNN(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': [4, 4], 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_004(self):
+        self._check(SequenceWise(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

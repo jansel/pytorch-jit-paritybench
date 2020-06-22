@@ -159,5 +159,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_OctoberChang_MMD_GAN(_paritybench_base):
     pass
     def test_000(self):
+        self._check(NetD(*[], **{'encoder': ReLU(), 'decoder': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(NetG(*[], **{'decoder': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(ONE_SIDED(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

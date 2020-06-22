@@ -474,10 +474,10 @@ class HmapResBlock(nn.Module):
         return out
 
 
-_global_config['CUDA'] = 4
-
-
 _global_config['RNN_TYPE'] = 4
+
+
+_global_config['CUDA'] = 4
 
 
 _global_config['TEXT'] = 4
@@ -1599,10 +1599,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
-_global_config['POOLING_SIZE'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 _global_config['POOLING_MODE'] = 4

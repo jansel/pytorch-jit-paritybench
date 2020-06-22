@@ -2450,29 +2450,37 @@ class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_010(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
 
     @_fails_compile()
     def test_011(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     @_fails_compile()
     def test_013(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     @_fails_compile()
     def test_014(self):
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_015(self):
         self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 

@@ -635,22 +635,22 @@ def zeros(tensor):
         tensor.data.fill_(0)
 
 
-_global_config['num_stacks'] = 4
-
-
-_global_config['shared_weights'] = 4
-
-
-_global_config['hidden'] = 4
-
-
 _global_config['num_layers'] = 1
 
 
 _global_config['skip_dropout'] = 0.5
 
 
+_global_config['num_stacks'] = 4
+
+
+_global_config['hidden'] = 4
+
+
 _global_config['dropout'] = 0.5
+
+
+_global_config['shared_weights'] = 4
 
 
 class Net(torch.nn.Module):
@@ -8563,36 +8563,40 @@ class Test_rusty1s_pytorch_geometric(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(DenseGraphConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(DenseGINConv(*[], **{'nn': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(DenseGraphConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(DenseSAGEConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(Depth(*[], **{'in_dim': 4, 'hidden': 4}), [torch.rand([4, 4, 4]), torch.rand([1, 4, 4]), torch.rand([1, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(Discriminator(*[], **{'in_channels': 4, 'hidden_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(Envelope(*[], **{'exponent': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(GaussianSmearing(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(GraphSizeNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(Linear(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(ResidualLayer(*[], **{'hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(ShiftedSoftplus(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

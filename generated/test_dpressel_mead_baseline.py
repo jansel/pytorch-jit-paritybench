@@ -2745,3 +2745,13 @@ class Test_dpressel_mead_baseline(_paritybench_base):
     def test_025(self):
         self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_026(self):
+        self._check(WithDropout(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_027(self):
+        self._check(WithDropoutOnFirst(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
+        self._check(WithoutLength(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

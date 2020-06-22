@@ -136,3 +136,6 @@ class Test_akamaster_pytorch_resnet_cifar10(_paritybench_base):
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

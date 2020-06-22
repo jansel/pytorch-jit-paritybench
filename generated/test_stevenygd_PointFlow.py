@@ -583,13 +583,13 @@ class Test_stevenygd_PointFlow(_paritybench_base):
         self._check(ConcatLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ConcatLinear_v2(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([5, 5]), torch.rand([4, 4, 5, 4])], {})
+        self._check(ConcatLinear_v2(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(ConcatScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([5, 5]), torch.rand([4, 4, 5, 4])], {})
+        self._check(ConcatScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
 
     def test_003(self):
-        self._check(ConcatSquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([5, 5]), torch.rand([4, 4, 5, 4])], {})
+        self._check(ConcatSquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
@@ -599,11 +599,14 @@ class Test_stevenygd_PointFlow(_paritybench_base):
         self._check(IgnoreLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([5, 5]), torch.rand([4, 4, 5, 4])], {})
+        self._check(Lambda(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(SquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([5, 5]), torch.rand([4, 4, 5, 4])], {})
+        self._check(ScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
 
     def test_008(self):
+        self._check(SquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+
+    def test_009(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

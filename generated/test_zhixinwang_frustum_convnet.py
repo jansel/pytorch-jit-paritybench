@@ -503,10 +503,10 @@ def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1
     return loss
 
 
-_global_config['LOSS'] = 4
-
-
 _global_config['IOU_THRESH'] = 4
+
+
+_global_config['LOSS'] = 4
 
 
 class PointNetDet(nn.Module):

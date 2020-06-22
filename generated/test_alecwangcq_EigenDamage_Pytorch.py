@@ -757,7 +757,10 @@ class Test_alecwangcq_EigenDamage_Pytorch(_paritybench_base):
     def test_000(self):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
+        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(channel_selection(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

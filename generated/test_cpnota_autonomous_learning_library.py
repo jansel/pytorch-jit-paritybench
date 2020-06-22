@@ -465,18 +465,24 @@ class Test_cpnota_autonomous_learning_library(_paritybench_base):
         self._check(Aggregation(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CategoricalDueling(*[], **{'value_model': ReLU(), 'advantage_model': ReLU()}), [torch.rand([4, 4])], {})
 
     def test_002(self):
+        self._check(Dueling(*[], **{'value_model': ReLU(), 'advantage_model': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_005(self):
         self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_006(self):
         self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

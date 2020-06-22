@@ -53,7 +53,7 @@ class DeduceParameters(object):
         return [DeduceParameter.initial_arg_forward(param, position)
                 for position, param in enumerate(cls.needed_args(signature))], {}
 
-    def __init__(self, nn_module: Callable, args: list, kwargs: dict):
+    def __init__(self, nn_module: Callable, args: list, kwargs: dict, checker=None):
         super(DeduceParameters, self).__init__()
         self.nn_module = nn_module
         self.args = args
@@ -65,6 +65,7 @@ class DeduceParameters(object):
         self.last_kwargs = None
         self.last_result = None
         self.last_traceback = None
+        self.checker = checker
 
     def __str__(self):
         return ", ".join(itertools.chain(
@@ -88,11 +89,13 @@ class DeduceParameters(object):
 
         try:
             self.last_result = self.nn_module(*self.last_args, **self.last_kwargs)
+            if self.checker:
+                self.checker(self.last_result)
             return True
         except Exception:
             error_type, error_value, tb = sys.exc_info()
             error_msg = f"{error_type.__name__}: {error_value}"
-            sorted_args = self.sorted_args(tb)
+            sorted_args = self.sorted_args(tb, error_msg)
             self.last_traceback = traceback.format_exc(-2)
 
         self.attempt_log.append((guess_str, error_msg))
@@ -113,7 +116,7 @@ class DeduceParameters(object):
     def all_args(self):
         return list(self.args) + list(self.kwargs.values())
 
-    def sorted_args(self, trackback) -> List:
+    def sorted_args(self, trackback, msg) -> List:
         """
         Order args by when they are seen in the traceback so we can fix
         relevant to the error args first.
@@ -129,6 +132,7 @@ class DeduceParameters(object):
                 break
             line = frame.line
             args.sort(key=lambda x: x.contained_in_line(line), reverse=True)
+        args.sort(key=lambda x: x.contained_in_line(msg), reverse=True)
         return args
 
     def search(self, limit: int = 10):
@@ -399,6 +403,8 @@ class LiteralGuess(Guess):
                  lambda m: m),
                 (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
                  lambda v: 0.5 if v == self.value else None),
+                (r"member .* should be callable",
+                 lambda: torch.nn.ReLU())
             ])
 
         if isinstance(self.value, list):

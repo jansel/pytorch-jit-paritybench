@@ -3377,18 +3377,21 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
         self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_035(self):
+        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_036(self):
         self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_036(self):
+    def test_037(self):
         self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_037(self):
+    def test_038(self):
         self._check(_NetG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_038(self):
+    def test_039(self):
         self._check(_Residual_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_039(self):
+    def test_040(self):
         self._check(shave_block(*[], **{'s': 4}), [torch.rand([4, 4, 4, 4])], {})
 

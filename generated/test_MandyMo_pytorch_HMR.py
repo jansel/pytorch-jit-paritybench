@@ -605,10 +605,10 @@ def batch_rodrigues(theta):
 _global_config['batch_size'] = 4
 
 
-_global_config['eval_batch_size'] = 4
-
-
 _global_config['batch_3d_size'] = 4
+
+
+_global_config['eval_batch_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -963,25 +963,10 @@ def load_denseNet(net_type):
         sys.exit(msg)
 
 
-_global_config['enable_inter_supervision'] = 4
-
-
 _global_config['encoder_network'] = 4
 
 
 _global_config['joint_count'] = 4
-
-
-_global_config['smpl_model'] = 4
-
-
-_global_config['allowed_encoder_net'] = 4
-
-
-_global_config['crop_size'] = 4
-
-
-_global_config['smpl_mean_theta_path'] = 4
 
 
 _global_config['beta_count'] = 4
@@ -990,10 +975,25 @@ _global_config['beta_count'] = 4
 _global_config['total_theta_count'] = 4
 
 
+_global_config['smpl_model'] = 4
+
+
+_global_config['allowed_encoder_net'] = 4
+
+
 _global_config['feature_count'] = 4
 
 
 _global_config['encoder_feature_count'] = 4
+
+
+_global_config['smpl_mean_theta_path'] = 4
+
+
+_global_config['enable_inter_supervision'] = 4
+
+
+_global_config['crop_size'] = 4
 
 
 class HMRNetBase(nn.Module):

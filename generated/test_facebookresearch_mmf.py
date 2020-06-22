@@ -4680,68 +4680,71 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_facebookresearch_mmf(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertImageIntermediate(*[], **{'config': _mock_config(v_hidden_size=4, v_intermediate_size=4, v_hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+
+    def test_005(self):
         self._check(ConvNet(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(GatedTanh(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(LinearTransform(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(MfbExpand(*[], **{'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_017(self):
         self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(ReLUWithWeightNormFC(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(WeightNormClassifier(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

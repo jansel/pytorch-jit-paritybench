@@ -2189,17 +2189,20 @@ class Test_lightforever_mlcomp(_paritybench_base):
     def test_004(self):
         self._check(FullyConvolutionalLinear(*[], **{'dim_in': 4, 'num_classes': 4}), [torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
+        self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(PyramidStage(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(SCSEModule(*[], **{'ch': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -165,6 +165,10 @@ class Test_PetarV_DGI(_paritybench_base):
     def test_000(self):
         self._check(AvgReadout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(GCN(*[], **{'in_ft': 4, 'out_ft': 4, 'act': ReLU()}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_002(self):
         self._check(LogReg(*[], **{'ft_in': 4, 'nb_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

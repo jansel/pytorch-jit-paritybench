@@ -498,3 +498,6 @@ class Test_Megvii_Nanjing_BBN(_paritybench_base):
     def test_004(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_005(self):
+        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -411,8 +411,12 @@ class Test_blue_season_pywarm(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(Lambda(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
+    def test_002(self):
         self._check(TorchTagger(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 

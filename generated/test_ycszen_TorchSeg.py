@@ -919,10 +919,10 @@ def resnet101(pretrained_model=None, **kwargs):
     return model
 
 
-_global_config['bn_eps'] = 4
-
-
 _global_config['bn_momentum'] = 4
+
+
+_global_config['bn_eps'] = 4
 
 
 class BiSeNet(nn.Module):
@@ -2229,7 +2229,7 @@ class Test_ycszen_TorchSeg(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(DFN(*[], **{'out_planes': 4, 'criterion': 4, 'aux_criterion': 4, 'alpha': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(DFN(*[], **{'out_planes': 4, 'criterion': ReLU(), 'aux_criterion': ReLU(), 'alpha': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_006(self):
@@ -2237,7 +2237,7 @@ class Test_ycszen_TorchSeg(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(FCN(*[], **{'out_planes': 4, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(FCN(*[], **{'out_planes': 4, 'criterion': ReLU()}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
@@ -2248,7 +2248,7 @@ class Test_ycszen_TorchSeg(_paritybench_base):
 
     @_fails_compile()
     def test_010(self):
-        self._check(PSPNet(*[], **{'out_planes': 4, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(PSPNet(*[], **{'out_planes': 4, 'criterion': ReLU()}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_011(self):
         self._check(PyramidPooling(*[], **{'name': 4, 'out_planes': 4}), [torch.rand([4, 4096, 4, 4])], {})

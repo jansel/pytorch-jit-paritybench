@@ -1574,39 +1574,45 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_silvandeleemput_memcnn(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AffineAdapterNaive(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BasicBlockSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AffineAdapterSigmoid(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BottleneckSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(BasicBlockSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(BottleneckSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(ConcatenateChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(CrossEntropyLossTF(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(DummyModel(*[], **{'block': 1}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_006(self):
+    def test_008(self):
         self._check(ExampleOperation(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(IdentityInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_010(self):
         self._check(MultiSharedOutputs(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_011(self):
         self._check(MultiplicationInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(SplitChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
         self._check(SubModule(*[], **{}), [torch.rand([4, 5, 64, 64])], {})
 

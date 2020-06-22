@@ -386,6 +386,10 @@ class Test_AbnerHqC_GaitSet(_paritybench_base):
     def test_001(self):
         self._check(HPM(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(SetBlock(*[], **{'forward_block': ReLU()}), [torch.rand([4, 4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(TripletLoss(*[], **{'batch_size': 4, 'hard_or_full': 4, 'margin': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

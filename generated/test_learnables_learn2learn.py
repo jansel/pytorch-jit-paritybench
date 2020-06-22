@@ -569,12 +569,15 @@ class Test_learnables_learn2learn(_paritybench_base):
         self._check(DiagNormalPolicy(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(LinearBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(Lambda(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
+        self._check(LinearBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_006(self):
         self._check(Model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(OmniglotFC(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

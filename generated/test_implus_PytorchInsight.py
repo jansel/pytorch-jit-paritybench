@@ -190,7 +190,7 @@ __version__ = '1.0.0'
 
 import torch.nn as nn
 
-
+import unittest
 import torch
 
 
@@ -6571,82 +6571,3 @@ class RoIPoolFunction(Function):
             roi_pool_cuda.backward(grad_output.contiguous(), rois, argmax,
                 spatial_scale, grad_input)
         return grad_input, grad_rois, None, None
-
-
-roi_pool = RoIPoolFunction.apply
-
-
-class RoIPool(Module):
-
-    def __init__(self, out_size, spatial_scale):
-        super(RoIPool, self).__init__()
-        self.out_size = out_size
-        self.spatial_scale = float(spatial_scale)
-
-    def forward(self, features, rois):
-        return roi_pool(features, rois, self.out_size, self.spatial_scale)
-
-import unittest
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_implus_PytorchInsight(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(A1Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(AnchorHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 256, 64, 64])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(BBoxHead(*[], **{}), [torch.rand([12544, 12544])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(BaseDetector(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_007(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(ConvModule(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(FCNMaskHead(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
-
-    def test_010(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_011(self):
-        self._check(GBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(GL(*[], **{'c': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @unittest.skip("crashes")
-    def test_014(self):
-        self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(SpatialGroupEnhance(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
-

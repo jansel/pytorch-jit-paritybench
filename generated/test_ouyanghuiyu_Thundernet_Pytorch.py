@@ -286,13 +286,13 @@ def hard_negative_mining(loss, labels, neg_pos_ratio=3):
     return pos_mask | neg_mask, num_pos.cpu().numpy()[0]
 
 
+_global_config['POOLING_MODE'] = 4
+
+
 _global_config['TRAIN'] = 4
 
 
 _global_config['FEAT_STRIDE'] = 4
-
-
-_global_config['POOLING_MODE'] = 4
 
 
 class _fasterRCNN(nn.Module):

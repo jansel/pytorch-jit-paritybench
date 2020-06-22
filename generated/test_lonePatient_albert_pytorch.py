@@ -1374,28 +1374,31 @@ class Test_lonePatient_albert_pytorch(_paritybench_base):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_006(self):
+        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
 

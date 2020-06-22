@@ -748,16 +748,12 @@ class Test_quark0_darts(_paritybench_base):
     def test_005(self):
         self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Network(*[], **{'C': 4, 'num_classes': 4, 'layers': 1, 'criterion': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_007(self):
         self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

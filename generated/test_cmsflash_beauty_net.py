@@ -177,5 +177,8 @@ class Test_cmsflash_beauty_net(_paritybench_base):
         self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(BeautyNet(*[], **{'feature_extractor': ReLU(), 'classifier': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

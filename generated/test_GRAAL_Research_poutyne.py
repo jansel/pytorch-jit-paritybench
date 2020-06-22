@@ -195,3 +195,6 @@ class Test_GRAAL_Research_poutyne(_paritybench_base):
     def test_000(self):
         self._check(DictOutputModel(*[], **{}), [torch.rand([1, 1])], {})
 
+    def test_001(self):
+        self._check(Lambda(*[], **{'func': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

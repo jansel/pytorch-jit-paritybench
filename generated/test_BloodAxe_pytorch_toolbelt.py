@@ -4178,117 +4178,121 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
     def test_010(self):
         self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(FPNBottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DropBlockScheduled(*[], **{'dropblock': ReLU(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(FPNCatDecoderBlock(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPNBottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(GlobalWeightedAvgPool2d(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPNCatDecoderBlock(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(HGBlock(*[], **{'depth': 1, 'input_features': 4, 'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalWeightedAvgPool2d(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(HGResidualBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGBlock(*[], **{'depth': 1, 'input_features': 4, 'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
-        self._check(HGStemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGResidualBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_017(self):
-        self._check(HGSupervisionBlock(*[], **{'features': 4, 'supervision_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGStemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
-        self._check(HRNetBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGSupervisionBlock(*[], **{'features': 4, 'supervision_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HRNetBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_020(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
-        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_022(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
     def test_023(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_024(self):
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    def test_025(self):
         self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4, 'expplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_026(self):
         self._check(LovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
         self._check(MILCustomPoolingModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
+    def test_028(self):
         self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_028(self):
+    def test_029(self):
         self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
 
-    def test_029(self):
+    def test_030(self):
         self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
-    def test_030(self):
+    def test_031(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_031(self):
+    def test_032(self):
         self._check(NoOp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
+    def test_033(self):
         self._check(Normalize(*[], **{'mean': [4, 4], 'std': [4, 4]}), [torch.rand([4, 2, 4, 4])], {})
 
-    def test_033(self):
+    def test_034(self):
         self._check(RCM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_034(self):
+    def test_035(self):
         self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
-    def test_035(self):
+    def test_036(self):
         self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
-    def test_036(self):
+    def test_037(self):
         self._check(ResidualDeconvolutionUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_037(self):
+    def test_038(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_038(self):
+    def test_039(self):
         self._check(SEXResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
 
-    def test_039(self):
+    def test_040(self):
         self._check(SRMLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_040(self):
+    def test_041(self):
         self._check(StemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_041(self):
+    def test_042(self):
         self._check(SumAll(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_042(self):
+    def test_043(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_043(self):
+    def test_044(self):
         self._check(SwishNaive(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_044(self):
+    def test_045(self):
         self._check(UnetBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_045(self):
+    def test_046(self):
         self._check(UnetCentralBlock(*[], **{'in_dec_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_046(self):
+    def test_047(self):
         self._check(UnetCentralBlockV2(*[], **{'in_dec_filters': 4, 'out_filters': 4, 'mask_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_047(self):
+    def test_048(self):
         self._check(XResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
 

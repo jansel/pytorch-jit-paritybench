@@ -586,10 +586,10 @@ class RPN_REGR_Loss(nn.Module):
         return loss.to(self.device)
 
 
-_global_config['OHEM'] = 4
-
-
 _global_config['RPN_TOTAL_NUM'] = 4
+
+
+_global_config['OHEM'] = 4
 
 
 class RPN_CLS_Loss(nn.Module):

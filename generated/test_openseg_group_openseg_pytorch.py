@@ -4945,18 +4945,21 @@ class Test_openseg_group_openseg_pytorch(_paritybench_base):
     def test_005(self):
         self._check(PyramidSpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(SwitchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4])], {})
+        self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(SwitchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
 

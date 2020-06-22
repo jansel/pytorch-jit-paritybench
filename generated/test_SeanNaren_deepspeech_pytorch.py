@@ -344,3 +344,6 @@ class Test_SeanNaren_deepspeech_pytorch(_paritybench_base):
     def test_001(self):
         self._check(Lookahead(*[], **{'n_features': 4, 'context': 4}), [torch.rand([4, 1, 4])], {})
 
+    def test_002(self):
+        self._check(SequenceWise(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

@@ -1157,7 +1157,10 @@ class Test_Project_MONAI_MONAI(_paritybench_base):
     def test_002(self):
         self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
+        self._check(SkipConnection(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(TverskyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

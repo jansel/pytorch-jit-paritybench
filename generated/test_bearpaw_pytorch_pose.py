@@ -621,3 +621,6 @@ class Test_bearpaw_pytorch_pose(_paritybench_base):
     def test_001(self):
         self._check(JointsMSELoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
+    def test_002(self):
+        self._check(ResPoseNet(*[], **{'backbone': ReLU(), 'head': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

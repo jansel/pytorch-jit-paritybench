@@ -69,3 +69,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_devnag_pytorch_generative_adversarial_networks(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(Discriminator(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4, 'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Generator(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4, 'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

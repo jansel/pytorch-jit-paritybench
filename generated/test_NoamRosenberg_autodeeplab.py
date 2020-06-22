@@ -3165,5 +3165,8 @@ class Test_NoamRosenberg_autodeeplab(_paritybench_base):
         self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
+        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

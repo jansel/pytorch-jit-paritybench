@@ -465,3 +465,6 @@ class Test_HazyResearch_hgcn(_paritybench_base):
     def test_000(self):
         self._check(FermiDiracDecoder(*[], **{'r': 4, 't': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'act': ReLU(), 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+

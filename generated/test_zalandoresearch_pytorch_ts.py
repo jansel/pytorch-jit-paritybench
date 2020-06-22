@@ -922,24 +922,28 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(LambdaLayer(*[], **{'function': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(MADE(*[], **{'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(NBEATSBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(NBEATSGenericBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(NBEATSNetwork(*[], **{'prediction_length': 4, 'context_length': 4, 'num_stacks': 4, 'widths': [4, 4, 4, 4], 'num_blocks': [4, 4, 4, 4], 'num_block_layers': [4, 4, 4, 4], 'expansion_coefficient_lengths': [4, 4, 4, 4], 'sharing': 4, 'stack_types': [4, 4, 4, 4]}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(NBEATSSeasonalBlock(*[], **{'units': 4}), [torch.rand([10, 10])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(NBEATSTrendBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
 

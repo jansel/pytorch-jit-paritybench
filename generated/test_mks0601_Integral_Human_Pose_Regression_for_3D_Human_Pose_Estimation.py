@@ -412,3 +412,6 @@ class Test_mks0601_Integral_Human_Pose_Regression_for_3D_Human_Pose_Estimation(_
     def test_000(self):
         self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
 
+    def test_001(self):
+        self._check(ResPoseNet(*[], **{'backbone': ReLU(), 'head': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

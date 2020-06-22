@@ -1333,3 +1333,6 @@ class Test_DeepWisdom_AutoDL(_paritybench_base):
     def test_017(self):
         self._check(ToDevice(*[], **{}), [], {})
 
+    def test_018(self):
+        self._check(Toggle(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

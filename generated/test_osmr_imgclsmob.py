@@ -27548,158 +27548,170 @@ class Test_osmr_imgclsmob(_paritybench_base):
     def test_093(self):
         self._check(PolyConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'num_blocks': 1}), [torch.rand([4, 4, 4, 4]), 0], {})
 
+    @_fails_compile()
     def test_094(self):
-        self._check(PoseEstimationWithMobileNet2d(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(PolyConvSeqBranch(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4], 'num_blocks': 1}), [torch.rand([4, 4, 4, 4]), 0], {})
 
+    @_fails_compile()
     def test_095(self):
-        self._check(PostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PolyPreBBlock(*[], **{'num_blocks': 1}), [torch.rand([4, 1152, 64, 64]), 0], {})
 
     @_fails_compile()
     def test_096(self):
+        self._check(PolyPreCBlock(*[], **{'num_blocks': 1}), [torch.rand([4, 2048, 64, 64]), 0], {})
+
+    def test_097(self):
+        self._check(PoseEstimationWithMobileNet2d(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_098(self):
+        self._check(PostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_099(self):
         self._check(PreActivation(*[], **{'in_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_097(self):
+    def test_100(self):
         self._check(PreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_098(self):
+    def test_101(self):
         self._check(PreConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_099(self):
+    def test_102(self):
         self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_100(self):
+    def test_103(self):
         self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_101(self):
+    def test_104(self):
         self._check(PreResBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_102(self):
+    def test_105(self):
         self._check(PreResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_103(self):
+    def test_106(self):
         self._check(PreResUnit1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_104(self):
+    def test_107(self):
         self._check(PreXConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_105(self):
+    def test_108(self):
         self._check(PyrBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_106(self):
+    def test_109(self):
         self._check(PyrInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_107(self):
+    def test_110(self):
         self._check(PytorchModel(*[], **{}), [torch.rand([1024, 1024])], {})
 
-    def test_108(self):
+    def test_111(self):
         self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_109(self):
+    def test_112(self):
         self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_110(self):
+    def test_113(self):
         self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_111(self):
+    def test_114(self):
         self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_112(self):
+    def test_115(self):
         self._check(Resv1Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_113(self):
+    def test_116(self):
         self._check(Resv2Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_114(self):
+    def test_117(self):
         self._check(RevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_115(self):
+    def test_118(self):
         self._check(RevResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_116(self):
+    def test_119(self):
         self._check(RiRFinalBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_117(self):
+    def test_120(self):
         self._check(SBmodule(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_118(self):
+    def test_121(self):
         self._check(SEseparableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_119(self):
+    def test_122(self):
         self._check(SequentialConcurrent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_120(self):
+    def test_123(self):
         self._check(ShaConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_121(self):
+    def test_124(self):
         self._check(ShakeShakeShortcut(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_122(self):
+    def test_125(self):
         self._check(SimpleGroupBlock(*[], **{'channels': 4, 'multi_blocks': 1, 'groups': 1, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_123(self):
+    def test_126(self):
         self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_124(self):
+    def test_127(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_125(self):
+    def test_128(self):
         self._check(SqueezeInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_126(self):
+    def test_129(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_127(self):
+    def test_130(self):
         self._check(VGGDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_128(self):
+    def test_131(self):
         self._check(VGGOutputBlock(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_129(self):
+    def test_132(self):
         self._check(WRNBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_130(self):
+    def test_133(self):
         self._check(WRNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_131(self):
+    def test_134(self):
         self._check(WRNInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_132(self):
+    def test_135(self):
         self._check(WRNUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_133(self):
+    def test_136(self):
         self._check(XConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_134(self):
+    def test_137(self):
         self._check(XceptionFinalBlock(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     @_fails_compile()
-    def test_135(self):
+    def test_138(self):
         self._check(XceptionUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_136(self):
+    def test_139(self):
         self._check(iSQRTCOVPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_137(self):
+    def test_140(self):
         self._check(separableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_138(self):
+    def test_141(self):
         self._check(upBlock(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
 

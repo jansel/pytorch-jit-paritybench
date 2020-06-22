@@ -14,9 +14,9 @@ from unittest.mock import patch
 
 import torch
 
-from .reporting import Stats, ErrorAggregatorDict
-from .module_extractor import PyTorchModuleExtractor
-from .crawler import CrawlGitHub
+from paritybench.reporting import Stats, ErrorAggregatorDict
+from paritybench.module_extractor import PyTorchModuleExtractor
+from paritybench.crawler import CrawlGitHub
 
 log = logging.getLogger(__name__)
 

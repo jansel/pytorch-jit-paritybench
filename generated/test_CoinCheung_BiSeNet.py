@@ -1687,8 +1687,11 @@ class Test_CoinCheung_BiSeNet(_paritybench_base):
         self._check(SegmentHead(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
+        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_017(self):
         self._check(StemBlock(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -1265,15 +1265,27 @@ class Test_lucidrains_reformer_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Chunk(*[], **{'chunks': 4, 'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
+        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(FixedPositionalEmbedding(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(GELU_(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    @_fails_compile()
+    def test_005(self):
+        self._check(ReZero(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(Recorder(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
         self._check(ScaleNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

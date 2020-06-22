@@ -392,8 +392,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_foolwood_deepmask_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Reshape(*[], **{'oSz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RefineModule(*[], **{'l1': ReLU(), 'l2': ReLU(), 'l3': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(Reshape(*[], **{'oSz': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(SymmetricPad2d(*[], **{'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 

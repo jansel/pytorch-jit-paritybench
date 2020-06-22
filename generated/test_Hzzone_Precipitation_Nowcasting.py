@@ -68,10 +68,10 @@ import logging
 import torch.nn.functional as F
 
 
-_global_config['GLOBAL'] = 4
-
-
 _global_config['HKO'] = 4
+
+
+_global_config['GLOBAL'] = 4
 
 
 def make_layers(block):
@@ -310,3 +310,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_Hzzone_Precipitation_Nowcasting(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(EF(*[], **{'encoder': ReLU(), 'forecaster': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

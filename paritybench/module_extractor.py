@@ -16,7 +16,7 @@ from astor import to_source
 
 from .deduce_parameters import DeduceParameters, DeduceParameter
 from .reporting import Stats, ErrorAggregatorDict
-from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES
+from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES, CheckCallableMembers
 
 log = logging.getLogger(__name__)
 
@@ -220,6 +220,7 @@ class PyTorchModuleExtractor(object):
     def construct_module(self):
         self.output.run_statement(self.ast_parse(PREFIX, "<string>"), source_required=True)
         self.global_config = self.output.output_module.__dict__["_global_config"]
+        self.name_to_ast = dict()
 
         for statement in self.imports.values():
             try:
@@ -236,6 +237,7 @@ class PyTorchModuleExtractor(object):
                 self.add_requirements(statement)
                 statement = ast.fix_missing_locations(ASTCleanup().visit(statement))
                 self.output.run_statement(statement, source_required=True)
+                self.name_to_ast[statement.name] = statement
             except Exception as e:
                 self.errors.record("define", e, getattr(statement, "name", ""))
 
@@ -275,12 +277,14 @@ class PyTorchModuleExtractor(object):
 
     def test_nn_module(self, name: str, nn_cls: type):
         self.stats["total"] += 1
+        checker = CheckCallableMembers.run(self.name_to_ast.get(name))
 
         init_signature = inspect.signature(nn_cls)
         try:
             init_deducer = DeduceParameters(
                 nn_cls,
-                *DeduceParameters.initial_args_init(init_signature))
+                *DeduceParameters.initial_args_init(init_signature),
+                checker=checker.check)
             init_deducer.search()
             nn_module = init_deducer.last_result
         except Exception as e:

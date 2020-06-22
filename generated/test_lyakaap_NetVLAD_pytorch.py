@@ -218,7 +218,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_lyakaap_NetVLAD_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(EmbedNet(*[], **{'base_model': ReLU(), 'net_vlad': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(NetVLAD(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+
+    def test_002(self):
+        self._check(TripletNet(*[], **{'embed_net': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

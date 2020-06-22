@@ -90,3 +90,6 @@ class Test_alecrubin_pytorch_serverless(_paritybench_base):
     def test_001(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_002(self):
+        self._check(Lambda(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+

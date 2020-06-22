@@ -2061,9 +2061,13 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
     def test_009(self):
         self._check(MultiOut(*[], **{'modules': [ReLU()]}), [], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SequenceWise(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

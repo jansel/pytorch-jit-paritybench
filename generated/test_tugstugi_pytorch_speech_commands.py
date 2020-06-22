@@ -650,3 +650,6 @@ class Test_tugstugi_pytorch_speech_commands(_paritybench_base):
     def test_003(self):
         self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(VGG(*[], **{'features': ReLU()}), [torch.rand([512, 512])], {})
+

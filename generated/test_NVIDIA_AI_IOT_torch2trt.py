@@ -644,105 +644,111 @@ class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
         self._check(ISub(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(MaxElementwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaModule(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(MinElementwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MaxElementwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(MinElementwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(Mul(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(Pow(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(RAddFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(RAddInt(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(RDivFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(RDivInt(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(RMulFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(RMulInt(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(RSubFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(RSubInt(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(RpowFloat(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_021(self):
         self._check(RpowInt(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(Sub(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(TensorClamp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_024(self):
         self._check(TensorClampMax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_024(self):
+    def test_025(self):
         self._check(TensorClampMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_025(self):
+    def test_026(self):
         self._check(TensorClampOptionMax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
         self._check(TensorClampOptionMaxMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
+    def test_028(self):
         self._check(TensorClampOptionMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_028(self):
+    def test_029(self):
         self._check(TorchAdd(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_029(self):
+    def test_030(self):
         self._check(TorchClamp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_030(self):
+    def test_031(self):
         self._check(TorchClampMax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_032(self):
         self._check(TorchClampMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
+    def test_033(self):
         self._check(TorchClampOptionMax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_033(self):
+    def test_034(self):
         self._check(TorchClampOptionMaxMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_034(self):
+    def test_035(self):
         self._check(TorchClampOptionMin(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_035(self):
+    def test_036(self):
         self._check(TorchDiv(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_036(self):
+    def test_037(self):
         self._check(TorchMul(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_037(self):
+    def test_038(self):
         self._check(TorchPow(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_038(self):
+    def test_039(self):
         self._check(TorchSub(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_039(self):
+    def test_040(self):
         self._check(Transpose(*[], **{'dim0': 4, 'dim1': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+
+    def test_041(self):
+        self._check(UnaryModule(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
