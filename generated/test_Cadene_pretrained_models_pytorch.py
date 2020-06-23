@@ -4207,3 +4207,186 @@ class Identity(nn.Module):
     def forward(self, x):
         return x
 
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_Cadene_pretrained_models_pytorch(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(BNInception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(BlockA(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(BlockB(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(BlockC(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    def test_012(self):
+        self._check(BnActConv2d(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(DPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_016(self):
+        self._check(FactorizedReduction(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(InceptionResNetA2Way(*[], **{'scale': 1.0}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(InceptionResNetB2Way(*[], **{'scale': 1.0}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(InceptionResNetBPoly(*[], **{'scale': 1.0, 'num_blocks': 1}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(InceptionResNetBPoly3(*[], **{'scale': 1.0}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(InceptionResNetC2Way(*[], **{'scale': 1.0}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_023(self):
+        self._check(InceptionResNetCPoly(*[], **{'scale': 1.0, 'num_blocks': 1}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(InceptionResNetCPoly3(*[], **{'scale': 1.0}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_025(self):
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    @_fails_compile()
+    def test_027(self):
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    def test_028(self):
+        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_029(self):
+        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_030(self):
+        self._check(MaxPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_032(self):
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    @_fails_compile()
+    def test_034(self):
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_035(self):
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_036(self):
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_037(self):
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_038(self):
+        self._check(PolyConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'num_blocks': 1}), [torch.rand([4, 4, 4, 4]), 0], {})
+
+    @_fails_compile()
+    def test_039(self):
+        self._check(ReductionA(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_040(self):
+        self._check(ReductionB(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_041(self):
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_042(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    def test_043(self):
+        self._check(ReluConvBn(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_044(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_045(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_046(self):
+        self._check(SpatialCrossMapLRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_047(self):
+        self._check(Stem(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+

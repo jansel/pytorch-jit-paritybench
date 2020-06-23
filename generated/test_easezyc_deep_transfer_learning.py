@@ -1934,37 +1934,3 @@ class AdversarialNetwork(nn.Module):
     def output_num(self):
         return 1
 
-
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_easezyc_deep_transfer_learning(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ADDneck(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(AdversarialNetwork(*[], **{'in_feature': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(DANNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(DDCNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_006(self):
-        self._check(DSAN(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(DeepCoral(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
-

@@ -85,13 +85,13 @@ def init_wt_normal(wt):
     wt.data.normal_(std=config.trunc_norm_init_std)
 
 
-_global_config['vocab_size'] = 4
-
-
 _global_config['emb_dim'] = 4
 
 
 _global_config['hidden_dim'] = 4
+
+
+_global_config['vocab_size'] = 4
 
 
 class Encoder(nn.Module):

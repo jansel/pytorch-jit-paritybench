@@ -273,10 +273,10 @@ def im_list_to_blob(ims):
     return blob
 
 
-_global_config['USE_GPU_NMS'] = 4
-
-
 _global_config['GPU_ID'] = 4
+
+
+_global_config['USE_GPU_NMS'] = 4
 
 
 def nms(dets, thresh, force_cpu=False):

@@ -74,10 +74,10 @@ def init_lstm_wt(lstm):
             bias.data[start:end].fill_(1.0)
 
 
-_global_config['emb_dim'] = 4
-
-
 _global_config['hidden_dim'] = 4
+
+
+_global_config['emb_dim'] = 4
 
 
 class Encoder(nn.Module):

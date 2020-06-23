@@ -719,16 +719,16 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     return out if use_batch else out.squeeze(0)
 
 
-_global_config['crowd_iou_threshold'] = 4
+_global_config['use_yolo_regressors'] = 4
 
 
 _global_config['use_prediction_matching'] = 4
 
 
-_global_config['use_yolo_regressors'] = 4
-
-
 _global_config['use_change_matching'] = 4
+
+
+_global_config['crowd_iou_threshold'] = 4
 
 
 def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
@@ -776,9 +776,6 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     loc_t[idx] = loc
     conf_t[idx] = conf
     idx_t[idx] = best_truth_idx
-
-
-_global_config['bbox_alpha'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -1350,13 +1347,13 @@ def gradinator(x):
     return x
 
 
-_global_config['batch_size'] = 4
+_global_config['preserve_aspect_ratio'] = 4
 
 
 _global_config['cuda'] = 4
 
 
-_global_config['preserve_aspect_ratio'] = 4
+_global_config['batch_size'] = 4
 
 
 def prepare_data(datum, devices: list=None, allocation: list=None):
@@ -1419,10 +1416,10 @@ class CustomDataParallel(nn.DataParallel):
 MEANS = 103.94, 116.78, 123.68
 
 
-_global_config['discard_box_height'] = 4
-
-
 _global_config['max_size'] = 4
+
+
+_global_config['discard_box_height'] = 4
 
 
 _global_config['discard_box_width'] = 4
@@ -1560,58 +1557,58 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['use_prediction_module'] = 4
-
-
-_global_config['extra_layers'] = 1
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
+_global_config['extra_head_net'] = 4
 
 
 _global_config['num_classes'] = 4
 
 
-_global_config['num_heads'] = 4
-
-
-_global_config['use_instance_coeff'] = 4
+_global_config['mask_proto_coeff_activation'] = 4
 
 
 _global_config['eval_mask_branch'] = 4
 
 
-_global_config['mask_proto_coeff_gate'] = 4
-
-
 _global_config['head_layer_params'] = 1
-
-
-_global_config['mask_proto_split_prototypes_by_head'] = 4
 
 
 _global_config['mask_type'] = 4
 
 
-_global_config['num_instance_coeffs'] = 4
-
-
-_global_config['extra_head_net'] = 4
-
-
 _global_config['mask_proto_prototypes_as_features'] = 4
+
+
+_global_config['mask_proto_coeff_gate'] = 4
 
 
 _global_config['_tmp_img_h'] = 4
 
 
-_global_config['mask_proto_coeff_activation'] = 4
-
-
 _global_config['mask_dim'] = 4
+
+
+_global_config['extra_layers'] = 1
+
+
+_global_config['mask_proto_split_prototypes_by_head'] = 4
+
+
+_global_config['num_instance_coeffs'] = 4
+
+
+_global_config['use_instance_coeff'] = 4
+
+
+_global_config['use_prediction_module'] = 4
+
+
+_global_config['num_heads'] = 4
+
+
+_global_config['use_mask_scoring'] = 4
+
+
+_global_config['_tmp_img_w'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -2089,25 +2086,10 @@ def construct_backbone(cfg):
     return backbone
 
 
-_global_config['mask_proto_net'] = 4
-
-
-_global_config['freeze_bn'] = 4
-
-
-_global_config['mask_proto_src'] = 4
-
-
 _global_config['nms_thresh'] = 4
 
 
-_global_config['mask_size'] = 4
-
-
-_global_config['nms_top_k'] = 4
-
-
-_global_config['use_objectness_score'] = 4
+_global_config['mask_proto_bias'] = 4
 
 
 class Yolact(nn.Module):

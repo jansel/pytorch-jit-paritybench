@@ -240,10 +240,10 @@ def _assert_no_grad(tensor):
     assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
 
 
-_global_config['depth_dim'] = 1
-
-
 _global_config['output_shape'] = 4
+
+
+_global_config['depth_dim'] = 1
 
 
 def soft_argmax(heatmaps, joint_num):

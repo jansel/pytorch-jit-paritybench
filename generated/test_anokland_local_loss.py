@@ -127,40 +127,13 @@ def similarity_matrix(x):
     return R
 
 
-_global_config['bio'] = 4
-
-
-_global_config['momentum'] = 4
-
-
-_global_config['alpha'] = 4
-
-
-_global_config['nonlin'] = 4
-
-
 _global_config['no_detach'] = 4
-
-
-_global_config['target_proj_size'] = 4
-
-
-_global_config['no_batch_norm'] = 4
-
-
-_global_config['beta'] = 4
-
-
-_global_config['no_print_stats'] = 4
 
 
 _global_config['dropout'] = 0.5
 
 
-_global_config['optim'] = 4
-
-
-_global_config['weight_decay'] = 4
+_global_config['nonlin'] = 4
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -331,9 +304,6 @@ class LocalLossBlockLinear(nn.Module):
         else:
             loss = 0.0
         return h_return, loss
-
-
-_global_config['dim_in_decoder'] = 4
 
 
 class LocalLossBlockConv(nn.Module):
@@ -563,7 +533,16 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
+_global_config['momentum'] = 4
+
+
+_global_config['weight_decay'] = 4
+
+
 _global_config['pre_act'] = 4
+
+
+_global_config['optim'] = 4
 
 
 class BasicBlock(nn.Module):

@@ -72,10 +72,10 @@ import torch.backends.cudnn as cudnn
 _global_config['max_answers'] = 4
 
 
-_global_config['output_features'] = 4
-
-
 _global_config['v_feat_norm'] = 4
+
+
+_global_config['output_features'] = 4
 
 
 class Net(nn.Module):

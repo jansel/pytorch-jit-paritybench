@@ -127,10 +127,10 @@ def upBlock(in_planes, out_planes):
     return block
 
 
-_global_config['FINE_GRAINED_CATEGORIES'] = 4
-
-
 _global_config['GAN'] = 4
+
+
+_global_config['FINE_GRAINED_CATEGORIES'] = 4
 
 
 class BACKGROUND_STAGE(nn.Module):

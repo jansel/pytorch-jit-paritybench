@@ -919,10 +919,10 @@ def resnet101(pretrained_model=None, **kwargs):
     return model
 
 
-_global_config['bn_momentum'] = 4
-
-
 _global_config['bn_eps'] = 4
+
+
+_global_config['bn_momentum'] = 4
 
 
 class BiSeNet(nn.Module):

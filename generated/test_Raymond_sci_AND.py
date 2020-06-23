@@ -273,10 +273,10 @@ class NonParametricClassifierOP(Function):
         return gradInput, None, None, None, None
 
 
-_global_config['npc_temperature'] = 4
-
-
 _global_config['npc_momentum'] = 4
+
+
+_global_config['npc_temperature'] = 4
 
 
 class NonParametricClassifier(nn.Module):

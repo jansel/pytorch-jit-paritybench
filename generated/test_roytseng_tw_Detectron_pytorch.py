@@ -957,10 +957,10 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
         stride, np.array(aspect_ratios, dtype=np.float))
 
 
-_global_config['RPN'] = 4
-
-
 _global_config['MODEL'] = 4
+
+
+_global_config['RPN'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):

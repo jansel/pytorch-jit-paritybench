@@ -260,7 +260,7 @@ class PyTorchModuleExtractor(object):
         if need_config:
             try:
                 for key in ExtractConfigUsage.run(statement):
-                    if key not in self.global_config:
+                    if key not in sorted(self.global_config):
                         value = repr(DeduceParameter.initial_arg_init(key, None))
                         self.output.run_statement(
                             self.ast_parse(f"_global_config['{key}'] = {value}\n", "<string>"),

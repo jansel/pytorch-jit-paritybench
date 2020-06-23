@@ -4251,10 +4251,10 @@ def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
     return model
 
 
-_global_config['DATASET'] = 4
-
-
 _global_config['SOLVER'] = 4
+
+
+_global_config['DATASET'] = 4
 
 
 _global_config['TEST'] = 4

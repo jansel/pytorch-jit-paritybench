@@ -1,17 +1,16 @@
 diff --git a/generated/test_implus_PytorchInsight.py b/generated/test_implus_PytorchInsight.py
-index 39a4dd5..bc23957 100644
+index 39a4dd5..b7b59a3 100644
 --- a/generated/test_implus_PytorchInsight.py
 +++ b/generated/test_implus_PytorchInsight.py
-@@ -6586,7 +6586,7 @@ class RoIPool(Module):
-     def forward(self, features, rois):
+@@ -6587,6 +6587,7 @@ class RoIPool(Module):
          return roi_pool(features, rois, self.out_size, self.spatial_scale)
  
--
+ 
 +import unittest
  import torch
  from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
  
-@@ -6640,6 +6640,7 @@ class Test_implus_PytorchInsight(_paritybench_base):
+@@ -6640,6 +6641,7 @@ class Test_implus_PytorchInsight(_paritybench_base):
      def test_013(self):
          self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
  

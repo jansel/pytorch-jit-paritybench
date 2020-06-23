@@ -1317,22 +1317,25 @@ class Test_DeepWisdom_AutoDL(_paritybench_base):
         self._check(Normalize(*[], **{'mean': 4, 'std': 4, 'mode': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(R2Plus1dStem(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
 
     def test_014(self):
+        self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
         self._check(ResLayer(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(SplitTime(*[], **{'times': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_018(self):
         self._check(ToDevice(*[], **{}), [], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(Toggle(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

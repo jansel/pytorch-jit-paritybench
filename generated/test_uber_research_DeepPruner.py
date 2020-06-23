@@ -175,10 +175,10 @@ class Reconstruct(nn.Module):
         return reconstruction
 
 
-_global_config['patch_match_args'] = _mock_config()
-
-
 _global_config['feature_extractor_filter_size'] = 4
+
+
+_global_config['patch_match_args'] = _mock_config()
 
 
 class ImageReconstruction(nn.Module):

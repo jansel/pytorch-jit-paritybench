@@ -477,10 +477,10 @@ class HmapResBlock(nn.Module):
 _global_config['RNN_TYPE'] = 4
 
 
-_global_config['CUDA'] = 4
-
-
 _global_config['TEXT'] = 4
+
+
+_global_config['CUDA'] = 4
 
 
 class RNN_ENCODER(nn.Module):
@@ -3000,10 +3000,10 @@ class _ProposalTargetLayer(nn.Module):
 _global_config['ANCHOR_SCALES'] = 4
 
 
-_global_config['FEAT_STRIDE'] = 4
-
-
 _global_config['ANCHOR_RATIOS'] = 4
+
+
+_global_config['FEAT_STRIDE'] = 4
 
 
 class _RPN(nn.Module):

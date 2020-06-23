@@ -235,7 +235,7 @@ class RPN(nn.Module):
         return self.score_head(x), self.reg_head(x)
 
 
-_global_config['D'] = 4
+_global_config['N'] = 4
 
 
 _global_config['H'] = 4
@@ -244,7 +244,7 @@ _global_config['H'] = 4
 _global_config['W'] = 4
 
 
-_global_config['N'] = 4
+_global_config['D'] = 4
 
 
 class VoxelNet(nn.Module):

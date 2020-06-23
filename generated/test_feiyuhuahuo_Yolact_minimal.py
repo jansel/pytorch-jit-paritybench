@@ -221,10 +221,10 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['num_classes'] = 4
-
-
 _global_config['aspect_ratios'] = 4
+
+
+_global_config['num_classes'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -301,10 +301,10 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['img_size'] = 4
-
-
 _global_config['use_square_anchors'] = 4
+
+
+_global_config['img_size'] = 4
 
 
 def make_anchors(conv_h, conv_w, scale):
@@ -326,16 +326,16 @@ mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
     3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
-_global_config['scales'] = 1.0
-
-
-_global_config['train_semantic'] = False
+_global_config['freeze_bn'] = 4
 
 
 _global_config['backbone'] = 4
 
 
-_global_config['freeze_bn'] = 4
+_global_config['train_semantic'] = False
+
+
+_global_config['scales'] = 1.0
 
 
 class Yolact(nn.Module):
@@ -579,10 +579,7 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     return offsets, conf, each_prior_box, each_prior_index
 
 
-_global_config['masks_to_train'] = False
-
-
-_global_config['bbox_alpha'] = 4
+_global_config['mask_alpha'] = 4
 
 
 _global_config['semantic_alpha'] = 4
@@ -591,7 +588,10 @@ _global_config['semantic_alpha'] = 4
 _global_config['conf_alpha'] = 4
 
 
-_global_config['mask_alpha'] = 4
+_global_config['bbox_alpha'] = 4
+
+
+_global_config['masks_to_train'] = False
 
 
 class Multi_Loss(nn.Module):
