@@ -390,7 +390,7 @@ class CSCE(nn.Module):
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self
             .num_class_list)
-        self.weight = torch.FloatTensor(per_cls_weights).to(self.device)
+        self.weight = torch.FloatTensor(per_cls_weights)
 
     def reset_epoch(self, epoch):
         idx = (epoch - 1) // self.step_epoch
@@ -412,7 +412,7 @@ class LDAMLoss(nn.Module):
         max_m = cfg.LOSS.LDAM.MAX_MARGIN
         m_list = 1.0 / np.sqrt(np.sqrt(self.num_class_list))
         m_list = m_list * (max_m / np.max(m_list))
-        m_list = torch.FloatTensor(m_list).to(self.device)
+        m_list = torch.FloatTensor(m_list)
         self.m_list = m_list
         assert s > 0
         self.s = s
@@ -426,13 +426,13 @@ class LDAMLoss(nn.Module):
         per_cls_weights = (1.0 - betas[idx]) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self
             .num_class_list)
-        self.weight = torch.FloatTensor(per_cls_weights).to(self.device)
+        self.weight = torch.FloatTensor(per_cls_weights)
 
     def forward(self, x, target):
         index = torch.zeros_like(x, dtype=torch.uint8)
         index.scatter_(1, target.data.view(-1, 1), 1)
         index_float = index.type(torch.FloatTensor)
-        index_float = index_float.to(self.device)
+        index_float = index_float
         batch_m = torch.matmul(self.m_list[(None), :], index_float.
             transpose(0, 1))
         batch_m = batch_m.view((-1, 1))

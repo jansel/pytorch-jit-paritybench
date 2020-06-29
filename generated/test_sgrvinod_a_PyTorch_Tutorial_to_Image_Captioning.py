@@ -231,10 +231,8 @@ class DecoderWithAttention(nn.Module):
         embeddings = self.embedding(encoded_captions)
         h, c = self.init_hidden_state(encoder_out)
         decode_lengths = (caption_lengths - 1).tolist()
-        predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size
-            ).to(device)
-        alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels).to(
-            device)
+        predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size)
+        alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels)
         for t in range(max(decode_lengths)):
             batch_size_t = sum([(l > t) for l in decode_lengths])
             attention_weighted_encoding, alpha = self.attention(encoder_out

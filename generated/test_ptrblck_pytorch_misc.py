@@ -248,10 +248,8 @@ class MyModel(nn.Module):
         self.split_gpus = split_gpus
         self.parallel = parallel
         if self.split_gpus and self.parallel:
-            self.module1 = nn.DataParallel(self.module1, device_ids=[0, 1]).to(
-                'cuda:0')
-            self.module2 = nn.DataParallel(self.module2, device_ids=[2, 3]).to(
-                'cuda:2')
+            self.module1 = nn.DataParallel(self.module1, device_ids=[0, 1])
+            self.module2 = nn.DataParallel(self.module2, device_ids=[2, 3])
 
     def forward(self, x):
         None
@@ -378,20 +376,23 @@ class Test_ptrblck_pytorch_misc(_paritybench_base):
     def test_001(self):
         self._check(BaseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LocallyConnected2d(*[], **{'in_channels': 4, 'out_channels': 4, 'output_size': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DownConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(LocallyConnected2d(*[], **{'in_channels': 4, 'out_channels': 4, 'output_size': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(MyBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(MyModel(*[], **{}), [torch.rand([64, 64]), 0], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(SubModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(UpConv(*[], **{'in_channels': 4, 'in_channels_skip': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 

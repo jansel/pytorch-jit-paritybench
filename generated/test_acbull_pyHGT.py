@@ -137,8 +137,7 @@ class GNN(nn.Module):
 
     def forward(self, node_feature, node_type, edge_time, edge_index, edge_type
         ):
-        res = torch.zeros(node_feature.size(0), self.n_hid).to(node_feature
-            .device)
+        res = torch.zeros(node_feature.size(0), self.n_hid)
         for t_id in range(self.num_types):
             idx = node_type == int(t_id)
             if idx.sum() == 0:

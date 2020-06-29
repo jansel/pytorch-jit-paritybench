@@ -1021,20 +1021,28 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_outcastofmusic_quick_nlp(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(NormEmbeddings(*[], **{'emb_size': 4, 'tokens': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(AttentionLayer(*[], **{'input_size': 4, 'num_heads': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(PositionFeedForward(*[], **{'input_size': 4, 'out_dim': 4, 'nhid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'num_heads': 4, 'nhid': 4, 'keys_dim': 4, 'query_dim': 4, 'values_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_002(self):
+        self._check(NormEmbeddings(*[], **{'emb_size': 4, 'tokens': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_003(self):
+        self._check(PositionFeedForward(*[], **{'input_size': 4, 'out_dim': 4, 'nhid': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(SDPAttention(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_005(self):
         self._check(SubLayer(*[], **{'input_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(TransformerLayer(*[], **{'input_size': 4, 'num_heads': 4}), [torch.rand([4, 4, 4])], {})
 

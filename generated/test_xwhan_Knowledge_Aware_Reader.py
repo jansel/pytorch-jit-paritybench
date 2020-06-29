@@ -311,15 +311,15 @@ class KAReader(nn.Module):
         neighbor_ent_local_index = neighbor_ent_local_index.view(B, -1)
         neighbor_ent_local_mask = (neighbor_ent_local_index != -1).long()
         fix_index = torch.arange(B).long() * max_num_candidates
-        fix_index = fix_index.to(torch.device('cuda'))
+        fix_index = fix_index
         neighbor_ent_local_index = neighbor_ent_local_index + fix_index.view(
             -1, 1)
         neighbor_ent_local_index = (neighbor_ent_local_index + 1
             ) * neighbor_ent_local_mask
         neighbor_ent_local_index = neighbor_ent_local_index.view(-1)
         ent_seed_info = feed['query_entities'].float()
-        ent_is_seed = torch.cat([torch.zeros(1).to(torch.device('cuda')),
-            ent_seed_info.view(-1)], dim=0)
+        ent_is_seed = torch.cat([torch.zeros(1), ent_seed_info.view(-1)], dim=0
+            )
         ent_seed_indicator = torch.index_select(ent_is_seed, dim=0, index=
             neighbor_ent_local_index).view(B * max_num_candidates,
             max_num_neighbors)
@@ -348,8 +348,8 @@ class KAReader(nn.Module):
         ent_emb = l_relu(self.combine_q(torch.cat([ent_emb, q_node_emb],
             dim=2)))
         ent_emb_for_lookup = ent_emb.view(-1, self.entity_dim)
-        ent_emb_for_lookup = torch.cat([torch.zeros(1, self.entity_dim).to(
-            torch.device('cuda')), ent_emb_for_lookup], dim=0)
+        ent_emb_for_lookup = torch.cat([torch.zeros(1, self.entity_dim),
+            ent_emb_for_lookup], dim=0)
         neighbor_ent_emb = torch.index_select(ent_emb_for_lookup, dim=0,
             index=neighbor_ent_local_index)
         neighbor_ent_emb = neighbor_ent_emb.view(B * max_num_candidates,

@@ -2520,10 +2520,10 @@ def get_func(func_name):
         raise
 
 
-_global_config['CASCADE_RCNN'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['CASCADE_RCNN'] = 4
 
 
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4

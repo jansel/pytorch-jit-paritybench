@@ -3229,8 +3229,7 @@ class BlurPool2d(nn.Module):
         self.filt = {}
 
     def _create_filter(self, like: torch.Tensor):
-        blur_filter = (self._coeffs[:, (None)] * self._coeffs[(None), :]).to(
-            dtype=like.dtype, device=like.device)
+        blur_filter = self._coeffs[:, (None)] * self._coeffs[(None), :]
         return blur_filter[(None), (None), :, :].repeat(self.channels, 1, 1, 1)
 
     def _apply(self, fn):
@@ -3681,10 +3680,10 @@ class EvoNormBatch2d(nn.Module):
         else:
             var = self.running_var
         if self.apply_act:
-            v = self.v.to(dtype=x_type)
+            v = self.v
             d = x * v + (x.var(dim=(2, 3), unbiased=False, keepdim=True) +
-                self.eps).sqrt().to(dtype=x_type)
-            d = d.max((var + self.eps).sqrt().to(dtype=x_type))
+                self.eps).sqrt()
+            d = d.max((var + self.eps).sqrt())
             x = x / d
         return x * self.weight + self.bias
 
@@ -7153,4 +7152,258 @@ class Xception(nn.Module):
             F.dropout(x, self.drop_rate, training=self.training)
         x = self.fc(x)
         return x
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_rwightman_pytorch_image_models(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(AdaptiveCatAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(BatchNormAct2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    def test_007(self):
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    def test_008(self):
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+
+    def test_009(self):
+        self._check(BnActConv2d(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(CecaModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(ChannelAttn(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(ClassifierHead(*[], **{'in_chs': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(DenseTransition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(DepthToSpace(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(DlaBasic(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(DlaBottle2neck(*[], **{'inplanes': 64, 'outplanes': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(DlaBottleneck(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
+        self._check(DropBlock2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_023(self):
+        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
+        self._check(EcaModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_025(self):
+        self._check(EffectiveSEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
+        self._check(EvoNormBatch2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
+        self._check(FactorizedReduction(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
+        self._check(FastGlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_029(self):
+        self._check(FastSEModule(*[], **{'channels': 4, 'reduction_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_030(self):
+        self._check(GroupNormAct(*[], **{'num_groups': 1, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(HardMish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_032(self):
+        self._check(HardMishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(HardMishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_034(self):
+        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_035(self):
+        self._check(HardSigmoidJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_036(self):
+        self._check(HardSigmoidMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_037(self):
+        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_038(self):
+        self._check(HardSwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_039(self):
+        self._check(HardSwishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_040(self):
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    def test_041(self):
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    def test_042(self):
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    def test_043(self):
+        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_044(self):
+        self._check(LabelSmoothingCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_045(self):
+        self._check(LightChannelAttn(*[], **{'channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_046(self):
+        self._check(MaxPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_047(self):
+        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_048(self):
+        self._check(MedianPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_049(self):
+        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_050(self):
+        self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_051(self):
+        self._check(MishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_052(self):
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_053(self):
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    def test_054(self):
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_055(self):
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_056(self):
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    def test_057(self):
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    def test_058(self):
+        self._check(RadixSoftmax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_059(self):
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    def test_060(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    def test_061(self):
+        self._check(ReluConvBn(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_062(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_063(self):
+        self._check(SEResNetBlock(*[], **{'inplanes': 4, 'planes': 4, 'groups': 1, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_064(self):
+        self._check(SelectAdaptivePool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_065(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_066(self):
+        self._check(SequentialList(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_067(self):
+        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_068(self):
+        self._check(SoftTargetCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_069(self):
+        self._check(SpaceToDepth(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_070(self):
+        self._check(SplitAttnConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_071(self):
+        self._check(SplitBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_072(self):
+        self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_073(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_074(self):
+        self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_075(self):
+        self._check(SwishMe(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_076(self):
+        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1056,27 +1056,34 @@ class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Matching(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MatchingTensor(*[], **{'matching_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(RankHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
+        self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(RankHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(SemanticComposite(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(SpatialGRU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_011(self):
         self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_012(self):
         self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

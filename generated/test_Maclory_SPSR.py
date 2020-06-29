@@ -592,10 +592,8 @@ class VGGFeatureExtractor(nn.Module):
             model = torchvision.models.vgg19(pretrained=True)
         self.use_input_norm = use_input_norm
         if self.use_input_norm:
-            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(
-                device)
-            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(
-                device)
+            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
             self.register_buffer('mean', mean)
             self.register_buffer('std', std)
         self.features = nn.Sequential(*list(model.features.children())[:
@@ -617,10 +615,8 @@ class ResNet101FeatureExtractor(nn.Module):
         model = torchvision.models.resnet101(pretrained=True)
         self.use_input_norm = use_input_norm
         if self.use_input_norm:
-            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(
-                device)
-            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(
-                device)
+            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
             self.register_buffer('mean', mean)
             self.register_buffer('std', std)
         self.features = nn.Sequential(*list(model.children())[:8])
@@ -944,7 +940,7 @@ class GradientPenaltyLoss(nn.Module):
     def __init__(self, device=torch.device('cpu')):
         super(GradientPenaltyLoss, self).__init__()
         self.register_buffer('grad_outputs', torch.Tensor())
-        self.grad_outputs = self.grad_outputs.to(device)
+        self.grad_outputs = self.grad_outputs
 
     def get_grad_outputs(self, input):
         if self.grad_outputs.size() != input.size():

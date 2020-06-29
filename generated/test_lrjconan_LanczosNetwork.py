@@ -180,9 +180,8 @@ class AdaLanczosNet(nn.Module):
         num_node = node_feat.shape[1]
         dim_feat = node_feat.shape[2]
         idx_row, idx_col = np.meshgrid(range(num_node), range(num_node))
-        idx_row, idx_col = torch.Tensor(idx_row.reshape(-1)).long().to(
-            node_feat.device), torch.Tensor(idx_col.reshape(-1)).long().to(
-            node_feat.device)
+        idx_row, idx_col = torch.Tensor(idx_row.reshape(-1)).long(
+            ), torch.Tensor(idx_col.reshape(-1)).long()
         diff = node_feat[:, (idx_row), :] - node_feat[:, (idx_col), :]
         dist2 = (diff * diff).sum(dim=2)
         sigma2 = torch.mean(dist2, dim=1, keepdim=True)
@@ -213,9 +212,9 @@ class AdaLanczosNet(nn.Module):
         alpha = [None] * (lanczos_iter + 1)
         beta = [None] * (lanczos_iter + 1)
         Q = [None] * (lanczos_iter + 2)
-        beta[0] = torch.zeros(batch_size, 1, 1).to(A.device)
-        Q[0] = torch.zeros(batch_size, num_node, 1).to(A.device)
-        Q[1] = torch.randn(batch_size, num_node, 1).to(A.device)
+        beta[0] = torch.zeros(batch_size, 1, 1)
+        Q[0] = torch.zeros(batch_size, num_node, 1)
+        Q[1] = torch.randn(batch_size, num_node, 1)
         if mask is not None:
             mask = mask.unsqueeze(dim=2).float()
             Q[1] = Q[1] * mask
@@ -1776,8 +1775,7 @@ class MPNN(nn.Module):
             msg = []
             for ii in range(self.num_edgetype + 1):
                 if self.msg_func_name == 'embedding':
-                    idx_edgetype = torch.Tensor([ii]).long().to(node_feat.
-                        device)
+                    idx_edgetype = torch.Tensor([ii]).long()
                     edge_em = self.edge_embedding(idx_edgetype).view(state_dim,
                         state_dim)
                     node_state = state_old.view(batch_size * num_node, -1)
@@ -1904,8 +1902,8 @@ class Set2Vec(nn.Module):
         num_element = input_set.shape[0]
         element_dim = input_set.shape[1]
         assert element_dim == self.element_dim
-        hidden = torch.zeros(1, 2 * self.element_dim).to(input_set.device)
-        memory = torch.zeros(1, self.element_dim).to(input_set.device)
+        hidden = torch.zeros(1, 2 * self.element_dim)
+        memory = torch.zeros(1, self.element_dim)
         for tt in range(self.num_step_encoder):
             hidden, memory = self.LSTM(hidden, memory)
             energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self
@@ -1957,8 +1955,8 @@ class Set2Set(nn.Module):
         num_element = input_set.shape[0]
         element_dim = input_set.shape[1]
         assert element_dim == self.element_dim
-        hidden = torch.zeros(1, 2 * self.element_dim).to(input_set.device)
-        memory = torch.zeros(1, self.element_dim).to(input_set.device)
+        hidden = torch.zeros(1, 2 * self.element_dim)
+        memory = torch.zeros(1, self.element_dim)
         for tt in range(self.num_step_encoder):
             hidden, memory = self.LSTM_encoder(hidden, memory)
             energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self

@@ -413,7 +413,7 @@ class RegionProposalNetwork(nn.Module):
         for nms_proposal_bboxes in nms_proposal_bboxes_batch:
             padded_proposal_bboxes.append(torch.cat([nms_proposal_bboxes,
                 torch.zeros(max_nms_proposal_bboxes_length - len(
-                nms_proposal_bboxes), 4).to(nms_proposal_bboxes)]))
+                nms_proposal_bboxes), 4)]))
         padded_proposal_bboxes = torch.stack(padded_proposal_bboxes, dim=0)
         return padded_proposal_bboxes
 

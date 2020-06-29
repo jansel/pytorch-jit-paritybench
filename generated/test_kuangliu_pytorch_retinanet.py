@@ -298,6 +298,3 @@ class Test_kuangliu_pytorch_retinanet(_paritybench_base):
     def test_000(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
-        self._check(RetinaNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-

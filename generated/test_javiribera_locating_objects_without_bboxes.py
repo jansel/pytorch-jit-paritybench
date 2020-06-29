@@ -149,8 +149,7 @@ class WeightedHausdorffDistance(nn.Module):
         self.n_pixels = resized_height * resized_width
         self.all_img_locations = torch.from_numpy(cartesian([np.arange(
             resized_height), np.arange(resized_width)]))
-        self.all_img_locations = self.all_img_locations.to(device=device,
-            dtype=torch.get_default_dtype())
+        self.all_img_locations = self.all_img_locations
         self.return_2_terms = return_2_terms
         self.p = p
 
@@ -325,7 +324,7 @@ class UNet(nn.Module):
         else:
             n_pts = torch.tensor([self.known_n_points] * batch_size, dtype=
                 torch.get_default_dtype())
-            n_pts = n_pts.to(self.device)
+            n_pts = n_pts
             return x, n_pts
 
 

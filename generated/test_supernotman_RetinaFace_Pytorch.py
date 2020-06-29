@@ -1183,3 +1183,10 @@ class Test_supernotman_RetinaFace_Pytorch(_paritybench_base):
     def test_011(self):
         self._check(LandmarkHead_(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
+    @_fails_compile()
+    def test_012(self):
+        self._check(LossLayer(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(RegressionTransform(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 10]), torch.rand([4, 4, 4, 4])], {})
+

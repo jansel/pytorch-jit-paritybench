@@ -339,18 +339,18 @@ class ABC(nn.Module):
     @staticmethod
     def get_fake_inputs(device='cuda:0'):
         bsz = 16
-        q = torch.ones(bsz, 25).long().to(device)
-        q_l = torch.ones(bsz).fill_(25).long().to(device)
-        a = torch.ones(bsz, 5, 20).long().to(device)
-        a_l = torch.ones(bsz, 5).fill_(20).long().to(device)
+        q = torch.ones(bsz, 25).long()
+        q_l = torch.ones(bsz).fill_(25).long()
+        a = torch.ones(bsz, 5, 20).long()
+        a_l = torch.ones(bsz, 5).fill_(20).long()
         a0, a1, a2, a3, a4 = [a[:, (i), :] for i in range(5)]
         a0_l, a1_l, a2_l, a3_l, a4_l = [a_l[:, (i)] for i in range(5)]
-        sub = torch.ones(bsz, 300).long().to(device)
-        sub_l = torch.ones(bsz).fill_(300).long().to(device)
-        vcpt = torch.ones(bsz, 300).long().to(device)
-        vcpt_l = torch.ones(bsz).fill_(300).long().to(device)
-        vid = torch.ones(bsz, 100, 2048).to(device)
-        vid_l = torch.ones(bsz).fill_(100).long().to(device)
+        sub = torch.ones(bsz, 300).long()
+        sub_l = torch.ones(bsz).fill_(300).long()
+        vcpt = torch.ones(bsz, 300).long()
+        vcpt_l = torch.ones(bsz).fill_(300).long()
+        vid = torch.ones(bsz, 100, 2048)
+        vid_l = torch.ones(bsz).fill_(100).long()
         return (q, q_l, a0, a0_l, a1, a1_l, a2, a2_l, a3, a3_l, a4, a4_l,
             sub, sub_l, vcpt, vcpt_l, vid, vid_l)
 

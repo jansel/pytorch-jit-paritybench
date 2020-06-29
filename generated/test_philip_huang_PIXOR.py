@@ -410,7 +410,7 @@ class PIXOR(nn.Module):
             device = x.get_device()
         features = self.backbone(x)
         cls, reg = self.header(features)
-        self.cam_fov_mask = self.cam_fov_mask.to(device)
+        self.cam_fov_mask = self.cam_fov_mask
         cls = cls * self.cam_fov_mask
         if self.use_decode:
             decoded = self.corner_decoder(reg)

@@ -428,7 +428,7 @@ class RANSACTriangulationNet(nn.Module):
         _, max_indicies = torch.max(heatmaps.view(batch_size, n_views,
             n_joints, -1), dim=-1)
         keypoints_2d = torch.stack([max_indicies % heatmap_shape[1], 
-            max_indicies // heatmap_shape[1]], dim=-1).to(images.device)
+            max_indicies // heatmap_shape[1]], dim=-1)
         keypoints_2d_transformed = torch.zeros_like(keypoints_2d)
         keypoints_2d_transformed[:, :, :, (0)] = keypoints_2d[:, :, :, (0)] * (
             image_shape[1] / heatmap_shape[1])
@@ -446,10 +446,8 @@ class RANSACTriangulationNet(nn.Module):
                 keypoint_3d, _ = self.triangulate_ransac(current_proj_matricies
                     , points, direct_optimization=self.direct_optimization)
                 keypoints_3d[batch_i, joint_i] = keypoint_3d
-        keypoints_3d = torch.from_numpy(keypoints_3d).type(torch.float).to(
-            images.device)
-        confidences = torch.from_numpy(confidences).type(torch.float).to(images
-            .device)
+        keypoints_3d = torch.from_numpy(keypoints_3d).type(torch.float)
+        confidences = torch.from_numpy(confidences).type(torch.float)
         return keypoints_3d, keypoints_2d, heatmaps, confidences
 
     def triangulate_ransac(self, proj_matricies, points, n_iters=10,
@@ -534,7 +532,7 @@ class AlgebraicTriangulationNet(nn.Module):
         else:
             heatmaps, _, _, _ = self.backbone(images)
             alg_confidences = torch.ones(batch_size * n_views, heatmaps.
-                shape[1]).type(torch.float).to(device)
+                shape[1]).type(torch.float)
         heatmaps_before_softmax = heatmaps.view(batch_size, n_views, *
             heatmaps.shape[1:])
         keypoints_2d, heatmaps = op.integrate_tensor_2d(heatmaps * self.
@@ -622,7 +620,7 @@ class VolumetricTriangulationNet(nn.Module):
         proj_matricies = torch.stack([torch.stack([torch.from_numpy(camera.
             projection) for camera in camera_batch], dim=0) for
             camera_batch in new_cameras], dim=0).transpose(1, 0)
-        proj_matricies = proj_matricies.float().to(device)
+        proj_matricies = proj_matricies.float()
         cuboids = []
         base_points = torch.zeros(batch_size, 3, device=device)
         coord_volumes = torch.zeros(batch_size, self.volume_size, self.
@@ -637,7 +635,7 @@ class VolumetricTriangulationNet(nn.Module):
                     ) / 2
             elif self.kind == 'mpii':
                 base_point = keypoints_3d[(6), :3]
-            base_points[batch_i] = torch.from_numpy(base_point).to(device)
+            base_points[batch_i] = torch.from_numpy(base_point)
             sides = np.array([self.cuboid_side, self.cuboid_side, self.
                 cuboid_side])
             position = base_point - sides / 2
@@ -665,7 +663,7 @@ class VolumetricTriangulationNet(nn.Module):
                 axis = [0, 1, 0]
             elif self.kind == 'mpii':
                 axis = [0, 0, 1]
-            center = torch.from_numpy(base_point).type(torch.float).to(device)
+            center = torch.from_numpy(base_point).type(torch.float)
             coord_volume = coord_volume - center
             coord_volume = volumetric.rotate_coord_volume(coord_volume,
                 theta, axis)
@@ -673,7 +671,7 @@ class VolumetricTriangulationNet(nn.Module):
             if self.transfer_cmu_to_human36m:
                 coord_volume = coord_volume.permute(0, 2, 1, 3)
                 inv_idx = torch.arange(coord_volume.shape[1] - 1, -1, -1).long(
-                    ).to(device)
+                    )
                 coord_volume = coord_volume.index_select(1, inv_idx)
             coord_volumes[batch_i] = coord_volume
         features = features.view(-1, *features.shape[2:])
@@ -872,4 +870,7 @@ class Test_karfly_learnable_triangulation_pytorch(_paritybench_base):
 
     def test_007(self):
         self._check(Pool3DBlock(*[], **{'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(Res3DBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 

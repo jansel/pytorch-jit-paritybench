@@ -520,12 +520,12 @@ class HairMattingLoss(nn.modules.loss._Loss):
         loss2 = None
         if self.ratio_of_gradient > 0:
             sobel_kernel_x = torch.Tensor([[1.0, 0.0, -1.0], [2.0, 0.0, -
-                2.0], [1.0, 0.0, -1.0]]).to(device)
+                2.0], [1.0, 0.0, -1.0]])
             sobel_kernel_x = sobel_kernel_x.view((1, 1, 3, 3))
             I_x = F.conv2d(image, sobel_kernel_x)
             G_x = F.conv2d(pred, sobel_kernel_x)
             sobel_kernel_y = torch.Tensor([[1.0, 2.0, 1.0], [0.0, 0.0, 0.0],
-                [-1.0, -2.0, -1.0]]).to(device)
+                [-1.0, -2.0, -1.0]])
             sobel_kernel_y = sobel_kernel_y.view((1, 1, 3, 3))
             I_y = F.conv2d(image, sobel_kernel_y)
             G_y = F.conv2d(pred, sobel_kernel_y)
@@ -656,4 +656,39 @@ class PSPNet(nn.Module):
             elif isinstance(layer, nn.BatchNorm2d):
                 layer.weight.data.normal_(1.0, 0.02)
                 layer.bias.data.fill_(0)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(HairMattingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(MobileMattingFCN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(OrangeBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(PyramidPoolingModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(UpsampleLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(_ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 

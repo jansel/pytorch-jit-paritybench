@@ -1207,8 +1207,7 @@ class SincConv(nn.Module):
         x_left = x[:, 0:int((x.shape[1] - 1) / 2)]
         y_left = torch.sin(x_left) / x_left
         y_right = torch.flip(y_left, dims=[1])
-        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]).to(x.device),
-            y_right], dim=1)
+        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]), y_right], dim=1)
         return sinc
 
     def forward(self, waveforms):
@@ -1222,8 +1221,8 @@ class SincConv(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
             band_hz_)
@@ -1321,8 +1320,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -1551,8 +1550,8 @@ class SincConv(nn.Module):
         t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
             ) / self.fs
         if cuda:
-            filters = filters.to('cuda')
-            t_right = t_right.to('cuda')
+            filters = filters
+            t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
@@ -1561,7 +1560,7 @@ class SincConv(nn.Module):
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
-            window = window.to('cuda')
+            window = window
         for i in range(self.N_filt):
             low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
                 ].float() * self.freq_scale, t_right, cuda)
@@ -1570,7 +1569,7 @@ class SincConv(nn.Module):
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
-                band_pass = band_pass.to('cuda')
+                band_pass = band_pass
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
             if self.stride > 1:
@@ -1666,8 +1665,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -1726,7 +1725,7 @@ class VQEMA(nn.Module):
             self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input,
             self.emb.weight.t())
         enc_indices = torch.argmin(dist, dim=1).unsqueeze(1)
-        enc = torch.zeros(enc_indices.shape[0], self.emb_K).to(device)
+        enc = torch.zeros(enc_indices.shape[0], self.emb_K)
         enc.scatter_(1, enc_indices, 1)
         if self.training:
             self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 -
@@ -2732,8 +2731,7 @@ class SincConv(nn.Module):
         x_left = x[:, 0:int((x.shape[1] - 1) / 2)]
         y_left = torch.sin(x_left) / x_left
         y_right = torch.flip(y_left, dims=[1])
-        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]).to(x.device),
-            y_right], dim=1)
+        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]), y_right], dim=1)
         return sinc
 
     def forward(self, waveforms):
@@ -2747,8 +2745,8 @@ class SincConv(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
             band_hz_)
@@ -2846,8 +2844,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -2930,7 +2928,7 @@ class WaveAdversarialLoss(nn.Module):
 
     def retrieve_label(self, y, lab_value, name=''):
         label = torch.ones(y.size()) * lab_value
-        label = label.to(self.device)
+        label = label
         return label
 
     def forward(self, iteration, x_fake, x_real, c_real=None, c_fake=None,
@@ -3294,7 +3292,7 @@ class PatternedDropout(nn.Module):
         if self.p == 0 or not self.training:
             return x
         if self.dropout_fixed and self.training:
-            self.dindexes = self.dindexes.to(x.device)
+            self.dindexes = self.dindexes
             assert len(x.size()
                 ) == 3, 'Expected to get 3 dimensional tensor, got {}'.format(
                 len(x.size()))
@@ -3306,7 +3304,7 @@ class PatternedDropout(nn.Module):
                     fill_value=1.0 - self.p)
                 b = Binomial(total_count=1, probs=probs)
                 mask = b.sample()
-                mask = mask.to(x.device)
+                mask = mask
                 batch_mask[:, (self.dindexes)] *= mask * self.p_scale
                 x = x * batch_mask.view(bsize, emb_size, -1)
             else:
@@ -3315,7 +3313,7 @@ class PatternedDropout(nn.Module):
                     ), fill_value=1.0 - self.p)
                 b = Binomial(total_count=1, probs=probs)
                 mask = b.sample()
-                mask = mask.to(x.device)
+                mask = mask
                 batch_mask[:, (self.dindexes), :] *= mask * self.p_scale
                 x = x * batch_mask
             return x
@@ -3354,8 +3352,8 @@ class SincConv(nn.Module):
         t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
             ) / self.fs
         if cuda:
-            filters = filters.to('cuda')
-            t_right = t_right.to('cuda')
+            filters = filters
+            t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
@@ -3364,7 +3362,7 @@ class SincConv(nn.Module):
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
-            window = window.to('cuda')
+            window = window
         for i in range(self.N_filt):
             low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
                 ].float() * self.freq_scale, t_right, cuda)
@@ -3373,7 +3371,7 @@ class SincConv(nn.Module):
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
-                band_pass = band_pass.to('cuda')
+                band_pass = band_pass
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
             if self.stride > 1:
@@ -3469,8 +3467,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -3529,7 +3527,7 @@ class VQEMA(nn.Module):
             self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input,
             self.emb.weight.t())
         enc_indices = torch.argmin(dist, dim=1).unsqueeze(1)
-        enc = torch.zeros(enc_indices.shape[0], self.emb_K).to(device)
+        enc = torch.zeros(enc_indices.shape[0], self.emb_K)
         enc.scatter_(1, enc_indices, 1)
         if self.training:
             self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 -
@@ -4636,8 +4634,7 @@ class SincConv(nn.Module):
         x_left = x[:, 0:int((x.shape[1] - 1) / 2)]
         y_left = torch.sin(x_left) / x_left
         y_right = torch.flip(y_left, dims=[1])
-        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]).to(x.device),
-            y_right], dim=1)
+        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]), y_right], dim=1)
         return sinc
 
     def forward(self, waveforms):
@@ -4651,8 +4648,8 @@ class SincConv(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
             band_hz_)
@@ -4750,8 +4747,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -5804,8 +5801,7 @@ class SincConv(nn.Module):
         x_left = x[:, 0:int((x.shape[1] - 1) / 2)]
         y_left = torch.sin(x_left) / x_left
         y_right = torch.flip(y_left, dims=[1])
-        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]).to(x.device),
-            y_right], dim=1)
+        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]), y_right], dim=1)
         return sinc
 
     def forward(self, waveforms):
@@ -5819,8 +5815,8 @@ class SincConv(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
             band_hz_)
@@ -5918,8 +5914,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)
@@ -5991,19 +5987,27 @@ class Test_santi_pdp_pase(_paritybench_base):
     def test_001(self):
         self._check(AhoCNNHourGlassEncoder(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GConv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_003(self):
-        self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_005(self):
+        self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+
+    def test_006(self):
         self._check(StatisticalPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(UpsampleNetwork(*[], **{'feat_dims': 4}), [torch.rand([4, 4, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(VQEMA(*[], **{'emb_K': 4, 'emb_dim': 4, 'beta': 4, 'gamma': 4}), [torch.rand([4, 4, 4])], {})
 

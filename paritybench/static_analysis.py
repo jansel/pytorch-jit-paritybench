@@ -21,7 +21,7 @@ class ASTCleanup(ast.NodeTransformer):
         if getattr(node.func, 'id', '') == 'print':
             # Strip print() calls
             return ast.Constant(value=None, kind=None)
-        if getattr(node.func, 'attr', '') == 'cuda':
+        if getattr(node.func, 'attr', '') in ('cuda', 'to'):
             # foo.cuda() => foo
             return node.func.value
         return self.generic_visit(node)

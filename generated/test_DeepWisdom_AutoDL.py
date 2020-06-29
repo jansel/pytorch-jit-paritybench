@@ -328,12 +328,12 @@ class ResNet9(nn.Module):
         if targets is None:
             return logits
         if targets.device != logits.device:
-            targets = targets.to(device=logits.device)
+            targets = targets
         loss = self.loss_fn(input=logits, target=targets)
         if self._class_normalize and isinstance(self.loss_fn, (torch.nn.
             BCEWithLogitsLoss, skeleton.nn.BinaryCrossEntropyLabelSmooth)):
-            pos = (targets == 1).to(logits.dtype)
-            neg = (targets < 1).to(logits.dtype)
+            pos = targets == 1
+            neg = targets < 1
             npos = pos.sum(dim=0)
             nneg = neg.sum(dim=0)
             positive_ratio = torch.clamp(npos / (npos + nneg), min=0.03,
@@ -370,10 +370,10 @@ class MoveToHook(nn.Module):
     def to(tensors, device, half=False):
         for t in tensors:
             if isinstance(t, (tuple, list)):
-                MoveToHook.to(t, device, half)
+                MoveToHook
             if not isinstance(t, torch.Tensor):
                 continue
-            t.data = t.data.to(device=device)
+            t.data = t.data
             if half:
                 if t.is_floating_point():
                     t.data = t.data.half()
@@ -383,7 +383,7 @@ class MoveToHook(nn.Module):
 
         def hook(module, inputs):
             _ = module
-            MoveToHook.to(inputs, device, half)
+            MoveToHook
         return hook
 
 
@@ -443,7 +443,7 @@ class ToDevice(torch.nn.Module):
         out = []
         for x in xs:
             if x is not None and x.device != device:
-                out.append(x.to(device=device))
+                out.append(x)
             else:
                 out.append(x)
         return out[0] if len(xs) == 1 else tuple(out)
@@ -941,10 +941,10 @@ class MoveToHook(nn.Module):
     def to(tensors, device, half=False):
         for t in tensors:
             if isinstance(t, (tuple, list)):
-                MoveToHook.to(t, device, half)
+                MoveToHook
             if not isinstance(t, torch.Tensor):
                 continue
-            t.data = t.data.to(device=device)
+            t.data = t.data
             if half:
                 if t.is_floating_point():
                     t.data = t.data.half()
@@ -954,7 +954,7 @@ class MoveToHook(nn.Module):
 
         def hook(module, inputs):
             _ = module
-            MoveToHook.to(inputs, device, half)
+            MoveToHook
         return hook
 
 
@@ -1014,7 +1014,7 @@ class ToDevice(torch.nn.Module):
         out = []
         for x in xs:
             if x is not None and x.device != device:
-                out.append(x.to(device=device))
+                out.append(x)
             else:
                 out.append(x)
         return out[0] if len(xs) == 1 else tuple(out)

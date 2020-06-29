@@ -607,7 +607,7 @@ class GradientPenaltyLoss(nn.Module):
     def __init__(self, device=torch.device('cpu')):
         super(GradientPenaltyLoss, self).__init__()
         self.register_buffer('grad_outputs', torch.Tensor())
-        self.grad_outputs = self.grad_outputs.to(device)
+        self.grad_outputs = self.grad_outputs
 
     def get_grad_outputs(self, input):
         if self.grad_outputs.size() != input.size():
@@ -974,10 +974,8 @@ class VGGFeatureExtractor(nn.Module):
             model = torchvision.models.vgg19(pretrained=True)
         self.use_input_norm = use_input_norm
         if self.use_input_norm:
-            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(
-                device)
-            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(
-                device)
+            mean = torch.Tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+            std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
             self.register_buffer('mean', mean)
             self.register_buffer('std', std)
         self.features = nn.Sequential(*list(model.features.children())[:
@@ -1551,24 +1549,21 @@ class Test_cszn_KAIR(_paritybench_base):
         self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_008(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_009(self):
         self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_011(self):
         self._check(SSIMLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_012(self):
         self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_013(self):
         self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

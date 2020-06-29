@@ -374,13 +374,25 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jadore801120_attention_is_all_you_need_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(PositionalEncoding(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DecoderLayer(*[], **{'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EncoderLayer(*[], **{'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
+        self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(PositionalEncoding(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(PositionwiseFeedForward(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

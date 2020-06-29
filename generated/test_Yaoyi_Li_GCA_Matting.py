@@ -387,14 +387,14 @@ class GuidedCxtAtten(nn.Module):
             unknown_mean = unknown.mean(dim=[2, 3])
             known_mean = 1 - unknown_mean
             unknown_scale = torch.clamp(torch.sqrt(unknown_mean /
-                known_mean), 0.1, 10).to(alpha)
+                known_mean), 0.1, 10)
             known_scale = torch.clamp(torch.sqrt(known_mean / unknown_mean),
-                0.1, 10).to(alpha)
+                0.1, 10)
             softmax_scale = torch.cat([unknown_scale, known_scale], dim=1)
         else:
-            unknown = torch.ones([fs[0], 1, fs[2], fs[3]]).to(alpha)
+            unknown = torch.ones([fs[0], 1, fs[2], fs[3]])
             softmax_scale = torch.FloatTensor([softmax_scale, softmax_scale]
-                ).view(1, 2).repeat(fs[0], 1).to(alpha)
+                ).view(1, 2).repeat(fs[0], 1)
         m = self.extract_patches(unknown)
         m = m.permute(0, 2, 3, 4, 5, 1)
         m = m.contiguous().view(raw_int_fs[0], raw_int_fs[2] // self.rate, 
@@ -403,7 +403,7 @@ class GuidedCxtAtten(nn.Module):
         m = self.reduce_mean(m)
         mm = m.gt(0.0).float()
         self_mask = F.one_hot(torch.arange(fs[2] * fs[3]).view(fs[2], fs[3]
-            ).contiguous().to(alpha).long(), num_classes=int_fs[2] * int_fs[3])
+            ).contiguous().long(), num_classes=int_fs[2] * int_fs[3])
         self_mask = self_mask.permute(2, 0, 1).view(1, fs[2] * fs[3], fs[2],
             fs[3]).float() * -10000.0
         w_groups = torch.split(w, 1, dim=0)
@@ -417,7 +417,7 @@ class GuidedCxtAtten(nn.Module):
         for xi, wi, alpha_wi, mmi, scale in zip(f_groups, w_groups,
             alpha_w_groups, mm_groups, scale_group):
             wi = wi[0]
-            escape_NaN = Variable(torch.FloatTensor([0.0001])).to(alpha)
+            escape_NaN = Variable(torch.FloatTensor([0.0001]))
             wi_normed = wi / torch.max(self.l2_norm(wi), escape_NaN)
             xi = F.pad(xi, (1, 1, 1, 1), mode='reflect')
             yi = F.conv2d(xi, wi_normed, stride=1, padding=0)
@@ -448,7 +448,7 @@ class GuidedCxtAtten(nn.Module):
         offsets = torch.cat(offsets, dim=0)
         offsets = offsets.view([int_fs[0]] + [2] + int_fs[2:])
         offsets = offsets - torch.Tensor([fs[2] // 2, fs[3] // 2]).view(1, 
-            2, 1, 1).to(alpha).long()
+            2, 1, 1).long()
         y = self.W(y) + alpha
         return y, (offsets, softmax_scale)
 

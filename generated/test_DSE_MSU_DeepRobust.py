@@ -321,9 +321,9 @@ class GCN(nn.Module):
             features, adj, labels = utils.to_tensor(features, adj, labels,
                 device=self.device)
         else:
-            features = features.to(self.device)
-            adj = adj.to(self.device)
-            labels = labels.to(self.device)
+            features = features
+            adj = adj
+            labels = labels
         if normalize:
             if utils.is_sparse_tensor(adj):
                 adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
@@ -602,8 +602,7 @@ class RGCN(Module):
             self.gamma)
         miu, sigma = self.gc2(miu, sigma, self.adj_norm1, self.adj_norm2,
             self.gamma)
-        output = miu + self.gaussian.sample().to(self.device) * torch.sqrt(
-            sigma + 1e-08)
+        output = miu + self.gaussian.sample() * torch.sqrt(sigma + 1e-08)
         return F.log_softmax(output, dim=1)
 
     def fit(self, features, adj, labels, idx_train, idx_val=None,
@@ -685,7 +684,7 @@ class RGCN(Module):
 
     def _normalize_adj(self, adj, power=-1 / 2):
         """Row-normalize sparse matrix"""
-        A = adj + torch.eye(len(adj)).to(self.device)
+        A = adj + torch.eye(len(adj))
         D_power = A.sum(1).pow(power)
         D_power[torch.isinf(D_power)] = 0.0
         D_power = torch.diag(D_power)
@@ -830,7 +829,7 @@ class QNetNode(nn.Module):
         """
         super(QNetNode, self).__init__()
         self.node_features = node_features
-        self.identity = torch.eye(node_labels.max() + 1).to(node_labels.device)
+        self.identity = torch.eye(node_labels.max() + 1)
         self.n_injected = n_injected
         self.list_action_space = list_action_space
         self.total_nodes = len(list_action_space)
@@ -868,7 +867,7 @@ class QNetNode(nn.Module):
     def get_action_label_encoding(self, label):
         onehot = self.to_onehot(label)
         zeros = torch.zeros((onehot.shape[0], self.embed_dim - onehot.shape[1])
-            ).to(onehot.device)
+            )
         return torch.cat((onehot, zeros), dim=1)
 
     def get_graph_embedding(self, adj):
@@ -898,7 +897,7 @@ class QNetNode(nn.Module):
 
     def forward(self, time_t, states, actions, greedy_acts=False,
         is_inference=False):
-        preds = torch.zeros(len(states)).to(self.device)
+        preds = torch.zeros(len(states))
         batch_graph, modified_labels = zip(*states)
         greedy_actions = []
         with torch.set_grad_enabled(mode=not is_inference):
@@ -1174,7 +1173,7 @@ class CrossEntropyWithWeightPenlty(_Loss):
     def __init__(self, module, DEVICE, reg_cof=0.0001):
         super(CrossEntropyWithWeightPenlty, self).__init__()
         self.reg_cof = reg_cof
-        self.criterion = nn.CrossEntropyLoss().to(DEVICE)
+        self.criterion = nn.CrossEntropyLoss()
         self.module = module
 
     def __call__(self, pred, label):

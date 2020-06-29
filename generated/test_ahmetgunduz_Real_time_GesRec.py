@@ -951,3 +951,6 @@ class Test_ahmetgunduz_Real_time_GesRec(_paritybench_base):
     def test_002(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
 
+    def test_003(self):
+        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+

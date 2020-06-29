@@ -368,14 +368,13 @@ class Wavenet(nn.Module):
                 start_idx = i - self.receptive_field_size() + 1
             else:
                 start_idx = 0
-            x_in = x[:, :, start_idx:i + 1].to(torch.device('cuda'))
+            x_in = x[:, :, start_idx:i + 1]
             if c is not None:
                 cond = c[:, :, start_idx:i + 1]
             else:
                 cond = None
             out = self.wavenet(x_in, cond)
-            x[:, :, (i + 1)] = sample_from_gaussian(out[:, :, -1:]).to(torch
-                .device('cpu'))
+            x[:, :, (i + 1)] = sample_from_gaussian(out[:, :, -1:])
             del out, x_in, cond
         return x[:, :, 1:]
 
@@ -1225,7 +1224,7 @@ class DeconvolutionalDecoder(nn.Module):
             speaker_embedding = GlobalConditioning.compute(speaker_dic,
                 speaker_id, x, device=self._device, gin_channels=40, expand
                 =True)
-            x = torch.cat([x, speaker_embedding], dim=1).to(self._device)
+            x = torch.cat([x, speaker_embedding], dim=1)
         x = self._conv_1(x)
         if self._verbose:
             ConsoleLogger.status('[FEATURES_DEC] _conv_1 output size: {}'.
@@ -1320,30 +1319,27 @@ class VectorQuantizer(nn.Module):
         """
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
         encodings = torch.zeros(encoding_indices.shape[0], self.
-            _num_embeddings, dtype=torch.float).to(self._device)
+            _num_embeddings, dtype=torch.float)
         encodings.scatter_(1, encoding_indices, 1)
         if not self.training and compute_distances_if_possible:
-            _encoding_distances = [torch.dist(items[0], items[1], 2).to(
-                self._device) for items in combinations(flat_input, r=2)]
-            encoding_distances = torch.tensor(_encoding_distances).to(self.
-                _device).view(batch_size, -1)
+            _encoding_distances = [torch.dist(items[0], items[1], 2) for
+                items in combinations(flat_input, r=2)]
+            encoding_distances = torch.tensor(_encoding_distances).view(
+                batch_size, -1)
         else:
             encoding_distances = None
         if not self.training and compute_distances_if_possible:
-            _embedding_distances = [torch.dist(items[0], items[1], 2).to(
-                self._device) for items in combinations(self._embedding.
-                weight, r=2)]
-            embedding_distances = torch.tensor(_embedding_distances).to(self
-                ._device)
+            _embedding_distances = [torch.dist(items[0], items[1], 2) for
+                items in combinations(self._embedding.weight, r=2)]
+            embedding_distances = torch.tensor(_embedding_distances)
         else:
             embedding_distances = None
         if not self.training and compute_distances_if_possible:
             _frames_vs_embedding_distances = [torch.dist(items[0], items[1],
-                2).to(self._device) for items in product(flat_input, self.
-                _embedding.weight.detach())]
+                2) for items in product(flat_input, self._embedding.weight.
+                detach())]
             frames_vs_embedding_distances = torch.tensor(
-                _frames_vs_embedding_distances).to(self._device).view(
-                batch_size, time, -1)
+                _frames_vs_embedding_distances).view(batch_size, time, -1)
         else:
             frames_vs_embedding_distances = None
         quantized = torch.matmul(encodings, self._embedding.weight).view(
@@ -1455,30 +1451,27 @@ class VectorQuantizerEMA(nn.Module):
         """
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
         encodings = torch.zeros(encoding_indices.shape[0], self.
-            _num_embeddings, dtype=torch.float).to(self._device)
+            _num_embeddings, dtype=torch.float)
         encodings.scatter_(1, encoding_indices, 1)
         if not self.training and compute_distances_if_possible:
-            _encoding_distances = [torch.dist(items[0], items[1], 2).to(
-                self._device) for items in combinations(flat_input, r=2)]
-            encoding_distances = torch.tensor(_encoding_distances).to(self.
-                _device).view(batch_size, -1)
+            _encoding_distances = [torch.dist(items[0], items[1], 2) for
+                items in combinations(flat_input, r=2)]
+            encoding_distances = torch.tensor(_encoding_distances).view(
+                batch_size, -1)
         else:
             encoding_distances = None
         if not self.training and compute_distances_if_possible:
-            _embedding_distances = [torch.dist(items[0], items[1], 2).to(
-                self._device) for items in combinations(self._embedding.
-                weight, r=2)]
-            embedding_distances = torch.tensor(_embedding_distances).to(self
-                ._device)
+            _embedding_distances = [torch.dist(items[0], items[1], 2) for
+                items in combinations(self._embedding.weight, r=2)]
+            embedding_distances = torch.tensor(_embedding_distances)
         else:
             embedding_distances = None
         if not self.training and compute_distances_if_possible:
             _frames_vs_embedding_distances = [torch.dist(items[0], items[1],
-                2).to(self._device) for items in product(flat_input, self.
-                _embedding.weight.detach())]
+                2) for items in product(flat_input, self._embedding.weight.
+                detach())]
             frames_vs_embedding_distances = torch.tensor(
-                _frames_vs_embedding_distances).to(self._device).view(
-                batch_size, time, -1)
+                _frames_vs_embedding_distances).view(batch_size, time, -1)
         else:
             frames_vs_embedding_distances = None
         if self.training:
@@ -2305,8 +2298,12 @@ class Test_swasun_VQ_VAE_Speech(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
-        self._check(STFT(*[], **{}), [torch.rand([4, 1, 64])], {})
+        self._check(VectorQuantizer(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'device': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
+        self._check(VectorQuantizerEMA(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'decay': 4, 'device': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_011(self):
         self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
 

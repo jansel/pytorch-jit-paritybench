@@ -438,9 +438,9 @@ class PropagationFaster(nn.Module):
 
         """
         self.vertical_zeros = torch.zeros((offset_x.size()[0], offset_x.
-            size()[1], 1, offset_x.size()[3])).to(device)
+            size()[1], 1, offset_x.size()[3]))
         self.horizontal_zeros = torch.zeros((offset_x.size()[0], offset_x.
-            size()[1], offset_x.size()[2], 1)).to(device)
+            size()[1], offset_x.size()[2], 1))
         if propagation_type is 'horizontal':
             offset_x = torch.cat((torch.cat((self.horizontal_zeros,
                 offset_x[:, :, :, :-1]), dim=3), offset_x, torch.cat((
@@ -508,7 +508,7 @@ class PatchMatch(nn.Module):
             softmax_temperature)
         self.uniform_sampler = RandomSampler(device, self.number_of_samples)
         min_offset_x = torch.zeros((left_features.size()[0], 1,
-            left_features.size()[2], left_features.size()[3])).to(device
+            left_features.size()[2], left_features.size()[3])
             ) - left_features.size()[3]
         max_offset_x = min_offset_x + 2 * left_features.size()[3]
         min_offset_y = min_offset_x + left_features.size()[3

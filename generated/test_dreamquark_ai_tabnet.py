@@ -290,8 +290,8 @@ class TabNetNoEmbeddings(torch.nn.Module):
 
     def forward(self, x):
         res = 0
-        prior = torch.ones(x.shape).to(x.device)
-        M_explain = torch.zeros(x.shape).to(x.device)
+        prior = torch.ones(x.shape)
+        M_explain = torch.zeros(x.shape)
         M_loss = 0
         att = self.initial_splitter(x)[:, self.n_d:]
         masks = {}
@@ -384,7 +384,7 @@ class TabNet(torch.nn.Module):
             else:
                 device_name = 'cpu'
         self.device = torch.device(device_name)
-        self.to(self.device)
+        self
 
     def forward(self, x):
         x = self.embedder(x)
@@ -489,7 +489,7 @@ class GLU_Block(torch.nn.Module):
                 **params))
 
     def forward(self, x):
-        scale = torch.sqrt(torch.FloatTensor([0.5]).to(x.device))
+        scale = torch.sqrt(torch.FloatTensor([0.5]))
         if self.first:
             x = self.glu_layers[0](x)
             layers_left = range(1, self.n_glu)

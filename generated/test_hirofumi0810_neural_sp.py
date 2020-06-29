@@ -2406,9 +2406,13 @@ class Test_hirofumi0810_neural_sp(_paritybench_base):
     def test_005(self):
         self._check(MaxpoolSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(NiN(*[], **{'dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(MultiheadAttentionMechanism(*[], **{'kdim': 4, 'qdim': 4, 'adim': 4, 'n_heads': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_007(self):
+        self._check(NiN(*[], **{'dim': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_008(self):
         self._check(SubsampelBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'in_freq': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

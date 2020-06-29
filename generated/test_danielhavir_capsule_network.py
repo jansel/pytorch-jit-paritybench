@@ -127,8 +127,7 @@ class RoutingCapsules(nn.Module):
         """
 		Procedure 1: Routing algorithm
 		"""
-        b = torch.zeros(batch_size, self.num_caps, self.in_caps, 1).to(self
-            .device)
+        b = torch.zeros(batch_size, self.num_caps, self.in_caps, 1)
         for route_iter in range(self.num_routing - 1):
             c = F.softmax(b, dim=1)
             s = (c * temp_u_hat).sum(dim=2)
@@ -222,7 +221,7 @@ class CapsuleNetwork(nn.Module):
         out = self.digits(out)
         preds = torch.norm(out, dim=-1)
         _, max_length_idx = preds.max(dim=1)
-        y = torch.eye(self.num_classes).to(self.device)
+        y = torch.eye(self.num_classes)
         y = y.index_select(dim=0, index=max_length_idx).unsqueeze(2)
         reconstructions = self.decoder((out * y).view(out.size(0), -1))
         reconstructions = reconstructions.view(-1, *self.img_shape)
@@ -243,4 +242,8 @@ class Test_danielhavir_capsule_network(_paritybench_base):
     @_fails_compile()
     def test_002(self):
         self._check(PrimaryCapsules(*[], **{'in_channels': 4, 'out_channels': 4, 'dim_caps': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(RoutingCapsules(*[], **{'in_dim': 4, 'in_caps': 4, 'num_caps': 4, 'dim_caps': 4, 'num_routing': 4, 'device': 4}), [torch.rand([4, 4, 4])], {})
 

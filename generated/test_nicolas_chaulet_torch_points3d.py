@@ -579,7 +579,7 @@ class BaseLinearTransformSTNkD(torch.nn.Module):
         """
         global_feature = self.nn(feat_x, batch)
         trans = self.fc_layer(global_feature)
-        trans = trans + self.identity.to(feat_x.device)
+        trans = trans + self.identity
         trans = trans.view(-1, self.k, self.k)
         self.trans = trans
         batch_x = trans_x.view(trans_x.shape[0], 1, trans_x.shape[1])
@@ -588,8 +588,8 @@ class BaseLinearTransformSTNkD(torch.nn.Module):
 
     def get_orthogonal_regularization_loss(self):
         loss = torch.mean(torch.norm(torch.bmm(self.trans, self.trans.
-            transpose(2, 1)) - self.identity.to(self.trans.device).view(-1,
-            self.k, self.k), dim=(1, 2)))
+            transpose(2, 1)) - self.identity.view(-1, self.k, self.k), dim=
+            (1, 2)))
         return loss
 
 

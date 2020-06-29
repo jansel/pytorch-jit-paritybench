@@ -1244,11 +1244,10 @@ class MultiHeadedAttention(nn.Module):
                 if layer_cache is not None:
                     device = key.device
                     if layer_cache['self_keys'] is not None:
-                        key = torch.cat((layer_cache['self_keys'].to(device
-                            ), key), dim=2)
+                        key = torch.cat((layer_cache['self_keys'], key), dim=2)
                     if layer_cache['self_values'] is not None:
-                        value = torch.cat((layer_cache['self_values'].to(
-                            device), value), dim=2)
+                        value = torch.cat((layer_cache['self_values'],
+                            value), dim=2)
                     layer_cache['self_keys'] = key
                     layer_cache['self_values'] = value
             elif type == 'context':
@@ -2610,7 +2609,7 @@ class Attention(nn.Module):
             w = w / float(v.size(-1)) ** 0.5
         nd, ns = w.size(-2), w.size(-1)
         mask = self.bias[:, :, ns - nd:ns, :ns]
-        w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
+        w = torch.where(mask.bool(), w, self.masked_bias)
         if attention_mask is not None:
             w = w + attention_mask
         w = nn.Softmax(dim=-1)(w)
@@ -4064,7 +4063,7 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
             query_key_dots = torch.where(mask, query_key_dots, mask_value)
         del mask
         self_mask = torch.ne(query_bucket_idx.unsqueeze(-1),
-            key_value_bucket_idx.unsqueeze(-2)).to(query_bucket_idx.device)
+            key_value_bucket_idx.unsqueeze(-2))
         query_key_dots = torch.where(self_mask, query_key_dots, self_mask_value
             )
         del self_mask
@@ -4087,11 +4086,10 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
         mask = None
         if self.is_decoder:
             mask = torch.ge(query_indices.unsqueeze(-1), key_indices.
-                unsqueeze(-2)).to(query_indices.device)
+                unsqueeze(-2))
         if attention_mask is not None:
             if sequence_length > self.chunk_length:
-                attention_mask = attention_mask.to(torch.uint8)[:, (None),
-                    (None), :]
+                attention_mask = attention_mask[:, (None), (None), :]
                 attention_mask = attention_mask.expand(query_indices.shape[
                     :-1] + (-1,))
                 key_attn_mask = torch.gather(attention_mask, -1, key_indices)
@@ -4101,7 +4099,7 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
                     ) * key_attn_mask.unsqueeze(-2)
                 del query_attn_mask, key_attn_mask
             else:
-                attention_mask = attention_mask.to(torch.uint8)[:, (None), :]
+                attention_mask = attention_mask[:, (None), :]
                 attn_mask = (attention_mask.unsqueeze(-1) * attention_mask.
                     unsqueeze(-2)).expand(query_indices.shape +
                     attention_mask.shape[-1:])
@@ -4253,7 +4251,7 @@ class LocalSelfAttention(nn.Module, EfficientAttentionMixin):
         query_key_dots_shape, sequence_length):
         mask = None
         if attention_mask is not None:
-            attention_mask = attention_mask.to(torch.uint8)[:, (None), :]
+            attention_mask = attention_mask[:, (None), :]
             if self.chunk_length < sequence_length:
                 attention_mask = self._split_seq_length_dim_to(attention_mask,
                     -1, self.chunk_length, 1)
@@ -4263,7 +4261,7 @@ class LocalSelfAttention(nn.Module, EfficientAttentionMixin):
                 attention_mask_key = attention_mask
         if self.is_decoder is True:
             mask = torch.ge(query_indices.unsqueeze(-1), key_indices.
-                unsqueeze(-2)).to(query_indices.device)
+                unsqueeze(-2))
         if attention_mask is not None:
             attn_mask = (attention_mask.unsqueeze(-1) * attention_mask_key.
                 unsqueeze(-2)).expand(query_key_dots_shape)
@@ -4706,10 +4704,10 @@ class T5LayerNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, x):
-        variance = x.to(torch.float32).pow(2).mean(-1, keepdim=True)
+        variance = x.pow(2).mean(-1, keepdim=True)
         x = x / torch.sqrt(variance + self.variance_epsilon)
         if self.weight.dtype == torch.float16:
-            x = x.to(torch.float16)
+            x = x
         return self.weight * x
 
 
@@ -6086,118 +6084,133 @@ class Test_huggingface_transformers(_paritybench_base):
     def test_002(self):
         self._check(BartClassificationHead(*[], **{'input_dim': 4, 'inner_dim': 4, 'num_classes': 4, 'pooler_dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4])], {})
 
     def test_004(self):
+        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_008(self):
-        self._check(ClassificationHead(*[], **{'class_size': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_010(self):
-        self._check(ElectraClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ClassificationHead(*[], **{'class_size': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_011(self):
-        self._check(ElectraGeneratorPredictions(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(LSHSelfAttention(*[], **{'config': _mock_config(lsh_attn_chunk_length=4, num_hashes=4, num_buckets=4, lsh_num_chunks_before=4, lsh_num_chunks_after=4, hash_seed=4, is_decoder=4, max_position_embeddings=4, lsh_attention_probs_dropout_prob=0.5, num_attention_heads=4, attention_head_size=4, hidden_size=4)}), [torch.rand([4, 4])], {})
+        self._check(ElectraClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_013(self):
-        self._check(LearnedPositionalEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'padding_idx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ElectraGeneratorPredictions(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_014(self):
-        self._check(LongformerClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FFN(*[], **{'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation=relu)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_015(self):
-        self._check(LongformerSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, attention_window=[4, 4]), 'layer_id': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(LSHSelfAttention(*[], **{'config': _mock_config(lsh_attn_chunk_length=4, num_hashes=4, num_buckets=4, lsh_num_chunks_before=4, lsh_num_chunks_after=4, hash_seed=4, is_decoder=4, max_position_embeddings=4, lsh_attention_probs_dropout_prob=0.5, num_attention_heads=4, attention_head_size=4, hidden_size=4)}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_016(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(LearnedPositionalEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'padding_idx': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_017(self):
-        self._check(MultiHeadedAttention(*[], **{'head_count': 4, 'model_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LocalSelfAttention(*[], **{'config': _mock_config(num_attention_heads=4, local_attn_chunk_length=4, local_num_chunks_before=4, local_num_chunks_after=4, is_decoder=4, pad_token_id=4, attention_head_size=4, hidden_size=4, local_attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_018(self):
-        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LongformerClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_019(self):
-        self._check(PositionEmbeddings(*[], **{'config': _mock_config(hidden_dropout_prob=0.5, max_position_embeddings=4, hidden_size=4)}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(LongformerSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, attention_window=[4, 4]), 'layer_id': 1}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_020(self):
-        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_021(self):
-        self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiHeadedAttention(*[], **{'head_count': 4, 'model_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_022(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_023(self):
+        self._check(PositionEmbeddings(*[], **{'config': _mock_config(hidden_dropout_prob=0.5, max_position_embeddings=4, hidden_size=4)}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_025(self):
+        self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
+        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
         self._check(ReformerFeedForwardOutput(*[], **{'config': _mock_config(hidden_dropout_prob=0.5, feed_forward_size=4, hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_024(self):
+    def test_028(self):
         self._check(ReformerSelfOutput(*[], **{'config': _mock_config(num_attention_heads=4, attention_head_size=4, hidden_dropout_prob=0.5, hidden_size=4)}), [torch.rand([16, 16])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_029(self):
         self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_026(self):
+    def test_030(self):
         self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_027(self):
+    def test_031(self):
         self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_028(self):
+    def test_032(self):
         self._check(SelfAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_029(self):
+    def test_033(self):
         self._check(SinusoidalPositionalEmbedding(*[], **{'num_positions': 4, 'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_030(self):
+    def test_034(self):
         self._check(T5DenseReluDense(*[], **{'config': _mock_config(d_model=4, d_ff=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_035(self):
         self._check(T5LayerFF(*[], **{'config': _mock_config(d_model=4, d_ff=4, dropout_rate=0.5, layer_norm_epsilon=1)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
+    def test_036(self):
         self._check(T5LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_033(self):
+    def test_037(self):
         self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_034(self):
+    def test_038(self):
         self._check(XLNetFeedForward(*[], **{'config': _mock_config(d_model=4, layer_norm_eps=1, d_inner=4, dropout=0.5, ff_activation=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
 

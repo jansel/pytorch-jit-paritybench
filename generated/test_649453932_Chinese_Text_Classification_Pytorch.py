@@ -295,7 +295,7 @@ class Positional_Encoding(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        out = x + nn.Parameter(self.pe, requires_grad=False).to(self.device)
+        out = x + nn.Parameter(self.pe, requires_grad=False)
         out = self.dropout(out)
         return out
 
@@ -391,4 +391,12 @@ class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(Position_wise_Feed_Forward(*[], **{'dim_model': 4, 'hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Positional_Encoding(*[], **{'embed': 4, 'pad_size': 4, 'dropout': 0.5, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Scaled_Dot_Product_Attention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

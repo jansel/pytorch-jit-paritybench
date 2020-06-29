@@ -76,7 +76,7 @@ class DCN_layer(nn.Module):
             embedding_sizes.append(embedding_dim)
             feat_embedding = nn.Embedding(num_sparse_feat, embedding_dim)
             nn.init.xavier_uniform_(feat_embedding.weight)
-            feat_embedding.to(DEVICE)
+            feat_embedding
             self.sparse_feat_embeddings.append(feat_embedding)
         self.num_cross_layers = num_cross_layers
         self.deep_layer_sizes = deep_layer_sizes

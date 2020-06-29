@@ -513,7 +513,7 @@ class MultiboxLoss(nn.Module):
         self.center_variance = center_variance
         self.size_variance = size_variance
         self.priors = priors
-        self.priors.to(device)
+        self.priors
 
     def forward(self, confidence, predicted_locations, labels, gt_locations):
         """Compute classification loss and smooth l1 loss.
@@ -755,7 +755,7 @@ class SSD(nn.Module):
                 ) else 'cpu')
         if is_test:
             self.config = config
-            self.priors = config.priors.to(self.device)
+            self.priors = config.priors
 
     def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         confidences = []
@@ -863,23 +863,20 @@ class Test_shaoshengsong_MobileNetV3_SSD(_paritybench_base):
     def test_002(self):
         self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
-    def test_003(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -859,10 +859,9 @@ class BaseModel(AbstractBaseClass, torch.nn.Module):
         if z is None:
             z = self.sample_latent(n_samples, seed=seed)
         elif isinstance(z, list):
-            z = [(torch.tensor(l).to(self.device) if not torch.is_tensor(l)
-                 else l) for l in z]
+            z = [(torch.tensor(l) if not torch.is_tensor(l) else l) for l in z]
         elif not torch.is_tensor(z):
-            z = torch.tensor(z).to(self.device)
+            z = torch.tensor(z)
         img = self.forward(z)
         img_np = img.permute(0, 2, 3, 1).cpu().detach().numpy()
         return np.clip(img_np, 0.0, 1.0).squeeze()

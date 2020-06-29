@@ -54,11 +54,10 @@ class LSoftmaxLinear(nn.Module):
         self.weight = nn.Parameter(torch.FloatTensor(input_features,
             output_features))
         self.divisor = math.pi / self.margin
-        self.C_m_2n = torch.Tensor(binom(margin, range(0, margin + 1, 2))).to(
-            device)
-        self.cos_powers = torch.Tensor(range(self.margin, -1, -2)).to(device)
-        self.sin2_powers = torch.Tensor(range(len(self.cos_powers))).to(device)
-        self.signs = torch.ones(margin // 2 + 1).to(device)
+        self.C_m_2n = torch.Tensor(binom(margin, range(0, margin + 1, 2)))
+        self.cos_powers = torch.Tensor(range(self.margin, -1, -2))
+        self.sin2_powers = torch.Tensor(range(len(self.cos_powers)))
+        self.signs = torch.ones(margin // 2 + 1)
         self.signs[1::2] = -1
 
     def calculate_cos_m_theta(self, cos_theta):
@@ -182,3 +181,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_amirhfarzaneh_lsoftmax_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(LSoftmaxLinear(*[], **{'input_features': 4, 'output_features': 4, 'margin': 4, 'device': 4}), [torch.rand([4, 4])], {})
+

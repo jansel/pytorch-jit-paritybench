@@ -70,8 +70,8 @@ class LSR(nn.Module):
         one_hot = torch.zeros(labels.size(0), classes)
         labels = labels.view(labels.size(0), -1)
         value_added = torch.Tensor(labels.size(0), 1).fill_(value)
-        value_added = value_added.to(labels.device)
-        one_hot = one_hot.to(labels.device)
+        value_added = value_added
+        one_hot = one_hot
         one_hot.scatter_add_(1, labels, value_added)
         return one_hot
 
@@ -89,7 +89,7 @@ class LSR(nn.Module):
         """
         one_hot = self._one_hot(target, length, value=1 - smooth_factor)
         one_hot += smooth_factor / length
-        return one_hot.to(target.device)
+        return one_hot
 
     def forward(self, x, target):
         if x.size(0) != target.size(0):

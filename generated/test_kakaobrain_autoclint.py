@@ -71,10 +71,10 @@ class MoveToHook(nn.Module):
     def to(tensors, device, half=False):
         for t in tensors:
             if isinstance(t, (tuple, list)):
-                MoveToHook.to(t, device, half)
+                MoveToHook
             if not isinstance(t, torch.Tensor):
                 continue
-            t.data = t.data.to(device=device)
+            t.data = t.data
             if half:
                 if t.is_floating_point():
                     t.data = t.data.half()
@@ -84,7 +84,7 @@ class MoveToHook(nn.Module):
 
         def hook(module, inputs):
             _ = module
-            MoveToHook.to(inputs, device, half)
+            MoveToHook
         return hook
 
 
@@ -144,7 +144,7 @@ class ToDevice(torch.nn.Module):
         out = []
         for x in xs:
             if x is not None and x.device != device:
-                out.append(x.to(device=device))
+                out.append(x)
             else:
                 out.append(x)
         return out[0] if len(xs) == 1 else tuple(out)

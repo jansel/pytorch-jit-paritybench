@@ -1134,8 +1134,8 @@ class RoIPooling(nn.Module):
             t_xy = torch.stack((tx, ty)).view(batch_size, 2, 1)
             theta = torch.cat((ab, t_xy), 2)
             flowfield = nn.functional.affine_grid(theta, size)
-            one_pooled = nn.functional.grid_sample(features, flowfield.to(
-                torch.float32), mode='bilinear', padding_mode='border')
+            one_pooled = nn.functional.grid_sample(features, flowfield,
+                mode='bilinear', padding_mode='border')
             one_pooled = self.maxpool(one_pooled).view(batch_size, self.
                 inter_channels)
             pooled.append(one_pooled)

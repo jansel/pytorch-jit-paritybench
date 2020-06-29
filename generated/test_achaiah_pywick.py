@@ -1051,16 +1051,16 @@ class BCEDicePenalizeBorderLoss(nn.Module):
         self.kernel_size = kernel_size
 
     def to(self, device):
-        super().to(device=device)
-        self.bce.to(device=device)
-        self.dice.to(device=device)
+        super()
+        self.bce
+        self.dice
 
     def forward(self, logits, labels):
         a = F.avg_pool2d(labels, kernel_size=self.kernel_size, padding=self
             .kernel_size // 2, stride=1)
         ind = a.ge(0.01) * a.le(0.99)
         ind = ind.float()
-        weights = torch.ones(a.size()).to(device=logits.device)
+        weights = torch.ones(a.size())
         w0 = weights.sum()
         weights = weights + ind * 2
         w1 = weights.sum()
@@ -1118,11 +1118,11 @@ class FocalLoss2(nn.Module):
             logit = logit.view(-1, logit.size(-1))
         target = target.view(-1, 1)
         epsilon = 1e-10
-        alpha = self.alpha.to(logit.device)
+        alpha = self.alpha
         idx = target.cpu().long()
         one_hot_key = torch.FloatTensor(target.size(0), self.num_class).zero_()
         one_hot_key = one_hot_key.scatter_(1, idx, 1)
-        one_hot_key = one_hot_key.to(logit.device)
+        one_hot_key = one_hot_key
         if self.smooth:
             one_hot_key = torch.clamp(one_hot_key, self.smooth / (self.
                 num_class - 1), 1.0 - self.smooth)
@@ -1329,8 +1329,8 @@ class ComboBCEDiceLoss(nn.Module):
             self.reset_parameters()
 
     def to(self, device):
-        super().to(device=device)
-        self.bce_logits_loss.to(device=device)
+        super()
+        self.bce_logits_loss
 
     def reset_parameters(self):
         self.running_bce_loss.zero_()
@@ -1389,8 +1389,8 @@ class ComboSemsegLossWeighted(nn.Module):
             self.reset_parameters()
 
     def to(self, device):
-        super().to(device=device)
-        self.nll_loss.to(device=device)
+        super()
+        self.nll_loss
 
     def reset_parameters(self):
         self.running_bce_loss.zero_()
@@ -1460,8 +1460,8 @@ class OhemCrossEntropy2d(nn.Module):
                 ignore_label)
 
     def to(self, device):
-        super().to(device=device)
-        self.criterion.to(device=device)
+        super()
+        self.criterion
 
     def forward(self, predict, target, weight=None):
         """

@@ -52,7 +52,7 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
 
     def act(self, state, memory):
-        state = torch.from_numpy(state).float().to(device)
+        state = torch.from_numpy(state).float()
         action_probs = self.action_layer(state)
         dist = Categorical(action_probs)
         action = dist.sample()
@@ -78,15 +78,14 @@ class ActorCritic(nn.Module):
             Linear(64, 32), nn.Tanh(), nn.Linear(32, action_dim), nn.Tanh())
         self.critic = nn.Sequential(nn.Linear(state_dim, 64), nn.Tanh(), nn
             .Linear(64, 32), nn.Tanh(), nn.Linear(32, 1))
-        self.action_var = torch.full((action_dim,), action_std * action_std
-            ).to(device)
+        self.action_var = torch.full((action_dim,), action_std * action_std)
 
     def forward(self):
         raise NotImplementedError
 
     def act(self, state, memory):
         action_mean = self.actor(state)
-        cov_mat = torch.diag(self.action_var).to(device)
+        cov_mat = torch.diag(self.action_var)
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
         action_logprob = dist.log_prob(action)
@@ -98,7 +97,7 @@ class ActorCritic(nn.Module):
     def evaluate(self, state, action):
         action_mean = self.actor(state)
         action_var = self.action_var.expand_as(action_mean)
-        cov_mat = torch.diag_embed(action_var).to(device)
+        cov_mat = torch.diag_embed(action_var)
         dist = MultivariateNormal(action_mean, cov_mat)
         action_logprobs = dist.log_prob(action)
         dist_entropy = dist.entropy()

@@ -275,8 +275,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
         logit_probs_c, means_c, log_scales_c, K = self._extract_non_shared_c(
             c_cur, C, l, x_c)
         logit_probs_c_softmax = F.softmax(logit_probs_c, dim=1)
-        return CDFOut(logit_probs_c_softmax, means_c, log_scales_c, K,
-            targets.to(l.device))
+        return CDFOut(logit_probs_c_softmax, means_c, log_scales_c, K, targets)
 
     def sample(self, l, C):
         return self._non_shared_sample(l, C)

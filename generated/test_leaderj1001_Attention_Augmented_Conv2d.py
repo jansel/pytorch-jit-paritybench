@@ -135,10 +135,10 @@ class AugmentedConv(nn.Module):
 
     def rel_to_abs(self, x):
         B, Nh, L, _ = x.size()
-        col_pad = torch.zeros((B, Nh, L, 1)).to(x)
+        col_pad = torch.zeros((B, Nh, L, 1))
         x = torch.cat((x, col_pad), dim=3)
         flat_x = torch.reshape(x, (B, Nh, L * 2 * L))
-        flat_pad = torch.zeros((B, Nh, L - 1)).to(x)
+        flat_pad = torch.zeros((B, Nh, L - 1))
         flat_x_padded = torch.cat((flat_x, flat_pad), dim=2)
         final_x = torch.reshape(flat_x_padded, (B, Nh, L + 1, 2 * L - 1))
         final_x = final_x[:, :, :L, L - 1:]
@@ -339,10 +339,10 @@ class AugmentedConv(nn.Module):
 
     def rel_to_abs(self, x):
         B, Nh, L, _ = x.size()
-        col_pad = torch.zeros((B, Nh, L, 1)).to(x)
+        col_pad = torch.zeros((B, Nh, L, 1))
         x = torch.cat((x, col_pad), dim=3)
         flat_x = torch.reshape(x, (B, Nh, L * 2 * L))
-        flat_pad = torch.zeros((B, Nh, L - 1)).to(x)
+        flat_pad = torch.zeros((B, Nh, L - 1))
         flat_x_padded = torch.cat((flat_x, flat_pad), dim=2)
         final_x = torch.reshape(flat_x_padded, (B, Nh, L + 1, 2 * L - 1))
         final_x = final_x[:, :, :L, L - 1:]
@@ -420,10 +420,10 @@ class AugmentedConv(nn.Module):
         B, Nh, dk, H, W = q.size()
         q = torch.transpose(q, 2, 4).transpose(2, 3)
         key_rel_w = nn.Parameter(torch.randn((2 * W - 1, dk), requires_grad
-            =True)).to(device)
+            =True))
         rel_logits_w = self.relative_logits_1d(q, key_rel_w, H, W, Nh, 'w')
         key_rel_h = nn.Parameter(torch.randn((2 * H - 1, dk), requires_grad
-            =True)).to(device)
+            =True))
         rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3),
             key_rel_h, W, H, Nh, 'h')
         return rel_logits_h, rel_logits_w
@@ -445,10 +445,10 @@ class AugmentedConv(nn.Module):
 
     def rel_to_abs(self, x):
         B, Nh, L, _ = x.size()
-        col_pad = torch.zeros((B, Nh, L, 1)).to(device)
+        col_pad = torch.zeros((B, Nh, L, 1))
         x = torch.cat((x, col_pad), dim=3)
         flat_x = torch.reshape(x, (B, Nh, L * 2 * L))
-        flat_pad = torch.zeros((B, Nh, L - 1)).to(device)
+        flat_pad = torch.zeros((B, Nh, L - 1))
         flat_x_padded = torch.cat((flat_x, flat_pad), dim=2)
         final_x = torch.reshape(flat_x_padded, (B, Nh, L + 1, 2 * L - 1))
         final_x = final_x[:, :, :L, L - 1:]

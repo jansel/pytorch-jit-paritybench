@@ -1669,8 +1669,7 @@ class Pooler(nn.Module):
             poolers)):
             idx_in_level = torch.nonzero(levels == level).squeeze(1)
             rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level
-                ).to(dtype)
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
 
 
@@ -3606,7 +3605,7 @@ class NasHeadModule(torch.nn.Module):
         else:
             None
         points.reshape(1, -1, 2)
-        locations = locations.reshape(-1, 1, 2).to(points)
+        locations = locations.reshape(-1, 1, 2)
         dense_locations = points + locations
         dense_locations = dense_locations.view(-1, 2)
         return dense_locations
@@ -3777,10 +3776,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
         if candidate_inds.sum().item() == 0:
             empty_boxlists = []
             for a in anchors:
-                empty_boxlist = BoxList(torch.Tensor(0, 4).to(device), a.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([]).to(
-                    device))
-                empty_boxlist.add_field('scores', torch.Tensor([]).to(device))
+                empty_boxlist = BoxList(torch.Tensor(0, 4), a.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([]))
+                empty_boxlist.add_field('scores', torch.Tensor([]))
                 empty_boxlists.append(empty_boxlist)
             return empty_boxlists
         pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
@@ -3867,12 +3865,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
                 results.append(result)
             else:
                 device = boxlist.bbox.device
-                empty_boxlist = BoxList(torch.zeros(1, 4).to(device),
-                    boxlist.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([1]).to(
-                    device))
-                empty_boxlist.add_field('scores', torch.Tensor([0.01]).to(
-                    device))
+                empty_boxlist = BoxList(torch.zeros(1, 4), boxlist.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([1]))
+                empty_boxlist.add_field('scores', torch.Tensor([0.01]))
                 results.append(empty_boxlist)
         return results
 
@@ -4790,65 +4785,69 @@ class Test_Lausannen_NAS_FCOS(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(GAPConv1x1(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(IOULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(InnerBlock(*[], **{'in_c': 4, 'out_c': 4, 'rates': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_019(self):
         self._check(ParamSum(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_020(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_021(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_023(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_024(self):
+    def test_025(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

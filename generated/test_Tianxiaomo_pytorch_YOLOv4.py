@@ -1596,13 +1596,13 @@ class Yolo_loss(nn.Module):
             ref_anchors = torch.from_numpy(ref_anchors)
             fsize = image_size // self.strides[i]
             grid_x = torch.arange(fsize, dtype=torch.float).repeat(batch, 3,
-                fsize, 1).to(device)
+                fsize, 1)
             grid_y = torch.arange(fsize, dtype=torch.float).repeat(batch, 3,
-                fsize, 1).permute(0, 1, 3, 2).to(device)
+                fsize, 1).permute(0, 1, 3, 2)
             anchor_w = torch.from_numpy(masked_anchors[:, (0)]).repeat(batch,
-                fsize, fsize, 1).permute(0, 3, 1, 2).to(device)
+                fsize, fsize, 1).permute(0, 3, 1, 2)
             anchor_h = torch.from_numpy(masked_anchors[:, (1)]).repeat(batch,
-                fsize, fsize, 1).permute(0, 3, 1, 2).to(device)
+                fsize, fsize, 1).permute(0, 3, 1, 2)
             self.masked_anchors.append(masked_anchors)
             self.ref_anchors.append(ref_anchors)
             self.grid_x.append(grid_x)
@@ -1612,13 +1612,10 @@ class Yolo_loss(nn.Module):
 
     def build_target(self, pred, labels, batchsize, fsize, n_ch, output_id):
         tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 +
-            self.n_classes).to(device=self.device)
-        obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize).to(
-            device=self.device)
-        tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2).to(
-            self.device)
-        target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch).to(
-            self.device)
+            self.n_classes)
+        obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize)
+        tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2)
+        target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch)
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)
         truth_x_all = (labels[:, :, (2)] + labels[:, :, (0)]) / (self.
             strides[output_id] * 2)
@@ -1628,13 +1625,13 @@ class Yolo_loss(nn.Module):
             output_id]
         truth_h_all = (labels[:, :, (3)] - labels[:, :, (1)]) / self.strides[
             output_id]
-        truth_i_all = truth_x_all.to(torch.int16).cpu().numpy()
-        truth_j_all = truth_y_all.to(torch.int16).cpu().numpy()
+        truth_i_all = truth_x_all.cpu().numpy()
+        truth_j_all = truth_y_all.cpu().numpy()
         for b in range(batchsize):
             n = int(nlabel[b])
             if n == 0:
                 continue
-            truth_box = torch.zeros(n, 4).to(self.device)
+            truth_box = torch.zeros(n, 4)
             truth_box[:n, (2)] = truth_w_all[(b), :n]
             truth_box[:n, (3)] = truth_h_all[(b), :n]
             truth_i = truth_i_all[(b), :n]
@@ -1662,9 +1659,9 @@ class Yolo_loss(nn.Module):
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[(b), (a), (j), (i), :] = 1
                     target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[
-                        b, ti].to(torch.int16).to(torch.float)
+                        b, ti].to(torch.int16)
                     target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[
-                        b, ti].to(torch.int16).to(torch.float)
+                        b, ti].to(torch.int16)
                     target[b, a, j, i, 2] = torch.log(truth_w_all[b, ti] /
                         torch.Tensor(self.masked_anchors[output_id])[best_n
                         [ti], 0] + 1e-16)
@@ -1672,8 +1669,7 @@ class Yolo_loss(nn.Module):
                         torch.Tensor(self.masked_anchors[output_id])[best_n
                         [ti], 1] + 1e-16)
                     target[b, a, j, i, 4] = 1
-                    target[b, a, j, i, 5 + labels[b, ti, 4].to(torch.int16)
-                        .cpu().numpy()] = 1
+                    target[b, a, j, i, 5 + labels[b, ti, 4].cpu().numpy()] = 1
                     tgt_scale[(b), (a), (j), (i), :] = torch.sqrt(2 - 
                         truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize
                         )

@@ -323,11 +323,11 @@ class LUInvertibleMM(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if str(self.L_mask.device) != str(self.L.device):
-            self.L_mask = self.L_mask.to(self.L.device)
-            self.U_mask = self.U_mask.to(self.L.device)
-            self.I = self.I.to(self.L.device)
-            self.P = self.P.to(self.L.device)
-            self.sign_S = self.sign_S.to(self.L.device)
+            self.L_mask = self.L_mask
+            self.U_mask = self.U_mask
+            self.I = self.I
+            self.P = self.P
+            self.sign_S = self.sign_S
         L = self.L * self.L_mask + self.I
         U = self.U * self.U_mask + torch.diag(self.sign_S * torch.exp(self.
             log_S))
@@ -462,9 +462,9 @@ class FlowSequential(nn.Sequential):
         if noise is None:
             noise = torch.Tensor(num_samples, self.num_inputs).normal_()
         device = next(self.parameters()).device
-        noise = noise.to(device)
+        noise = noise
         if cond_inputs is not None:
-            cond_inputs = cond_inputs.to(device)
+            cond_inputs = cond_inputs
         samples = self.forward(noise, cond_inputs, mode='inverse')[0]
         return samples
 

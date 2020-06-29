@@ -200,7 +200,7 @@ class EncoderDecoder(nn.Module):
         else:
             self.encoder = PointNet(nlatent=opt.bottleneck_size)
         self.decoder = Atlasnet(opt)
-        self.to(opt.device)
+        self
         if not opt.SVR:
             self.apply(weights_init)
         self.eval()

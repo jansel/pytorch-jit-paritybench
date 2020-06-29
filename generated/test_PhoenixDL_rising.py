@@ -225,9 +225,9 @@ class AbstractParameter(torch.nn.Module):
             samples = reshape(samples, size)
         if isinstance(samples, torch.Tensor):
             if tensor_like is not None:
-                samples = samples.to(tensor_like)
+                samples = samples
             else:
-                samples = samples.to(device=device, dtype=dtype)
+                samples = samples
         return samples
 
 

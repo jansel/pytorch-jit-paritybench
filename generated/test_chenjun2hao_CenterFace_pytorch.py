@@ -2039,8 +2039,7 @@ class Anchors(nn.Module):
                 anchors)
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
         all_anchors = np.expand_dims(all_anchors, axis=0)
-        return torch.from_numpy(all_anchors.astype(np.float32)).to(image.device
-            )
+        return torch.from_numpy(all_anchors.astype(np.float32))
 
 
 def bias_init_with_prob(prior_prob):
@@ -5933,7 +5932,7 @@ class DddLoss(torch.nn.Module):
             if opt.eval_oracle_dep:
                 output['dep'] = torch.from_numpy(gen_oracle_map(batch['dep'
                     ].detach().cpu().numpy(), batch['ind'].detach().cpu().
-                    numpy(), opt.output_w, opt.output_h)).to(opt.device)
+                    numpy(), opt.output_w, opt.output_h))
             hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
             if opt.dep_weight > 0:
                 dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
@@ -6016,13 +6015,11 @@ class MultiPoseLoss(torch.nn.Module):
                 else:
                     output['hps'] = torch.from_numpy(gen_oracle_map(batch[
                         'hps'].detach().cpu().numpy(), batch['ind'].detach(
-                        ).cpu().numpy(), opt.output_res, opt.output_res)).to(
-                        opt.device)
+                        ).cpu().numpy(), opt.output_res, opt.output_res))
             if opt.eval_oracle_hp_offset:
                 output['hp_offset'] = torch.from_numpy(gen_oracle_map(batch
                     ['hp_offset'].detach().cpu().numpy(), batch['hp_ind'].
-                    detach().cpu().numpy(), opt.output_res, opt.output_res)
-                    ).to(opt.device)
+                    detach().cpu().numpy(), opt.output_res, opt.output_res))
             hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
             if opt.wh_weight > 0:
                 wh_loss += self.crit_reg(output['wh'], batch['reg_mask'],
@@ -6131,16 +6128,12 @@ class Test_chenjun2hao_CenterFace_pytorch(_paritybench_base):
     def test_022(self):
         self._check(fully_connected(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_023(self):
-        self._check(hardnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_024(self):
         self._check(hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_025(self):
+    def test_024(self):
         self._check(hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_025(self):
         self._check(residual(*[], **{'k': 4, 'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

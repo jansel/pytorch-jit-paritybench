@@ -1722,7 +1722,7 @@ class ENASLayer(nn.Module):
             device=prev.device)
         for i in range(self.num_nodes):
             node_out, mask = self.nodes[i](prev_nodes_out)
-            nodes_used_mask[:mask.size(0)] |= mask.to(node_out.device)
+            nodes_used_mask[:mask.size(0)] |= mask
             prev_nodes_out.append(node_out)
         unused_nodes = torch.cat([out for used, out in zip(nodes_used_mask,
             prev_nodes_out) if not used], 1)
@@ -5323,7 +5323,7 @@ class Layer(nn.Module):
             device=prev.device)
         for i in range(self.num_nodes):
             node_out, mask = self.nodes[i](prev_nodes_out)
-            nodes_used_mask[:mask.size(0)] |= mask.to(prev.device)
+            nodes_used_mask[:mask.size(0)] |= mask
             prev_nodes_out.append(node_out)
         unused_nodes = torch.cat([out for used, out in zip(nodes_used_mask,
             prev_nodes_out) if not used], 1)
@@ -5601,94 +5601,104 @@ class Test_microsoft_nni(_paritybench_base):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DistillHeadCIFAR(*[], **{'C': 4, 'size': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_015(self):
-        self._check(FacConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DistillHeadImagenet(*[], **{'C': 4, 'size': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_016(self):
+        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(FacConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_019(self):
         self._check(FocalLoss2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_020(self):
         self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    def test_019(self):
+    def test_021(self):
         self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_022(self):
         self._check(InteractiveKLLoss(*[], **{'temperature': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_023(self):
         self._check(LinearCombine(*[], **{'layers_num': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_024(self):
         self._check(LinearLayer(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_025(self):
         self._check(MBInvertedConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_024(self):
+    def test_026(self):
         self._check(Mask(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_025(self):
+    def test_027(self):
         self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_026(self):
+    def test_028(self):
         self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
+    def test_029(self):
         self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_028(self):
+    def test_030(self):
         self._check(ReductionLayer(*[], **{'in_channels_pp': 4, 'in_channels_p': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_029(self):
+    def test_031(self):
         self._check(SepConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_030(self):
+    def test_032(self):
         self._check(SepConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_033(self):
         self._check(SeparableConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_032(self):
+    def test_034(self):
         self._check(ShuffleLayer(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_033(self):
+    def test_035(self):
+        self._check(ShuffleNetBlock(*[], **{'inp': 4, 'oup': 4, 'mid_channels': 4, 'ksize': 3, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_036(self):
         self._check(ShuffleXceptionBlock(*[], **{'inp': 4, 'oup': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_034(self):
+    def test_037(self):
         self._check(SpatialAttentionGate(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_035(self):
+    def test_038(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_036(self):
+    def test_039(self):
         self._check(StdConv(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_037(self):
+    def test_040(self):
         self._check(TorchAdd(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_038(self):
+    def test_041(self):
         self._check(TorchFlatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_039(self):
+    def test_042(self):
         self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_040(self):
+    def test_043(self):
         self._check(VGG_Cifar10(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_041(self):
+    def test_044(self):
         self._check(ZeroLayer(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_042(self):
+    def test_045(self):
         self._check(fc1(*[], **{}), [torch.rand([784, 784])], {})
 

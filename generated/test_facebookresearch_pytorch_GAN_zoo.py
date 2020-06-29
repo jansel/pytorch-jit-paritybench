@@ -206,14 +206,14 @@ class LossTexture(torch.nn.Module):
         super(LossTexture, self).__init__()
         scalesOut.sort()
         model = loadmodule('torchvision.models', modelName, prefix='')
-        self.featuresSeq = model(pretrained=True).features.to(device)
+        self.featuresSeq = model(pretrained=True).features
         self.indexLayers = extractRelUIndexes(self.featuresSeq, scalesOut)
         self.reductionFactor = [(1 / float(2 ** (i - 1))) for i in scalesOut]
         refMean = [(2 * p - 1) for p in [0.485, 0.456, 0.406]]
         refSTD = [(2 * p) for p in [0.229, 0.224, 0.225]]
         self.imgTransform = FeatureTransform(mean=refMean, std=refSTD, size
             =None)
-        self.imgTransform = self.imgTransform.to(device)
+        self.imgTransform = self.imgTransform
 
     def getLoss(self, fake, reals, mask=None):
         featuresReals = self.getFeatures(reals, detach=True, prepImg=True,

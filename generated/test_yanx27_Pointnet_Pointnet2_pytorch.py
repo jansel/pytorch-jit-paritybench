@@ -987,13 +987,21 @@ class Test_yanx27_Pointnet_Pointnet2_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(STN3d(*[], **{'channel': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(PointNetFeaturePropagation(*[], **{'in_channel': 4, 'mlp': [4, 4]}), [torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
+        self._check(PointNetSetAbstraction(*[], **{'npoint': 4, 'radius': 4, 'nsample': 4, 'in_channel': 4, 'mlp': [4, 4], 'group_all': 4}), [torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(STN3d(*[], **{'channel': 4}), [torch.rand([4, 4, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(get_model(*[], **{'num_class': 4}), [torch.rand([4, 6, 64])], {})
 

@@ -1261,17 +1261,13 @@ class Test_tensorboy_pytorch_Realtime_Multi_Person_Pose_Estimation(_paritybench_
     def test_006(self):
         self._check(StageBlock(*[], **{'in_channels': 4, 'inner_channels': 4, 'innerout_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Ying_model(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_008(self):
         self._check(dilation_layer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(feature_extractor(*[], **{'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(stage_block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

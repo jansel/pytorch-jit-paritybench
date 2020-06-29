@@ -243,10 +243,9 @@ class MatchingNetwork(nn.Module):
         self.num_input_channels = num_input_channels
         self.encoder = get_few_shot_encoder(self.num_input_channels)
         if self.fce:
-            self.g = BidrectionalLSTM(lstm_input_size, lstm_layers).to(device,
-                dtype=torch.double)
+            self.g = BidrectionalLSTM(lstm_input_size, lstm_layers)
             self.f = AttentionLSTM(lstm_input_size, unrolling_steps=
-                unrolling_steps).to(device, dtype=torch.double)
+                unrolling_steps)
 
     def forward(self, inputs):
         pass
@@ -346,4 +345,7 @@ class Test_oscarknagg_few_shot(_paritybench_base):
 
     def test_004(self):
         self._check(GlobalMaxPool1d(*[], **{}), [torch.rand([4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(MatchingNetwork(*[], **{'n': 4, 'k': 4, 'q': 4, 'fce': 4, 'num_input_channels': 4, 'lstm_layers': 1, 'lstm_input_size': 4, 'unrolling_steps': 4, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
 

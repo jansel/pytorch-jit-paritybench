@@ -1183,10 +1183,10 @@ class AdaptiveSoftmax(nn.Module):
         prob: ``torch.FloatTensor``.
             The full log-probability.
         """
-        lsm = nn.LogSoftmax(dim=1).to(device)
+        lsm = nn.LogSoftmax(dim=1)
         head_out = self.head(w_in)
         batch_size = head_out.size(0)
-        prob = torch.zeros(batch_size, self.cutoff[-1]).to(device)
+        prob = torch.zeros(batch_size, self.cutoff[-1])
         lsm_head = lsm(head_out)
         prob.narrow(1, 0, self.output_size).add_(lsm_head.narrow(1, 0, self
             .output_size).data)

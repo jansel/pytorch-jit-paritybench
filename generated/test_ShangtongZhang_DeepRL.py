@@ -283,7 +283,7 @@ class VanillaNet(nn.Module, BaseNet):
         super(VanillaNet, self).__init__()
         self.fc_head = layer_init(nn.Linear(body.feature_dim, output_dim))
         self.body = body
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, x):
         phi = self.body(tensor(x))
@@ -298,7 +298,7 @@ class DuelingNet(nn.Module, BaseNet):
         self.fc_value = layer_init(nn.Linear(body.feature_dim, 1))
         self.fc_advantage = layer_init(nn.Linear(body.feature_dim, action_dim))
         self.body = body
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, x, to_numpy=False):
         phi = self.body(tensor(x))
@@ -318,7 +318,7 @@ class CategoricalNet(nn.Module, BaseNet):
         self.action_dim = action_dim
         self.num_atoms = num_atoms
         self.body = body
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, x):
         phi = self.body(tensor(x))
@@ -338,7 +338,7 @@ class QuantileNet(nn.Module, BaseNet):
         self.action_dim = action_dim
         self.num_quantiles = num_quantiles
         self.body = body
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, x):
         phi = self.body(tensor(x))
@@ -358,7 +358,7 @@ class OptionCriticNet(nn.Module, BaseNet):
         self.num_options = num_options
         self.action_dim = action_dim
         self.body = body
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, x):
         phi = self.body(tensor(x))
@@ -396,7 +396,7 @@ class DeterministicActorCriticNet(nn.Module, BaseNet):
         self.phi_params = list(self.phi_body.parameters())
         self.actor_opt = actor_opt_fn(self.actor_params + self.phi_params)
         self.critic_opt = critic_opt_fn(self.critic_params + self.phi_params)
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, obs):
         phi = self.feature(obs)
@@ -439,7 +439,7 @@ class GaussianActorCriticNet(nn.Module, BaseNet):
         self.actor_params.append(self.std)
         self.critic_params = list(self.critic_body.parameters()) + list(self
             .fc_critic.parameters()) + self.phi_params
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, obs, action=None):
         obs = tensor(obs)
@@ -480,7 +480,7 @@ class CategoricalActorCriticNet(nn.Module, BaseNet):
         self.critic_params = list(self.critic_body.parameters()) + list(self
             .fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, obs, action=None):
         obs = tensor(obs)
@@ -518,7 +518,7 @@ class TD3Net(nn.Module, BaseNet):
             ) + list(self.fc_critic_2.parameters())
         self.actor_opt = actor_opt_fn(self.actor_params)
         self.critic_opt = critic_opt_fn(self.critic_params)
-        self.to(Config.DEVICE)
+        self
 
     def forward(self, obs):
         obs = tensor(obs)

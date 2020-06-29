@@ -88,7 +88,7 @@ class Bin_Mean_Shift(nn.Module):
         y = torch.linspace(start_y, end_y, bin_num).view(1, bin_num)
         x_repeat = x.repeat(1, bin_num).view(-1, 1)
         y_repeat = y.repeat(bin_num, 1).view(-1, 1)
-        return torch.cat((x_repeat, y_repeat), dim=1).to(self.device)
+        return torch.cat((x_repeat, y_repeat), dim=1)
 
     def filter_seed(self, point, prob, seed_point, bandwidth, min_count=3):
         """
@@ -146,7 +146,7 @@ class Bin_Mean_Shift(nn.Module):
         label_num = torch.max(labels).int() + 1
         onehot = torch.zeros((n, label_num))
         onehot.scatter_(1, labels.long(), 1.0)
-        return onehot.to(self.device)
+        return onehot
 
     def merge_center(self, seed_point, bandwidth=0.25):
         """

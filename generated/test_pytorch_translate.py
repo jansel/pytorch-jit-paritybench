@@ -3082,5 +3082,13 @@ class Test_pytorch_translate(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(MultiheadAttention(*[], **{'nheads': 4, 'd_model': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(OutputProjection(*[], **{'out_embed_dim': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(WordPredictor(*[], **{'encoder_output_dim': 4, 'hidden_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

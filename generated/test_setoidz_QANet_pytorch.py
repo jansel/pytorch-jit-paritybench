@@ -73,7 +73,7 @@ class PosEncoder(nn.Module):
             dim=1)
         phases = torch.Tensor([(0 if i % 2 == 0 else math.pi / 2) for i in
             range(d_model)]).unsqueeze(dim=1)
-        pos = torch.arange(length).repeat(d_model, 1).to(torch.float)
+        pos = torch.arange(length).repeat(d_model, 1)
         self.pos_encoding = nn.Parameter(torch.sin(torch.add(torch.mul(pos,
             freqs), phases)), requires_grad=False)
 
@@ -435,9 +435,12 @@ class Test_setoidz_QANet_pytorch(_paritybench_base):
         self._check(MultiHeadAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
+        self._check(Pointer(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_005(self):
         self._check(PosEncoder(*[], **{'length': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(SelfAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

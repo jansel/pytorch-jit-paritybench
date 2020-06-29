@@ -1332,8 +1332,7 @@ class Model(nn.Module):
                         feat = self.features_one[obj_name][0]
                     else:
                         feat = self.features[obj_name][(min(feat_num, 99)), :]
-                    feat = torch.from_numpy(feat).type(torch.float32).to(device
-                        )
+                    feat = torch.from_numpy(feat).type(torch.float32)
                     all_features.append(feat)
             for s, p, o in sg['relationships']:
                 pred_idx = self.vocab['pred_name_to_idx'].get(p, None)
@@ -1376,9 +1375,9 @@ class InceptionScore(nn.Module):
         if not cuda and torch.cuda.is_available():
             None
         self.inception_model = inception_v3(pretrained=True,
-            transform_input=False).to(self.device)
+            transform_input=False)
         self.inception_model.eval()
-        self.up = Interpolate(size=(299, 299), mode='bilinear').to(self.device)
+        self.up = Interpolate(size=(299, 299), mode='bilinear')
         self.clean()
 
     def clean(self):
@@ -1391,7 +1390,7 @@ class InceptionScore(nn.Module):
         return F.softmax(x, dim=1).data.cpu().numpy()
 
     def forward(self, imgs):
-        preds_imgs = self.get_pred(imgs.to(self.device))
+        preds_imgs = self.get_pred(imgs)
         self.preds = np.append(self.preds, preds_imgs, axis=0)
 
     def compute_score(self, splits=1):

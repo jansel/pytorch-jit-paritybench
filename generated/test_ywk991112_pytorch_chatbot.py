@@ -89,7 +89,7 @@ class Attn(nn.Module):
         max_len = encoder_outputs.size(0)
         batch_size = encoder_outputs.size(1)
         attn_energies = torch.zeros(batch_size, max_len)
-        attn_energies = attn_energies.to(device)
+        attn_energies = attn_energies
         for b in range(batch_size):
             for i in range(max_len):
                 attn_energies[b, i] = self.score(hidden[:, (b)],

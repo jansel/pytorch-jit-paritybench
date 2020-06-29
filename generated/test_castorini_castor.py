@@ -331,7 +331,7 @@ class DecAtt(nn.Module):
             clipped_index = torch.clamp(raw_index, 0, self.distance_biases - 1)
             clipped_index = Variable(clipped_index.long())
             if torch.cuda.is_available():
-                clipped_index = clipped_index.to(self.device)
+                clipped_index = clipped_index
             bias = self.bias_embedding(clipped_index)
             bias = torch.squeeze(bias)
             raw_attentions += bias
@@ -473,8 +473,8 @@ class LSTM(nn.Module):
         h = Variable(torch.zeros(x.size(1), x.size(2)))
         c = Variable(torch.zeros(x.size(1), x.size(2)))
         if torch.cuda.is_available():
-            h = h.to(self.device)
-            c = c.to(self.device)
+            h = h
+            c = c
         all_hidden = []
         for step in range(x.size(0)):
             input = x[step]
@@ -546,8 +546,7 @@ class ESIM(nn.Module):
     def initialize_lstm(self):
         if torch.cuda.is_available():
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0)
-                ).to(self.device)
+                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
                 ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
@@ -614,7 +613,7 @@ class ESIM(nn.Module):
             pad_mask[:s_length] = 1
             masks.append(pad_mask)
         masks = np.array(masks)
-        return torch.from_numpy(masks).float().to(self.device)
+        return torch.from_numpy(masks).float()
 
     def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
         raw_sent1=None, raw_sent2=None, visualize=False):
@@ -629,13 +628,13 @@ class ESIM(nn.Module):
         idx_1 = [i for i in range(x1.size(0) - 1, -1, -1)]
         idx_1 = Variable(torch.LongTensor(idx_1))
         if torch.cuda.is_available():
-            idx_1 = idx_1.to(self.device)
+            idx_1 = idx_1
         x1_r = torch.index_select(x1, 0, idx_1)
         x1_mask_r = torch.index_select(x1_mask, 0, idx_1)
         idx_2 = [i for i in range(x2.size(0) - 1, -1, -1)]
         idx_2 = Variable(torch.LongTensor(idx_2))
         if torch.cuda.is_available():
-            idx_2 = Variable(torch.LongTensor(idx_2)).to(self.device)
+            idx_2 = Variable(torch.LongTensor(idx_2))
         x2_r = torch.index_select(x2, 0, idx_2)
         x2_mask_r = torch.index_select(x2_mask, 0, idx_2)
         proj1 = self.lstm_intra(x1, x1_mask)
@@ -1245,7 +1244,7 @@ class VDPWIModel(nn.Module):
             pad_mask[:s1_length, :s2_length] = 0
             pad_cube.append(pad_mask)
         pad_cube = np.array(pad_cube)
-        return torch.from_numpy(pad_cube).float().to(self.device).unsqueeze(0)
+        return torch.from_numpy(pad_cube).float().unsqueeze(0)
 
     def compute_sim_cube(self, seq1, seq2):
 
@@ -1265,7 +1264,7 @@ class VDPWIModel(nn.Module):
             prism2 = prism2.permute(1, 0, 2, 3).contiguous()
             return compute_sim(prism1, prism2)
         sim_cube = torch.Tensor(seq1.size(0), 12, seq1.size(1), seq2.size(1))
-        sim_cube = sim_cube.to(self.device)
+        sim_cube = sim_cube
         seq1_f = seq1[:, :, :self.hidden_dim]
         seq1_b = seq1[:, :, self.hidden_dim:]
         seq2_f = seq2[:, :, :self.hidden_dim]
@@ -1281,7 +1280,7 @@ class VDPWIModel(nn.Module):
         pad_cube = pad_cube.repeat(12, 1, 1, 1)
         pad_cube = pad_cube.permute(1, 0, 2, 3).contiguous()
         sim_cube = neg_magic * pad_cube + sim_cube
-        mask = torch.Tensor(*sim_cube.size()).to(self.device)
+        mask = torch.Tensor(*sim_cube.size())
         mask[:, :, :, :] = 0.1
 
         def build_mask(index):
@@ -1327,4 +1326,24 @@ class VDPWIModel(nn.Module):
         focus_cube = self.compute_focus_cube(sim_cube, pad_cube)
         log_prob = self.classifier_net(focus_cube)
         return log_prob
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_castorini_castor(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(LSTM(*[], **{'device': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(LSTM_Cell(*[], **{'device': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ResNet(*[], **{'config': _mock_config(res_layers=1, res_fmaps=4, n_labels=4)}), [torch.rand([4, 12, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(VDPWIConvNet(*[], **{'config': _mock_config(n_labels=4)}), [torch.rand([4, 12, 4, 4])], {})
 

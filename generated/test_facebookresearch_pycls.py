@@ -631,10 +631,10 @@ class StemIN(nn.Module):
         return cx
 
 
-_global_config['TEST'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['TEST'] = 4
 
 
 class EffNet(nn.Module):

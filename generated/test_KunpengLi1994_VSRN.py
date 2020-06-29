@@ -796,13 +796,17 @@ class Test_KunpengLi1994_VSRN(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(EncoderRNN(*[], **{'dim_vid': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(EncoderImagePrecompAttn(*[], **{'img_dim': 4, 'embed_size': 4, 'data_name': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(EncoderRNN(*[], **{'dim_vid': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(Rs_GCN(*[], **{'in_channels': 4, 'inter_channels': 4}), [torch.rand([4, 4, 64])], {})
 

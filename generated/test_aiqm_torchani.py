@@ -458,8 +458,7 @@ class AEVComputer(torch.nn.Module):
         self.aev_length = self.radial_length + self.angular_length
         self.sizes = (self.num_species, self.radial_sublength, self.
             radial_length, self.angular_sublength, self.angular_length)
-        self.register_buffer('triu_index', triu_index(num_species).to(
-            device=self.EtaR.device))
+        self.register_buffer('triu_index', triu_index(num_species))
         cutoff = max(self.Rcr, self.Rca)
         default_cell = torch.eye(3, dtype=self.EtaR.dtype, device=self.EtaR
             .device)
@@ -649,8 +648,7 @@ class SpeciesConverter(torch.nn.Module):
         =None, pbc: Optional[Tensor]=None):
         """Convert species from periodic table element index to 0, 1, 2, 3, ... indexing"""
         species, coordinates = input_
-        return SpeciesCoordinates(self.conv_tensor[species].to(species.
-            device), coordinates)
+        return SpeciesCoordinates(self.conv_tensor[species], coordinates)
 
 
 class EnergyShifter(torch.nn.Module):

@@ -309,7 +309,7 @@ class CrossEntropyLoss_LSR(nn.Module):
 
     def forward(self, pre, label, size_average=True):
         b, c = pre.size()
-        one_hot_label = self._toOneHot_smooth(label, b, c).to(self.device)
+        one_hot_label = self._toOneHot_smooth(label, b, c)
         loss = torch.sum(-one_hot_label * self.logSoftmax(pre), dim=1)
         if size_average:
             return torch.mean(loss)
@@ -350,10 +350,8 @@ class AEN_GloVe(nn.Module):
         ht, _ = self.attn_q(context, target)
         ht = self.ffn_t(ht)
         s1, _ = self.attn_s1(hc, ht)
-        context_len = torch.tensor(context_len, dtype=torch.float).to(self.
-            opt.device)
-        target_len = torch.tensor(target_len, dtype=torch.float).to(self.
-            opt.device)
+        context_len = torch.tensor(context_len, dtype=torch.float)
+        target_len = torch.tensor(target_len, dtype=torch.float)
         hc_mean = torch.div(torch.sum(hc, dim=1), context_len.view(
             context_len.size(0), 1))
         ht_mean = torch.div(torch.sum(ht, dim=1), target_len.view(
@@ -400,10 +398,8 @@ class AEN_BERT(nn.Module):
         ht, _ = self.attn_q(context, target)
         ht = self.ffn_t(ht)
         s1, _ = self.attn_s1(hc, ht)
-        context_len = torch.tensor(context_len, dtype=torch.float).to(self.
-            opt.device)
-        target_len = torch.tensor(target_len, dtype=torch.float).to(self.
-            opt.device)
+        context_len = torch.tensor(context_len, dtype=torch.float)
+        target_len = torch.tensor(target_len, dtype=torch.float)
         hc_mean = torch.div(torch.sum(hc, dim=1), context_len.view(
             context_len.size(0), 1))
         ht_mean = torch.div(torch.sum(ht, dim=1), target_len.view(
@@ -488,7 +484,7 @@ class ATAE_LSTM(nn.Module):
         x_len = torch.sum(text_raw_indices != 0, dim=-1)
         x_len_max = torch.max(x_len)
         aspect_len = torch.tensor(torch.sum(aspect_indices != 0, dim=-1),
-            dtype=torch.float).to(self.opt.device)
+            dtype=torch.float)
         x = self.embed(text_raw_indices)
         x = self.squeeze_embedding(x, x_len)
         aspect = self.embed(aspect_indices)
@@ -649,13 +645,11 @@ class IAN(nn.Module):
         aspect = self.embed(aspect_indices)
         context, (_, _) = self.lstm_context(context, text_raw_len)
         aspect, (_, _) = self.lstm_aspect(aspect, aspect_len)
-        aspect_len = torch.tensor(aspect_len, dtype=torch.float).to(self.
-            opt.device)
+        aspect_len = torch.tensor(aspect_len, dtype=torch.float)
         aspect_pool = torch.sum(aspect, dim=1)
         aspect_pool = torch.div(aspect_pool, aspect_len.view(aspect_len.
             size(0), 1))
-        text_raw_len = torch.tensor(text_raw_len, dtype=torch.float).to(self
-            .opt.device)
+        text_raw_len = torch.tensor(text_raw_len, dtype=torch.float)
         context_pool = torch.sum(context, dim=1)
         context_pool = torch.div(context_pool, text_raw_len.view(
             text_raw_len.size(0), 1))
@@ -679,8 +673,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, inputs):
         zero_tensor = torch.tensor(np.zeros((inputs.size(0), 1, 1, self.opt
-            .max_seq_len), dtype=np.float32), dtype=torch.float32).to(self.
-            opt.device)
+            .max_seq_len), dtype=np.float32), dtype=torch.float32)
         SA_out = self.SA(inputs, zero_tensor)
         return self.tanh(SA_out[0])
 
@@ -723,7 +716,7 @@ class LCF_BERT(nn.Module):
                 masked_text_raw_indices[text_i][j] = np.zeros(self.opt.
                     bert_dim, dtype=np.float)
         masked_text_raw_indices = torch.from_numpy(masked_text_raw_indices)
-        return masked_text_raw_indices.to(self.opt.device)
+        return masked_text_raw_indices
 
     def feature_dynamic_weighted(self, text_local_indices, aspect_indices):
         texts = text_local_indices.cpu().numpy()
@@ -749,7 +742,7 @@ class LCF_BERT(nn.Module):
                 masked_text_raw_indices[text_i][i] = masked_text_raw_indices[
                     text_i][i] * distances[i]
         masked_text_raw_indices = torch.from_numpy(masked_text_raw_indices)
-        return masked_text_raw_indices.to(self.opt.device)
+        return masked_text_raw_indices
 
     def forward(self, inputs):
         text_bert_indices = inputs[0]
@@ -808,7 +801,7 @@ class MemNet(nn.Module):
                 weight[i].append(1 - float(idx + 1) / memory_len[i])
             for idx in range(memory_len[i], seq_len):
                 weight[i].append(1)
-        weight = torch.tensor(weight).to(self.opt.device)
+        weight = torch.tensor(weight)
         memory = weight.unsqueeze(2) * memory
         return memory
 
@@ -826,8 +819,7 @@ class MemNet(nn.Module):
         text_raw_without_aspect_indices, aspect_indices = inputs[0], inputs[1]
         memory_len = torch.sum(text_raw_without_aspect_indices != 0, dim=-1)
         aspect_len = torch.sum(aspect_indices != 0, dim=-1)
-        nonzeros_aspect = torch.tensor(aspect_len, dtype=torch.float).to(self
-            .opt.device)
+        nonzeros_aspect = torch.tensor(aspect_len, dtype=torch.float)
         memory = self.embed(text_raw_without_aspect_indices)
         memory = self.squeeze_embedding(memory, memory_len)
         aspect = self.embed(aspect_indices)
@@ -852,8 +844,7 @@ class LocationEncoding(nn.Module):
 
     def forward(self, x, pos_inx):
         batch_size, seq_len = x.size()[0], x.size()[1]
-        weight = self.weight_matrix(pos_inx, batch_size, seq_len).to(self.
-            opt.device)
+        weight = self.weight_matrix(pos_inx, batch_size, seq_len)
         x = weight.unsqueeze(2) * x
         return x
 
@@ -887,8 +878,7 @@ class AlignmentMatrix(nn.Module):
     def forward(self, batch_size, ctx, asp):
         ctx_len = ctx.size(1)
         asp_len = asp.size(1)
-        alignment_mat = torch.zeros(batch_size, ctx_len, asp_len).to(self.
-            opt.device)
+        alignment_mat = torch.zeros(batch_size, ctx_len, asp_len)
         ctx_chunks = ctx.chunk(ctx_len, dim=1)
         asp_chunks = asp.chunk(asp_len, dim=1)
         for i, ctx_chunk in enumerate(ctx_chunks):
@@ -982,9 +972,8 @@ class RAM(nn.Module):
             for idx in range(memory_len[i], seq_len):
                 weight[i].append(1)
                 u[i].append(0)
-        u = torch.tensor(u, dtype=memory.dtype).to(self.opt.device).unsqueeze(2
-            )
-        weight = torch.tensor(weight).to(self.opt.device).unsqueeze(2)
+        u = torch.tensor(u, dtype=memory.dtype).unsqueeze(2)
+        weight = torch.tensor(weight).unsqueeze(2)
         v = memory * weight
         memory = torch.cat([v, u], dim=2)
         return memory
@@ -1015,14 +1004,14 @@ class RAM(nn.Module):
         aspect = self.embed(aspect_indices)
         aspect = torch.sum(aspect, dim=1)
         aspect = torch.div(aspect, nonzeros_aspect.unsqueeze(-1))
-        et = torch.zeros_like(aspect).to(self.opt.device)
+        et = torch.zeros_like(aspect)
         batch_size = memory.size(0)
         seq_len = memory.size(1)
         for _ in range(self.opt.hops):
             g = self.att_linear(torch.cat([memory, torch.zeros(batch_size,
-                seq_len, self.opt.embed_dim).to(self.opt.device) + et.
-                unsqueeze(1), torch.zeros(batch_size, seq_len, self.opt.
-                embed_dim).to(self.opt.device) + aspect.unsqueeze(1)], dim=-1))
+                seq_len, self.opt.embed_dim) + et.unsqueeze(1), torch.zeros
+                (batch_size, seq_len, self.opt.embed_dim) + aspect.
+                unsqueeze(1)], dim=-1))
             alpha = F.softmax(g, dim=1)
             i = torch.bmm(alpha.transpose(1, 2), memory).squeeze(1)
             et = self.gru_cell(i, et)
@@ -1095,8 +1084,7 @@ class Absolute_Position_Embedding(nn.Module):
         if self.size is None or self.mode == 'sum':
             self.size = int(x.size(-1))
         batch_size, seq_len = x.size()[0], x.size()[1]
-        weight = self.weight_matrix(pos_inx, batch_size, seq_len).to(self.
-            opt.device)
+        weight = self.weight_matrix(pos_inx, batch_size, seq_len)
         x = weight.unsqueeze(2) * x
         return x
 

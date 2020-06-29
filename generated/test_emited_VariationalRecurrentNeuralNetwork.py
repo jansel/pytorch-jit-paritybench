@@ -138,3 +138,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_emited_VariationalRecurrentNeuralNetwork(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(VRNN(*[], **{'x_dim': 4, 'h_dim': 4, 'z_dim': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+

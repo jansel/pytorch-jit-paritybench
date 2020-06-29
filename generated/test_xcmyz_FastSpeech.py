@@ -625,7 +625,7 @@ class LengthRegulator(nn.Module):
                 duration_predictor_output[0][idx] = self.rounding(ele)
             output = self.LR(x, duration_predictor_output, alpha)
             mel_pos = torch.stack([torch.Tensor([(i + 1) for i in range(
-                output.size(1))])]).long().to(device)
+                output.size(1))])]).long()
             return output, mel_pos
 
 
@@ -1814,35 +1814,38 @@ class Test_xcmyz_FastSpeech(_paritybench_base):
     def test_001(self):
         self._check(ConvNorm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FastSpeechLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FFN(*[], **{'num_hidden': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(FastSpeechLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Invertible1x1Conv(*[], **{'c': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(Linear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(LinearNorm(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(LocationLayer(*[], **{'attention_n_filters': 4, 'attention_kernel_size': 4, 'attention_dim': 4}), [torch.rand([4, 2, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(MultiheadAttention(*[], **{'num_hidden_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(PostNet(*[], **{}), [torch.rand([4, 80, 80])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(PreNet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

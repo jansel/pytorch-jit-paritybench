@@ -706,7 +706,7 @@ class Generator(nn.Module):
 
     def set_arch(self, arch_id, cur_stage):
         if not isinstance(arch_id, list):
-            arch_id = arch_id.to('cpu').numpy().tolist()
+            arch_id = arch_id.numpy().tolist()
         arch_id = [int(x) for x in arch_id]
         self.cur_stage = cur_stage
         arch_stage1 = arch_id[:4]

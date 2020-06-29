@@ -1761,37 +1761,29 @@ class Test_meetshah1995_pytorch_semseg(_paritybench_base):
 
     @_fails_compile()
     def test_011(self):
-        self._check(frrn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(pspnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_013(self):
         self._check(pyramidPooling(*[], **{'in_channels': 4, 'pool_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_012(self):
         self._check(refinenet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_013(self):
         self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_014(self):
         self._check(residualBlockPSP(*[], **{'n_blocks': 1, 'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_015(self):
         self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_016(self):
         self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_017(self):
         self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_018(self):
         self._check(unetConv2(*[], **{'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}), [torch.rand([4, 4, 64, 64])], {})
 

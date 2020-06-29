@@ -291,7 +291,7 @@ class InceptionResnetV1(nn.Module):
         self.device = torch.device('cpu')
         if device is not None:
             self.device = device
-            self.to(device)
+            self
 
     def forward(self, x):
         """Calculate embeddings or logits given a batch of input image tensors.
@@ -805,7 +805,7 @@ class MTCNN(nn.Module):
         self.device = torch.device('cpu')
         if device is not None:
             self.device = device
-            self.to(device)
+            self
 
     def forward(self, img, save_path=None, return_prob=False):
         """Run MTCNN face detection on a PIL image or numpy array. This method performs both

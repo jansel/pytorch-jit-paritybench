@@ -66,8 +66,7 @@ class LegoConv2d(nn.Module):
             (self.n_split, self.out_channels, self.n_lego, 1, 1)))
 
     def forward(self, x):
-        self.proxy_combination = torch.zeros(self.aux_combination.size()).to(
-            self.aux_combination.device)
+        self.proxy_combination = torch.zeros(self.aux_combination.size())
         self.proxy_combination.scatter_(2, self.aux_combination.argmax(dim=
             2, keepdim=True), 1)
         self.proxy_combination.requires_grad = True

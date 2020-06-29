@@ -171,8 +171,7 @@ class STFT(torch.nn.Module):
                 n_fft=self.filter_length, dtype=np.float32)
             approx_nonzero_indices = torch.from_numpy(np.where(window_sum >
                 tiny(window_sum))[0])
-            window_sum = torch.from_numpy(window_sum).to(inverse_transform.
-                device)
+            window_sum = torch.from_numpy(window_sum)
             inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[
                 approx_nonzero_indices]
             inverse_transform *= float(self.filter_length) / self.hop_length

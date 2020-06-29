@@ -380,7 +380,3 @@ class Test_DrSleep_light_weight_refinenet(_paritybench_base):
     def test_002(self):
         self._check(InvertedResidualBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_003(self):
-        self._check(MBv2(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-

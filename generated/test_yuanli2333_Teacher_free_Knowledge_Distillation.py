@@ -806,29 +806,21 @@ class Test_yuanli2333_Teacher_free_Knowledge_Distillation(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(GoogleNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(Inception(*[], **{'input_channels': 4, 'n1x1': 4, 'n3x3_reduce': 4, 'n3x3': 4, 'n5x5_reduce': 4, 'n5x5': 4, 'pool_proj': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(LinearBottleNeck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(ShuffleNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_008(self):
+    def test_006(self):
         self._check(ShuffleUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_007(self):
         self._check(Transition(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

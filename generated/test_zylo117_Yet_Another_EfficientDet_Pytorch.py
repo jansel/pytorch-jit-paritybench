@@ -270,7 +270,7 @@ class FocalLoss(nn.Module):
                         )
                     bce = -torch.log(1.0 - classification)
                     cls_loss = focal_weight * bce
-                    regression_losses.append(torch.tensor(0).to(dtype))
+                    regression_losses.append(torch.tensor(0))
                     classification_losses.append(cls_loss.sum())
                 continue
             IoU = calc_iou(anchor[:, :], bbox_annotation[:, :4])
@@ -301,7 +301,7 @@ class FocalLoss(nn.Module):
                 zeros = zeros
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
             classification_losses.append(cls_loss.sum() / torch.clamp(
-                num_positive_anchors.to(dtype), min=1.0))
+                num_positive_anchors, min=1.0))
             if positive_indices.sum() > 0:
                 assigned_annotations = assigned_annotations[(
                     positive_indices), :]
@@ -333,7 +333,7 @@ class FocalLoss(nn.Module):
             elif torch.cuda.is_available():
                 regression_losses.append(torch.tensor(0).to(dtype))
             else:
-                regression_losses.append(torch.tensor(0).to(dtype))
+                regression_losses.append(torch.tensor(0))
         imgs = kwargs.get('imgs', None)
         if imgs is not None:
             regressBoxes = BBoxTransform()
@@ -799,8 +799,7 @@ class Anchors(nn.Module):
             boxes_level = np.concatenate(boxes_level, axis=1)
             boxes_all.append(boxes_level.reshape([-1, 4]))
         anchor_boxes = np.vstack(boxes_all)
-        anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype)).to(image
-            .device)
+        anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype))
         anchor_boxes = anchor_boxes.unsqueeze(0)
         self.last_anchors[image.device] = anchor_boxes
         return anchor_boxes
@@ -1715,11 +1714,9 @@ class CustomDataParallel(nn.DataParallel):
         splits = inputs[0].shape[0] // self.num_gpus
         if splits == 0:
             raise Exception('Batchsize must be greater than num_gpus.')
-        return [(inputs[0][splits * device_idx:splits * (device_idx + 1)].
-            to(f'cuda:{device_idx}', non_blocking=True), inputs[1][splits *
-            device_idx:splits * (device_idx + 1)].to(f'cuda:{device_idx}',
-            non_blocking=True)) for device_idx in range(len(devices))], [kwargs
-            ] * len(devices)
+        return [(inputs[0][splits * device_idx:splits * (device_idx + 1)],
+            inputs[1][splits * device_idx:splits * (device_idx + 1)]) for
+            device_idx in range(len(devices))], [kwargs] * len(devices)
 
 
 import torch

@@ -620,5 +620,9 @@ class Test_yaohungt_Multimodal_Transformer(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(TransformerEncoder(*[], **{'embed_dim': 4, 'num_heads': 4, 'layers': 1}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(TransformerEncoderLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
 

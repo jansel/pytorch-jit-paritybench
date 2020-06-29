@@ -224,10 +224,10 @@ class APPNPModel(torch.nn.Module):
         self.propagator = create_propagator_matrix(self.graph, self.args.
             alpha, self.args.model)
         if self.args.model == 'exact':
-            self.propagator = self.propagator.to(self.device)
+            self.propagator = self.propagator
         else:
-            self.edge_indices = self.propagator['indices'].to(self.device)
-            self.edge_weights = self.propagator['values'].to(self.device)
+            self.edge_indices = self.propagator['indices']
+            self.edge_weights = self.propagator['values']
 
     def forward(self, feature_indices, feature_values):
         """

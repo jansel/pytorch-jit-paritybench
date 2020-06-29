@@ -4020,7 +4020,7 @@ class BBoxHead(nn.Module):
             if isinstance(scale_factor, float):
                 bboxes /= scale_factor
             else:
-                scale_factor = torch.from_numpy(scale_factor).to(bboxes.device)
+                scale_factor = torch.from_numpy(scale_factor)
                 bboxes = (bboxes.view(bboxes.size(0), -1, 4) / scale_factor
                     ).view(bboxes.size()[0], -1)
         if cfg is None:
@@ -5682,8 +5682,7 @@ class MaskIoUHead(nn.Module):
                 ratio = gt_mask_in_proposal.sum() / (gt_instance_mask_area[
                     pos_assigned_gt_inds[i]] + 1e-07)
                 area_ratios.append(ratio)
-            area_ratios = torch.from_numpy(np.stack(area_ratios)).float().to(
-                pos_proposals.device)
+            area_ratios = torch.from_numpy(np.stack(area_ratios)).float()
         else:
             area_ratios = pos_proposals.new_zeros((0,))
         return area_ratios

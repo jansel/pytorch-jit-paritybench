@@ -73,7 +73,7 @@ class Discriminator(nn.Module):
         self.device = device
         self.trunk = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.
             Tanh(), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear
-            (hidden_dim, 1)).to(device)
+            (hidden_dim, 1))
         self.trunk.train()
         self.optimizer = torch.optim.Adam(self.trunk.parameters())
         self.returns = None
@@ -84,11 +84,11 @@ class Discriminator(nn.Module):
         alpha = torch.rand(expert_state.size(0), 1)
         expert_data = torch.cat([expert_state, expert_action], dim=1)
         policy_data = torch.cat([policy_state, policy_action], dim=1)
-        alpha = alpha.expand_as(expert_data).to(expert_data.device)
+        alpha = alpha.expand_as(expert_data)
         mixup_data = alpha * expert_data + (1 - alpha) * policy_data
         mixup_data.requires_grad = True
         disc = self.trunk(mixup_data)
-        ones = torch.ones(disc.size()).to(disc.device)
+        ones = torch.ones(disc.size())
         grad = autograd.grad(outputs=disc, inputs=mixup_data, grad_outputs=
             ones, create_graph=True, retain_graph=True, only_inputs=True)[0]
         grad_pen = lambda_ * (grad.norm(2, dim=1) - 1).pow(2).mean()
@@ -107,14 +107,14 @@ class Discriminator(nn.Module):
                 dim=1))
             expert_state, expert_action = expert_batch
             expert_state = obsfilt(expert_state.numpy(), update=False)
-            expert_state = torch.FloatTensor(expert_state).to(self.device)
-            expert_action = expert_action.to(self.device)
+            expert_state = torch.FloatTensor(expert_state)
+            expert_action = expert_action
             expert_d = self.trunk(torch.cat([expert_state, expert_action],
                 dim=1))
             expert_loss = F.binary_cross_entropy_with_logits(expert_d,
-                torch.ones(expert_d.size()).to(self.device))
+                torch.ones(expert_d.size()))
             policy_loss = F.binary_cross_entropy_with_logits(policy_d,
-                torch.zeros(policy_d.size()).to(self.device))
+                torch.zeros(policy_d.size()))
             gail_loss = expert_loss + policy_loss
             grad_pen = self.compute_grad_pen(expert_state, expert_action,
                 policy_state, policy_action)

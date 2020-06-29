@@ -1491,3 +1491,60 @@ class QDNN(nn.Module):
         x = F.relu(self.fc3(x))
         return self.out(x)
 
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_Orkis_Research_Pytorch_Quaternion_Neural_Networks(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(CAE(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(LSTM(*[], **{'feat_size': 4, 'hidden_size': 4, 'CUDA': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(QCAE(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(QDNN(*[], **{'input_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(QLSTM(*[], **{'feat_size': 4, 'hidden_size': 4, 'CUDA': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(QuaternionConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(QuaternionLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(QuaternionLinearAutograd(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(QuaternionTransposeConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(R2H(*[], **{'proj_dim': 4, 'proj_act': 4, 'proj_norm': 4, 'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(R2HQDNN(*[], **{'proj_dim': 4, 'proj_act': 4, 'proj_norm': 4, 'input_dim': 4, 'num_classes': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(RNN(*[], **{'feat_size': 4, 'hidden_size': 4, 'CUDA': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(StackedQLSTM(*[], **{'feat_size': 4, 'hidden_size': 4, 'use_cuda': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+

@@ -596,10 +596,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_andreamad8_Universal_Transformer_Pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(Conv(*[], **{'input_size': 4, 'output_size': 4, 'kernel_size': 4, 'pad_type': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(PositionwiseFeedForward(*[], **{'input_depth': 1, 'filter_size': 4, 'output_depth': 1}), [torch.rand([1, 1])], {})
 

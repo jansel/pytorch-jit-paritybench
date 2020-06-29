@@ -255,8 +255,12 @@ class Test_zhangxu0307_time_series_forecasting_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(ResRNNModel(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(ResRNN_Cell(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(TimeDistributed(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

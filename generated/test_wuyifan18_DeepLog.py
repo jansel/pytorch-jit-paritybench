@@ -54,10 +54,8 @@ class Model(nn.Module):
         self.fc = nn.Linear(hidden_size, num_keys)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
         out = self.fc(out[:, (-1), :])
         return out
@@ -74,10 +72,8 @@ class Model(nn.Module):
         self.fc = nn.Linear(hidden_size, num_keys)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
         out = self.fc(out[:, (-1), :])
         return out
@@ -88,3 +84,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_wuyifan18_DeepLog(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(Model(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_keys': 4}), [torch.rand([4, 4, 4])], {})
+

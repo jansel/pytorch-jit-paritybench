@@ -659,29 +659,26 @@ class liGRU_layer(torch.jit.ScriptModule):
         if self.do_fusion:
             self.wz = FusionLinearConv(self.input_size, self.hidden_size,
                 bias=True, number_of_mic=self.number_of_mic, act=self.act,
-                reduce=self.reduce).to(device)
+                reduce=self.reduce)
             self.wh = FusionLinearConv(self.input_size, self.hidden_size,
                 bias=True, number_of_mic=self.number_of_mic, act=self.act,
-                reduce=self.reduce).to(device)
+                reduce=self.reduce)
         else:
-            self.wz = nn.Linear(self.input_size, self.hidden_size, bias=True
-                ).to(device)
-            self.wh = nn.Linear(self.input_size, self.hidden_size, bias=True
-                ).to(device)
+            self.wz = nn.Linear(self.input_size, self.hidden_size, bias=True)
+            self.wh = nn.Linear(self.input_size, self.hidden_size, bias=True)
             self.wz.bias.data.fill_(0)
             torch.nn.init.xavier_normal_(self.wz.weight.data)
             self.wh.bias.data.fill_(0)
             torch.nn.init.xavier_normal_(self.wh.weight.data)
-        self.u = nn.Linear(self.hidden_size, 2 * self.hidden_size, bias=False
-            ).to(device)
+        self.u = nn.Linear(self.hidden_size, 2 * self.hidden_size, bias=False)
         nn.init.orthogonal_(self.u.weight)
-        self.bn_wh = nn.BatchNorm1d(self.hidden_size, momentum=0.05).to(device)
-        self.bn_wz = nn.BatchNorm1d(self.hidden_size, momentum=0.05).to(device)
-        self.drop = torch.nn.Dropout(p=self.dropout, inplace=False).to(device)
+        self.bn_wh = nn.BatchNorm1d(self.hidden_size, momentum=0.05)
+        self.bn_wz = nn.BatchNorm1d(self.hidden_size, momentum=0.05)
+        self.drop = torch.nn.Dropout(p=self.dropout, inplace=False)
         self.drop_mask_te = torch.tensor([1.0], device=device).float()
         self.N_drop_masks = 100
         self.drop_mask_cnt = 0
-        self.act = torch.nn.ReLU().to(device)
+        self.act = torch.nn.ReLU()
 
     @torch.jit.script_method
     def forward(self, x):
@@ -722,12 +719,10 @@ class liGRU_layer(torch.jit.ScriptModule):
                 self.drop_mask_cnt = 0
                 if self.bidirectional:
                     drop_masks_i = self.drop(torch.ones(self.N_drop_masks, 
-                        2 * self.batch_size, self.hidden_size)).to(self.device
-                        ).data
+                        2 * self.batch_size, self.hidden_size)).data
                 else:
                     drop_masks_i = self.drop(torch.ones(self.N_drop_masks,
-                        self.batch_size, self.hidden_size)).to(self.device
-                        ).data
+                        self.batch_size, self.hidden_size)).data
         else:
             drop_mask = self.drop_mask_te
         for k in range(wh.shape[0]):
@@ -1291,8 +1286,7 @@ class SincConv(nn.Module):
         x_left = x[:, 0:int((x.shape[1] - 1) / 2)]
         y_left = torch.sin(x_left) / x_left
         y_right = torch.flip(y_left, dims=[1])
-        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]).to(x.device),
-            y_right], dim=1)
+        sinc = torch.cat([y_left, torch.ones([x.shape[0], 1]), y_right], dim=1)
         return sinc
 
     def forward(self, waveforms):
@@ -1306,8 +1300,8 @@ class SincConv(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
         high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
             band_hz_)
@@ -1405,8 +1399,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)

@@ -327,7 +327,7 @@ class ViterbiLoss(nn.Module):
         scores_at_targets, _ = pack_padded_sequence(scores_at_targets,
             lengths, batch_first=True)
         gold_score = scores_at_targets.sum()
-        scores_upto_t = torch.zeros(batch_size, self.tagset_size).to(device)
+        scores_upto_t = torch.zeros(batch_size, self.tagset_size)
         for t in range(max(lengths)):
             batch_size_t = sum([(l > t) for l in lengths])
             if t == 0:

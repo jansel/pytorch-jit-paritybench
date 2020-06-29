@@ -45,7 +45,7 @@ class FaceModel(nn.Module):
         self.feature_dim = feature_dim
         if num_classes:
             self.register_buffer('centers', (torch.rand(num_classes,
-                feature_dim).to(device) - 0.5) * 2)
+                feature_dim) - 0.5) * 2)
             self.classifier = nn.Linear(self.feature_dim, num_classes)
 
 

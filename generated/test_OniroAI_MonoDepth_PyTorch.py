@@ -573,32 +573,28 @@ class Test_OniroAI_MonoDepth_PyTorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Resnet50_md(*[], **{'num_in_layers': 1}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(conv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(convblock(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4}), [torch.rand([4, 1, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(get_disp(*[], **{'num_in_layers': 1}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(maxpool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_005(self):
         self._check(resconv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_006(self):
         self._check(resconv_basic(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_007(self):
         self._check(upconv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'scale': 1.0}), [torch.rand([4, 1, 4, 4])], {})
 

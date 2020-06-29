@@ -494,13 +494,13 @@ class AtomIoUNet(nn.Module):
         c3_t_att = c3_t * fc34_3_r.reshape(batch_size, -1, 1, 1)
         c4_t_att = c4_t * fc34_4_r.reshape(batch_size, -1, 1, 1)
         batch_index = torch.arange(batch_size, dtype=torch.float32).reshape(
-            -1, 1).to(c3_t.device)
+            -1, 1)
         num_proposals_per_batch = proposals.shape[1]
         proposals_xyxy = torch.cat((proposals[:, :, 0:2], proposals[:, :, 0
             :2] + proposals[:, :, 2:4]), dim=2)
         roi2 = torch.cat((batch_index.reshape(batch_size, -1, 1).expand(-1,
             num_proposals_per_batch, -1), proposals_xyxy), dim=2)
-        roi2 = roi2.reshape(-1, 5).to(proposals_xyxy.device)
+        roi2 = roi2.reshape(-1, 5)
         roi3t = self.prroi_pool3t(c3_t_att, roi2)
         roi4t = self.prroi_pool4t(c4_t_att, roi2)
         fc3_rt = self.fc3_rt(roi3t)
@@ -519,7 +519,7 @@ class AtomIoUNet(nn.Module):
         c3_r = self.conv3_1r(feat3_r)
         batch_size = bb.shape[0]
         batch_index = torch.arange(batch_size, dtype=torch.float32).reshape(
-            -1, 1).to(bb.device)
+            -1, 1)
         bb = bb.clone()
         bb[:, 2:4] = bb[:, 0:2] + bb[:, 2:4]
         roi1 = torch.cat((batch_index, bb), dim=1)
@@ -1050,7 +1050,7 @@ class FilterPool(nn.Module):
         bb = bb.reshape(-1, 4)
         num_images_total = bb.shape[0]
         batch_index = torch.arange(num_images_total, dtype=torch.float32
-            ).reshape(-1, 1).to(bb.device)
+            ).reshape(-1, 1)
         pool_bb = bb.clone()
         if self.pool_square:
             bb_sz = pool_bb[:, 2:4].prod(dim=1, keepdim=True).sqrt()
@@ -1463,7 +1463,7 @@ class DiMPSteepestDescentGN(nn.Module):
         step_length_factor = torch.exp(self.log_step_length)
         reg_weight = (self.filter_reg * self.filter_reg).clamp(min=self.
             min_filter_reg ** 2)
-        dmap_offset = torch.Tensor(filter_sz).to(bb.device) % 2 / 2.0
+        dmap_offset = torch.Tensor(filter_sz) % 2 / 2.0
         center = ((bb[(...), :2] + bb[(...), 2:] / 2) / self.feat_stride
             ).reshape(-1, 2).flip((1,)) - dmap_offset
         dist_map = self.distance_map(center, output_sz)
@@ -1546,9 +1546,9 @@ class DiMPL2SteepestDescentGN(nn.Module):
     def get_label(self, center, output_sz):
         center = center.reshape(center.shape[0], -1, center.shape[-1])
         k0 = torch.arange(output_sz[0], dtype=torch.float32).reshape(1, 1, 
-            -1, 1).to(center.device)
+            -1, 1)
         k1 = torch.arange(output_sz[1], dtype=torch.float32).reshape(1, 1, 
-            1, -1).to(center.device)
+            1, -1)
         g0 = torch.exp(-1.0 / (2 * self.gauss_sigma ** 2) * (k0 - center[:,
             :, (0)].reshape(*center.shape[:2], 1, 1)) ** 2)
         g1 = torch.exp(-1.0 / (2 * self.gauss_sigma ** 2) * (k1 - center[:,
@@ -1580,7 +1580,7 @@ class DiMPL2SteepestDescentGN(nn.Module):
         step_length_factor = torch.exp(self.log_step_length)
         reg_weight = (self.filter_reg * self.filter_reg).clamp(min=self.
             min_filter_reg ** 2)
-        dmap_offset = torch.Tensor(filter_sz).to(bb.device) % 2 / 2.0
+        dmap_offset = torch.Tensor(filter_sz) % 2 / 2.0
         center = ((bb[(...), :2] + bb[(...), 2:] / 2) / self.feat_stride).flip(
             (-1,)) - dmap_offset
         label_map = self.get_label(center, output_sz)
@@ -1671,9 +1671,9 @@ class PrDiMPSteepestDescentNewton(nn.Module):
     def get_label_density(self, center, output_sz):
         center = center.reshape(center.shape[0], -1, center.shape[-1])
         k0 = torch.arange(output_sz[0], dtype=torch.float32).reshape(1, 1, 
-            -1, 1).to(center.device)
+            -1, 1)
         k1 = torch.arange(output_sz[1], dtype=torch.float32).reshape(1, 1, 
-            1, -1).to(center.device)
+            1, -1)
         dist0 = (k0 - center[:, :, (0)].reshape(*center.shape[:2], 1, 1)) ** 2
         dist1 = (k1 - center[:, :, (1)].reshape(*center.shape[:2], 1, 1)) ** 2
         if self.gauss_sigma == 0:
@@ -1722,12 +1722,12 @@ class PrDiMPSteepestDescentNewton(nn.Module):
         step_length_factor = torch.exp(self.log_step_length)
         reg_weight = (self.filter_reg * self.filter_reg).clamp(min=self.
             min_filter_reg ** 2)
-        offset = torch.Tensor(filter_sz).to(bb.device) % 2 / 2.0
+        offset = torch.Tensor(filter_sz) % 2 / 2.0
         center = ((bb[(...), :2] + bb[(...), 2:] / 2) / self.feat_stride).flip(
             (-1,)) - offset
         label_density = self.get_label_density(center, output_sz)
         if sample_weight is None:
-            sample_weight = torch.Tensor([1.0 / num_images]).to(feat.device)
+            sample_weight = torch.Tensor([1.0 / num_images])
         elif isinstance(sample_weight, torch.Tensor):
             sample_weight = sample_weight.reshape(num_images, num_sequences,
                 1, 1)

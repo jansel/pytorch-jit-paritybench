@@ -663,8 +663,5 @@ class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
         self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_004(self):
-        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
         self._check(ResNetBuilder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

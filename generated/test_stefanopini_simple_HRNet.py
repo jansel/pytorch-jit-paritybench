@@ -417,10 +417,6 @@ class Test_stefanopini_simple_HRNet(_paritybench_base):
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(HRNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
         self._check(PoseResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

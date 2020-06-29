@@ -928,13 +928,9 @@ class Test_xiaoyufenfei_LEDNet(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(Encoder(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(Net(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(SS_nbt_module(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

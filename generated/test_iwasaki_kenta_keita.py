@@ -713,9 +713,5 @@ class Test_iwasaki_kenta_keita(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(TCML(*[], **{'feature_dim': 4}), [torch.rand([4, 4, 64])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(TemporalDenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64])], {})
 

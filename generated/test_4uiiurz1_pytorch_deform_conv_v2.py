@@ -208,7 +208,3 @@ class Test_4uiiurz1_pytorch_deform_conv_v2(_paritybench_base):
     def test_000(self):
         self._check(DeformConv2d(*[], **{'inc': 4, 'outc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_001(self):
-        self._check(ScaledMNISTNet(*[], **{'args': _mock_config(deform=4, min_deform_layer=1, modulation=4), 'num_classes': 4}), [torch.rand([4, 1, 64, 64])], {})
-

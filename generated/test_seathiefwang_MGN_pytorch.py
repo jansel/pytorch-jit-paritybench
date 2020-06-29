@@ -78,7 +78,7 @@ class Loss(nn.modules.loss._Loss):
                 self.loss_module.append(l['function'])
         self.log = torch.Tensor()
         device = torch.device('cpu' if args.cpu else 'cuda')
-        self.loss_module.to(device)
+        self.loss_module
         if args.load != '':
             self.load(ckpt.dir, cpu=args.cpu)
         if not args.cpu and args.nGPU > 1:
@@ -200,7 +200,7 @@ class TripletSemihardLoss(nn.Module):
         dist = dist_squared.clamp(min=1e-16).sqrt()
         pos_max, pos_idx = _mask_max(dist, pos_mask, axis=-1)
         neg_min, neg_idx = _mask_min(dist, neg_mask, axis=-1)
-        y = torch.ones(same_id.size()[0]).to(self.device)
+        y = torch.ones(same_id.size()[0])
         return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y,
             self.margin, self.size_average)
 
@@ -257,7 +257,7 @@ class Model(nn.Module):
         self.nGPU = args.nGPU
         self.save_models = args.save_models
         module = import_module('model.' + args.model.lower())
-        self.model = module.make_model(args).to(self.device)
+        self.model = module.make_model(args)
         if not args.cpu and args.nGPU > 1:
             self.model = nn.DataParallel(self.model, range(args.nGPU))
         self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume,

@@ -1180,23 +1180,35 @@ class Test_airsplay_lxmert(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(BertAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(BertCrossattLayer(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_005(self):
         self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_006(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    @_fails_compile()
+    def test_008(self):
+        self._check(BertSelfattLayer(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_009(self):
         self._check(BertVisualAnswerHead(*[], **{'config': _mock_config(hidden_size=4), 'num_answers': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_010(self):
         self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

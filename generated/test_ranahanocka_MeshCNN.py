@@ -434,7 +434,7 @@ class MeshUnpool(nn.Module):
         occurrences = torch.cat(occurrences, dim=0).view(batch_size, 1, -1)
         occurrences = occurrences.expand(unroll_mat.shape)
         unroll_mat = unroll_mat / occurrences
-        unroll_mat = unroll_mat.to(features.device)
+        unroll_mat = unroll_mat
         for mesh in meshes:
             mesh.unroll_gemm()
         return torch.matmul(features, unroll_mat)

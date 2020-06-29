@@ -207,14 +207,14 @@ class ToyMpModel(nn.Module):
         super(ToyMpModel, self).__init__()
         self.dev0 = dev0
         self.dev1 = dev1
-        self.net1 = torch.nn.Linear(10, 10).to(dev0)
+        self.net1 = torch.nn.Linear(10, 10)
         self.relu = torch.nn.ReLU()
-        self.net2 = torch.nn.Linear(10, 5).to(dev1)
+        self.net2 = torch.nn.Linear(10, 5)
 
     def forward(self, x):
-        x = x.to(self.dev0)
+        x = x
         x = self.relu(self.net1(x))
-        x = x.to(self.dev1)
+        x = x
         return self.net2(x)
 
 
@@ -227,15 +227,15 @@ class Net(nn.Module):
         device = torch.device('cuda:0' if torch.cuda.is_available() and 
             self.num_gpus > 0 else 'cpu')
         None
-        self.conv1 = nn.Conv2d(1, 32, 3, 1).to(device)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1).to(device)
+        self.conv1 = nn.Conv2d(1, 32, 3, 1)
+        self.conv2 = nn.Conv2d(32, 64, 3, 1)
         if 'cuda' in str(device) and num_gpus > 1:
             device = torch.device('cuda:1')
         None
-        self.dropout1 = nn.Dropout2d(0.25).to(device)
-        self.dropout2 = nn.Dropout2d(0.5).to(device)
-        self.fc1 = nn.Linear(9216, 128).to(device)
-        self.fc2 = nn.Linear(128, 10).to(device)
+        self.dropout1 = nn.Dropout2d(0.25)
+        self.dropout2 = nn.Dropout2d(0.5)
+        self.fc1 = nn.Linear(9216, 128)
+        self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -245,7 +245,7 @@ class Net(nn.Module):
         x = self.dropout1(x)
         x = torch.flatten(x, 1)
         next_device = next(self.fc1.parameters()).device
-        x = x.to(next_device)
+        x = x
         x = self.fc1(x)
         x = F.relu(x)
         x = self.dropout2(x)
@@ -264,16 +264,16 @@ class ParameterServer(nn.Module):
             is_available() and num_gpus > 0 else 'cpu')
 
     def forward(self, inp):
-        inp = inp.to(self.input_device)
+        inp = inp
         out = self.model(inp)
-        out = out.to('cpu')
+        out = out
         return out
 
     def get_dist_gradients(self, cid):
         grads = dist_autograd.get_gradients(cid)
         cpu_grads = {}
         for k, v in grads.items():
-            k_cpu, v_cpu = k.to('cpu'), v.to('cpu')
+            k_cpu, v_cpu = k, v
             cpu_grads[k_cpu] = v_cpu
         return cpu_grads
 
@@ -1052,8 +1052,7 @@ class TransformerModel(nn.Module):
         if has_mask:
             device = src.device
             if self.src_mask is None or self.src_mask.size(0) != len(src):
-                mask = self._generate_square_subsequent_mask(len(src)).to(
-                    device)
+                mask = self._generate_square_subsequent_mask(len(src))
                 self.src_mask = mask
         else:
             self.src_mask = None
@@ -1094,7 +1093,10 @@ class Test_pytorch_examples(_paritybench_base):
     def test_007(self):
         self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
 
-    @_fails_compile()
     def test_008(self):
+        self._check(ToyMpModel(*[], **{'dev0': 4, 'dev1': 4}), [torch.rand([10, 10])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

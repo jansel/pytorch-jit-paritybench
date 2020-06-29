@@ -187,7 +187,7 @@ class Model(nn.Module):
         self.nGPU = args.nGPU
         self.save_models = args.save_models
         module = import_module('model.' + args.model.lower())
-        self.model = module.make_model(args).to(self.device)
+        self.model = module.make_model(args)
         if not args.cpu and args.nGPU > 1:
             self.model = nn.DataParallel(self.model, range(args.nGPU))
         self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume,
@@ -477,7 +477,4 @@ class Test_xxradon_PytorchToCaffe(_paritybench_base):
 
     def test_001(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -82,7 +82,7 @@ class MAMLFewShotClassifier(nn.Module):
         self.rng = set_torch_seed(seed=args.seed)
         self.classifier = VGGReLUNormNetwork(im_shape=self.im_shape,
             num_output_classes=self.args.num_classes_per_set, args=args,
-            device=device, meta_classifier=True).to(device=self.device)
+            device=device, meta_classifier=True)
         self.task_learning_rate = args.task_learning_rate
         self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=
             device, init_learning_rate=self.task_learning_rate,
@@ -98,7 +98,7 @@ class MAMLFewShotClassifier(nn.Module):
         self.use_cuda = args.use_cuda
         self.device = device
         self.args = args
-        self.to(device)
+        self
         None
         for name, param in self.named_parameters():
             if param.requires_grad:
@@ -111,10 +111,10 @@ class MAMLFewShotClassifier(nn.Module):
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
             if torch.cuda.device_count() > 1:
-                self.to(torch.cuda.current_device())
+                self
                 self.classifier = nn.DataParallel(module=self.classifier)
             else:
-                self.to(torch.cuda.current_device())
+                self
             self.device = torch.cuda.current_device()
 
     def get_per_step_loss_importance_vector(self):
@@ -140,7 +140,7 @@ class MAMLFewShotClassifier(nn.Module):
             1.0 - (self.args.number_of_training_steps_per_iter - 1) *
             min_value_for_non_final_losses)
         loss_weights[-1] = curr_value
-        loss_weights = torch.Tensor(loss_weights).to(device=self.device)
+        loss_weights = torch.Tensor(loss_weights)
         return loss_weights
 
     def get_inner_loop_parameter_dict(self, params):
@@ -153,9 +153,9 @@ class MAMLFewShotClassifier(nn.Module):
         for name, param in params:
             if param.requires_grad:
                 if self.args.enable_inner_loop_optimizable_bn_params:
-                    param_dict[name] = param.to(device=self.device)
+                    param_dict[name] = param
                 elif 'norm_layer' not in name:
-                    param_dict[name] = param.to(device=self.device)
+                    param_dict[name] = param
         return param_dict
 
     def apply_inner_loop_update(self, loss, names_weights_copy,
@@ -364,13 +364,10 @@ class MAMLFewShotClassifier(nn.Module):
         if not self.training:
             self.train()
         x_support_set, x_target_set, y_support_set, y_target_set = data_batch
-        x_support_set = torch.Tensor(x_support_set).float().to(device=self.
-            device)
-        x_target_set = torch.Tensor(x_target_set).float().to(device=self.device
-            )
-        y_support_set = torch.Tensor(y_support_set).long().to(device=self.
-            device)
-        y_target_set = torch.Tensor(y_target_set).long().to(device=self.device)
+        x_support_set = torch.Tensor(x_support_set).float()
+        x_target_set = torch.Tensor(x_target_set).float()
+        y_support_set = torch.Tensor(y_support_set).long()
+        y_target_set = torch.Tensor(y_target_set).long()
         data_batch = x_support_set, x_target_set, y_support_set, y_target_set
         losses, per_task_target_preds = self.train_forward_prop(data_batch=
             data_batch, epoch=epoch)
@@ -390,13 +387,10 @@ class MAMLFewShotClassifier(nn.Module):
         if self.training:
             self.eval()
         x_support_set, x_target_set, y_support_set, y_target_set = data_batch
-        x_support_set = torch.Tensor(x_support_set).float().to(device=self.
-            device)
-        x_target_set = torch.Tensor(x_target_set).float().to(device=self.device
-            )
-        y_support_set = torch.Tensor(y_support_set).long().to(device=self.
-            device)
-        y_target_set = torch.Tensor(y_target_set).long().to(device=self.device)
+        x_support_set = torch.Tensor(x_support_set).float()
+        x_target_set = torch.Tensor(x_target_set).float()
+        y_support_set = torch.Tensor(y_support_set).long()
+        y_target_set = torch.Tensor(y_target_set).long()
         data_batch = x_support_set, x_target_set, y_support_set, y_target_set
         losses, per_task_target_preds = self.evaluation_forward_prop(data_batch
             =data_batch, epoch=self.current_epoch)
@@ -454,7 +448,7 @@ class GradientDescentLearningRule(nn.Module):
         super(GradientDescentLearningRule, self).__init__()
         assert learning_rate > 0.0, 'learning_rate should be positive.'
         self.learning_rate = torch.ones(1) * learning_rate
-        self.learning_rate.to(device)
+        self.learning_rate
 
     def update_params(self, names_weights_dict, names_grads_wrt_params_dict,
         num_step, tau=0.9):
@@ -500,7 +494,7 @@ class LSLRGradientDescentLearningRule(nn.Module):
         None
         assert init_learning_rate > 0.0, 'learning_rate should be positive.'
         self.init_learning_rate = torch.ones(1) * init_learning_rate
-        self.init_learning_rate.to(device)
+        self.init_learning_rate
         self.total_num_inner_loop_steps = total_num_inner_loop_steps
         self.use_learnable_learning_rates = use_learnable_learning_rates
 
@@ -770,10 +764,10 @@ class MetaBatchNormLayer(nn.Module):
         Resets batch statistics to their backup values which are collected after each forward pass.
         """
         if self.use_per_step_bn_statistics:
-            self.running_mean = nn.Parameter(self.backup_running_mean.to(
-                device=self.device), requires_grad=False)
-            self.running_var = nn.Parameter(self.backup_running_var.to(
-                device=self.device), requires_grad=False)
+            self.running_mean = nn.Parameter(self.backup_running_mean,
+                requires_grad=False)
+            self.running_var = nn.Parameter(self.backup_running_var,
+                requires_grad=False)
 
     def extra_repr(self):
         return (

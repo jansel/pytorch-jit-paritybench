@@ -93,7 +93,7 @@ class PyTorchBackendModel(torch.nn.Module):
                         'Inputer tensor {} of not supported type {}'.format
                         (input_name, type(inputs[i])))
                 if device is not None:
-                    inputs[i] = inputs[i].to(device)
+                    inputs[i] = inputs[i]
                 variable_map[input_name] = inputs[i]
             for operator in self.operators:
                 pytorch_op = self.operator_map[operator.full_name]

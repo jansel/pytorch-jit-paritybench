@@ -405,7 +405,7 @@ class LossWrapper(torch.nn.Module):
             gts = [gts[_] for _ in gt_indices.tolist()]
             reward = get_self_critical_reward(greedy_res, gts, gen_result,
                 self.opt)
-            reward = torch.from_numpy(reward).float().to(gen_result.device)
+            reward = torch.from_numpy(reward).float()
             loss = self.rl_crit(sample_logprobs, gen_result.data, reward)
             out['reward'] = reward[:, (0)].mean()
         out['loss'] = loss
@@ -1717,7 +1717,7 @@ class LossWrapper(torch.nn.Module):
             gts = [gts[_] for _ in gt_indices.tolist()]
             reward = get_self_critical_reward(greedy_res, gts, gen_result,
                 self.opt)
-            reward = torch.from_numpy(reward).float().to(gen_result.device)
+            reward = torch.from_numpy(reward).float()
             loss = self.rl_crit(sample_logprobs, gen_result.data, reward)
             out['reward'] = reward[:, (0)].mean()
         out['loss'] = loss
@@ -3879,7 +3879,7 @@ class GeneralizedRCNN(nn.Module):
             proposals = [target for target in targets]
         else:
             devices = features[0].get_device()
-            proposals = [target.to(devices) for target in targets]
+            proposals = [target for target in targets]
         if self.roi_heads:
             x, result, detector_losses = self.roi_heads(features, proposals,
                 targets)
@@ -3998,8 +3998,7 @@ class Pooler(nn.Module):
             poolers)):
             idx_in_level = torch.nonzero(levels == level).squeeze(1)
             rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level
-                ).to(dtype)
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
 
 
@@ -6617,80 +6616,84 @@ class Test_Wangt_CN_VC_R_CNN(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(Embeddings(*[], **{'d_model': 4, 'vocab': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(Flattener(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Generator(*[], **{'d_model': 4, 'vocab': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(MLP(*[], **{'in_size': 4, 'mid_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_017(self):
         self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_018(self):
         self._check(MultiHeadedDotAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_022(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_023(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(SigmoidFocalLoss(*[], **{'gamma': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_026(self):
         self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
 

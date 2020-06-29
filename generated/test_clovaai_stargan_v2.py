@@ -168,7 +168,7 @@ class HighPass(nn.Module):
     def __init__(self, w_hpf, device):
         super(HighPass, self).__init__()
         self.filter = torch.tensor([[-1, -1, -1], [-1, 8.0, -1], [-1, -1, -1]]
-            ).to(device) / w_hpf
+            ) / w_hpf
 
     def forward(self, x):
         filter = self.filter.unsqueeze(0).unsqueeze(1).repeat(x.size(1), 1,
@@ -245,7 +245,7 @@ class MappingNetwork(nn.Module):
         for layer in self.unshared:
             out += [layer(h)]
         out = torch.stack(out, dim=1)
-        idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        idx = torch.LongTensor(range(y.size(0)))
         s = out[idx, y]
         return s
 
@@ -278,7 +278,7 @@ class StyleEncoder(nn.Module):
         for layer in self.unshared:
             out += [layer(h)]
         out = torch.stack(out, dim=1)
-        idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        idx = torch.LongTensor(range(y.size(0)))
         s = out[idx, y]
         return s
 
@@ -304,7 +304,7 @@ class Discriminator(nn.Module):
     def forward(self, x, y):
         out = self.main(x)
         out = out.view(out.size(0), -1)
-        idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        idx = torch.LongTensor(range(y.size(0)))
         out = out[idx, y]
         return out
 
@@ -476,9 +476,9 @@ class AddCoordsTh(nn.Module):
                     )
                 rr = (rr / torch.max(rr)).unsqueeze(0)
                 coords = torch.cat([coords, rr], dim=0)
-            self.coords = coords.unsqueeze(0).to(device)
-            self.x_coords = x_coords.to(device)
-            self.y_coords = y_coords.to(device)
+            self.coords = coords.unsqueeze(0)
+            self.x_coords = x_coords
+            self.y_coords = y_coords
 
     def forward(self, x, heatmap=None):
         """
@@ -489,9 +489,9 @@ class AddCoordsTh(nn.Module):
             boundary_channel = torch.clamp(heatmap[:, -1:, :, :], 0.0, 1.0)
             zero_tensor = torch.zeros_like(self.x_coords)
             xx_boundary_channel = torch.where(boundary_channel > 0.05, self
-                .x_coords, zero_tensor).to(zero_tensor.device)
+                .x_coords, zero_tensor)
             yy_boundary_channel = torch.where(boundary_channel > 0.05, self
-                .y_coords, zero_tensor).to(zero_tensor.device)
+                .y_coords, zero_tensor)
             coords = torch.cat([coords, xx_boundary_channel,
                 yy_boundary_channel], dim=1)
         x_and_coords = torch.cat([x, coords], dim=1)
@@ -679,13 +679,24 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_clovaai_stargan_v2(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(Conv1x1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AddCoordsTh(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_001(self):
+        self._check(Conv1x1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
+        self._check(CoordConvTh(*[], **{'height': 4, 'width': 4, 'with_r': 4, 'with_boundary': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 6, 4, 4])], {})
+
+    def test_004(self):
+        self._check(HighPass(*[], **{'w_hpf': 4, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ResBlk(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

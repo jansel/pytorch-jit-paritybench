@@ -1051,30 +1051,33 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jxhe_vae_lagging_encoder(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GatedMaskedConv2d(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CNNClassifier(*[], **{'args': _mock_config(kernel_sizes=[4, 4], kernel_num=4, ni=4, cnn_dropout=0.5, mix_num=4)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(MaskABlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'masked_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GatedMaskedConv2d(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MaskABlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'masked_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(PixelCNNBlock(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(ResNet(*[], **{'inplanes': 4, 'planes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(ResNetBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(ResidualBlock(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

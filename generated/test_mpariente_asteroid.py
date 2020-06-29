@@ -1962,9 +1962,9 @@ class BaseTasNet(nn.Module):
             wav = torch.from_numpy(wav)
         input_device = wav.device
         model_device = next(self.parameters()).device
-        wav = wav.to(model_device)
+        wav = wav
         out_wavs = self.forward(wav)
-        out_wavs = out_wavs.to(input_device)
+        out_wavs = out_wavs
         if was_numpy:
             return out_wavs.cpu().data.numpy()
         return out_wavs
@@ -2751,8 +2751,7 @@ class Model(nn.Module):
         est_mask_list = []
         for i in range(self.masker.n_src):
             mask = ~active_bins
-            mask[active_bins] = torch.from_numpy(bin_clusters == i).to(mask
-                .device)
+            mask[active_bins] = torch.from_numpy(bin_clusters == i)
             est_mask_list.append(mask.float())
         est_masks = torch.stack(est_mask_list, dim=1)
         masked = apply_mag_mask(tf_rep, est_masks)
@@ -2907,16 +2906,28 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
-        self._check(PairwiseMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiSrcNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(SeparableDilatedConv1DBlock(*[], **{}), [torch.rand([4, 256, 64])], {})
+        self._check(PairwiseMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(PairwiseNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(SeparableDilatedConv1DBlock(*[], **{}), [torch.rand([4, 256, 64])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(SimpleModel(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(SingleSrcNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

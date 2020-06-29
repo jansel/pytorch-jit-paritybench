@@ -1508,7 +1508,7 @@ class RegionLayer(nn.Module):
         self.num_anchors = num_anchors
         self.anchor_step = len(anchors) // num_anchors
         self.anchors = torch.FloatTensor(anchors).view(self.num_anchors,
-            self.anchor_step).to(self.device)
+            self.anchor_step)
         self.rescore = 1
         self.coord_scale = 1
         self.noobject_scale = 1
@@ -1530,7 +1530,7 @@ class RegionLayer(nn.Module):
         nPixels = nH * nW
         nGT = 0
         nRecall = 0
-        anchors = self.anchors.to('cpu')
+        anchors = self.anchors
         if self.seen < 12800:
             tcoord[0].fill_(0.5)
             tcoord[1].fill_(0.5)
@@ -1538,7 +1538,7 @@ class RegionLayer(nn.Module):
         for b in range(nB):
             cur_pred_boxes = pred_boxes[b * nAnchors:(b + 1) * nAnchors].t()
             cur_ious = torch.zeros(nAnchors)
-            tbox = target[b].view(-1, 5).to('cpu')
+            tbox = target[b].view(-1, 5)
             for t in range(50):
                 if tbox[t][1] == 0:
                     break
@@ -1597,9 +1597,9 @@ class RegionLayer(nn.Module):
     def get_mask_boxes(self, output):
         if not isinstance(self.anchors, torch.Tensor):
             self.anchors = torch.FloatTensor(self.anchors).view(self.
-                num_anchors, self.anchor_step).to(self.device)
+                num_anchors, self.anchor_step)
         masked_anchors = self.anchors.view(-1)
-        num_anchors = torch.IntTensor([self.num_anchors]).to(self.device)
+        num_anchors = torch.IntTensor([self.num_anchors])
         return {'x': output, 'a': masked_anchors, 'n': num_anchors}
 
     def forward(self, output, target):
@@ -1612,11 +1612,11 @@ class RegionLayer(nn.Module):
         cls_anchor_dim = nB * nA * nH * nW
         if not isinstance(self.anchors, torch.Tensor):
             self.anchors = torch.FloatTensor(self.anchors).view(self.
-                num_anchors, self.anchor_step).to(self.device)
-        output = output.view(nB, nA, 5 + nC, nH, nW).to(self.device)
-        cls_grid = torch.linspace(5, 5 + nC - 1, nC).long().to(self.device)
-        ix = torch.LongTensor(range(0, 5)).to(self.device)
-        pred_boxes = torch.FloatTensor(4, cls_anchor_dim).to(self.device)
+                num_anchors, self.anchor_step)
+        output = output.view(nB, nA, 5 + nC, nH, nW)
+        cls_grid = torch.linspace(5, 5 + nC - 1, nC).long()
+        ix = torch.LongTensor(range(0, 5))
+        pred_boxes = torch.FloatTensor(4, cls_anchor_dim)
         coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW
             ).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
         coord[0:2] = coord[0:2].sigmoid()
@@ -1626,9 +1626,9 @@ class RegionLayer(nn.Module):
             cls_anchor_dim, nC)
         t1 = time.time()
         grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(
-            cls_anchor_dim).to(self.device)
+            cls_anchor_dim)
         grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
-            nA, 1, 1).view(cls_anchor_dim).to(self.device)
+            nA, 1, 1).view(cls_anchor_dim)
         anchor_w = self.anchors.index_select(1, ix[0]).repeat(nB, nH * nW
             ).view(cls_anchor_dim)
         anchor_h = self.anchors.index_select(1, ix[1]).repeat(nB, nH * nW
@@ -1643,16 +1643,16 @@ class RegionLayer(nn.Module):
         (nGT, nRecall, obj_mask, noobj_mask, coord_mask, tcoord, tconf, tcls
             ) = self.build_targets(pred_boxes, target.detach(), nH, nW)
         cls_mask = obj_mask == 1
-        tcls = tcls[cls_mask].long().view(-1).to(self.device)
-        cls_mask = cls_mask.view(-1, 1).repeat(1, nC).to(self.device)
+        tcls = tcls[cls_mask].long().view(-1)
+        cls_mask = cls_mask.view(-1, 1).repeat(1, nC)
         cls = cls[cls_mask].view(-1, nC)
         nProposals = int((conf > 0.25).sum())
-        tcoord = tcoord.view(4, cls_anchor_dim).to(self.device)
-        tconf = tconf.view(cls_anchor_dim).to(self.device)
+        tcoord = tcoord.view(4, cls_anchor_dim)
+        tconf = tconf.view(cls_anchor_dim)
         conf_mask = (self.object_scale * obj_mask + self.noobject_scale *
-            noobj_mask).view(cls_anchor_dim).to(self.device)
-        obj_mask = obj_mask.view(cls_anchor_dim).to(self.device)
-        coord_mask = coord_mask.view(cls_anchor_dim).to(self.device)
+            noobj_mask).view(cls_anchor_dim)
+        obj_mask = obj_mask.view(cls_anchor_dim)
+        coord_mask = coord_mask.view(cls_anchor_dim)
         t3 = time.time()
         loss_coord = self.coord_scale * nn.MSELoss(reduction='sum')(coord *
             coord_mask, tcoord * coord_mask) / nB
@@ -1702,8 +1702,8 @@ class YoloLayer(nn.Module):
         for m in self.anchor_mask:
             masked_anchors += self.anchors[m * self.anchor_step:(m + 1) *
                 self.anchor_step]
-        masked_anchors = torch.FloatTensor(masked_anchors).to(self.device)
-        num_anchors = torch.IntTensor([len(self.anchor_mask)]).to(self.device)
+        masked_anchors = torch.FloatTensor(masked_anchors)
+        num_anchors = torch.IntTensor([len(self.anchor_mask)])
         return {'x': output, 'a': masked_anchors, 'n': num_anchors}
 
     def build_targets(self, pred_boxes, target, anchors, nA, nH, nW):
@@ -1720,11 +1720,11 @@ class YoloLayer(nn.Module):
         nGT = 0
         nRecall = 0
         nRecall75 = 0
-        anchors = anchors.to('cpu')
+        anchors = anchors
         for b in range(nB):
             cur_pred_boxes = pred_boxes[b * nAnchors:(b + 1) * nAnchors].t()
             cur_ious = torch.zeros(nAnchors)
-            tbox = target[b].view(-1, 5).to('cpu')
+            tbox = target[b].view(-1, 5)
             for t in range(50):
                 if tbox[t][1] == 0:
                     break
@@ -1783,24 +1783,24 @@ class YoloLayer(nn.Module):
         nH = output.data.size(2)
         nW = output.data.size(3)
         anchor_step = mask_tuple['a'].size(0) // nA
-        anchors = mask_tuple['a'].view(nA, anchor_step).to(self.device)
+        anchors = mask_tuple['a'].view(nA, anchor_step)
         cls_anchor_dim = nB * nA * nH * nW
         output = output.view(nB, nA, 5 + nC, nH, nW)
-        cls_grid = torch.linspace(5, 5 + nC - 1, nC).long().to(self.device)
-        ix = torch.LongTensor(range(0, 5)).to(self.device)
-        pred_boxes = torch.FloatTensor(4, cls_anchor_dim).to(self.device)
+        cls_grid = torch.linspace(5, 5 + nC - 1, nC).long()
+        ix = torch.LongTensor(range(0, 5))
+        pred_boxes = torch.FloatTensor(4, cls_anchor_dim)
         coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW
             ).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
         coord[0:2] = coord[0:2].sigmoid()
         conf = output.index_select(2, ix[4]).view(cls_anchor_dim).sigmoid()
         cls = output.index_select(2, cls_grid)
         cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(
-            cls_anchor_dim, nC).to(self.device)
+            cls_anchor_dim, nC)
         t1 = time.time()
         grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(
-            cls_anchor_dim).to(self.device)
+            cls_anchor_dim)
         grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
-            nA, 1, 1).view(cls_anchor_dim).to(self.device)
+            nA, 1, 1).view(cls_anchor_dim)
         anchor_w = anchors.index_select(1, ix[0]).repeat(nB, nH * nW).view(
             cls_anchor_dim)
         anchor_h = anchors.index_select(1, ix[1]).repeat(nB, nH * nW).view(
@@ -1815,15 +1815,14 @@ class YoloLayer(nn.Module):
         (nGT, nRecall, nRecall75, obj_mask, noobj_mask, coord_mask, tcoord,
             tconf, tcls) = (self.build_targets(pred_boxes, target.detach(),
             anchors.detach(), nA, nH, nW))
-        conf_mask = (obj_mask + noobj_mask).view(cls_anchor_dim).to(self.device
-            )
+        conf_mask = (obj_mask + noobj_mask).view(cls_anchor_dim)
         obj_mask = (obj_mask == 1).view(cls_anchor_dim)
         nProposals = int((conf > 0.25).sum())
         coord = coord[:, (obj_mask)]
-        tcoord = tcoord.view(4, cls_anchor_dim)[:, (obj_mask)].to(self.device)
-        tconf = tconf.view(cls_anchor_dim).to(self.device)
-        cls = cls[(obj_mask), :].to(self.device)
-        tcls = tcls.view(cls_anchor_dim, nC)[(obj_mask), :].to(self.device)
+        tcoord = tcoord.view(4, cls_anchor_dim)[:, (obj_mask)]
+        tconf = tconf.view(cls_anchor_dim)
+        cls = cls[(obj_mask), :]
+        tcls = tcls.view(cls_anchor_dim, nC)[(obj_mask), :]
         t3 = time.time()
         loss_coord = nn.BCELoss(reduction='sum')(coord[0:2], tcoord[0:2]
             ) / nB + nn.MSELoss(reduction='sum')(coord[2:4], tcoord[2:4]) / nB

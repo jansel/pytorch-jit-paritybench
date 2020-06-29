@@ -539,10 +539,10 @@ class dense_to_space(nn.Module):
         return self.ps(input)
 
 
-_global_config['bn_eps'] = 4
-
-
 _global_config['bn_momentum'] = 4
+
+
+_global_config['bn_eps'] = 4
 
 
 class deeperlab(nn.Module):

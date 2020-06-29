@@ -6643,11 +6643,8 @@ class Test_implus_PytorchInsight(_paritybench_base):
 
     @unittest.skip("crashes")
     def test_014(self):
-        self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
         self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_015(self):
         self._check(SpatialGroupEnhance(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 

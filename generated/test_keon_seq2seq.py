@@ -154,3 +154,6 @@ class Test_keon_seq2seq(_paritybench_base):
     def test_000(self):
         self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(Decoder(*[], **{'embed_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
+

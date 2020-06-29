@@ -982,8 +982,7 @@ class SubModule(torch.nn.Module, RequiresArgsMixin, metaclass=abc.ABCMeta):
         return self._input_shape
 
     def new_internals(self, device):
-        return {(self.id + k): v.to(device) for k, v in self._new_internals
-            ().items()}
+        return {(self.id + k): v for k, v in self._new_internals().items()}
 
     def stacked_internals(self, key, internals):
         return torch.stack(internals[self.id + key])
@@ -1237,5 +1236,9 @@ class Test_heronsystems_adeptRL(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
+        self._check(RMCCell(*[], **{'nb_input_embed': 4, 'nb_memory_embed': 4, 'nb_channel': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(Residual2DPreact(*[], **{'nb_in_chan': 4, 'nb_out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 

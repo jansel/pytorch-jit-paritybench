@@ -224,16 +224,12 @@ class Test_leaderj1001_MobileNetV3_Pytorch(_paritybench_base):
     def test_000(self):
         self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

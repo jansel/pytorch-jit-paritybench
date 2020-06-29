@@ -674,3 +674,6 @@ class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
     def test_003(self):
         self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(VoxelDecoder(*[], **{}), [torch.rand([4, 200])], {})
+

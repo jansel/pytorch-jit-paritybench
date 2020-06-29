@@ -121,10 +121,10 @@ def truncated_normal_(tensor, mean=0, std=1):
     return tensor
 
 
-_global_config['start_letter'] = 4
-
-
 _global_config['batch_size'] = 4
+
+
+_global_config['start_letter'] = 4
 
 
 _global_config['gen_init'] = 4
@@ -897,3 +897,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_williamSYSU_TextGAN_PyTorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(RelationalMemory(*[], **{'mem_slots': 4, 'head_size': 4, 'input_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

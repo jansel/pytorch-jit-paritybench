@@ -601,8 +601,8 @@ class ElementWisedMultiply2D(nn.Module):
         Returns:
             Tensor: [batch_size, output_dim], [batch_size]
         """
-        return torch.addcmul(torch.zeros(args[0].size()).to('cuda'), 1,
-            args[0], args[2]), args[1]
+        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]
+            ), args[1]
 
 
 class ElementWisedMultiply3D(nn.Module):
@@ -644,8 +644,8 @@ class ElementWisedMultiply3D(nn.Module):
             raise ConfigurationError(
                 'For layer ElementWisedMultiply3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal'
                 )
-        return torch.addcmul(torch.zeros(args[0].size()).to('cuda'), 1,
-            args[0], args[2]), args[1]
+        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]
+            ), args[1]
 
 
 class MatrixMultiply(nn.Module):
@@ -1002,7 +1002,7 @@ class MultiHeadAttention(nn.Module):
             )
 
     def _attn(self, q, k, v):
-        w = torch.matmul(q, k).to(self.device)
+        w = torch.matmul(q, k)
         if self.layer_conf.scale:
             w = w / math.sqrt(v.size(-1))
         w = w * self.b + -1000000000.0 * (1 - self.b)
@@ -1035,8 +1035,7 @@ class MultiHeadAttention(nn.Module):
             Tensor: [batch_size, seq_len, output_dim], [batch_size]
         """
         self.register_buffer('b', torch.tril(torch.ones(string.shape[1],
-            string.shape[1]).to(self.device)).view(1, 1, string.shape[1],
-            string.shape[1]))
+            string.shape[1])).view(1, 1, string.shape[1], string.shape[1]))
         x = self.c_attn(string)
         query, key, value = x.split(self.split_size, dim=2)
         query = self.split_heads(query)

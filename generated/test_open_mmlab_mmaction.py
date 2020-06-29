@@ -3600,8 +3600,7 @@ class ResNet_I3D_SlowFast(nn.Module):
                             pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[
                                 2:]
                             old_weight = torch.cat((old_weight, torch.zeros
-                                (pad_shape).type_as(old_weight).to(
-                                old_weight.device)), dim=1)
+                                (pad_shape).type_as(old_weight)), dim=1)
                         new_weight = old_weight.unsqueeze(2).expand_as(module
                             .weight.data) / new_shape[2]
                         module.weight.data.copy_(new_weight)
@@ -3652,8 +3651,7 @@ class ResNet_I3D_SlowFast(nn.Module):
                             pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[
                                 2:]
                             old_weight = torch.cat((old_weight, torch.zeros
-                                (pad_shape).type_as(old_weight).to(
-                                old_weight.device)), dim=1)
+                                (pad_shape).type_as(old_weight)), dim=1)
                         new_weight = old_weight.unsqueeze(2).expand_as(module
                             .weight.data) / new_shape[2]
                         module.weight.data.copy_(new_weight)
@@ -6940,10 +6938,7 @@ class Test_open_mmlab_mmaction(_paritybench_base):
     def test_001(self):
         self._check(BBoxHead(*[], **{}), [torch.rand([12544, 12544])], {})
 
-    def test_002(self):
-        self._check(BNInception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(STPPReorganized(*[], **{'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}), [torch.rand([0, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 

@@ -1330,8 +1330,7 @@ class SSD(nn.Module):
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.load_type == 'test':
             output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, self.num_classes)), self.
-                priors.to(x.device))
+                (conf.view(conf.size(0), -1, self.num_classes)), self.priors)
         else:
             output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
                 -1, self.num_classes), self.priors

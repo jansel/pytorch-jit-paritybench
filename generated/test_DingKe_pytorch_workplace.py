@@ -1345,60 +1345,80 @@ class Test_DingKe_pytorch_workplace(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(GRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(IndRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(IndRNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(IndRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(IndRNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(MLP(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(LSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LSTMON(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(Net1(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(Net2(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(MGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_012(self):
+        self._check(MLP(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(Net1(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(Net2(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
         self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_017(self):
         self._check(RNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_018(self):
         self._check(RNNModel(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_019(self):
         self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_020(self):
         self._check(SEWrapper(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_021(self):
         self._check(SiLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_022(self):
         self._check(meConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_023(self):
+        self._check(meLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_024(self):
         self._check(meLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

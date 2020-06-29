@@ -557,11 +557,10 @@ class Model(nn.Module):
         max_ext_len=None, acc_att=None):
         batch_size = hs.size(1)
         if T.sum(y) < 0:
-            y_emb = Variable(T.zeros((1, batch_size, self.dim_y))).to(self.
-                device)
+            y_emb = Variable(T.zeros((1, batch_size, self.dim_y)))
         else:
             y_emb = self.w_rawdata_emb(y)
-        mask_y = Variable(T.ones((1, batch_size, 1))).to(self.device)
+        mask_y = Variable(T.ones((1, batch_size, 1)))
         if self.copy and self.coverage:
             hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(
                 y_emb, hs, dec_init_state, mask_x, mask_y, x, acc_att)
@@ -588,14 +587,13 @@ class Model(nn.Module):
         hs, dec_init_state = self.encode(x, len_x, mask_x)
         y_emb = self.w_rawdata_emb(y)
         y_shifted = y_emb[:-1, :, :]
-        y_shifted = T.cat((Variable(torch.zeros(1, *y_shifted[0].size())).
-            to(self.device), y_shifted), 0)
+        y_shifted = T.cat((Variable(torch.zeros(1, *y_shifted[0].size())),
+            y_shifted), 0)
         h0 = dec_init_state
         if self.cell == 'lstm':
             h0 = dec_init_state, dec_init_state
         if self.coverage:
-            acc_att = Variable(torch.zeros(T.transpose(x, 0, 1).size())).to(
-                self.device)
+            acc_att = Variable(torch.zeros(T.transpose(x, 0, 1).size()))
         if self.copy and self.coverage:
             hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(
                 y_shifted, hs, h0, mask_x, mask_y, x_ext, acc_att)
@@ -664,7 +662,7 @@ class WordProbLayer(nn.Module):
         if self.copy:
             if max_ext_len > 0:
                 ext_zeros = Variable(torch.zeros(y_dec.size(0), y_dec.size(
-                    1), max_ext_len)).to(self.device)
+                    1), max_ext_len))
                 y_dec = T.cat((y_dec, ext_zeros), 2)
             g = T.sigmoid(F.linear(h, self.v, self.bv))
             y_dec = (g * y_dec).scatter_add(2, xids, (1 - g) * att_dist)

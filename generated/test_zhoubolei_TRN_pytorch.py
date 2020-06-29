@@ -252,3 +252,6 @@ class Test_zhoubolei_TRN_pytorch(_paritybench_base):
     def test_000(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_001(self):
+        self._check(RelationModule(*[], **{'img_feature_dim': 4, 'num_frames': 4, 'num_class': 4}), [torch.rand([4, 4, 4])], {})
+

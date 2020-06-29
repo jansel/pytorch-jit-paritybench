@@ -105,7 +105,7 @@ class RPN_REGR_Loss(nn.Module):
         except Exception as e:
             None
             loss = torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class RPN_CLS_Loss(nn.Module):
@@ -122,7 +122,7 @@ class RPN_CLS_Loss(nn.Module):
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
         loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
             ) > 0 else torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class basic_conv(nn.Module):
@@ -583,7 +583,7 @@ class RPN_REGR_Loss(nn.Module):
         except Exception as e:
             None
             loss = torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 _global_config['OHEM'] = 4
@@ -621,7 +621,7 @@ class RPN_CLS_Loss(nn.Module):
                 config.RPN_TOTAL_NUM - num_pos))
             loss_cls = loss_pos_sum + loss_neg_topK.sum()
             loss_cls = loss_cls / config.RPN_TOTAL_NUM
-            return loss_cls.to(self.device)
+            return loss_cls
         else:
             y_true = target[0][0]
             cls_keep = (y_true != -1).nonzero()[:, (0)]
@@ -630,7 +630,7 @@ class RPN_CLS_Loss(nn.Module):
             loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
             loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
                 ) > 0 else torch.tensor(0.0)
-            return loss.to(self.device)
+            return loss
 
 
 class basic_conv(nn.Module):
@@ -718,7 +718,7 @@ class RPN_REGR_Loss(nn.Module):
         except Exception as e:
             None
             loss = torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class RPN_CLS_Loss(nn.Module):
@@ -735,7 +735,7 @@ class RPN_CLS_Loss(nn.Module):
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
         loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
             ) > 0 else torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class RPN_Loss(nn.Module):
@@ -761,7 +761,7 @@ class RPN_Loss(nn.Module):
         loss_neg_topK, _ = torch.topk(loss_neg, min(len(loss_neg), len(
             loss_pos) * self.pos_neg_ratio))
         loss_cls = loss_pos.mean() + loss_neg_topK.mean()
-        return loss_cls.to(self.device)
+        return loss_cls
 
 
 class basic_conv(nn.Module):
@@ -833,8 +833,15 @@ class Test_courao_ocr_pytorch(_paritybench_base):
         self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_001(self):
+        self._check(RPN_CLS_Loss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(RPN_REGR_Loss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(basic_conv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(basic_res_block(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 

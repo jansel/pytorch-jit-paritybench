@@ -1925,17 +1925,21 @@ class Test_woshiyyya_DFGN_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(LSTMWrapper(*[], **{'input_dim': 4, 'hidden_dim': 4, 'n_layer': 1}), [torch.rand([4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(MeanMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(MeanPooling(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(PositionalEncoder(*[], **{'h_dim': 4, 'config': _mock_config(max_doc_len=4, model_gpu=False)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 

@@ -172,7 +172,7 @@ class VAE(nn.Module):
             nn.Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -232,7 +232,7 @@ class VAE(nn.Module):
             nn.Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -388,7 +388,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -440,7 +440,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -474,7 +474,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -526,7 +526,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -560,7 +560,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 
@@ -593,7 +593,7 @@ class VAE(nn.Module):
             Sigmoid())
 
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape)
         z = mean + eps * torch.exp(logvar)
         return z
 

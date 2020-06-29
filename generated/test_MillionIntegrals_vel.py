@@ -876,7 +876,7 @@ class OuNoise(nn.Module):
                 len_action_space), float(self.std_dev) * np.ones(
                 len_action_space)))
         noise = torch.from_numpy(np.stack([x() for x in self.processes])
-            ).float().to(actions.device)
+            ).float()
         return torch.min(torch.max(actions + noise, self.low_tensor), self.
             high_tensor)
 

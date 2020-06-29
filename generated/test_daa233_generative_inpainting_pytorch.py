@@ -422,8 +422,7 @@ class ContextualAttention(nn.Module):
         m = m.view(int_ms[0], int_ms[1], self.ksize, self.ksize, -1)
         m = m.permute(0, 4, 1, 2, 3)
         m = m[0]
-        mm = (reduce_mean(m, axis=[1, 2, 3], keepdim=True) == 0.0).to(torch
-            .float32)
+        mm = reduce_mean(m, axis=[1, 2, 3], keepdim=True) == 0.0
         mm = mm.permute(1, 0, 2, 3)
         y = []
         offsets = []
@@ -472,7 +471,7 @@ class ContextualAttention(nn.Module):
             if int_bs != int_fs:
                 times = float(int_fs[2] * int_fs[3]) / float(int_bs[2] *
                     int_bs[3])
-                offset = ((offset + 1).float() * times - 1).to(torch.int64)
+                offset = (offset + 1).float() * times - 1
             offset = torch.cat([offset // int_fs[3], offset % int_fs[3]], dim=1
                 )
             wi_center = raw_wi[0]
@@ -756,9 +755,9 @@ class Trainer(nn.Module):
         self.optimizer_d = torch.optim.Adam(d_params, lr=config['lr'],
             betas=(self.config['beta1'], self.config['beta2']))
         if self.use_cuda:
-            self.netG.to(self.device_ids[0])
-            self.localD.to(self.device_ids[0])
-            self.globalD.to(self.device_ids[0])
+            self.netG
+            self.localD
+            self.globalD
 
     def forward(self, x, bboxes, masks, ground_truth, compute_loss_g=False):
         self.train()

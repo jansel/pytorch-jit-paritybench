@@ -1194,8 +1194,8 @@ class VggFeatureLoss(nn.Module):
         assert x.size(1) == 3, 'wrong channel! must be 3!!'
         mean = torch.tensor(mean, dtype=torch.float32).view(1, 3, 1, 1)
         std = torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1)
-        mean = mean.to(x.device)
-        std = std.to(x.device)
+        mean = mean
+        std = std
         return (x - mean) / std
 
     def forward(self, x):
@@ -1288,7 +1288,7 @@ class Fnet(nn.Module):
         y = self.hq_entry(y)
         z = torch.cat([x, y], dim=1)
         flow = self.flownet(z)
-        gain = self.gain.to(flow.device)
+        gain = self.gain
         return flow * gain
 
 

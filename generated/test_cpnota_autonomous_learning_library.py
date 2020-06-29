@@ -238,7 +238,7 @@ class QDistModule(torch.nn.Module):
         self.n_actions = n_actions
         self.n_atoms = len(atoms)
         self.device = next(model.parameters()).device
-        self.terminal = torch.zeros(self.n_atoms).to(self.device)
+        self.terminal = torch.zeros(self.n_atoms)
         self.terminal[self.n_atoms // 2] = 1.0
         self.model = nn.RLNetwork(model)
         self.count = 0
@@ -257,9 +257,9 @@ class QDistModule(torch.nn.Module):
 
     def to(self, device):
         self.device = device
-        self.atoms = self.atoms.to(device)
-        self.terminal = self.terminal.to(device)
-        return super().to(device)
+        self.atoms = self.atoms
+        self.terminal = self.terminal
+        return super()
 
 
 class RLNetwork(nn.Module):

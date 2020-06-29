@@ -219,7 +219,7 @@ class CustomL1Loss(torch.nn.Module):
         unnormalized_output = output.cpu().detach().numpy() * self.dic_norm[
             'std']['Y'] + self.dic_norm['mean']['Y']
         weights_np = self.compute_weights(unnormalized_output, self.beta)
-        weights = torch.from_numpy(weights_np).float().to(self.device)
+        weights = torch.from_numpy(weights_np).float()
         losses = torch.abs(output - target) * weights
         loss = losses.mean()
         return loss

@@ -121,7 +121,7 @@ class CNN(torch.nn.Module):
         self.out = torch.nn.Linear(64 * 7 * 7, output_shape)
 
     def forward(self, x):
-        x = torch.from_numpy(x).float().to(self.device)
+        x = torch.from_numpy(x).float()
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -149,7 +149,7 @@ class SLP(torch.nn.Module):
         self.out = torch.nn.Linear(self.hidden_shape, output_shape)
 
     def forward(self, x):
-        x = torch.from_numpy(x).float().to(self.device)
+        x = torch.from_numpy(x).float()
         x = torch.nn.functional.relu(self.linear1(x))
         x = self.out(x)
         return x
@@ -188,7 +188,7 @@ class Actor(torch.nn.Module):
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
         x.requires_grad_()
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -231,7 +231,7 @@ class DiscreteActor(torch.nn.Module):
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
         x.requires_grad_()
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -271,7 +271,7 @@ class Critic(torch.nn.Module):
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
         x.requires_grad_()
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -318,7 +318,7 @@ class ActorCritic(torch.nn.Module):
         :return: Mean (actor_mu), Sigma (actor_sigma) for a Gaussian policy and the Critic's value estimate (critic)
         """
         x.requires_grad_()
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -356,7 +356,7 @@ class Actor(torch.nn.Module):
         :param x: The observations
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         mu = self.actor_mu(x)
@@ -389,7 +389,7 @@ class DiscreteActor(torch.nn.Module):
         :param x: The observations
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         logits = self.logits(x)
@@ -423,7 +423,7 @@ class Critic(torch.nn.Module):
         :param x: The observations
         :return: Mean (mu) and Sigma (sigma) for a Gaussian policy
         """
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         critic = self.critic(x)
@@ -461,7 +461,7 @@ class ActorCritic(torch.nn.Module):
         :return: Mean (actor_mu), Sigma (actor_sigma) for a Gaussian policy and the Critic's value estimate (critic)
         """
         x.requires_grad_()
-        x = x.to(self.device)
+        x = x
         x = self.layer1(x)
         x = self.layer2(x)
         actor_mu = self.actor_mu(x)

@@ -267,15 +267,14 @@ class bcqGenerator(nn.Module):
         mean = self.mean(z)
         log_std = self.log_std(z).clamp(-4, 15)
         std = torch.exp(log_std)
-        z = mean + std * self.normal.sample(std.size()).to(next(self.
-            parameters()).device)
+        z = mean + std * self.normal.sample(std.size())
         u = self.decode(state, z)
         return u, mean, std
 
     def decode(self, state, z=None):
         if z is None:
             z = self.normal.sample([state.size(0), self.latent_dim])
-            z = z.clamp(-0.5, 0.5).to(next(self.parameters()).device)
+            z = z.clamp(-0.5, 0.5)
         a = F.relu(self.d1(torch.cat([state, z], 1)))
         a = F.relu(self.d2(a))
         return self.d3(a)

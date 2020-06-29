@@ -277,7 +277,7 @@ class DPMultiheadAttention(nn.Module):
                 warnings.warn(
                     'Byte tensor for attn_mask in nn.MultiheadAttention is deprecated.Use bool tensor instead.'
                     )
-                attn_mask = attn_mask.to(torch.bool)
+                attn_mask = attn_mask
             if attn_mask.dim() == 2:
                 attn_mask = attn_mask.unsqueeze(0)
                 if list(attn_mask.size()) != [1, query.size(0), key.size(0)]:
@@ -296,7 +296,7 @@ class DPMultiheadAttention(nn.Module):
             warnings.warn(
                 'Byte tensor for key_padding_mask in nn.MultiheadAttentionis deprecated. Use bool tensor instead.'
                 )
-            key_padding_mask = key_padding_mask.to(torch.bool)
+            key_padding_mask = key_padding_mask
         if self.add_bias_kv:
             k = self.seq_bias_k(k)
             v = self.seq_bias_v(v)

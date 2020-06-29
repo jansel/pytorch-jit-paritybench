@@ -220,7 +220,7 @@ class Policy(torch.nn.Module):
 
     def forward(self, x):
         scale = 50
-        x = x.to(self.device)
+        x = x
         x_pos = self.constant_current_encoder(torch.nn.functional.relu(
             scale * x))
         x_neg = self.constant_current_encoder(torch.nn.functional.relu(-
@@ -331,7 +331,7 @@ class LIFConvNet(torch.nn.Module):
                 if spike_counter[batch, nrn] == 0:
                     zeros[t, batch, nrn] = 1
                     spike_counter[batch, nrn] += 1
-            x = torch.from_numpy(zeros).to(self.device)
+            x = torch.from_numpy(zeros)
         x = x.reshape(self.seq_length, batch_size, 1, 28, 28)
         voltages = self.rsnn(x)
         m, _ = torch.max(voltages, 0)

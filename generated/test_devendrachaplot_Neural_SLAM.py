@@ -155,17 +155,16 @@ class Neural_SLAM_Module(nn.Module):
         self.pose_proj3_o = nn.Linear(128, 1)
         if self.dropout > 0:
             self.pose_dropout1 = nn.Dropout(self.dropout)
-        self.st_poses_eval = torch.zeros(args.num_processes, 3).to(self.device)
-        self.st_poses_train = torch.zeros(args.slam_batch_size, 3).to(self.
-            device)
+        self.st_poses_eval = torch.zeros(args.num_processes, 3)
+        self.st_poses_train = torch.zeros(args.slam_batch_size, 3)
         grid_size = self.vision_range * 2
         self.grid_map_eval = torch.zeros(args.num_processes, 2, grid_size,
-            grid_size).float().to(self.device)
+            grid_size).float()
         self.grid_map_train = torch.zeros(args.slam_batch_size, 2,
-            grid_size, grid_size).float().to(self.device)
+            grid_size, grid_size).float()
         self.agent_view = torch.zeros(args.num_processes, 2, self.
             map_size_cm // self.resolution, self.map_size_cm // self.resolution
-            ).float().to(self.device)
+            ).float()
 
     def forward(self, obs_last, obs, poses, maps, explored, current_poses,
         build_maps=True):

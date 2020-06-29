@@ -246,7 +246,7 @@ class Net(nn.Module):
         that are implicitly zeroed out can be explicitly pruned without any impact on the model accuracy (and might even improve in some cases).
         """
         device = next(self.parameters()).device
-        self.to('cpu')
+        self
         with torch.no_grad():
             new_stem = []
             input_validity = torch.ones(3)
@@ -386,7 +386,7 @@ class Net(nn.Module):
                 squeeze()))
             new_classifier[0].bias.copy_(self.classifier[0].bias)
             self.classifier = nn.Sequential(*new_classifier)
-        self.to(device)
+        self
 
 
 import torch
@@ -394,7 +394,3 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_mehtadushy_SelecSLS_Pytorch(_paritybench_base):
     pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-

@@ -212,7 +212,7 @@ class LossWrapper(torch.nn.Module):
             gts = [gts[_] for _ in gt_indices.tolist()]
             reward = get_self_critical_reward(greedy_res, gts, gen_result,
                 self.opt)
-            reward = torch.from_numpy(reward).float().to(gen_result.device)
+            reward = torch.from_numpy(reward).float()
             loss = self.rl_crit(sample_logprobs, gen_result.data, reward)
             out['reward'] = reward[:, (0)].mean()
         out['loss'] = loss
@@ -898,12 +898,12 @@ class CaptionModel(nn.Module):
         bdash = beam_size // group_size
         batch_size = init_logprobs.shape[0]
         device = init_logprobs.device
-        beam_seq_table = [torch.LongTensor(batch_size, bdash, 0).to(device) for
-            _ in range(group_size)]
+        beam_seq_table = [torch.LongTensor(batch_size, bdash, 0) for _ in
+            range(group_size)]
         beam_seq_logprobs_table = [torch.FloatTensor(batch_size, bdash, 0, 
-            self.vocab_size + 1).to(device) for _ in range(group_size)]
-        beam_logprobs_sum_table = [torch.zeros(batch_size, bdash).to(device
-            ) for _ in range(group_size)]
+            self.vocab_size + 1) for _ in range(group_size)]
+        beam_logprobs_sum_table = [torch.zeros(batch_size, bdash) for _ in
+            range(group_size)]
         done_beams_table = [[[] for __ in range(group_size)] for _ in range
             (batch_size)]
         state_table = [[_.clone() for _ in init_state] for _ in range(
@@ -923,8 +923,7 @@ class CaptionModel(nn.Module):
                     logprobs = logprobs_table[divm]
                     if decoding_constraint and t - divm > 0:
                         logprobs.scatter_(1, beam_seq_table[divm][:, :, (t -
-                            divm - 1)].reshape(-1, 1).to(device), float('-inf')
-                            )
+                            divm - 1)].reshape(-1, 1), float('-inf'))
                     if remove_bad_endings and t - divm > 0:
                         logprobs[torch.from_numpy(np.isin(beam_seq_table[
                             divm][:, :, (t - divm - 1)].cpu().numpy(), self

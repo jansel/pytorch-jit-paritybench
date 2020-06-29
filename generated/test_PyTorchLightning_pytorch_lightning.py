@@ -907,7 +907,7 @@ class DeviceDtypeModuleMixin(Module):
             self._device = device
         if dtype is not None:
             self._dtype = dtype
-        return super().to(*args, **kwargs)
+        return super()
 
     def cuda(self, device: Optional[int]=None) ->Module:
         """Moves all model parameters and buffers to the GPU.

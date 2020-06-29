@@ -1515,7 +1515,7 @@ class InnerPatchSoftShiftTripleModule(nn.Module):
         former_all = input.narrow(1, 0, self.c // 2)
         latter_all = input.narrow(1, self.c // 2, self.c // 2)
         shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all)
-        self.mask = self.mask.to(input)
+        self.mask = self.mask
         latter_all_pad = F.pad(latter_all, [shift_sz // 2, shift_sz // 2, 
             shift_sz // 2, shift_sz // 2], 'constant', 0)
         latter_all_windows = latter_all_pad.unfold(2, shift_sz, stride).unfold(
@@ -1863,7 +1863,7 @@ class InnerCos(nn.Module):
             self._split_mask(self.bz)
         else:
             self.cur_mask = self.mask_all
-        self.cur_mask = self.cur_mask.to(in_data)
+        self.cur_mask = self.cur_mask
         if not self.skip:
             self.output = InnerCosFunction.apply(in_data, self.criterion,
                 self.strength, self.target, self.cur_mask)

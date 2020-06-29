@@ -90,8 +90,7 @@ class SymmetricPad2d(nn.Module):
         h = input.shape[2] + self.pad_t + self.pad_b
         w = input.shape[3] + self.pad_l + self.pad_r
         assert w >= 1 and h >= 1, 'input is too small'
-        output = torch.zeros(input.shape[0], input.shape[1], h, w).to(input
-            .device)
+        output = torch.zeros(input.shape[0], input.shape[1], h, w)
         c_input = input
         if self.pad_t < 0:
             c_input = c_input.narrow(2, -self.pad_t, c_input.shape[2] +

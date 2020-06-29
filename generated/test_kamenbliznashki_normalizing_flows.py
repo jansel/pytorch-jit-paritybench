@@ -208,7 +208,7 @@ class Invertible1x1Conv(nn.Module):
     def forward(self, x):
         B, C, H, W = x.shape
         if self.lu_factorize:
-            l = self.l * self.l_mask + torch.eye(C).to(self.l.device)
+            l = self.l * self.l_mask + torch.eye(C)
             u = self.u * self.l_mask.t() + torch.diag(self.sign_s * self.
                 log_s.exp())
             self.w = self.p @ l @ u
@@ -220,8 +220,7 @@ class Invertible1x1Conv(nn.Module):
     def inverse(self, z):
         B, C, H, W = z.shape
         if self.lu_factorize:
-            l = torch.inverse(self.l * self.l_mask + torch.eye(C).to(self.l
-                .device))
+            l = torch.inverse(self.l * self.l_mask + torch.eye(C))
             u = torch.inverse(self.u * self.l_mask.t() + torch.diag(self.
                 sign_s * self.log_s.exp()))
             w_inv = u @ l @ self.p.inverse()
@@ -759,7 +758,7 @@ class MADEMOG(nn.Module):
 
     def inverse(self, u, y=None, sum_log_abs_det_jacobians=None):
         N, C, L = u.shape
-        x = torch.zeros(N, L).to(u.device)
+        x = torch.zeros(N, L)
         for i in self.input_degrees:
             m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L
                 ).chunk(chunks=3, dim=-1)

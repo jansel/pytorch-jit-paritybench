@@ -1363,23 +1363,27 @@ class Test_MightyChaos_LKVOLearner(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(ImagePyramidLayer(*[], **{'chan': 4, 'pyramid_layer_num': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GradientLayer(*[], **{}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(ImageSmoothLayer(*[], **{'chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ImagePyramidLayer(*[], **{'chan': 4, 'pyramid_layer_num': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(ImageSmoothLayer(*[], **{'chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(LaplacianLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(PoseExpNet(*[], **{'bundle_size': 4}), [torch.rand([4, 12, 64, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(Twist2Mat(*[], **{}), [torch.rand([4, 3])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(UpConv(*[], **{'input_nc': 4, 'output_nc': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

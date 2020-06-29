@@ -299,3 +299,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_ChrisWu1997_2D_Motion_Retargeting(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(Decoder(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Encoder(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4])], {})
+

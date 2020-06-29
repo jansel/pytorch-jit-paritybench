@@ -2617,22 +2617,26 @@ class Test_diegma_graph_2_text(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
+        self._check(MatrixTree(*[], **{}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(PositionwiseFeedForward(*[], **{'size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(SourceContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(StackedCNN(*[], **{'num_layers': 1, 'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(TargetContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(WeightNormConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

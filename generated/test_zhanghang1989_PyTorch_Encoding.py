@@ -1970,13 +1970,13 @@ class DropBlock2D(nn.Module):
                     dtype) < gamma).unsqueeze(0)
             block_mask, keeped = self._compute_block_mask(mask)
             out = x * block_mask
-            out = out * (block_mask.numel() / keeped).to(out)
+            out = out * (block_mask.numel() / keeped)
             return out
 
     def _compute_block_mask(self, mask):
         block_mask = F.max_pool2d(mask, kernel_size=(self.block_size, self.
             block_size), stride=(1, 1), padding=self.block_size // 2)
-        keeped = block_mask.numel() - block_mask.sum().to(torch.float32)
+        keeped = block_mask.numel() - block_mask.sum()
         block_mask = 1 - block_mask
         return block_mask, keeped
 

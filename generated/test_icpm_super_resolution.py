@@ -747,7 +747,7 @@ class Net(torch.nn.Module):
             base_channel, kernel_size=3, stride=1, padding=1), nn.Conv2d(
             base_channel, num_channels, kernel_size=3, stride=1, padding=1))
         self.w_init = torch.ones(self.num_recursions) / self.num_recursions
-        self.w = self.w_init.to(device)
+        self.w = self.w_init
 
     def forward(self, x):
         h0 = self.embedding_layer(x)
@@ -1078,4 +1078,65 @@ class Net(nn.Module):
         x = self.output_conv(x)
         x = torch.add(x, residual)
         return x
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_icpm_super_resolution(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(ConvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(D_DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(D_DownBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(D_UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(D_UpBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(DeconvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(DenseBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_008(self):
+        self._check(DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(DownBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(Generator(*[], **{'n_residual_blocks': 1, 'upsample_factor': 4}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_011(self):
+        self._check(Net(*[], **{'num_channels': 4, 'base_channels': 4, 'num_residuals': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(ResnetBlock(*[], **{'num_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(UpBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(UpsampleBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(Upsampler(*[], **{'scale': 1.0, 'n_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
 

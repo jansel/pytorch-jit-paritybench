@@ -3157,8 +3157,7 @@ class Pooler(nn.Module):
             poolers)):
             idx_in_level = torch.nonzero(levels == level).squeeze(1)
             rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level
-                ).to(dtype)
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
 
 
@@ -6105,11 +6104,11 @@ class Test_Yuliang_Liu_bezier_curve_text_spotting(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
-        self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
     def test_010(self):
-        self._check(FPA(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+        self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})

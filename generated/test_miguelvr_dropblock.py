@@ -73,7 +73,7 @@ class DropBlock2D(nn.Module):
         else:
             gamma = self._compute_gamma(x)
             mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).float()
-            mask = mask.to(x.device)
+            mask = mask
             block_mask = self._compute_block_mask(mask)
             out = x * block_mask[:, (None), :, :]
             out = out * block_mask.numel() / block_mask.sum()

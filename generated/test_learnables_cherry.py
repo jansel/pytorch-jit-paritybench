@@ -503,7 +503,7 @@ class LinearValue(nn.Module):
 
     def _features(self, states):
         length = states.size(0)
-        ones = th.ones(length, 1).to(states.device)
+        ones = th.ones(length, 1)
         al = th.arange(length, dtype=th.float32, device=states.device).view(
             -1, 1) / 100.0
         return th.cat([states, states ** 2, al, al ** 2, al ** 3, ones], dim=1)
@@ -511,7 +511,7 @@ class LinearValue(nn.Module):
     def fit(self, states, returns):
         features = self._features(states)
         reg = self.reg * th.eye(features.size(1))
-        reg = reg.to(states.device)
+        reg = reg
         A = features.t() @ features + reg
         b = features.t() @ returns
         if hasattr(th, 'lstsq'):

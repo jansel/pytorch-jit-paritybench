@@ -992,13 +992,25 @@ class Test_PengBoXiangShang_multigraph_transformer(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(GraphMLPLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GraphAttentionLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(Normalization(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GraphMLPLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
+        self._check(GraphTransformerLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(MultiGraphTransformerLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Normalization(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(PositionWiseFeedforward(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

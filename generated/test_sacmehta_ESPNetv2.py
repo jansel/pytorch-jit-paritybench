@@ -963,10 +963,6 @@ class Test_sacmehta_ESPNetv2(_paritybench_base):
     def test_006(self):
         self._check(EESP(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_008(self):
         self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -2026,7 +2026,7 @@ class TripletLoss(nn.Module):
             mask: tf.bool `Tensor` with shape [batch_size, batch_size]
         """
         indices_equal = torch.eye(labels.size(0)).bool()
-        indices_equal = indices_equal.to('cuda' if labels.is_cuda else 'cpu')
+        indices_equal = indices_equal
         indices_not_equal = ~indices_equal
         labels_equal = labels.unsqueeze(0) == labels.unsqueeze(1)
         return labels_equal & indices_not_equal

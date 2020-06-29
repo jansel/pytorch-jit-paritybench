@@ -3992,99 +3992,105 @@ class Test_ne7ermore_torch_light(_paritybench_base):
         self._check(AlphaEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicConv(*[], **{'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AtteMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_003(self):
-        self._check(CNN(*[], **{'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}), [torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(BasicConv(*[], **{'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(ConvUnit(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(CNN(*[], **{'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}), [torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_005(self):
+        self._check(ConvUnit(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+
+    def test_006(self):
         self._check(DQN(*[], **{'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(DigitCap(*[], **{'use_cuda': 4, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(DilatedGatedConv1D(*[], **{'dilation_rate': 1, 'dim': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(Distance(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Feature(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(FullMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(HwLSTMCell(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(HwLSTMlayer(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': 4}), [torch.rand([4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
-
     def test_017(self):
-        self._check(ObjModel(*[], **{'dim': 4, 'num_classes': 4}), [torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {})
+        self._check(MaxpoolMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_018(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(Net(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
 
     def test_019(self):
-        self._check(Pooler(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ObjModel(*[], **{'dim': 4, 'num_classes': 4}), [torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {})
 
     def test_020(self):
-        self._check(PositionWise(*[], **{'d_model': 4, 'd_ff': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(Policy(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_021(self):
-        self._check(PrimaryCap(*[], **{'num_primary_units': 4}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(Pooler(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_022(self):
-        self._check(ResBlockNet(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(PositionWise(*[], **{'d_model': 4, 'd_ff': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_023(self):
-        self._check(RnnDropout(*[], **{'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PrimaryCap(*[], **{'num_primary_units': 4}), [torch.rand([4, 256, 64, 64])], {})
 
     def test_024(self):
-        self._check(RnnEncoder(*[], **{'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(ResBlockNet(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_025(self):
-        self._check(Score(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RnnDropout(*[], **{'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_026(self):
-        self._check(SubModel(*[], **{'dim': 4}), [torch.rand([4, 8, 8])], {})
+        self._check(RnnEncoder(*[], **{'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_027(self):
-        self._check(SubjectLinear(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Score(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_028(self):
-        self._check(Value(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(SubModel(*[], **{'dim': 4}), [torch.rand([4, 8, 8])], {})
 
     def test_029(self):
-        self._check(_DenseBLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SubjectLinear(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_030(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Value(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_031(self):
-        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseBLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_032(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_033(self):
+        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_034(self):
         self._check(highway_layer(*[], **{'hsz': 4, 'active': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

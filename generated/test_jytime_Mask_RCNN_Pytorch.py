@@ -1370,7 +1370,7 @@ class MaskRCNN(nn.Module):
         molded_images = torch.from_numpy(molded_images.transpose(0, 3, 1, 2)
             ).float()
         if self.config.GPU_COUNT:
-            molded_images = molded_images.to(device)
+            molded_images = molded_images
         with torch.no_grad():
             molded_images = Variable(molded_images)
         detections, mrcnn_mask = self.predict([molded_images, image_metas],

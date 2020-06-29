@@ -2055,19 +2055,23 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(MaskedSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lookahead(*[], **{'n_features': 4, 'context': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(MultiOut(*[], **{'modules': [ReLU()]}), [], {})
+        self._check(MaskedSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_010(self):
+        self._check(MultiOut(*[], **{'modules': [ReLU()]}), [], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(SequenceWise(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -2296,8 +2296,8 @@ class YOLOLayer(nn.Module):
         nB, nGh, nGw = p.shape[0], p.shape[-2], p.shape[-1]
         if self.img_size != img_size:
             create_grids(self, img_size, nGh, nGw)
-            self.grid_xy = self.grid_xy.to(p)
-            self.anchor_wh = self.anchor_wh.to(p)
+            self.grid_xy = self.grid_xy
+            self.anchor_wh = self.anchor_wh
         p = p.view(nB, self.nA, self.nC + 5, nGh, nGw).permute(0, 1, 3, 4, 2
             ).contiguous()
         p_emb = p_emb.permute(0, 2, 3, 1).contiguous()
@@ -2345,10 +2345,9 @@ class YOLOLayer(nn.Module):
         else:
             p_conf = torch.softmax(p_conf, dim=1)[:, (1), (...)].unsqueeze(-1)
             p_emb = p_emb.unsqueeze(1).repeat(1, self.nA, 1, 1, 1).contiguous()
-            p_cls = torch.zeros(nB, self.nA, nGh, nGw, 1).to(p)
+            p_cls = torch.zeros(nB, self.nA, nGh, nGw, 1)
             p = torch.cat([p_box, p_conf, p_cls, p_emb], dim=-1)
-            p[(...), :4] = decode_delta_map(p[(...), :4], self.anchor_vec.to(p)
-                )
+            p[(...), :4] = decode_delta_map(p[(...), :4], self.anchor_vec)
             p[(...), :4] *= self.stride
             return p.view(nB, -1, p.shape[-1])
 
@@ -2624,7 +2623,7 @@ class DetectionLayer(nn.Module):
     def forward(self, x, inp_dim, num_classes, confidence):
         x = x.data
         global args
-        prediction = x.to(args.device)
+        prediction = x
         prediction = predict_transform(prediction, inp_dim, self.anchors,
             num_classes, confidence, args)
         return prediction
@@ -2758,7 +2757,7 @@ class Darknet(nn.Module):
                 anchors = self.module_list[i][0].anchors
                 inp_dim = int(self.net_info['height'])
                 num_classes = int(modules[i]['classes'])
-                x = x.data.to(args.device)
+                x = x.data
                 x = predict_transform(x, inp_dim, anchors, num_classes, args)
                 if type(x) == int:
                     continue

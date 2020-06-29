@@ -57,7 +57,7 @@ class AllViewsGaussianNoise(nn.Module):
 
     def _add_gaussian_noise(self, single_view):
         return single_view + torch.Tensor(*single_view.shape).normal_(std=
-            self.gaussian_noise_std).to(self.device)
+            self.gaussian_noise_std)
 
 
 class AllViewsConvLayer(nn.Module):

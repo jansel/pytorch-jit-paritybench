@@ -94,7 +94,7 @@ class DCFNet(nn.Module):
         kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1,
             keepdim=True)
         kxzf = torch.sum(complex_mulconj(xf, zf), dim=1, keepdim=True)
-        alphaf = label.to(device=z.device) / (kzzf + self.lambda0)
+        alphaf = label / (kzzf + self.lambda0)
         response = torch.irfft(complex_mul(kxzf, alphaf), signal_ndim=2)
         return response
 

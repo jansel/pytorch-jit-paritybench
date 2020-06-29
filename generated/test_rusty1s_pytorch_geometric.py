@@ -635,22 +635,22 @@ def zeros(tensor):
         tensor.data.fill_(0)
 
 
+_global_config['num_stacks'] = 4
+
+
 _global_config['dropout'] = 0.5
-
-
-_global_config['shared_weights'] = 4
-
-
-_global_config['hidden'] = 4
 
 
 _global_config['num_layers'] = 1
 
 
+_global_config['hidden'] = 4
+
+
 _global_config['skip_dropout'] = 0.5
 
 
-_global_config['num_stacks'] = 4
+_global_config['shared_weights'] = 4
 
 
 class Net(torch.nn.Module):
@@ -5138,7 +5138,7 @@ class DataParallel(torch.nn.DataParallel):
                 )
             return None
         if not self.device_ids or len(self.device_ids) == 1:
-            data = Batch.from_data_list(data_list).to(self.src_device)
+            data = Batch.from_data_list(data_list)
             return self.module(data)
         for t in chain(self.module.parameters(), self.module.buffers()):
             if t.device != self.src_device:
@@ -5155,16 +5155,15 @@ class DataParallel(torch.nn.DataParallel):
         count = torch.tensor([data.num_nodes for data in data_list])
         cumsum = count.cumsum(0)
         cumsum = torch.cat([cumsum.new_zeros(1), cumsum], dim=0)
-        device_id = num_devices * cumsum.to(torch.float) / cumsum[-1].item()
+        device_id = num_devices * cumsum / cumsum[-1].item()
         device_id = (device_id[:-1] + device_id[1:]) / 2.0
-        device_id = device_id.to(torch.long)
+        device_id = device_id
         split = device_id.bincount().cumsum(0)
         split = torch.cat([split.new_zeros(1), split], dim=0)
         split = torch.unique(split, sorted=True)
         split = split.tolist()
-        return [Batch.from_data_list(data_list[split[i]:split[i + 1]]).to(
-            torch.device('cuda:{}'.format(device_ids[i]))) for i in range(
-            len(split) - 1)]
+        return [Batch.from_data_list(data_list[split[i]:split[i + 1]]) for
+            i in range(len(split) - 1)]
 
 
 class DenseGCNConv(torch.nn.Module):
@@ -5219,7 +5218,7 @@ class DenseGCNConv(torch.nn.Module):
         if self.bias is not None:
             out = out + self.bias
         if mask is not None:
-            out = out * mask.view(B, N, 1).to(x.dtype)
+            out = out * mask.view(B, N, 1)
         return out
 
     def __repr__(self):
@@ -5273,7 +5272,7 @@ class DenseGINConv(torch.nn.Module):
             out = (1 + self.eps) * x + out
         out = self.nn(out)
         if mask is not None:
-            out = out * mask.view(B, N, 1).to(x.dtype)
+            out = out * mask.view(B, N, 1)
         return out
 
     def __repr__(self):
@@ -5324,7 +5323,7 @@ class DenseGraphConv(torch.nn.Module):
             out = out.max(dim=-1)[0]
         out = out + self.lin(x)
         if mask is not None:
-            out = out * mask.view(B, N, 1).to(x.dtype)
+            out = out * mask.view(B, N, 1)
         return out
 
     def __repr__(self):
@@ -5376,7 +5375,7 @@ class DenseSAGEConv(torch.nn.Module):
         if self.normalize:
             out = F.normalize(out, p=2, dim=-1)
         if mask is not None:
-            out = out * mask.view(B, N, 1).to(x.dtype)
+            out = out * mask.view(B, N, 1)
         return out
 
     def __repr__(self):
@@ -6266,7 +6265,7 @@ class DimeNet(torch.nn.Module):
         adj_t = SparseTensor(row=col, col=row, value=value, sparse_sizes=(
             num_nodes, num_nodes))
         adj_t_row = adj_t[row]
-        num_triplets = adj_t_row.set_value(None).sum(dim=1).to(torch.long)
+        num_triplets = adj_t_row.set_value(None).sum(dim=1)
         idx_i = col.repeat_interleave(num_triplets)
         idx_j = row.repeat_interleave(num_triplets)
         idx_k = adj_t_row.storage.col()
@@ -6513,7 +6512,7 @@ class GNNExplainer(torch.nn.Module):
             log_logits = self.model(x=x, edge_index=edge_index, **kwargs)
             pred_label = log_logits.argmax(dim=-1)
         self.__set_masks__(x, edge_index)
-        self.to(x.device)
+        self
         optimizer = torch.optim.Adam([self.node_feat_mask, self.edge_mask],
             lr=self.lr)
         if self.log:
@@ -6562,14 +6561,14 @@ class GNNExplainer(torch.nn.Module):
             None, flow=self.__flow__())
         edge_mask = edge_mask[hard_edge_mask]
         if threshold is not None:
-            edge_mask = (edge_mask >= threshold).to(torch.float)
+            edge_mask = edge_mask >= threshold
         if y is None:
             y = torch.zeros(edge_index.max().item() + 1, device=edge_index.
                 device)
         else:
-            y = y[subset].to(torch.float) / y.max().item()
+            y = y[subset] / y.max().item()
         data = Data(edge_index=edge_index, att=edge_mask, y=y, num_nodes=y.
-            size(0)).to('cpu')
+            size(0))
         G = to_networkx(data, node_attrs=['y'], edge_attrs=['att'])
         mapping = {k: i for k, i in enumerate(subset.tolist())}
         G = nx.relabel_nodes(G, mapping)
@@ -6844,7 +6843,7 @@ class MetaPath2Vec(torch.nn.Module):
             sizes = num_nodes_dict[keys[0]], num_nodes_dict[keys[-1]]
             row, col = edge_index
             adj = SparseTensor(row=row, col=col, sparse_sizes=sizes)
-            adj = adj.to('cpu')
+            adj = adj
             adj_dict[keys] = adj
         assert metapath[0][0] == metapath[-1][-1]
         assert walk_length >= context_size
@@ -6998,7 +6997,7 @@ class Node2Vec(torch.nn.Module):
         N = maybe_num_nodes(edge_index, num_nodes)
         row, col = edge_index
         self.adj = SparseTensor(row=row, col=col, sparse_sizes=(N, N))
-        self.adj = self.adj.to('cpu')
+        self.adj = self.adj
         assert walk_length >= context_size
         self.embedding_dim = embedding_dim
         self.walk_length = walk_length - 1
@@ -7250,7 +7249,7 @@ class RENet(torch.nn.Module):
         and Hits at 1/3/10."""
         _, perm = logits.sort(dim=1, descending=True)
         mask = y.view(-1, 1) == perm
-        mrr = (1 / (mask.nonzero()[:, (-1)] + 1).to(torch.float)).mean().item()
+        mrr = (1 / (mask.nonzero()[:, (-1)] + 1)).mean().item()
         hits1 = mask[:, :1].sum().item() / y.size(0)
         hits3 = mask[:, :3].sum().item() / y.size(0)
         hits10 = mask[:, :10].sum().item() / y.size(0)
@@ -7847,7 +7846,7 @@ class SignedGCN(torch.nn.Module):
         """
         edge_index = torch.cat([pos_edge_index, neg_edge_index], dim=1)
         N = edge_index.max().item() + 1 if num_nodes is None else num_nodes
-        edge_index = edge_index.to(torch.device('cpu'))
+        edge_index = edge_index
         pos_val = torch.full((pos_edge_index.size(1),), 2, dtype=torch.float)
         neg_val = torch.full((neg_edge_index.size(1),), 0, dtype=torch.float)
         val = torch.cat([pos_val, neg_val], dim=0)
@@ -7862,7 +7861,7 @@ class SignedGCN(torch.nn.Module):
         svd = TruncatedSVD(n_components=self.in_channels, n_iter=128)
         svd.fit(A)
         x = svd.components_.T
-        return torch.from_numpy(x).to(torch.float).to(pos_edge_index.device)
+        return torch.from_numpy(x).to(torch.float)
 
     def forward(self, x, pos_edge_index, neg_edge_index):
         """Computes node embeddings :obj:`z` based on positive edges
@@ -8392,7 +8391,7 @@ class EdgePooling(torch.nn.Module):
         for node_idx in nodes_remaining:
             cluster[node_idx] = i
             i += 1
-        cluster = cluster.to(x.device)
+        cluster = cluster
         new_x = scatter_add(x, cluster, dim=0, dim_size=i)
         new_edge_score = edge_score[new_edge_indices]
         if len(nodes_remaining) > 0:

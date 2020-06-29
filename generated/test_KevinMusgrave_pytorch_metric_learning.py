@@ -169,7 +169,7 @@ class BaseMetricLossFunction(torch.nn.Module):
         Returns: the loss (float)
         """
         c_f.assert_embeddings_and_labels_are_same_size(embeddings, labels)
-        labels = labels.to(embeddings.device)
+        labels = labels
         if self.normalize_embeddings:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         self.embedding_norms = torch.norm(embeddings, p=2, dim=1)
@@ -247,9 +247,9 @@ class CrossBatchMemory(torch.nn.Module):
     def forward(self, embeddings, labels, input_indices_tuple=None):
         assert embeddings.size(0) <= self.embedding_memory.size(0)
         batch_size = embeddings.size(0)
-        labels = labels.to(embeddings.device)
-        self.embedding_memory = self.embedding_memory.to(embeddings.device)
-        self.label_memory = self.label_memory.to(labels.device)
+        labels = labels
+        self.embedding_memory = self.embedding_memory
+        self.label_memory = self.label_memory
         self.add_to_memory(embeddings, labels, batch_size)
         if not self.has_been_filled:
             E_mem = self.embedding_memory[:self.queue_idx]
@@ -294,8 +294,8 @@ class CrossBatchMemory(torch.nn.Module):
             elif len(input_indices_tuple) == 4 and len(indices_tuple) == 3:
                 input_indices_tuple = lmu.convert_to_triplets(
                     input_indices_tuple, labels)
-            indices_tuple = tuple([torch.cat([x, y.to(x.device)], dim=0) for
-                x, y in zip(indices_tuple, input_indices_tuple)])
+            indices_tuple = tuple([torch.cat([x, y], dim=0) for x, y in zip
+                (indices_tuple, input_indices_tuple)])
         return indices_tuple
 
 
@@ -327,7 +327,7 @@ class BaseMiner(torch.nn.Module):
         """
         with torch.no_grad():
             c_f.assert_embeddings_and_labels_are_same_size(embeddings, labels)
-            labels = labels.to(embeddings.device)
+            labels = labels
             if self.normalize_embeddings:
                 embeddings = torch.nn.functional.normalize(embeddings, p=2,
                     dim=1)
@@ -341,7 +341,7 @@ class BaseMiner(torch.nn.Module):
         if ref_emb is not None:
             if self.normalize_embeddings:
                 ref_emb = torch.nn.functional.normalize(ref_emb, p=2, dim=1)
-            ref_labels = ref_labels.to(ref_emb.device)
+            ref_labels = ref_labels
         else:
             ref_emb, ref_labels = embeddings, labels
         c_f.assert_embeddings_and_labels_are_same_size(ref_emb, ref_labels)

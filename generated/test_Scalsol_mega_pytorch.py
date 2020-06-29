@@ -1555,8 +1555,7 @@ class GeneralizedRCNNFGFA(nn.Module):
             device)
         shifts_y, shifts_x = torch.meshgrid(shifts_y, shifts_x)
         grid_dst = torch.stack((shifts_x, shifts_y)).unsqueeze(0)
-        workspace = torch.tensor([(n - 1) / 2, (m - 1) / 2]).view(1, 2, 1, 1
-            ).to(flow.device)
+        workspace = torch.tensor([(n - 1) / 2, (m - 1) / 2]).view(1, 2, 1, 1)
         flow_grid = ((flow + grid_dst) / workspace - 1).permute(0, 2, 3, 1)
         return flow_grid
 
@@ -1666,7 +1665,7 @@ class GeneralizedRCNNFGFA(nn.Module):
                 end_image = Image.open(infos['img_dir'] % end_filename
                     ).convert('RGB')
                 end_image, _ = infos['transforms'](end_image, None)
-                end_image = end_image.view(1, *end_image.shape).to(self.device)
+                end_image = end_image.view(1, *end_image.shape)
                 update_feature(end_image)
         elif infos['frame_category'] == 1:
             self.end_id = min(self.end_id + 1, self.seg_len - 1)
@@ -2119,7 +2118,7 @@ class GeneralizedRCNNMEGA(nn.Module):
                 end_image = Image.open(infos['img_dir'] % end_filename
                     ).convert('RGB')
                 end_image, _ = infos['transforms'](end_image, None)
-                end_image = end_image.view(1, *end_image.shape).to(self.device)
+                end_image = end_image.view(1, *end_image.shape)
                 update_feature(end_image)
         elif infos['frame_category'] == 1:
             self.end_id = min(self.end_id + 1, self.seg_len - 1)
@@ -2262,7 +2261,7 @@ class GeneralizedRCNNRDN(nn.Module):
                 end_image = Image.open(infos['img_dir'] % end_filename
                     ).convert('RGB')
                 end_image, _ = infos['transforms'](end_image, None)
-                end_image = end_image.view(1, *end_image.shape).to(self.device)
+                end_image = end_image.view(1, *end_image.shape)
                 update_feature(end_image)
         elif infos['frame_category'] == 1:
             self.end_id = min(self.end_id + 1, self.seg_len - 1)
@@ -2385,8 +2384,7 @@ class Pooler(nn.Module):
             poolers)):
             idx_in_level = torch.nonzero(levels == level).squeeze(1)
             rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level
-                ).to(dtype)
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
 
 
@@ -4714,41 +4712,45 @@ class Test_Scalsol_mega_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(EmbedNet(*[], **{'cfg': _mock_config()}), [torch.rand([4, 1024, 64, 64])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(SigmoidFocalLoss(*[], **{'gamma': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

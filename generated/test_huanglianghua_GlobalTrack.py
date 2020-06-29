@@ -3481,10 +3481,10 @@ class CenterLoss(nn.Module):
 
     def forward(self, input, target):
         assert len(input) == len(target)
-        self.centers = self.centers.to(input.device)
+        self.centers = self.centers
         dist_mat = ops.euclidean(input, self.centers, sqrt=False)
         classes = torch.arange(self.num_classes).long()
-        classes = classes.to(input.device)
+        classes = classes
         n = len(input)
         target = target.unsqueeze(1).expand(n, self.num_classes)
         mask = target.eq(classes.expand(n, self.num_classes))

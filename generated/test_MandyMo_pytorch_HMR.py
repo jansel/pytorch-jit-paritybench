@@ -605,10 +605,10 @@ def batch_rodrigues(theta):
 _global_config['batch_size'] = 4
 
 
-_global_config['eval_batch_size'] = 4
-
-
 _global_config['batch_3d_size'] = 4
+
+
+_global_config['eval_batch_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -963,37 +963,37 @@ def load_denseNet(net_type):
         sys.exit(msg)
 
 
-_global_config['allowed_encoder_net'] = 4
-
-
-_global_config['crop_size'] = 4
-
-
 _global_config['joint_count'] = 4
 
 
-_global_config['enable_inter_supervision'] = 4
-
-
-_global_config['feature_count'] = 4
-
-
-_global_config['encoder_feature_count'] = 4
-
-
-_global_config['smpl_mean_theta_path'] = 4
-
-
-_global_config['encoder_network'] = 4
+_global_config['total_theta_count'] = 4
 
 
 _global_config['beta_count'] = 4
 
 
+_global_config['feature_count'] = 4
+
+
+_global_config['allowed_encoder_net'] = 4
+
+
+_global_config['enable_inter_supervision'] = 4
+
+
 _global_config['smpl_model'] = 4
 
 
-_global_config['total_theta_count'] = 4
+_global_config['encoder_network'] = 4
+
+
+_global_config['encoder_feature_count'] = 4
+
+
+_global_config['crop_size'] = 4
+
+
+_global_config['smpl_mean_theta_path'] = 4
 
 
 class HMRNetBase(nn.Module):
@@ -1127,24 +1127,20 @@ class Test_MandyMo_pytorch_HMR(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(HourGlass(*[], **{'nStack': 4, 'nBlockCount': 4, 'nResidualEachBlock': 4, 'nMidChannels': 4, 'nChannels': 4, 'nJointCount': 4, 'bUseBn': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(HourGlassBlock(*[], **{'block_count': 1, 'residual_each_block': 1, 'input_channels': 4, 'mid_channels': 4, 'use_bn': 4, 'stack_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(Residual(*[], **{'use_bn': 4, 'input_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

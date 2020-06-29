@@ -925,16 +925,16 @@ def get_func(func_name):
         raise
 
 
-_global_config['MODEL'] = 4
-
-
 _global_config['FAST_RCNN'] = 4
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['REFINE_TIMES'] = 4
+
+
+_global_config['MODEL'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 class Generalized_RCNN(nn.Module):

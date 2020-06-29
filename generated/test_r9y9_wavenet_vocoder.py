@@ -922,7 +922,3 @@ class Test_r9y9_wavenet_vocoder(_paritybench_base):
     def test_002(self):
         self._check(Stretch2d(*[], **{'x_scale': 1.0, 'y_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_003(self):
-        self._check(WaveNet(*[], **{}), [torch.rand([4, 256, 64])], {})
-

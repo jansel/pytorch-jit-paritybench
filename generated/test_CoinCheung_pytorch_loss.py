@@ -563,7 +563,7 @@ class PCSoftmaxCrossEntropyV1(nn.Module):
 
     def forward(self, logits, label):
         shape = [1, -1] + [(1) for _ in range(len(logits.size()) - 2)]
-        W = self.weight.view(*shape).to(logits.device).detach()
+        W = self.weight.view(*shape).detach()
         logits = logits - logits.max(dim=1, keepdim=True)[0]
         wexp_sum = torch.exp(logits).mul(W).sum(dim=1, keepdim=True)
         log_wsoftmax = logits - torch.log(wexp_sum)

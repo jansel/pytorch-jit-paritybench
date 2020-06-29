@@ -111,9 +111,8 @@ class InceptionScore(nn.Module):
 
     def __init__(self, device):
         super().__init__()
-        self.inception_model = inception_v3(pretrained=True).to(device=device)
-        self.up = nn.Upsample(size=(299, 299), mode='bilinear').to(device=
-            device)
+        self.inception_model = inception_v3(pretrained=True)
+        self.up = nn.Upsample(size=(299, 299), mode='bilinear')
 
     def forward(self, x):
         """x inputs should be (N, 3, 299, 299) in range -1 to 1.

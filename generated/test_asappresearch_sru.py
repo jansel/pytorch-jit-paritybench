@@ -1079,7 +1079,7 @@ class SRU(nn.Module):
             max_length = lengths.max().item()
             mask_pad = torch.ByteTensor([([0] * l + [1] * (max_length - l)) for
                 l in lengths.tolist()])
-            mask_pad = mask_pad.to(input.device).transpose(0, 1).contiguous()
+            mask_pad = mask_pad.transpose(0, 1).contiguous()
         if input.dim() != 3:
             raise ValueError(
                 'There must be 3 dimensions for (length, batch_size, input_size)'

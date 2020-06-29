@@ -623,8 +623,8 @@ class SincConv(nn.Module):
         t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
             ) / self.fs
         if cuda:
-            filters = filters.to('cuda')
-            t_right = t_right.to('cuda')
+            filters = filters
+            t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
@@ -633,7 +633,7 @@ class SincConv(nn.Module):
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
-            window = window.to('cuda')
+            window = window
         for i in range(self.N_filt):
             low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
                 ].float() * self.freq_scale, t_right, cuda)
@@ -642,7 +642,7 @@ class SincConv(nn.Module):
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
-                band_pass = band_pass.to('cuda')
+                band_pass = band_pass
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
             x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2), mode=
@@ -758,15 +758,19 @@ class Test_santi_pdp_segan_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(GConv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(GDeconv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(LayerNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(PostProcessingCombNet(*[], **{'ninputs': 4, 'fmaps': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(ResARModule(*[], **{'ninp': 4, 'fmaps': 4, 'res_fmaps': 4, 'kwidth': 4, 'dilation': 1}), [torch.rand([4, 4, 64])], {})
 

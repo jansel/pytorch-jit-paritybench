@@ -509,8 +509,7 @@ class NoiseLayer(nn.Module):
 
     def __init__(self, in_planes, out_planes, level):
         super(NoiseLayer, self).__init__()
-        self.noise = nn.Parameter(torch.Tensor(0), requires_grad=False).to(
-            device)
+        self.noise = nn.Parameter(torch.Tensor(0), requires_grad=False)
         self.level = level
         self.layers = nn.Sequential(nn.ReLU(True), nn.BatchNorm2d(in_planes
             ), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1))

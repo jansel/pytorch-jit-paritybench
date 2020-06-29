@@ -132,9 +132,9 @@ class Dice(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.dim = dim
         if self.dim == 2:
-            self.alpha = torch.zeros((emb_size,)).to(device)
+            self.alpha = torch.zeros((emb_size,))
         else:
-            self.alpha = torch.zeros((emb_size, 1)).to(device)
+            self.alpha = torch.zeros((emb_size, 1))
 
     def forward(self, x):
         assert x.dim() == self.dim
@@ -280,7 +280,7 @@ class DNN(nn.Module):
         for name, tensor in self.linears.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(tensor, mean=0, std=init_std)
-        self.to(device)
+        self
 
     def forward(self, inputs):
         deep_input = inputs
@@ -420,7 +420,7 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
         self.excitation = nn.Sequential(nn.Linear(self.filed_size, self.
             reduction_size, bias=False), nn.ReLU(), nn.Linear(self.
             reduction_size, self.filed_size, bias=False), nn.ReLU())
-        self.to(device)
+        self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
@@ -467,7 +467,7 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
                     embedding_size, bias=False))
         else:
             raise NotImplementedError
-        self.to(device)
+        self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
@@ -529,7 +529,7 @@ class CIN(nn.Module):
                 self.field_nums.append(size // 2)
             else:
                 self.field_nums.append(size)
-        self.to(device)
+        self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
@@ -604,7 +604,7 @@ class AFMLayer(nn.Module):
         for tensor in [self.attention_W, self.projection_h, self.projection_p]:
             nn.init.xavier_normal_(tensor)
         self.dropout = nn.Dropout(dropout_rate)
-        self.to(device)
+        self
 
     def forward(self, inputs):
         embeds_vec_list = inputs
@@ -666,7 +666,7 @@ class InteractingLayer(nn.Module):
                 att_embedding_size * self.head_num))
         for tensor in self.parameters():
             nn.init.normal_(tensor, mean=0.0, std=0.05)
-        self.to(device)
+        self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
@@ -717,7 +717,7 @@ class CrossNet(nn.Module):
             self.layer_num)])
         self.bias = torch.nn.ParameterList([nn.Parameter(nn.init.zeros_(
             torch.empty(in_features, 1))) for i in range(self.layer_num)])
-        self.to(device)
+        self
 
     def forward(self, inputs):
         x_0 = inputs.unsqueeze(2)
@@ -748,7 +748,7 @@ class InnerProductLayer(nn.Module):
     def __init__(self, reduce_sum=True, device='cpu'):
         super(InnerProductLayer, self).__init__()
         self.reduce_sum = reduce_sum
-        self.to(device)
+        self
 
     def forward(self, inputs):
         embed_list = inputs
@@ -797,7 +797,7 @@ class OutterProductLayer(nn.Module):
         elif self.kernel_type == 'num':
             self.kernel = nn.Parameter(torch.Tensor(num_pairs, 1))
         nn.init.xavier_uniform_(self.kernel)
-        self.to(device)
+        self
 
     def forward(self, inputs):
         embed_list = inputs
@@ -852,14 +852,13 @@ class ConvLayer(nn.Module):
             width = conv_kernel_width[i - 1]
             k = max(1, int((1 - pow(i / l, l - i)) * n)) if i < l else 3
             module_list.append(Conv2dSame(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=(width, 1), stride=1
-                ).to(self.device))
-            module_list.append(torch.nn.Tanh().to(self.device))
+                out_channels=out_channels, kernel_size=(width, 1), stride=1))
+            module_list.append(torch.nn.Tanh())
             module_list.append(KMaxPooling(k=min(k, filed_shape), axis=2,
-                device=self.device).to(self.device))
+                device=self.device))
             filed_shape = min(k, filed_shape)
         self.conv_layer = nn.Sequential(*module_list)
-        self.to(device)
+        self
         self.filed_shape = filed_shape
 
     def forward(self, inputs):
@@ -891,13 +890,13 @@ class SequencePoolingLayer(nn.Module):
         self.supports_masking = supports_masking
         self.mode = mode
         self.device = device
-        self.eps = torch.FloatTensor([1e-08]).to(device)
-        self.to(device)
+        self.eps = torch.FloatTensor([1e-08])
+        self
 
     def _sequence_mask(self, lengths, maxlen=None, dtype=torch.bool):
         if maxlen is None:
             maxlen = lengths.max()
-        row_vector = torch.arange(0, maxlen, 1).to(self.device)
+        row_vector = torch.arange(0, maxlen, 1)
         matrix = torch.unsqueeze(lengths, dim=-1)
         mask = row_vector < matrix
         mask.type(dtype)
@@ -1015,7 +1014,7 @@ class KMaxPooling(nn.Module):
         super(KMaxPooling, self).__init__()
         self.k = k
         self.axis = axis
-        self.to(device)
+        self
 
     def forward(self, input):
         if self.axis < 0 or self.axis >= len(input.shape):
@@ -1268,7 +1267,7 @@ class Linear(nn.Module):
             nn.init.normal_(tensor.weight, mean=0, std=init_std)
         if len(self.dense_feature_columns) > 0:
             self.weight = nn.Parameter(torch.Tensor(sum(fc.dimension for fc in
-                self.dense_feature_columns), 1)).to(device)
+                self.dense_feature_columns), 1))
             torch.nn.init.normal_(self.weight, mean=0, std=init_std)
 
     def forward(self, X):
@@ -1397,7 +1396,7 @@ class BaseModel(nn.Module):
         self.add_regularization_loss(self.linear_model.parameters(),
             l2_reg_linear)
         self.out = PredictionLayer(task)
-        self.to(device)
+        self
 
     def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1,
         initial_epoch=0, validation_split=0.0, validation_data=None,
@@ -1465,8 +1464,8 @@ class BaseModel(nn.Module):
             try:
                 with tqdm(enumerate(train_loader), disable=verbose != 1) as t:
                     for index, (x_train, y_train) in t:
-                        x = x_train.to(self.device).float()
-                        y = y_train.to(self.device).float()
+                        x = x_train.float()
+                        y = y_train.float()
                         y_pred = model(x).squeeze()
                         optim.zero_grad()
                         loss = loss_func(y_pred, y.squeeze(), reduction='sum')
@@ -1540,7 +1539,7 @@ class BaseModel(nn.Module):
         pred_ans = []
         with torch.no_grad():
             for index, x_test in enumerate(test_loader):
-                x = x_test[0].to(self.device).float()
+                x = x_test[0].float()
                 y_pred = model(x).cpu().data.numpy()
                 pred_ans.append(y_pred)
         if use_double:
@@ -1696,7 +1695,7 @@ class InterestExtractor(nn.Module):
         for name, tensor in self.gru.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(tensor, mean=0, std=init_std)
-        self.to(device)
+        self
 
     def forward(self, keys, keys_length, neg_keys=None):
         """
@@ -1908,44 +1907,60 @@ class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
     def test_004(self):
         self._check(BiInteractionPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
+        self._check(BilinearInteraction(*[], **{'filed_size': 4, 'embedding_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(CIN(*[], **{'field_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_007(self):
         self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_008(self):
         self._check(ConvLayer(*[], **{'field_size': 4, 'conv_kernel_width': [4, 4], 'conv_filters': [4, 4]}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_009(self):
         self._check(CrossNet(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(DNN(*[], **{'inputs_dim': 4, 'hidden_units': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_011(self):
         self._check(Dice(*[], **{'emb_size': 4}), [torch.rand([4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(FM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_014(self):
         self._check(InnerProductLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(Interac(*[], **{'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_016(self):
+        self._check(InteractingLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_017(self):
         self._check(Linear(*[], **{'feature_columns': [4, 4], 'feature_index': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_018(self):
         self._check(LocalActivationUnit(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_016(self):
+    def test_019(self):
         self._check(PredictionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(SENETLayer(*[], **{'filed_size': 4}), [torch.rand([4, 4, 4])], {})
 

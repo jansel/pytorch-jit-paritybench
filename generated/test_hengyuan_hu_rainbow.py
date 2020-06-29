@@ -161,9 +161,12 @@ class Test_hengyuan_hu_rainbow(_paritybench_base):
         self._check(BasicNetwork(*[], **{'conv': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(DistributionalBasicNetwork(*[], **{'conv': ReLU(), 'fc': ReLU(), 'num_actions': 4, 'num_atoms': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_002(self):
         self._check(DuelingNetwork(*[], **{'conv': ReLU(), 'adv': ReLU(), 'val': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4, 'sigma0': 4}), [torch.rand([4, 4, 4, 4])], {})
 

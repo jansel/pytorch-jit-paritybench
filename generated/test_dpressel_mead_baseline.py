@@ -639,7 +639,7 @@ class VariationalDropout(nn.Module):
             dim0 = 1
             dim1 = input.size(1)
         mask = torch.zeros(dim0, dim1, input.size(2)).bernoulli_(1 - self.pdrop
-            ).to(input.device)
+            )
         mask = mask / self.pdrop
         return mask * input
 
@@ -727,7 +727,7 @@ class MeanPool1D(nn.Module):
         """
         tensor, lengths = tensor_and_lengths(inputs)
         return torch.sum(tensor, self.reduction_dim, keepdim=False
-            ) / torch.unsqueeze(lengths, -1).to(tensor.dtype).to(tensor.device)
+            ) / torch.unsqueeze(lengths, -1).to(tensor.dtype)
 
     def extra_repr(self):
         return f'batch_first={self.batch_first}'
@@ -778,7 +778,7 @@ class MaxPool1D(nn.Module):
         """
         tensor, lengths = tensor_and_lengths(inputs)
         if lengths is not None:
-            mask = sequence_mask(lengths).to(tensor.device)
+            mask = sequence_mask(lengths)
             mask = mask if self.batch_first else bth2tbh(mask)
             tensor = tensor.masked_fill(mask.unsqueeze(-1) == MASK_FALSE, -
                 10000.0)
@@ -1962,8 +1962,7 @@ class Viterbi(nn.Module):
         _ = best_path.pop()
         best_path.reverse()
         best_path = torch.stack(best_path)
-        seq_mask = sequence_mask(lengths, seq_len).to(best_path.device
-            ).transpose(0, 1)
+        seq_mask = sequence_mask(lengths, seq_len).transpose(0, 1)
         best_path = best_path.masked_fill(seq_mask == MASK_FALSE, 0)
         return best_path, path_score
 
@@ -2072,7 +2071,7 @@ class TaggerGreedyDecoder(nn.Module):
                 return preds
         else:
             _, preds = torch.max(unaries, -1)
-            mask = sequence_mask(lengths, unaries.shape[1]).to(preds.device)
+            mask = sequence_mask(lengths, unaries.shape[1])
             mask = mask if self.batch_first else mask.transpose(0, 1)
             preds = preds.masked_fill(mask == MASK_FALSE, 0)
         return preds
@@ -2438,7 +2437,7 @@ class MultiHeadedRelativeAttention(nn.Module):
     def make_rpr(self, seq_len, device) ->Tuple[torch.Tensor, torch.Tensor]:
         """Create a matrix shifted by self.rpr_k and bounded between 0 and 2*self.rpr_k to provide 0-based indexing for embedding
         """
-        seq = torch.arange(seq_len).to(device)
+        seq = torch.arange(seq_len)
         window_len = 2 * self.rpr_k
         edges = seq.view(1, -1) - seq.view(-1, 1) + self.rpr_k
         edges = torch.clamp(edges, 0, window_len)
@@ -2729,29 +2728,32 @@ class Test_dpressel_mead_baseline(_paritybench_base):
         self._check(SumReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
-        self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TBH2BHT(*[], **{}), [torch.rand([4, 4, 4])], {})
 
     def test_022(self):
+        self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_023(self):
         self._check(TiedWeights(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(TransformerDecoder(*[], **{'num_heads': 4, 'd_model': 4, 'pdrop': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(TwoHeadConcat(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_025(self):
+    def test_026(self):
         self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
         self._check(WithDropout(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_027(self):
+    def test_028(self):
         self._check(WithDropoutOnFirst(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_028(self):
+    def test_029(self):
         self._check(WithoutLength(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

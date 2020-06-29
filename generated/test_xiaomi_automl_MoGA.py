@@ -483,13 +483,5 @@ class Test_xiaomi_automl_MoGA(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(MoGaA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(MoGaB(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_004(self):
         self._check(MoGaC(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

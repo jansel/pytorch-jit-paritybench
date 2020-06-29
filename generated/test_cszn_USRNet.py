@@ -635,17 +635,14 @@ class Test_cszn_USRNet(_paritybench_base):
         self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_006(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-
-    def test_007(self):
         self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
 

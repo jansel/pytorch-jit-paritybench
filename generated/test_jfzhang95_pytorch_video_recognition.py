@@ -540,3 +540,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_jfzhang95_pytorch_video_recognition(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(SpatioTemporalConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+

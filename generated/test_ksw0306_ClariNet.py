@@ -237,8 +237,8 @@ class Wavenet(nn.Module):
 
     def generate(self, num_samples, c=None):
         rf_size = self.receptive_field_size()
-        x_rf = torch.zeros(1, 1, rf_size).to(torch.device('cuda'))
-        x = torch.zeros(1, 1, num_samples + 1).to(torch.device('cuda'))
+        x_rf = torch.zeros(1, 1, rf_size)
+        x = torch.zeros(1, 1, num_samples + 1)
         c_upsampled = self.upsample(c)
         local_cond = c_upsampled
         timer = time.perf_counter()
@@ -409,8 +409,4 @@ class Test_ksw0306_ClariNet(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(KL_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(Wavenet_Student(*[], **{}), [torch.rand([4, 1, 64]), torch.rand([4, 80, 64])], {})
 

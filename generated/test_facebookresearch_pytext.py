@@ -995,7 +995,7 @@ class CRF(nn.Module):
         ) ->torch.Tensor:
         tensor_device = emissions.device
         seq_len = emissions.shape[1]
-        mask = mask.to(torch.uint8)
+        mask = mask
         log_prob = emissions[:, (0)].clone()
         log_prob += self.transitions[(self.start_tag), :self.start_tag
             ].unsqueeze(0)
@@ -1866,8 +1866,8 @@ class AugmentedLSTMUnidirectional(nn.Module):
 
     def get_dropout_mask(self, dropout_probability: float,
         tensor_for_masking: torch.Tensor) ->torch.Tensor:
-        binary_mask = (torch.rand(tensor_for_masking.size()) >
-            dropout_probability).to(tensor_for_masking.device)
+        binary_mask = torch.rand(tensor_for_masking.size()
+            ) > dropout_probability
         dropout_mask = binary_mask.float().div(1.0 - dropout_probability)
         return dropout_mask
 
@@ -3648,15 +3648,20 @@ class Test_facebookresearch_pytext(_paritybench_base):
     def test_008(self):
         self._check(PlaceholderIdentity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(SelfAttention(*[], **{'config': _mock_config(dropout=0.5, attn_dimension=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_010(self):
-        self._check(Transformer(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SlotAttention(*[], **{'config': _mock_config(attention_type=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_012(self):
+        self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
         self._check(VectorNormalizer(*[], **{'dim': 4}), [], {})
 

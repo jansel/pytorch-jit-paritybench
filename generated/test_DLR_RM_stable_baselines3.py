@@ -223,9 +223,9 @@ class MlpExtractor(nn.Module):
                 last_layer_dim_vf = vf_layer_size
         self.latent_dim_pi = last_layer_dim_pi
         self.latent_dim_vf = last_layer_dim_vf
-        self.shared_net = nn.Sequential(*shared_net).to(device)
-        self.policy_net = nn.Sequential(*policy_net).to(device)
-        self.value_net = nn.Sequential(*value_net).to(device)
+        self.shared_net = nn.Sequential(*shared_net)
+        self.policy_net = nn.Sequential(*policy_net)
+        self.value_net = nn.Sequential(*value_net)
 
     def forward(self, features: th.Tensor) ->Tuple[th.Tensor, th.Tensor]:
         """

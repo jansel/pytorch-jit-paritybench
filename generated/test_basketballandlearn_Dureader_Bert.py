@@ -974,3 +974,7 @@ class Test_basketballandlearn_Dureader_Bert(_paritybench_base):
     def test_002(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_003(self):
+        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

@@ -1404,25 +1404,21 @@ class Test_ianwhale_nsga_net(_paritybench_base):
     def test_004(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LOSHourGlassDecoder(*[], **{'genome': [4, 4], 'n_stacks': 4, 'out_feature_maps': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
         self._check(Lin(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(PreactResidualNode(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(ResidualNode(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

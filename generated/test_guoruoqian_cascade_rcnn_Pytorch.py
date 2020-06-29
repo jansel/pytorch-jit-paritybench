@@ -401,10 +401,10 @@ def clip_boxes(boxes, im_shape, batch_size):
     return boxes
 
 
-_global_config['TEST'] = 4
-
-
 _global_config['TRAIN'] = 4
+
+
+_global_config['TEST'] = 4
 
 
 def bbox_decode(rois, bbox_pred, batch_size, class_agnostic, classes,
@@ -435,10 +435,10 @@ def bbox_decode(rois, bbox_pred, batch_size, class_agnostic, classes,
     return ret_boxes
 
 
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
 _global_config['POOLING_SIZE'] = 4
+
+
+_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
 _global_config['POOLING_MODE'] = 4
@@ -2167,13 +2167,13 @@ def generate_anchors_all_pyramids(scales, ratios, feature_shapes,
     return np.concatenate(anchors, axis=0)
 
 
+_global_config['FPN_ANCHOR_STRIDE'] = 4
+
+
 _global_config['FPN_FEAT_STRIDES'] = 4
 
 
 _global_config['FPN_ANCHOR_SCALES'] = 4
-
-
-_global_config['FPN_ANCHOR_STRIDE'] = 4
 
 
 class _AnchorTargetLayer_FPN(nn.Module):
@@ -2543,10 +2543,10 @@ class _ProposalTargetLayer(nn.Module):
 _global_config['ANCHOR_SCALES'] = 4
 
 
-_global_config['ANCHOR_RATIOS'] = 4
-
-
 _global_config['FEAT_STRIDE'] = 4
+
+
+_global_config['ANCHOR_RATIOS'] = 4
 
 
 class _RPN_FPN(nn.Module):

@@ -145,7 +145,7 @@ class CNF(nn.Module):
     def forward(self, x, context=None, logpx=None, integration_times=None,
         reverse=False):
         if logpx is None:
-            _logpx = torch.zeros(*x.shape[:-1], 1).to(x)
+            _logpx = torch.zeros(*x.shape[:-1], 1)
         else:
             _logpx = logpx
         if self.conditional:
@@ -160,22 +160,21 @@ class CNF(nn.Module):
         if integration_times is None:
             if self.train_T:
                 integration_times = torch.stack([torch.tensor(0.0).to(x), 
-                    self.sqrt_end_time * self.sqrt_end_time]).to(x)
+                    self.sqrt_end_time * self.sqrt_end_time])
             else:
                 integration_times = torch.tensor([0.0, self.T],
-                    requires_grad=False).to(x)
+                    requires_grad=False)
         if reverse:
             integration_times = _flip(integration_times, 0)
         self.odefunc.before_odeint()
         odeint = odeint_adjoint if self.use_adjoint else odeint_normal
         if self.training:
-            state_t = odeint(self.odefunc, states, integration_times.to(x),
-                atol=atol, rtol=rtol, method=self.solver, options=self.
+            state_t = odeint(self.odefunc, states, integration_times, atol=
+                atol, rtol=rtol, method=self.solver, options=self.
                 solver_options)
         else:
-            state_t = odeint(self.odefunc, states, integration_times.to(x),
-                atol=self.test_atol, rtol=self.test_rtol, method=self.
-                test_solver)
+            state_t = odeint(self.odefunc, states, integration_times, atol=
+                self.test_atol, rtol=self.test_rtol, method=self.test_solver)
         if len(integration_times) == 2:
             state_t = tuple(s[1] for s in state_t)
         z_t, logpz_t = state_t[:2]
@@ -551,13 +550,13 @@ class ODEfunc(nn.Module):
 
     def forward(self, t, states):
         y = states[0]
-        t = torch.ones(y.size(0), 1).to(y) * t.clone().detach().requires_grad_(
-            True).type_as(y)
+        t = torch.ones(y.size(0), 1) * t.clone().detach().requires_grad_(True
+            ).type_as(y)
         self._num_evals += 1
         for state in states:
             state.requires_grad_(True)
         if self._e is None:
-            self._e = torch.randn_like(y, requires_grad=True).to(y)
+            self._e = torch.randn_like(y, requires_grad=True)
         with torch.set_grad_enabled(True):
             if len(states) == 3:
                 c = states[2]

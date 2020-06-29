@@ -776,7 +776,7 @@ class CrossEntropyLabelSmooth(nn.Module):
         targets = torch.zeros(log_probs.size()).scatter_(1, targets.
             unsqueeze(1).data.cpu(), 1)
         if self.use_gpu:
-            targets = targets.to(torch.device('cuda'))
+            targets = targets
         targets = (1 - self.epsilon
             ) * targets + self.epsilon / self.num_classes
         loss = (-targets * log_probs).mean(0).sum()
@@ -809,18 +809,22 @@ class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_ba
     def test_006(self):
         self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_008(self):
-        self._check(LightConv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(LightConvStream(*[], **{'in_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LightConv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(LightConvStream(*[], **{'in_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
+        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_012(self):
         self._check(OSBlockINin(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 

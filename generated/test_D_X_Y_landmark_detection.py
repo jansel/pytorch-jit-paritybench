@@ -1308,23 +1308,16 @@ class Test_D_X_Y_landmark_detection(_paritybench_base):
     def test_003(self):
         self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(HourglassNet(*[], **{'nStack': 4, 'nModules': 4, 'nFeats': 4, 'nJoints': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_005(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
-        self._check(MobileNetV2REG(*[], **{'input_dim': 4, 'input_channel': 4, 'width_mult': 4, 'pts_num': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     @_fails_compile()
-    def test_007(self):
+    def test_005(self):
         self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_008(self):
+    def test_006(self):
         self._check(Residual(*[], **{'numIn': 4, 'numOut': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_007(self):
         self._check(TeacherNet(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 

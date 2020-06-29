@@ -170,8 +170,8 @@ class YOLOLayer(nn.Module):
         truth_y_all = labels[:, :, (2)] * fsize
         truth_w_all = labels[:, :, (3)] * fsize
         truth_h_all = labels[:, :, (4)] * fsize
-        truth_i_all = truth_x_all.to(torch.int16).numpy()
-        truth_j_all = truth_y_all.to(torch.int16).numpy()
+        truth_i_all = truth_x_all.numpy()
+        truth_j_all = truth_y_all.numpy()
         for b in range(batchsize):
             n = int(nlabel[b])
             if n == 0:
@@ -202,9 +202,9 @@ class YOLOLayer(nn.Module):
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[(b), (a), (j), (i), :] = 1
                     target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[
-                        b, ti].to(torch.int16).to(torch.float)
+                        b, ti].to(torch.int16)
                     target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[
-                        b, ti].to(torch.int16).to(torch.float)
+                        b, ti].to(torch.int16)
                     target[b, a, j, i, 2] = torch.log(truth_w_all[b, ti] /
                         torch.Tensor(self.masked_anchors)[best_n[ti], 0] + 
                         1e-16)
@@ -212,8 +212,7 @@ class YOLOLayer(nn.Module):
                         torch.Tensor(self.masked_anchors)[best_n[ti], 1] + 
                         1e-16)
                     target[b, a, j, i, 4] = 1
-                    target[b, a, j, i, 5 + labels[b, ti, 0].to(torch.int16)
-                        .numpy()] = 1
+                    target[b, a, j, i, 5 + labels[b, ti, 0].numpy()] = 1
                     tgt_scale[(b), (a), (j), (i), :] = torch.sqrt(2 - 
                         truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize
                         )

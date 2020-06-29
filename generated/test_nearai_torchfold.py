@@ -111,3 +111,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_nearai_torchfold(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(TreeLSTM(*[], **{'num_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

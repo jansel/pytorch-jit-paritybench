@@ -544,24 +544,28 @@ class Test_soobinseo_Transformer_TTS(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(Attention(*[], **{'num_hidden': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(CBHG(*[], **{'hidden_size': 4}), [torch.rand([4, 256, 64])], {})
 
-    def test_001(self):
+    def test_002(self):
         self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(FFN(*[], **{'num_hidden': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(Highwaynet(*[], **{'num_units': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(Linear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(MultiheadAttention(*[], **{'num_hidden_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(Prenet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

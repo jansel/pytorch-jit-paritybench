@@ -581,3 +581,6 @@ class Test_NVlabs_SSV(_paritybench_base):
     def test_005(self):
         self._check(StyledConvBlock2(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512])], {})
 
+    def test_006(self):
+        self._check(StyledConvBlock3_noAdaIN(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+

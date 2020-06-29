@@ -145,8 +145,7 @@ class ConvLSTM(nn.Module):
         spatial_size = input_.data.size()[2:]
         if prev_state is None:
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
-            prev_state = torch.zeros(state_size).to(input_.device
-                ), torch.zeros(state_size).to(input_.device)
+            prev_state = torch.zeros(state_size), torch.zeros(state_size)
         prev_hidden, prev_cell = prev_state
         stacked_inputs = torch.cat((input_, prev_hidden), 1)
         gates = self.Gates(stacked_inputs)

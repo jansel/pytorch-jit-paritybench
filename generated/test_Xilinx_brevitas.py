@@ -1844,7 +1844,7 @@ class AudioPreprocessor(nn.Module):
         pass
 
     def get_seq_len(self, length):
-        return torch.ceil(length / self.hop_length).to(dtype=torch.long)
+        return torch.ceil(length / self.hop_length)
 
 
 class SpectrogramAugmentation(nn.Module):
@@ -2222,7 +2222,7 @@ class FilterbankFeatures(nn.Module):
             self.register_buffer('window', window_tensor)
             self.stft = lambda x: torch.stft(x, n_fft=self.n_fft,
                 hop_length=self.hop_length, win_length=self.win_length,
-                center=True, window=self.window.to(dtype=torch.float))
+                center=True, window=self.window)
         self.normalize = normalize
         self.log = log
         self.dither = dither
@@ -2258,7 +2258,7 @@ class FilterbankFeatures(nn.Module):
         self.log_zero_guard_type = log_zero_guard_type
 
     def get_seq_len(self, seq_len):
-        return torch.ceil(seq_len / self.hop_length).to(dtype=torch.long)
+        return torch.ceil(seq_len / self.hop_length)
 
     @property
     def filter_banks(self):
@@ -2277,7 +2277,7 @@ class FilterbankFeatures(nn.Module):
             x = x.pow(self.mag_power)
         if not self.stft_conv:
             x = x.sum(-1)
-        x = torch.matmul(self.fb.to(x.dtype), x)
+        x = torch.matmul(self.fb, x)
         if self.log:
             if self.log_zero_guard_type == 'add':
                 x = torch.log(x + self.log_zero_guard_value(x))
@@ -2290,10 +2290,9 @@ class FilterbankFeatures(nn.Module):
         if self.normalize:
             x = normalize_batch(x, seq_len, normalize_type=self.normalize)
         max_len = x.size(-1)
-        mask = torch.arange(max_len).to(x.device)
+        mask = torch.arange(max_len)
         mask = mask.expand(x.size(0), max_len) >= seq_len.unsqueeze(1)
-        x = x.masked_fill(mask.unsqueeze(1).type(torch.bool).to(device=x.
-            device), self.pad_value)
+        x = x.masked_fill(mask.unsqueeze(1).type(torch.bool), self.pad_value)
         del mask
         pad_to = self.pad_to
         if not self.training:
@@ -2370,7 +2369,7 @@ class SpecAugment(nn.Module):
                 y_left = int(self._rng.uniform(0, sh[2] - self.time_width))
                 w = int(self._rng.uniform(0, self.time_width))
                 mask[(idx), :, y_left:y_left + w] = 1
-        x = x.masked_fill(mask.type(torch.bool).to(device=x.device), 0)
+        x = x.masked_fill(mask.type(torch.bool), 0)
         return x
 
 
@@ -2403,7 +2402,7 @@ class SpecCutout(nn.Module):
                 w_x = int(self._rng.uniform(0, self.rect_time))
                 w_y = int(self._rng.uniform(0, self.rect_freq))
                 mask[(idx), rect_x:rect_x + w_x, rect_y:rect_y + w_y] = 1
-        x = x.masked_fill(mask.type(torch.bool).to(device=x.device), 0)
+        x = x.masked_fill(mask.type(torch.bool), 0)
         return x
 
 

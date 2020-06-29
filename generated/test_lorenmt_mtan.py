@@ -436,7 +436,7 @@ class SegNet(nn.Module):
     def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
         x_output3):
         binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1).to(device)
+            ).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
         loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
             ) / torch.nonzero(binary_mask).size(0)
@@ -453,9 +453,9 @@ class SegNet(nn.Module):
             first_switch = True
             for j in range(self.class_nb):
                 pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor).to(device))
+                    x_pred_label[i].shape).type(torch.LongTensor))
                 true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor).to(device))
+                    x_output_label[i].shape).type(torch.LongTensor))
                 mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
                     torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
@@ -491,7 +491,7 @@ class SegNet(nn.Module):
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1).to(device)
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
         x_pred_true = x_pred.masked_select(binary_mask)
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
@@ -691,7 +691,7 @@ class SegNet(nn.Module):
     def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
         x_output3):
         binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1).to(device)
+            ).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
         loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
             ) / torch.nonzero(binary_mask).size(0)
@@ -708,9 +708,9 @@ class SegNet(nn.Module):
             first_switch = True
             for j in range(self.class_nb):
                 pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor).to(device))
+                    x_pred_label[i].shape).type(torch.LongTensor))
                 true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor).to(device))
+                    x_output_label[i].shape).type(torch.LongTensor))
                 mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
                     torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
@@ -746,7 +746,7 @@ class SegNet(nn.Module):
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1).to(device)
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
         x_pred_true = x_pred.masked_select(binary_mask)
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
@@ -865,12 +865,12 @@ class SegNet(nn.Module):
             loss = F.nll_loss(x_pred, x_output, ignore_index=-1)
         if opt.task == 'depth':
             binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1).to(device)
+                FloatTensor).unsqueeze(1)
             loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask
                 ) / torch.nonzero(binary_mask).size(0)
         if opt.task == 'normal':
             binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1).to(device)
+                FloatTensor).unsqueeze(1)
             loss = 1 - torch.sum(x_pred * x_output * binary_mask
                 ) / torch.nonzero(binary_mask).size(0)
         return loss
@@ -884,9 +884,9 @@ class SegNet(nn.Module):
             first_switch = True
             for j in range(self.class_nb):
                 pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor).to(device))
+                    x_pred_label[i].shape).type(torch.LongTensor))
                 true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor).to(device))
+                    x_output_label[i].shape).type(torch.LongTensor))
                 mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
                     torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
@@ -922,7 +922,7 @@ class SegNet(nn.Module):
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1).to(device)
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
         x_pred_true = x_pred.masked_select(binary_mask)
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
@@ -1045,7 +1045,7 @@ class SegNet(nn.Module):
     def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
         x_output3):
         binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1).to(device)
+            ).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
         loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
             ) / torch.nonzero(binary_mask).size(0)
@@ -1062,9 +1062,9 @@ class SegNet(nn.Module):
             first_switch = True
             for j in range(self.class_nb):
                 pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor).to(device))
+                    x_pred_label[i].shape).type(torch.LongTensor))
                 true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor).to(device))
+                    x_output_label[i].shape).type(torch.LongTensor))
                 mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
                     torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
@@ -1100,7 +1100,7 @@ class SegNet(nn.Module):
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1).to(device)
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
         x_pred_true = x_pred.masked_select(binary_mask)
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
@@ -1302,12 +1302,12 @@ class SegNet(nn.Module):
             loss = F.nll_loss(x_pred, x_output, ignore_index=-1)
         if opt.task == 'depth':
             binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1).to(device)
+                FloatTensor).unsqueeze(1)
             loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask
                 ) / torch.nonzero(binary_mask).size(0)
         if opt.task == 'normal':
             binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1).to(device)
+                FloatTensor).unsqueeze(1)
             loss = 1 - torch.sum(x_pred * x_output * binary_mask
                 ) / torch.nonzero(binary_mask).size(0)
         return loss
@@ -1321,9 +1321,9 @@ class SegNet(nn.Module):
             first_switch = True
             for j in range(self.class_nb):
                 pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor).to(device))
+                    x_pred_label[i].shape).type(torch.LongTensor))
                 true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor).to(device))
+                    x_output_label[i].shape).type(torch.LongTensor))
                 mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
                     torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
@@ -1359,7 +1359,7 @@ class SegNet(nn.Module):
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1).to(device)
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
         x_pred_true = x_pred.masked_select(binary_mask)
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
@@ -1491,7 +1491,7 @@ class WideResNet(nn.Module):
         return out
 
     def model_fit(self, x_pred, x_output, num_output):
-        x_output_onehot = torch.zeros((len(x_output), num_output)).to(device)
+        x_output_onehot = torch.zeros((len(x_output), num_output))
         x_output_onehot.scatter_(1, x_output.unsqueeze(1), 1)
         loss = x_output_onehot * torch.log(x_pred + 1e-20)
         return torch.sum(-loss, dim=1)
@@ -1612,7 +1612,7 @@ class WideResNet(nn.Module):
         return out
 
     def model_fit(self, x_pred, x_output, num_output):
-        x_output_onehot = torch.zeros((len(x_output), num_output)).to(device)
+        x_output_onehot = torch.zeros((len(x_output), num_output))
         x_output_onehot.scatter_(1, x_output.unsqueeze(1), 1)
         loss = x_output_onehot * torch.log(x_pred + 1e-20)
         return torch.sum(-loss, dim=1)

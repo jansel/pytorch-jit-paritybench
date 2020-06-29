@@ -150,8 +150,7 @@ class AdaptiveLossFunction(nn.Module):
             latent_alpha_init = util.inv_affine_sigmoid(alpha_init, lo=
                 alpha_lo, hi=alpha_hi)
             self.register_parameter('latent_alpha', torch.nn.Parameter(
-                latent_alpha_init.clone().detach().to(dtype=self.
-                float_dtype, device=self.device)[np.newaxis, np.newaxis].
+                latent_alpha_init.clone().detach()[np.newaxis, np.newaxis].
                 repeat(1, self.num_dims), requires_grad=True))
             self.alpha = lambda : util.affine_sigmoid(self.latent_alpha, lo
                 =alpha_lo, hi=alpha_hi)
@@ -162,8 +161,7 @@ class AdaptiveLossFunction(nn.Module):
             self.scale = lambda : self.fixed_scale
         else:
             self.register_parameter('latent_scale', torch.nn.Parameter(
-                torch.zeros((1, self.num_dims)).to(dtype=self.float_dtype,
-                device=self.device), requires_grad=True))
+                torch.zeros((1, self.num_dims)), requires_grad=True))
             self.scale = lambda : util.affine_softplus(self.latent_scale,
                 lo=scale_lo, ref=scale_init)
 
@@ -236,8 +234,8 @@ class StudentsTLossFunction(nn.Module):
             ) and 'cuda' in device or isinstance(device, torch.device
             ) and device.type == 'cuda':
             torch.cuda.set_device(self.device)
-        self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)).to
-            (dtype=self.float_dtype, device=self.device), requires_grad=True)
+        self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)),
+            requires_grad=True)
         self.register_parameter('log_df', self.log_df)
         if scale_lo == scale_init:
             self.latent_scale = None
@@ -246,8 +244,7 @@ class StudentsTLossFunction(nn.Module):
                 num_dims)
         else:
             self.latent_scale = torch.nn.Parameter(torch.zeros((1, self.
-                num_dims)).to(dtype=self.float_dtype, device=self.device),
-                requires_grad=True)
+                num_dims)), requires_grad=True)
         self.register_parameter('latent_scale', self.latent_scale)
         self.df = lambda : torch.exp(self.log_df)
         self.scale = lambda : util.affine_softplus(self.latent_scale, lo=

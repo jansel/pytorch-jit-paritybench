@@ -709,7 +709,7 @@ class TransformerModel(nn.Module):
             tensor = tensor + self.lang_embeddings(langs)
         tensor = self.layer_norm_emb(tensor)
         tensor = F.dropout(tensor, p=self.dropout, training=self.training)
-        tensor *= mask.unsqueeze(-1).to(tensor.dtype)
+        tensor *= mask.unsqueeze(-1)
         for i in range(self.n_layers):
             attn = self.attentions[i](tensor, attn_mask, cache=cache)
             attn = F.dropout(attn, p=self.dropout, training=self.training)
@@ -728,7 +728,7 @@ class TransformerModel(nn.Module):
             tensor = self.layer_norm2[i](tensor)
             if '%i_after' % i in self.memories:
                 tensor = tensor + self.memories['%i_after' % i](tensor)
-            tensor *= mask.unsqueeze(-1).to(tensor.dtype)
+            tensor *= mask.unsqueeze(-1)
         if cache is not None:
             cache['slen'] += tensor.size(1)
         tensor = tensor.transpose(0, 1)

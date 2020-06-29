@@ -1521,8 +1521,7 @@ class Pooler(nn.Module):
             poolers)):
             idx_in_level = torch.nonzero(levels == level).squeeze(1)
             rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level
-                ).to(dtype)
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
 
 
@@ -3404,9 +3403,9 @@ class ROIRelationHead(torch.nn.Module):
             proposal_box_pairs = torch.cat((box_subj.view(-1, 4), box_obj.
                 view(-1, 4)), 1)
             idx_subj = torch.arange(box_subj.shape[0]).view(-1, 1, 1).repeat(
-                1, box_obj.shape[0], 1).to(proposals_per_image.bbox.device)
+                1, box_obj.shape[0], 1)
             idx_obj = torch.arange(box_obj.shape[0]).view(1, -1, 1).repeat(
-                box_subj.shape[0], 1, 1).to(proposals_per_image.bbox.device)
+                box_subj.shape[0], 1, 1)
             proposal_idx_pairs = torch.cat((idx_subj.view(-1, 1), idx_obj.
                 view(-1, 1)), 1)
             keep_idx = (proposal_idx_pairs[:, (0)] != proposal_idx_pairs[:,
@@ -3696,7 +3695,7 @@ class SpatialFeature(nn.Module):
             spt_feat = self._get_spt_features(boxes_subj.cpu().numpy(),
                 boxes_obj.cpu().numpy(), proposal_pair.size[0],
                 proposal_pair.size[1])
-            spt_feat = torch.from_numpy(spt_feat).to(boxes_subj.device)
+            spt_feat = torch.from_numpy(spt_feat)
             spt_feats.append(spt_feat)
         spt_feats = torch.cat(spt_feats, 0).float()
         spt_feats = self.model(spt_feats)
@@ -3847,9 +3846,9 @@ class RelPN(nn.Module):
         proposal_box_pairs = torch.cat((box_subj.view(-1, 4), box_obj.view(
             -1, 4)), 1)
         idx_subj = torch.arange(box_subj.shape[0]).view(-1, 1, 1).repeat(1,
-            box_obj.shape[0], 1).to(proposal.bbox.device)
+            box_obj.shape[0], 1)
         idx_obj = torch.arange(box_obj.shape[0]).view(1, -1, 1).repeat(box_subj
-            .shape[0], 1, 1).to(proposal.bbox.device)
+            .shape[0], 1, 1)
         proposal_idx_pairs = torch.cat((idx_subj.view(-1, 1), idx_obj.view(
             -1, 1)), 1)
         proposal_pairs = BoxPairList(proposal_box_pairs, proposal.size,
@@ -3873,7 +3872,7 @@ class RelPN(nn.Module):
                 targets_per_image))
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[bg_inds] = 0
             ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
@@ -3928,9 +3927,9 @@ class RelPN(nn.Module):
             proposal_box_pairs = torch.cat((box_subj.view(-1, 4), box_obj.
                 view(-1, 4)), 1)
             idx_subj = torch.arange(box_subj.shape[0]).view(-1, 1, 1).repeat(
-                1, box_obj.shape[0], 1).to(proposals_per_image.bbox.device)
+                1, box_obj.shape[0], 1)
             idx_obj = torch.arange(box_obj.shape[0]).view(1, -1, 1).repeat(
-                box_subj.shape[0], 1, 1).to(proposals_per_image.bbox.device)
+                box_subj.shape[0], 1, 1)
             proposal_idx_pairs = torch.cat((idx_subj.view(-1, 1), idx_obj.
                 view(-1, 1)), 1)
             keep_idx = (proposal_idx_pairs[:, (0)] != proposal_idx_pairs[:,
@@ -3961,8 +3960,8 @@ class RelPN(nn.Module):
             obj_bboxes = proposals_per_image.bbox
             relness = self.relationshipness(obj_logits, obj_bboxes,
                 proposals_per_image.size)
-            keep_idx = (1 - torch.eye(obj_logits.shape[0]).to(relness.device)
-                ).view(-1).nonzero().view(-1)
+            keep_idx = (1 - torch.eye(obj_logits.shape[0])).view(-1).nonzero(
+                ).view(-1)
             if self.cfg.MODEL.ROI_RELATION_HEAD.FILTER_NON_OVERLAP:
                 ious = boxlist_iou(proposals_per_image, proposals_per_image
                     ).view(-1)
@@ -5387,68 +5386,75 @@ class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(Flattener(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
+        self._check(FrequencyBias(*[], **{'pred_dist': torch.rand([4, 4, 4])}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_008(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(Gated_Recurrent_Unit(*[], **{'fea_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_014(self):
         self._check(Message_Passing_Unit_v1(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(Message_Passing_Unit_v2(*[], **{'fea_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_016(self):
         self._check(MultiHeadAttention(*[], **{'heads': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_017(self):
         self._check(Relationshipness(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_018(self):
         self._check(Relationshipnessv2(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_019(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_020(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_021(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_022(self):
         self._check(_Collection_Unit(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_023(self):
         self._check(_GraphConvolutionLayer_Update(*[], **{'dim_obj': 4, 'dim_rel': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), 0], {})
 
-    def test_022(self):
+    def test_024(self):
         self._check(_Update_Unit(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

@@ -83,10 +83,8 @@ class BiRNN(nn.Module):
         self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(
-            device)
-        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(
-            device)
+        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
         out = self.fc(out[:, (-1), :])
         return out
@@ -210,10 +208,8 @@ class RNN(nn.Module):
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(
-            device)
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
         out = self.fc(out[:, (-1), :])
         return out
@@ -344,12 +340,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_yunjey_pytorch_tutorial(_paritybench_base):
     pass
     def test_000(self):
+        self._check(BiRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
         self._check(NeuralNet(*[], **{}), [torch.rand([784, 784])], {})
 
+    def test_002(self):
+        self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+
     @_fails_compile()
-    def test_001(self):
+    def test_003(self):
         self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(VAE(*[], **{}), [torch.rand([784, 784])], {})
 

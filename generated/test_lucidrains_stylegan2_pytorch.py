@@ -303,7 +303,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         b, *_ = x.shape
-        quantize_loss = torch.zeros(1).to(x)
+        quantize_loss = torch.zeros(1)
         for block, q_block in zip(self.blocks, self.quantize_blocks):
             x = block(x)
             if q_block is not None:

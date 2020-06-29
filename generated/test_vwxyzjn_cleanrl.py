@@ -120,13 +120,13 @@ class QNetwork(nn.Module):
     def __init__(self, frames=4, n_atoms=101, v_min=-100, v_max=100):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
-        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms).to(device)
+        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
         self.network = nn.Sequential(nn.Linear(np.array(env.
             observation_space.shape).prod(), 120), nn.ReLU(), nn.Linear(120,
             84), nn.ReLU(), nn.Linear(84, env.action_space.n * n_atoms))
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         return self.network(x)
 
     def get_action(self, x, action=None):
@@ -154,7 +154,7 @@ class QNetwork(nn.Module):
     def __init__(self, frames=4, n_atoms=51, v_min=-10, v_max=10):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
-        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms).to(device)
+        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
         self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
             8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
             ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
@@ -162,7 +162,7 @@ class QNetwork(nn.Module):
             action_space.n * n_atoms))
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         return self.network(x)
 
     def get_action(self, x, action=None):
@@ -198,7 +198,7 @@ class QNetwork(nn.Module):
     def __init__(self, frames=4, n_atoms=51, v_min=-10, v_max=10):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
-        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms).to(device)
+        self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
         self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
             8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
             ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
@@ -206,7 +206,7 @@ class QNetwork(nn.Module):
             n * n_atoms))
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         return self.network(x)
 
     def get_action(self, x, action=None):
@@ -249,8 +249,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return torch.tanh(self.fc_mu(x))
-        mu = torch.tanh(self.fc_mu(x)) * torch.Tensor(env.action_space.high
-            ).to(device)
+        mu = torch.tanh(self.fc_mu(x)) * torch.Tensor(env.action_space.high)
         return mu
 
 
@@ -263,7 +262,7 @@ class QNetwork(nn.Module):
         self.fc3 = nn.Linear(84, env.action_space.n)
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -291,7 +290,7 @@ class QNetwork(nn.Module):
             )
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         return self.network(x)
 
 
@@ -323,14 +322,14 @@ class QNetwork(nn.Module):
             nn.Linear(3136, 512), nn.ReLU(), Linear0(512, env.action_space.n))
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         return self.network(x)
 
 
-_global_config['pol_layer_norm'] = 1
-
-
 _global_config['weights_init'] = 4
+
+
+_global_config['pol_layer_norm'] = 1
 
 
 class Policy(nn.Module):
@@ -355,7 +354,7 @@ class Policy(nn.Module):
             raise NotImplementedError
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         x = self.fc1(x)
         if args.pol_layer_norm:
             x = self.ln1(x)
@@ -393,7 +392,7 @@ class Value(nn.Module):
             raise NotImplementedError
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = self.fc3(x)
@@ -424,7 +423,7 @@ class Policy(nn.Module):
             raise NotImplementedError
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         x = self.fc1(x)
         if args.pol_layer_norm:
             x = self.ln1(x)
@@ -465,7 +464,7 @@ class Value(nn.Module):
             raise NotImplementedError
 
     def forward(self, x):
-        x = torch.Tensor(x).to(device)
+        x = torch.Tensor(x)
         x = torch.tanh(self.fc1(x))
         x = torch.tanh(self.fc2(x))
         x = self.fc3(x)
@@ -850,9 +849,9 @@ class Policy(nn.Module):
         return action, log_prob, mean
 
     def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return super(Policy, self).to(device)
+        self.action_scale = self.action_scale
+        self.action_bias = self.action_bias
+        return super(Policy, self)
 
 
 class SoftQNetwork(nn.Module):
@@ -902,8 +901,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return torch.tanh(self.fc_mu(x))
-        mu = torch.tanh(self.fc_mu(x)) * torch.Tensor(env.action_space.high
-            ).to(device)
+        mu = torch.tanh(self.fc_mu(x)) * torch.Tensor(env.action_space.high)
         return mu
 
 

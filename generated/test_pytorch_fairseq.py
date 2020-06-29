@@ -1022,7 +1022,7 @@ class GeneratorHubInterface(nn.Module):
         results = []
         for batch in self._build_batches(tokenized_sentences,
             skip_invalid_size_inputs):
-            batch = utils.apply_to_sample(lambda t: t.to(self.device), batch)
+            batch = utils.apply_to_sample(lambda t: t, batch)
             translations = self.task.inference_step(generator, self.models,
                 batch, **inference_step_args)
             for id, hypos in zip(batch['id'].tolist(), translations):
@@ -1247,7 +1247,7 @@ Please install the megatron submodule:
             attn_weights = attn_weights.view(bsz, self.num_heads_partition,
                 tgt_len, src_len)
             attn_weights = attn_weights.masked_fill(key_padding_mask.
-                unsqueeze(1).unsqueeze(2).to(torch.bool), float('-inf'))
+                unsqueeze(1).unsqueeze(2), float('-inf'))
             attn_weights = attn_weights.view(bsz * self.num_heads_partition,
                 tgt_len, src_len)
         attn_weights_float = utils.softmax(attn_weights, dim=-1)
@@ -1392,8 +1392,7 @@ class BARTHubInterface(nn.Module):
         dataset = self.task.build_dataset_for_inference(src_tokens, [x.
             numel() for x in src_tokens])
         sample = dataset.collater(dataset)
-        sample = utils.apply_to_sample(lambda tensor: tensor.to(self.device
-            ), sample)
+        sample = utils.apply_to_sample(lambda tensor: tensor, sample)
         return sample
 
     def sample(self, sentences: List[str], beam: int=1, verbose: bool=False,
@@ -1431,7 +1430,7 @@ class BARTHubInterface(nn.Module):
         if tokens.size(-1) > min(self.model.max_positions()):
             raise ValueError('tokens exceeds maximum length: {} > {}'.
                 format(tokens.size(-1), self.model.max_positions()))
-        tokens.to(device=self.device),
+        tokens,
         prev_output_tokens = tokens.clone()
         prev_output_tokens[:, (0)] = tokens.gather(1, (tokens.ne(self.task.
             source_dictionary.pad()).sum(dim=1) - 1).unsqueeze(-1)).squeeze()
@@ -1455,7 +1454,7 @@ class BARTHubInterface(nn.Module):
         bool=False):
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
-        features = self.extract_features(tokens.to(device=self.device))
+        features = self.extract_features(tokens)
         sentence_representation = features[(tokens.eq(self.task.
             source_dictionary.eos())), :].view(features.size(0), -1,
             features.size(-1))[:, (-1), :]
@@ -4709,7 +4708,7 @@ class MultiheadAttention(nn.Module):
                 src_len)
             if not self.tpu:
                 attn_weights = attn_weights.masked_fill(key_padding_mask.
-                    unsqueeze(1).unsqueeze(2).to(torch.bool), float('-inf'))
+                    unsqueeze(1).unsqueeze(2), float('-inf'))
             else:
                 attn_weights = attn_weights.transpose(0, 2)
                 attn_weights = attn_weights.masked_fill(key_padding_mask,
@@ -5330,7 +5329,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
         if self.weights is None or max_pos > self.weights.size(0):
             self.weights = SinusoidalPositionalEmbedding.get_embedding(max_pos,
                 self.embedding_dim, self.padding_idx)
-        self.weights = self.weights.to(self._float_tensor)
+        self.weights = self.weights
         if incremental_state is not None:
             pos = timestep.view(-1)[0] + 1 if timestep is not None else seq_len
             if self.onnx_trace:
@@ -5436,8 +5435,7 @@ class TransformerEncoderLayer(nn.Module):
         if self.normalize_before:
             x = self.self_attn_layer_norm(x)
         if attn_mask is not None:
-            attn_mask = attn_mask.masked_fill(attn_mask.to(torch.bool), -
-                100000000.0)
+            attn_mask = attn_mask.masked_fill(attn_mask, -100000000.0)
         x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=
             encoder_padding_mask, attn_mask=attn_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -6243,39 +6241,54 @@ class Test_pytorch_fairseq(_paritybench_base):
         self._check(BeamableMM(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Downsample(*[], **{'index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvTBC(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_003(self):
+        self._check(Downsample(*[], **{'index': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(DownsampledMultiHeadAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_005(self):
         self._check(Fp32GroupNorm(*[], **{'num_groups': 1, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_006(self):
         self._check(Fp32LayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_007(self):
         self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_008(self):
         self._check(KmeansVectorQuantizer(*[], **{'dim': 4, 'num_vars': 4, 'groups': 1, 'combine_groups': 1, 'vq_dim': 4, 'time_first': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(LightweightConv1d(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_008(self):
+    def test_010(self):
         self._check(Model(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    @_fails_compile()
+    def test_012(self):
+        self._check(SingleHeadAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'head_dim': 4, 'head_index': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_013(self):
         self._check(TransposeLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_014(self):
         self._check(VGGBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'conv_kernel_size': 4, 'pooling_kernel_size': 4, 'num_conv_layers': 1, 'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    @_fails_compile()
+    def test_015(self):
+        self._check(Wav2VecPredictionsModel(*[], **{'in_dim': 4, 'out_dim': 4, 'prediction_steps': 4, 'n_negatives': 4, 'cross_sample_negatives': 4, 'sample_distance': 4, 'dropout': 0.5, 'offset': 4, 'balanced_classes': 4, 'infonce': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_016(self):
         self._check(ZeroPad1d(*[], **{'pad_left': 4, 'pad_right': 4}), [torch.rand([4, 4, 4, 4])], {})
 

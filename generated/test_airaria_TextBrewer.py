@@ -3107,7 +3107,7 @@ class BertForGLUE(nn.Module):
                 total_loss += ce_loss
             if attention_probs_sum_T:
                 if Conf.args.mask_inter == 1:
-                    mask = attention_mask.to(attention_probs_sum[0])
+                    mask = attention_mask
                     valid_count = torch.pow(mask.sum(dim=1), 2).sum()
                     att_losses = [((F.mse_loss(attention_probs_sum[i],
                         attention_probs_sum_T[i], reduction='none') * mask.
@@ -3122,7 +3122,7 @@ class BertForGLUE(nn.Module):
                 total_loss += att_loss
             if hidden_match_T:
                 if Conf.args.mask_inter == 1:
-                    mask = attention_mask.to(hidden_states[0])
+                    mask = attention_mask
                     valid_count = mask.sum() * hidden_states[0].size(-1)
                     hidden_losses = [((F.mse_loss(hidden_states[i],
                         hidden_match_T[i], reduction='none') * mask.
@@ -5285,4 +5285,8 @@ class Test_airaria_TextBrewer(_paritybench_base):
 
     def test_003(self):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, output_score=4, output_sum=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

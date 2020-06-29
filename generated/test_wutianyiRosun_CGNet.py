@@ -2732,3 +2732,77 @@ class Block(nn.Module):
             skip = inp
         x += skip
         return x
+
+
+class Xception(nn.Module):
+    """
+    Xception optimized for the ImageNet dataset, as specified in
+    https://arxiv.org/pdf/1610.02357.pdf
+    """
+
+    def __init__(self, num_classes=19):
+        """ Constructor
+        Args:
+            num_classes: number of classes
+        """
+        super(Xception, self).__init__()
+        self.num_classes = num_classes
+        self.layer1 = nn.Sequential(nn.Conv2d(3, 32, 3, 2, 0, bias=False),
+            nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.Conv2d(32, 64, 3,
+            bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.layer2 = Block(64, 128, 2, 2, start_with_relu=False,
+            grow_first=True)
+        self.layer3 = Block(128, 256, 2, 2, start_with_relu=True,
+            grow_first=True)
+        self.layer4 = nn.Sequential(Block(256, 728, 2, 2, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True), Block(728, 728, 3, 1, start_with_relu=
+            True, grow_first=True))
+        self.layer5 = nn.Sequential(Block(728, 1024, 2, 2, start_with_relu=
+            True, grow_first=False), SeparableConv2d(1024, 1536, 3, 1, 1),
+            nn.BatchNorm2d(1536), nn.ReLU(inplace=True), SeparableConv2d(
+            1536, 2048, 3, 1, 1), nn.BatchNorm2d(2048), nn.ReLU(inplace=True))
+        self.fc = nn.Linear(2048, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.block4(x)
+        x = self.block5(x)
+        x = F.adaptive_avg_pool2d(x, (1, 1))
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
+class CrossEntropyLoss2d(nn.Module):
+    """
+    This file defines a cross entropy loss for 2D images
+    """
+
+    def __init__(self, weight=None, ignore_label=255):
+        """
+        :param weight: 1D weight vector to deal with the class-imbalance
+        Obtaining log-probabilities in a neural network is easily achieved by adding a LogSoftmax layer in the last layer of your network. 
+        You may use CrossEntropyLoss instead, if you prefer not to add an extra layer.
+        """
+        super().__init__()
+        self.loss = nn.NLLLoss(weight, ignore_index=ignore_label)
+
+    def forward(self, outputs, targets):
+        return self.loss(F.log_softmax(outputs, 1), targets)
+

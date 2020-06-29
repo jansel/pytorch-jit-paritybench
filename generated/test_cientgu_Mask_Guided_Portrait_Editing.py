@@ -2216,3 +2216,54 @@ class UnetSkipConnectionBlock(nn.Module):
             return model_output
         else:
             return torch.cat([x, model_output], 1)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_cientgu_Mask_Guided_Portrait_Editing(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(DecoderBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(DecoderGenerator_512_64(*[], **{'norm_layer': 1}), [torch.rand([4, 512, 4, 4])], {})
+
+    def test_002(self):
+        self._check(DecoderResBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(EmbedGlobalBGGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(EmbedGlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(EncoderBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(EncoderGenerator_256_512(*[], **{'norm_layer': 1}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
+        self._check(EncoderResBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(UnetGenerator(*[], **{'segment_classes': 4, 'input_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+

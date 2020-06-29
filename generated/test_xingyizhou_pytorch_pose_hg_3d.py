@@ -199,7 +199,7 @@ class FusionLoss(nn.Module):
         if self.var_weight > 0:
             loss += VarLoss(self.device, self.var_weight)(pred, target,
                 mask, gt_2d)[0]
-        return loss.to(self.device, non_blocking=True)
+        return loss
 
 
 BN_MOMENTUM = 0.1

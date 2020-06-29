@@ -237,8 +237,7 @@ class MultiHeadAttention(nn.Module):
             scores = scores + scores_local
         if self.proximal_bias:
             assert t_s == t_t, 'Proximal bias is only available for self-attention.'
-            scores = scores + self._attention_bias_proximal(t_s).to(device=
-                scores.device, dtype=scores.dtype)
+            scores = scores + self._attention_bias_proximal(t_s)
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -10000.0)
             if self.block_length is not None:
@@ -488,7 +487,7 @@ class TextEncoder(nn.Module):
         x = self.emb(x) * math.sqrt(self.hidden_channels)
         x = torch.transpose(x, 1, -1)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1
-            ).to(x.dtype)
+            )
         if self.prenet:
             x = self.pre(x, x_mask)
         x = self.encoder(x, x_mask)
@@ -621,7 +620,7 @@ class FlowGenerator(nn.Module):
         y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length
             )
         y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths,
-            y_max_length), 1).to(x_mask.dtype)
+            y_max_length), 1)
         attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(y_mask, 2)
         if gen:
             attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.
@@ -804,8 +803,7 @@ class ActNorm(nn.Module):
 
     def forward(self, x, x_mask=None, reverse=False, **kwargs):
         if x_mask is None:
-            x_mask = torch.ones(x.size(0), 1, x.size(2)).to(device=x.device,
-                dtype=x.dtype)
+            x_mask = torch.ones(x.size(0), 1, x.size(2))
         x_len = torch.sum(x_mask, [1, 2])
         if not self.initialized:
             self.initialize(x, x_mask)
@@ -831,10 +829,8 @@ class ActNorm(nn.Module):
             m_sq = torch.sum(x * x * x_mask, [0, 2]) / denom
             v = m_sq - m ** 2
             logs = 0.5 * torch.log(torch.clamp_min(v, 1e-06))
-            bias_init = (-m * torch.exp(-logs)).view(*self.bias.shape).to(dtype
-                =self.bias.dtype)
-            logs_init = (-logs).view(*self.logs.shape).to(dtype=self.logs.dtype
-                )
+            bias_init = (-m * torch.exp(-logs)).view(*self.bias.shape)
+            logs_init = (-logs).view(*self.logs.shape)
             self.bias.data.copy_(bias_init)
             self.logs.data.copy_(logs_init)
 
@@ -868,8 +864,7 @@ class InvConvNear(nn.Module):
             if hasattr(self, 'weight_inv'):
                 weight = self.weight_inv
             else:
-                weight = torch.inverse(self.weight.float()).to(dtype=self.
-                    weight.dtype)
+                weight = torch.inverse(self.weight.float())
             logdet = None
         else:
             weight = self.weight
@@ -884,8 +879,7 @@ class InvConvNear(nn.Module):
         return z, logdet
 
     def store_inverse(self):
-        self.weight_inv = torch.inverse(self.weight.float()).to(dtype=self.
-            weight.dtype)
+        self.weight_inv = torch.inverse(self.weight.float())
 
 
 def window_sumsquare(window, n_frames, hop_length=200, win_length=800,
@@ -991,8 +985,8 @@ class STFT(torch.nn.Module):
                 imag_part.append(y_.imag[(None), :, :])
             real_part = np.concatenate(real_part, 0)
             imag_part = np.concatenate(imag_part, 0)
-            real_part = torch.from_numpy(real_part).to(input_data.dtype)
-            imag_part = torch.from_numpy(imag_part).to(input_data.dtype)
+            real_part = torch.from_numpy(real_part)
+            imag_part = torch.from_numpy(imag_part)
         magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
         phase = torch.atan2(imag_part.data, real_part.data)
         return magnitude, phase
@@ -1009,8 +1003,7 @@ class STFT(torch.nn.Module):
                     win_length, n_fft=self.filter_length, dtype=np.float32)
                 approx_nonzero_indices = torch.from_numpy(np.where(
                     window_sum > tiny(window_sum))[0])
-                window_sum = torch.from_numpy(window_sum).to(inverse_transform
-                    .device)
+                window_sum = torch.from_numpy(window_sum)
                 inverse_transform[:, :, (approx_nonzero_indices)
                     ] /= window_sum[approx_nonzero_indices]
                 inverse_transform *= float(self.filter_length
@@ -1031,8 +1024,7 @@ class STFT(torch.nn.Module):
                 y_ = istft(y, self.hop_length, self.win_length, self.window)
                 inverse_transform.append(y_[(None), :])
             inverse_transform = np.concatenate(inverse_transform, 0)
-            inverse_transform = torch.from_numpy(inverse_transform).to(
-                recombine_magnitude_phase.dtype)
+            inverse_transform = torch.from_numpy(inverse_transform)
         return inverse_transform
 
     def forward(self, input_data):

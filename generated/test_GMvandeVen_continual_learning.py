@@ -140,7 +140,7 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
             if self.fisher_n is not None:
                 if index >= self.fisher_n:
                     break
-            x = x.to(self._device())
+            x = x
             output = self(x) if allowed_classes is None else self(x)[:, (
                 allowed_classes)]
             if self.emp_FI:
@@ -149,7 +149,7 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
                     label = [int(np.where(i == allowed_classes)[0][0]) for
                         i in label.numpy()]
                     label = torch.LongTensor(label)
-                label = label.to(self._device())
+                label = label
             else:
                 label = output.max(1)[1]
             negloglikelihood = F.nll_loss(F.log_softmax(output, dim=1), label)
@@ -357,7 +357,7 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
             dataloader = utils.get_data_loader(dataset, 128, cuda=self.
                 _is_on_cuda())
             for image_batch, _ in dataloader:
-                image_batch = image_batch.to(self._device())
+                image_batch = image_batch
                 with torch.no_grad():
                     feature_batch = self.feature_extractor(image_batch)
                 if first_entry:
@@ -412,7 +412,7 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
                 exemplars = []
                 for ex in P_y:
                     exemplars.append(torch.from_numpy(ex))
-                exemplars = torch.stack(exemplars).to(self._device())
+                exemplars = torch.stack(exemplars)
                 with torch.no_grad():
                     features = self.feature_extractor(exemplars)
                 if self.norm_exemplars:

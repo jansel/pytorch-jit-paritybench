@@ -719,16 +719,16 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     return out if use_batch else out.squeeze(0)
 
 
+_global_config['crowd_iou_threshold'] = 4
+
+
 _global_config['use_yolo_regressors'] = 4
-
-
-_global_config['use_prediction_matching'] = 4
 
 
 _global_config['use_change_matching'] = 4
 
 
-_global_config['crowd_iou_threshold'] = 4
+_global_config['use_prediction_matching'] = 4
 
 
 def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
@@ -776,6 +776,21 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     loc_t[idx] = loc
     conf_t[idx] = conf
     idx_t[idx] = best_truth_idx
+
+
+_global_config['mask_type'] = 4
+
+
+_global_config['train_boxes'] = False
+
+
+_global_config['mask_proto_normalize_emulate_roi_pooling'] = 4
+
+
+_global_config['mask_proto_mask_activation'] = 4
+
+
+_global_config['train_masks'] = False
 
 
 class MultiBoxLoss(nn.Module):
@@ -1347,13 +1362,13 @@ def gradinator(x):
     return x
 
 
+_global_config['batch_size'] = 4
+
+
 _global_config['preserve_aspect_ratio'] = 4
 
 
 _global_config['cuda'] = 4
-
-
-_global_config['batch_size'] = 4
 
 
 def prepare_data(datum, devices: list=None, allocation: list=None):
@@ -1408,8 +1423,7 @@ class CustomDataParallel(nn.DataParallel):
     def gather(self, outputs, output_device):
         out = {}
         for k in outputs[0]:
-            out[k] = torch.stack([output[k].to(output_device) for output in
-                outputs])
+            out[k] = torch.stack([output[k] for output in outputs])
         return out
 
 
@@ -1419,10 +1433,10 @@ MEANS = 103.94, 116.78, 123.68
 _global_config['max_size'] = 4
 
 
-_global_config['discard_box_height'] = 4
-
-
 _global_config['discard_box_width'] = 4
+
+
+_global_config['discard_box_height'] = 4
 
 
 class Resize(object):
@@ -1488,8 +1502,8 @@ class FastBaseTransform(torch.nn.Module):
         self.transform = cfg.backbone.transform
 
     def forward(self, img):
-        self.mean = self.mean.to(img.device)
-        self.std = self.std.to(img.device)
+        self.mean = self.mean
+        self.std = self.std
         if cfg.preserve_aspect_ratio:
             _, h, w, _ = img.size()
             img_size = Resize.calc_size_preserve_ar(w, h, cfg.max_size)
@@ -1557,43 +1571,37 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['extra_head_net'] = 4
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['mask_proto_coeff_activation'] = 4
-
-
-_global_config['eval_mask_branch'] = 4
-
-
-_global_config['head_layer_params'] = 1
-
-
-_global_config['mask_type'] = 4
+_global_config['mask_proto_split_prototypes_by_head'] = 4
 
 
 _global_config['mask_proto_prototypes_as_features'] = 4
 
 
+_global_config['head_layer_params'] = 1
+
+
+_global_config['num_classes'] = 4
+
+
 _global_config['mask_proto_coeff_gate'] = 4
 
 
-_global_config['_tmp_img_h'] = 4
+_global_config['eval_mask_branch'] = 4
 
 
 _global_config['mask_dim'] = 4
 
 
-_global_config['extra_layers'] = 1
-
-
-_global_config['mask_proto_split_prototypes_by_head'] = 4
+_global_config['num_heads'] = 4
 
 
 _global_config['num_instance_coeffs'] = 4
+
+
+_global_config['use_mask_scoring'] = 4
+
+
+_global_config['extra_head_net'] = 4
 
 
 _global_config['use_instance_coeff'] = 4
@@ -1602,13 +1610,16 @@ _global_config['use_instance_coeff'] = 4
 _global_config['use_prediction_module'] = 4
 
 
-_global_config['num_heads'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
-
-
 _global_config['_tmp_img_w'] = 4
+
+
+_global_config['_tmp_img_h'] = 4
+
+
+_global_config['mask_proto_coeff_activation'] = 4
+
+
+_global_config['extra_layers'] = 1
 
 
 class PredictionModule(nn.Module):
@@ -1795,7 +1806,7 @@ class PredictionModule(nn.Module):
                 if prior_cache[size] is None:
                     prior_cache[size] = {}
                 if device not in prior_cache[size]:
-                    prior_cache[size][device] = self.priors.to(device)
+                    prior_cache[size][device] = self.priors
                 self.priors = prior_cache[size][device]
         return self.priors
 
@@ -2086,12 +2097,6 @@ def construct_backbone(cfg):
     return backbone
 
 
-_global_config['nms_thresh'] = 4
-
-
-_global_config['mask_proto_bias'] = 4
-
-
 class Yolact(nn.Module):
     """
 
@@ -2328,9 +2333,5 @@ class Test_dbolya_yolact(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(DarkNetBackbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(VGGBackbone(*[], **{'cfg': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
 

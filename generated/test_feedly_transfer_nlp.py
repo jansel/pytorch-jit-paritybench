@@ -168,7 +168,7 @@ class ElmanRNN(torch.nn.Module):
         hiddens = []
         if initial_hidden is None:
             initial_hidden = self._initial_hidden(batch_size)
-            initial_hidden = initial_hidden.to(x_in.device)
+            initial_hidden = initial_hidden
         hidden_t = initial_hidden
         for t in range(seq_size):
             hidden_t = self.rnn_cell(x_in[t], hidden_t)

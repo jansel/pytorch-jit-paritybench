@@ -374,8 +374,7 @@ class MeshedDecoder(Module):
             self.running_mask_self_attention = torch.cat([self.
                 running_mask_self_attention, mask_self_attention], -1)
             mask_self_attention = self.running_mask_self_attention
-        seq = torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(input
-            .device)
+        seq = torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1)
         seq = seq.masked_fill(mask_queries.squeeze(-1) == 0, 0)
         if self._is_stateful:
             self.running_seq.add_(1)
@@ -468,6 +467,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_aimagelab_meshed_memory_transformer(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(MultiHeadAttention(*[], **{'d_model': 4, 'd_k': 4, 'd_v': 4, 'h': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
         self._check(PositionWiseFeedForward(*[], **{}), [torch.rand([512, 512])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ScaledDotProductAttention(*[], **{'d_model': 4, 'd_k': 4, 'd_v': 4, 'h': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ScaledDotProductAttentionMemory(*[], **{'d_model': 4, 'd_k': 4, 'd_v': 4, 'h': 4, 'm': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

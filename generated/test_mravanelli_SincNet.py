@@ -120,8 +120,8 @@ class SincConv_fast(nn.Module):
         features : `torch.Tensor` (batch_size, out_channels, n_samples_out)
             Batch of sinc filters activations.
         """
-        self.n_ = self.n_.to(waveforms.device)
-        self.window_ = self.window_.to(waveforms.device)
+        self.n_ = self.n_
+        self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
             ), self.min_low_hz, self.sample_rate / 2)

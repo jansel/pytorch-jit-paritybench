@@ -2440,7 +2440,7 @@ class ExtractTensorPatches(nn.Module):
                 .format(input.shape))
         batch_size, channels, height, width = input.shape
         kernel: torch.Tensor = self.kernel.repeat(channels, 1, 1, 1)
-        kernel = kernel.to(input.device).to(input.dtype)
+        kernel = kernel.to(input.device)
         output_tmp: torch.Tensor = F.conv2d(input, kernel, stride=self.
             stride, padding=self.padding, groups=channels)
         output: torch.Tensor = output_tmp.view(batch_size, channels, self.
@@ -2627,17 +2627,17 @@ class PatchAffineShapeEstimator(nn.Module):
         if W != self.patch_size or H != self.patch_size or CH != 1:
             raise TypeError('input shape should be must be [Bx1x{}x{}]. Got {}'
                 .format(self.patch_size, self.patch_size, patch.size()))
-        self.weighting = self.weighting.to(patch.dtype).to(patch.device)
+        self.weighting = self.weighting.to(patch.dtype)
         grads: torch.Tensor = self.gradient(patch) * self.weighting
         gx: torch.Tensor = grads[:, :, (0)]
         gy: torch.Tensor = grads[:, :, (1)]
         ellipse_shape = torch.cat([gx.pow(2).mean(dim=2).mean(dim=2,
             keepdim=True), (gx * gy).mean(dim=2).mean(dim=2, keepdim=True),
             gy.pow(2).mean(dim=2).mean(dim=2, keepdim=True)], dim=2)
-        bad_mask = ((ellipse_shape < self.eps).float().sum(dim=2, keepdim=
-            True) >= 2).to(ellipse_shape.dtype)
+        bad_mask = (ellipse_shape < self.eps).float().sum(dim=2, keepdim=True
+            ) >= 2
         circular_shape = torch.tensor([1.0, 0.0, 1.0]).to(ellipse_shape.device
-            ).to(ellipse_shape.dtype).view(1, 1, 3)
+            ).view(1, 1, 3)
         ellipse_shape = ellipse_shape * (1.0 - bad_mask
             ) + circular_shape * bad_mask
         ellipse_shape = ellipse_shape / ellipse_shape.max(dim=2, keepdim=True)[
@@ -3069,13 +3069,13 @@ class NonMaximaSuppression2d(nn.Module):
     def forward(self, x: torch.Tensor, mask_only: bool=False) ->torch.Tensor:
         assert len(x.shape) == 4, x.shape
         B, CH, H, W = x.size()
-        max_non_center = F.conv2d(x, self.kernel.repeat(CH, 1, 1, 1).to(x.
-            device, x.dtype), stride=1, padding=self.padding, groups=CH).view(B
-            , CH, -1, H, W).max(dim=2)[0]
+        max_non_center = F.conv2d(x, self.kernel.repeat(CH, 1, 1, 1),
+            stride=1, padding=self.padding, groups=CH).view(B, CH, -1, H, W
+            ).max(dim=2)[0]
         mask = x > max_non_center
         if mask_only:
             return mask
-        return x * mask.to(x.dtype)
+        return x * mask
 
 
 def _get_nms_kernel3d(kd: int, ky: int, kx: int) ->torch.Tensor:
@@ -3112,13 +3112,13 @@ class NonMaximaSuppression3d(nn.Module):
     def forward(self, x: torch.Tensor, mask_only: bool=False) ->torch.Tensor:
         assert len(x.shape) == 5, x.shape
         B, CH, D, H, W = x.size()
-        max_non_center = F.conv3d(x, self.kernel.repeat(CH, 1, 1, 1, 1).to(
-            x.device, x.dtype), stride=1, padding=self.padding, groups=CH
-            ).view(B, CH, -1, D, H, W).max(dim=2, keepdim=False)[0]
+        max_non_center = F.conv3d(x, self.kernel.repeat(CH, 1, 1, 1, 1),
+            stride=1, padding=self.padding, groups=CH).view(B, CH, -1, D, H, W
+            ).max(dim=2, keepdim=False)[0]
         mask = x > max_non_center
         if mask_only:
             return mask
-        return x * mask.to(x.dtype)
+        return x * mask
 
 
 class PassLAF(nn.Module):
@@ -3181,9 +3181,8 @@ class PatchDominantGradientOrientation(nn.Module):
         if W != self.patch_size or H != self.patch_size or CH != 1:
             raise TypeError('input shape should be must be [Bx1x{}x{}]. Got {}'
                 .format(self.patch_size, self.patch_size, patch.size()))
-        self.weighting = self.weighting.to(patch.dtype).to(patch.device)
-        self.angular_smooth = self.angular_smooth.to(patch.dtype).to(patch.
-            device)
+        self.weighting = self.weighting.to(patch.dtype)
+        self.angular_smooth = self.angular_smooth.to(patch.dtype)
         grads: torch.Tensor = self.gradient(patch)
         gx: torch.Tensor = grads[:, :, (0)]
         gy: torch.Tensor = grads[:, :, (1)]
@@ -3198,14 +3197,12 @@ class PatchDominantGradientOrientation(nn.Module):
         wo1_big = wo1_big * mag
         ang_bins = []
         for i in range(0, self.num_ang_bins):
-            ang_bins.append(F.adaptive_avg_pool2d((bo0_big == i).to(patch.
-                dtype) * wo0_big + (bo1_big == i).to(patch.dtype) * wo1_big,
-                (1, 1)))
+            ang_bins.append(F.adaptive_avg_pool2d((bo0_big == i) * wo0_big +
+                (bo1_big == i) * wo1_big, (1, 1)))
         ang_bins = torch.cat(ang_bins, 1).view(-1, 1, self.num_ang_bins)
         ang_bins = self.angular_smooth(ang_bins)
         values, indices = ang_bins.view(-1, self.num_ang_bins).max(1)
-        angle = -(2.0 * pi * indices.to(patch.dtype) / float(self.
-            num_ang_bins) - pi)
+        angle = -(2.0 * pi * indices / float(self.num_ang_bins) - pi)
         return angle
 
 
@@ -3841,13 +3838,13 @@ class SIFTDescriptor(nn.Module):
         if W != self.patch_size or H != self.patch_size or CH != 1:
             raise TypeError('input shape should be must be [Bx1x{}x{}]. Got {}'
                 .format(self.patch_size, self.patch_size, input.size()))
-        self.pk = self.pk.to(input.dtype).to(input.device)
+        self.pk = self.pk.to(input.dtype)
         grads: torch.Tensor = spatial_gradient(input, 'diff')
         gx: torch.Tensor = grads[:, :, (0)]
         gy: torch.Tensor = grads[:, :, (1)]
         mag: torch.Tensor = torch.sqrt(gx * gx + gy * gy + self.eps)
         ori: torch.Tensor = torch.atan2(gy, gx + self.eps) + 2.0 * pi
-        mag = mag * self.gk.expand_as(mag).type_as(mag).to(mag.device)
+        mag = mag * self.gk.expand_as(mag).type_as(mag)
         o_big: torch.Tensor = float(self.num_ang_bins) * ori / (2.0 * pi)
         bo0_big_: torch.Tensor = torch.floor(o_big)
         wo1_big_: torch.Tensor = o_big - bo0_big_
@@ -3857,8 +3854,7 @@ class SIFTDescriptor(nn.Module):
         wo1_big: torch.Tensor = wo1_big_ * mag
         ang_bins = []
         for i in range(0, self.num_ang_bins):
-            out = self.pk((bo0_big == i).to(input.dtype) * wo0_big + (
-                bo1_big == i).to(input.dtype) * wo1_big)
+            out = self.pk((bo0_big == i) * wo0_big + (bo1_big == i) * wo1_big)
             ang_bins.append(out)
         ang_bins = torch.cat(ang_bins, dim=1)
         ang_bins = ang_bins.view(B, -1)
@@ -4163,7 +4159,7 @@ class MedianBlur(nn.Module):
             raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'
                 .format(input.shape))
         b, c, h, w = input.shape
-        kernel: torch.Tensor = self.kernel.to(input.device).to(input.dtype)
+        kernel: torch.Tensor = self.kernel.to(input.device)
         features: torch.Tensor = F.conv2d(input.reshape(b * c, 1, h, w),
             kernel, padding=self.padding, stride=1)
         features = features.view(b, c, -1, h, w)
@@ -4761,8 +4757,7 @@ class SpatialGradient(nn.Module):
             raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'
                 .format(input.shape))
         b, c, h, w = input.shape
-        tmp_kernel: torch.Tensor = self.kernel.to(input.device).to(input.dtype
-            ).detach()
+        tmp_kernel: torch.Tensor = self.kernel.to(input.device).detach()
         kernel: torch.Tensor = tmp_kernel.unsqueeze(1).unsqueeze(1)
         kernel_flip: torch.Tensor = kernel.flip(-3)
         spatial_pad = [self.kernel.size(1) // 2, self.kernel.size(1) // 2, 
@@ -4871,8 +4866,7 @@ class SpatialGradient3d(nn.Module):
                 'Invalid input shape, we expect BxCxDxHxW. Got: {}'.format(
                 input.shape))
         b, c, d, h, w = input.shape
-        tmp_kernel: torch.Tensor = self.kernel.to(input.device).to(input.dtype
-            ).detach()
+        tmp_kernel: torch.Tensor = self.kernel.to(input.device).detach()
         kernel: torch.Tensor = tmp_kernel.repeat(c, 1, 1, 1, 1)
         kernel_flip: torch.Tensor = kernel.flip(-3)
         spatial_pad = [self.kernel.size(2) // 2, self.kernel.size(2) // 2, 
@@ -6127,10 +6121,9 @@ class ScalePyramid(nn.Module):
             cur_level = gaussian_blur2d(x, (ksize, ksize), (sigma, sigma))
         else:
             cur_level = x
-        sigmas = [cur_sigma * torch.ones(bs, self.n_levels).to(x.device).to
-            (x.dtype)]
+        sigmas = [cur_sigma * torch.ones(bs, self.n_levels).to(x.device)]
         pixel_dists = [pixel_distance * torch.ones(bs, self.n_levels).to(x.
-            device).to(x.dtype)]
+            device)]
         pyr = [[cur_level.unsqueeze(1)]]
         oct_idx = 0
         while True:
@@ -6151,10 +6144,8 @@ class ScalePyramid(nn.Module):
                 ) <= self.min_size:
                 break
             pyr.append([nextOctaveFirstLevel.unsqueeze(1)])
-            sigmas.append(cur_sigma * torch.ones(bs, self.n_levels).to(x.
-                device))
-            pixel_dists.append(pixel_distance * torch.ones(bs, self.
-                n_levels).to(x.device))
+            sigmas.append(cur_sigma * torch.ones(bs, self.n_levels))
+            pixel_dists.append(pixel_distance * torch.ones(bs, self.n_levels))
             oct_idx += 1
         for i in range(len(pyr)):
             pyr[i] = torch.cat(pyr[i], dim=1)
@@ -6795,8 +6786,7 @@ class DepthWarper(nn.Module):
 
     def _compute_projection(self, x, y, invd):
         point = torch.FloatTensor([[[x], [y], [1.0], [invd]]])
-        flow = torch.matmul(self._dst_proj_src, point.to(self._dst_proj_src
-            .device))
+        flow = torch.matmul(self._dst_proj_src, point)
         z = 1.0 / flow[:, (2)]
         x = flow[:, (0)] * z
         y = flow[:, (1)] * z
@@ -6837,12 +6827,12 @@ class DepthWarper(nn.Module):
         batch_size, _, height, width = depth_src.shape
         device: torch.device = depth_src.device
         dtype: torch.dtype = depth_src.dtype
-        pixel_coords: torch.Tensor = self.grid.to(device).to(dtype).expand(
-            batch_size, -1, -1, -1)
+        pixel_coords: torch.Tensor = self.grid.to(device).expand(batch_size,
+            -1, -1, -1)
         cam_coords_src: torch.Tensor = pixel2cam(depth_src, self.
-            _pinhole_src.intrinsics_inverse().to(dtype), pixel_coords)
+            _pinhole_src.intrinsics_inverse(), pixel_coords)
         pixel_coords_src: torch.Tensor = cam2pixel(cam_coords_src, self.
-            _dst_proj_src.to(dtype))
+            _dst_proj_src)
         pixel_coords_src_norm: torch.Tensor = normalize_pixel_coordinates(
             pixel_coords_src, self.height, self.width)
         return pixel_coords_src_norm
@@ -7495,7 +7485,7 @@ class SSIM(nn.Module):
                 'img1 and img2 must be in the same dtype. Got: {} and {}'.
                 format(img1.dtype, img2.dtype))
         b, c, h, w = img1.shape
-        tmp_kernel: torch.Tensor = self.window.to(img1.device).to(img1.dtype)
+        tmp_kernel: torch.Tensor = self.window.to(img1.device)
         tmp_kernel = torch.unsqueeze(tmp_kernel, dim=0)
         mu1: torch.Tensor = filter2D(img1, tmp_kernel)
         mu2: torch.Tensor = filter2D(img2, tmp_kernel)

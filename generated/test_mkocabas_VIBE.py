@@ -160,9 +160,9 @@ class VIBELoss(nn.Module):
         self.e_shape_loss_weight = e_shape_loss_weight
         self.d_motion_loss_weight = d_motion_loss_weight
         self.device = device
-        self.criterion_shape = nn.L1Loss().to(self.device)
-        self.criterion_keypoints = nn.MSELoss(reduction='none').to(self.device)
-        self.criterion_regr = nn.MSELoss().to(self.device)
+        self.criterion_shape = nn.L1Loss()
+        self.criterion_keypoints = nn.MSELoss(reduction='none')
+        self.criterion_regr = nn.MSELoss()
         self.enc_loss = batch_encoder_disc_l2_loss
         self.dec_loss = batch_adv_disc_l2_loss
 
@@ -270,7 +270,7 @@ class VIBELoss(nn.Module):
             return self.criterion_keypoints(pred_keypoints_3d, gt_keypoints_3d
                 ).mean()
         else:
-            return torch.FloatTensor(1).fill_(0.0).to(self.device)
+            return torch.FloatTensor(1).fill_(0.0)
 
     def smpl_losses(self, pred_rotmat, pred_betas, gt_pose, gt_betas):
         pred_rotmat_valid = batch_rodrigues(pred_rotmat.reshape(-1, 3)
@@ -285,8 +285,8 @@ class VIBELoss(nn.Module):
             loss_regr_betas = self.criterion_regr(pred_betas_valid,
                 gt_betas_valid)
         else:
-            loss_regr_pose = torch.FloatTensor(1).fill_(0.0).to(self.device)
-            loss_regr_betas = torch.FloatTensor(1).fill_(0.0).to(self.device)
+            loss_regr_pose = torch.FloatTensor(1).fill_(0.0)
+            loss_regr_betas = torch.FloatTensor(1).fill_(0.0)
         return loss_regr_pose, loss_regr_betas
 
 

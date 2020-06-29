@@ -769,14 +769,13 @@ class ActionChooserNetwork(nn.Module):
     def __init__(self, input_dim):
         super(ActionChooserNetwork, self).__init__()
         self.hidden_dim = input_dim
-        self.linear1 = nn.Linear(input_dim, self.hidden_dim).to(DEVICE)
-        self.linear2 = nn.Linear(self.hidden_dim, Actions.NUM_ACTIONS).to(
-            DEVICE)
+        self.linear1 = nn.Linear(input_dim, self.hidden_dim)
+        self.linear2 = nn.Linear(self.hidden_dim, Actions.NUM_ACTIONS)
 
     def forward(self, inputs):
         input_vec = vectors.concat_and_flatten(inputs)
         temp_vec = self.linear1(input_vec)
-        temp_vec = F.relu(temp_vec).to(DEVICE)
+        temp_vec = F.relu(temp_vec)
         result = self.linear2(temp_vec)
         return result
 
@@ -785,8 +784,8 @@ class MLPCombinerNetwork(nn.Module):
 
     def __init__(self, embedding_dim):
         super(MLPCombinerNetwork, self).__init__()
-        self.linear1 = nn.Linear(embedding_dim * 2, embedding_dim).to(DEVICE)
-        self.linear2 = nn.Linear(embedding_dim, embedding_dim).to(DEVICE)
+        self.linear1 = nn.Linear(embedding_dim * 2, embedding_dim)
+        self.linear2 = nn.Linear(embedding_dim, embedding_dim)
 
     def forward(self, head_embed, modifier_embed):
         input_vec = vectors.concat_and_flatten((head_embed, modifier_embed))
@@ -803,18 +802,15 @@ class LSTMCombinerNetwork(nn.Module):
         self.embedding_dim = embedding_dim
         self.num_layers = num_layers
         self.use_cuda = False
-        self.linear = nn.Linear(self.embedding_dim * 2, self.embedding_dim).to(
-            DEVICE)
+        self.linear = nn.Linear(self.embedding_dim * 2, self.embedding_dim)
         self.hidden_dim = self.embedding_dim
         self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, num_layers=
-            self.num_layers, dropout=dropout).to(DEVICE)
+            self.num_layers, dropout=dropout)
         self.hidden = self.init_hidden()
 
     def init_hidden(self, batch_size=1):
-        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
-            DEVICE)
-        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(
-            DEVICE)
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
         return h0, c0
 
     def forward(self, head_embed, modifier_embed):
@@ -840,15 +836,15 @@ class VanillaWordEmbeddingLookup(nn.Module):
         self.embedding_dim = embedding_dim
         self.output_dim = embedding_dim
         self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
-            embedding_dim).to(DEVICE)
+            embedding_dim)
         if vector_path:
             logger.info('logging word vectors from {}'.format(vector_path))
             word_vectors = Vectors(vector_path).vectors
             self.word_embeddings = self.word_embeddings.from_pretrained(
-                word_vectors, freeze=not non_static).to(DEVICE)
+                word_vectors, freeze=not non_static)
 
     def forward(self, sentence):
-        embeds = self.word_embeddings(sentence.to(DEVICE)).to(DEVICE)
+        embeds = self.word_embeddings(sentence.to(DEVICE))
         return embeds
 
 
@@ -863,15 +859,14 @@ class BiLSTMWordEmbeddingLookup(nn.Module):
         self.hidden_dim = hidden_dim
         self.output_dim = hidden_dim
         self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
-            word_embedding_dim).to(DEVICE)
+            word_embedding_dim)
         if vector_path:
             logger.info('logging word vectors from {}'.format(vector_path))
             word_vectors = Vectors(vector_path).vectors
             self.word_embeddings = self.word_embeddings.from_pretrained(
-                word_vectors, freeze=not non_static).to(DEVICE)
+                word_vectors, freeze=not non_static)
         self.lstm = nn.LSTM(self.word_embedding_dim, self.hidden_dim // 2,
-            bidirectional=True, num_layers=num_layers, dropout=dropout).to(
-            DEVICE)
+            bidirectional=True, num_layers=num_layers, dropout=dropout)
         self.hidden = self.init_hidden()
 
     def forward(self, sentence):
@@ -880,10 +875,8 @@ class BiLSTMWordEmbeddingLookup(nn.Module):
         return lstm_hiddens
 
     def init_hidden(self, batch_size=1):
-        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
-        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
-            ).to(DEVICE)
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2)
         return h0, c0
 
     def clear_hidden_state(self):
@@ -1093,12 +1086,12 @@ class Decoder(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.n_layers = n_layers
-        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
-        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
-        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.embed = nn.Embedding(output_size, embed_size)
+        self.dropout = nn.Dropout(dropout, inplace=True)
+        self.attention = Attention(method, hidden_size)
         self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
-            dropout=dropout, batch_first=True).to(DEVICE)
-        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+            dropout=dropout, batch_first=True)
+        self.out = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, word, last_hidden, encoder_outputs):
         embedded = self.embed(word).unsqueeze(1)
@@ -1126,9 +1119,9 @@ class Encoder(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.embed_size = embed_size
-        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.embed = nn.Embedding(input_size, embed_size)
         self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
-            True, dropout=dropout, bidirectional=True).to(DEVICE)
+            True, dropout=dropout, bidirectional=True)
 
     def forward(self, sentences, lengths, hidden=None):
         embedded = self.embed(sentences)
@@ -1151,7 +1144,7 @@ class Seq2Seq(nn.Module):
         batch_size = trg.size(0)
         max_len = trg.size(1)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = trg.data[:, (0)]
@@ -1162,15 +1155,15 @@ class Seq2Seq(nn.Module):
             teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.data.max(1)[1]
             if teacher_force:
-                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+                decoder_input = trg.data[:, (t)].clone().detach()
             else:
-                decoder_input = top1.to(DEVICE)
+                decoder_input = top1
         return outputs
 
     def predict(self, src, src_lens, sos, max_len):
         batch_size = src.size(0)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = sos
@@ -1179,7 +1172,7 @@ class Seq2Seq(nn.Module):
                 hidden, encoder_output)
             outputs[t] = output
             top1 = output.data.max(1)[1]
-            decoder_input = top1.to(DEVICE)
+            decoder_input = top1
         return outputs
 
 
@@ -1346,12 +1339,12 @@ class Decoder(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.n_layers = n_layers
-        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
-        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
-        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.embed = nn.Embedding(output_size, embed_size)
+        self.dropout = nn.Dropout(dropout, inplace=True)
+        self.attention = Attention(method, hidden_size)
         self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
-            dropout=dropout, batch_first=True).to(DEVICE)
-        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+            dropout=dropout, batch_first=True)
+        self.out = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, word, last_hidden, encoder_outputs):
         embedded = self.embed(word).unsqueeze(1)
@@ -1379,9 +1372,9 @@ class Encoder(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.embed_size = embed_size
-        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.embed = nn.Embedding(input_size, embed_size)
         self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
-            True, dropout=dropout, bidirectional=True).to(DEVICE)
+            True, dropout=dropout, bidirectional=True)
 
     def forward(self, sentences, lengths, hidden=None):
         embedded = self.embed(sentences)
@@ -1404,7 +1397,7 @@ class Seq2Seq(nn.Module):
         batch_size = trg.size(0)
         max_len = trg.size(1)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = trg.data[:, (0)]
@@ -1415,15 +1408,15 @@ class Seq2Seq(nn.Module):
             teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.data.max(1)[1]
             if teacher_force:
-                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+                decoder_input = trg.data[:, (t)].clone().detach()
             else:
-                decoder_input = top1.to(DEVICE)
+                decoder_input = top1
         return outputs
 
     def predict(self, src, src_lens, sos, max_len):
         batch_size = src.size(0)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = sos
@@ -1432,7 +1425,7 @@ class Seq2Seq(nn.Module):
                 hidden, encoder_output)
             outputs[t] = output
             top1 = output.data.max(1)[1]
-            decoder_input = top1.to(DEVICE)
+            decoder_input = top1
         return outputs
 
 
@@ -1545,12 +1538,12 @@ class Decoder(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.n_layers = n_layers
-        self.embed = nn.Embedding(output_size, embed_size).to(DEVICE)
-        self.dropout = nn.Dropout(dropout, inplace=True).to(DEVICE)
-        self.attention = Attention(method, hidden_size).to(DEVICE)
+        self.embed = nn.Embedding(output_size, embed_size)
+        self.dropout = nn.Dropout(dropout, inplace=True)
+        self.attention = Attention(method, hidden_size)
         self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
-            dropout=dropout, batch_first=True).to(DEVICE)
-        self.out = nn.Linear(hidden_size * 2, output_size).to(DEVICE)
+            dropout=dropout, batch_first=True)
+        self.out = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, word, last_hidden, encoder_outputs):
         embedded = self.embed(word).unsqueeze(1)
@@ -1578,9 +1571,9 @@ class Encoder(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.embed_size = embed_size
-        self.embed = nn.Embedding(input_size, embed_size).to(DEVICE)
+        self.embed = nn.Embedding(input_size, embed_size)
         self.gru = nn.GRU(embed_size, hidden_size, n_layers, batch_first=
-            True, dropout=dropout, bidirectional=True).to(DEVICE)
+            True, dropout=dropout, bidirectional=True)
 
     def forward(self, sentences, lengths, hidden=None):
         embedded = self.embed(sentences)
@@ -1603,7 +1596,7 @@ class Seq2Seq(nn.Module):
         batch_size = trg.size(0)
         max_len = trg.size(1)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = trg.data[:, (0)]
@@ -1614,15 +1607,15 @@ class Seq2Seq(nn.Module):
             teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.data.max(1)[1]
             if teacher_force:
-                decoder_input = trg.data[:, (t)].clone().detach().to(DEVICE)
+                decoder_input = trg.data[:, (t)].clone().detach()
             else:
-                decoder_input = top1.to(DEVICE)
+                decoder_input = top1
         return outputs
 
     def predict(self, src, src_lens, sos, max_len):
         batch_size = src.size(0)
         trg_vocab_size = self.decoder.output_size
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(DEVICE)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
         decoder_input = sos
@@ -1631,7 +1624,7 @@ class Seq2Seq(nn.Module):
                 hidden, encoder_output)
             outputs[t] = output
             top1 = output.data.max(1)[1]
-            decoder_input = top1.to(DEVICE)
+            decoder_input = top1
         return outputs
 
 
@@ -1763,13 +1756,17 @@ class Test_smilelight_lightNLP(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(IndependentDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'embed_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(IndependentDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

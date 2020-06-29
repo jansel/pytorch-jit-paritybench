@@ -299,7 +299,10 @@ class Test_avinashpaliwal_Super_SloMo(_paritybench_base):
     def test_000(self):
         self._check(UNet(*[], **{'inChannels': 4, 'outChannels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    @_fails_compile()
     def test_001(self):
+        self._check(down(*[], **{'inChannels': 4, 'outChannels': 4, 'filterSize': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(up(*[], **{'inChannels': 4, 'outChannels': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 

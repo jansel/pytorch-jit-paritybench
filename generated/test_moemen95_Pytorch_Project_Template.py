@@ -777,25 +777,18 @@ class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
     def test_003(self):
         self._check(Discriminator(*[], **{'config': _mock_config(relu_slope=4, input_channels=4, num_filt_d=4)}), [torch.rand([4, 4, 64, 64])], {})
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ERF(*[], **{'config': _mock_config(num_classes=4, input_channels=4)}), [torch.rand([4, 4, 64, 64])], {})
-
-    def test_005(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
         self._check(Example(*[], **{'config': _mock_config(input_channels=4, num_filters=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_005(self):
         self._check(Generator(*[], **{'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_006(self):
         self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_007(self):
         self._check(UpsamplerBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_008(self):
         self._check(non_bottleneck_1d(*[], **{'n_channel': 4, 'drop_rate': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

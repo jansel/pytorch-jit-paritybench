@@ -859,21 +859,21 @@ class Test_lyakaap_pytorch_template(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ASP_OC_Module(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
-
-    @_fails_compile()
-    def test_001(self):
         self._check(BaseOC_Context_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_001(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(LovaszHinge(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(LovaszSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):

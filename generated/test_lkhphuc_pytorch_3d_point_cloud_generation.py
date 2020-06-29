@@ -128,7 +128,7 @@ class Decoder(nn.Module):
         x = self.deconv3(F.interpolate(x, scale_factor=2))
         x = self.deconv4(F.interpolate(x, scale_factor=2))
         x = self.deconv5(F.interpolate(x, scale_factor=2))
-        x = self.pixel_conv(x) + self.pixel_bias.to(x.device)
+        x = self.pixel_conv(x) + self.pixel_bias
         XYZ, maskLogit = torch.split(x, [self.outViewN * 3, self.outViewN],
             dim=1)
         return XYZ, maskLogit

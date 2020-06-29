@@ -316,7 +316,7 @@ class MultiboxLoss(nn.Module):
         self.center_variance = center_variance
         self.size_variance = size_variance
         self.priors = priors
-        self.priors.to(device)
+        self.priors
 
     def forward(self, confidence, predicted_locations, labels, gt_locations):
         """Compute classification loss and smooth l1 loss.
@@ -558,7 +558,7 @@ class SSD(nn.Module):
                 ) else 'cpu')
         if is_test:
             self.config = config
-            self.priors = config.priors.to(self.device)
+            self.priors = config.priors
 
     def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         confidences = []
@@ -670,10 +670,7 @@ class Test_qfgaohao_pytorch_ssd(_paritybench_base):
     def test_001(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

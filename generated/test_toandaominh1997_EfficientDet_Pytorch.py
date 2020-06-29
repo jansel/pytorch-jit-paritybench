@@ -1032,8 +1032,7 @@ class Anchors(nn.Module):
                 anchors)
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
         all_anchors = np.expand_dims(all_anchors, axis=0)
-        return torch.from_numpy(all_anchors.astype(np.float32)).to(image.device
-            )
+        return torch.from_numpy(all_anchors.astype(np.float32))
 
 
 def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1,
@@ -1457,10 +1456,6 @@ class Test_toandaominh1997_EfficientDet_Pytorch(_paritybench_base):
     def test_009(self):
         self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_010(self):
-        self._check(RetinaHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
-
-    def test_011(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -2325,31 +2325,27 @@ class Test_eriklindernoren_PyTorch_GAN(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(GeneratorRRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(MultiDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(ResidualBlock(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_005(self):
         self._check(ResidualInResidualDenseBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(UNetDown(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(UNetUp(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 

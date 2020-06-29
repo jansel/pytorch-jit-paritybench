@@ -485,7 +485,7 @@ class DiceLoss(_Loss):
         else:
             loss = 1 - scores
         mask = y_true.sum(dims) > 0
-        loss *= mask.to(loss.dtype)
+        loss *= mask
         if self.classes is not None:
             loss = loss[self.classes]
         return loss.mean()
@@ -943,7 +943,7 @@ class SoftBCEWithLogitsLoss(nn.Module):
             size = not_ignored_mask.sum()
             if size == 0:
                 return 0
-            loss *= not_ignored_mask.to(loss.dtype)
+            loss *= not_ignored_mask
         else:
             size = loss.numel()
         if self.reduction == 'mean':
@@ -970,7 +970,7 @@ class SoftCrossEntropyLoss(nn.Module):
         if self.smooth_factor is None:
             return ce_loss
         if self.ignore_index is not None:
-            not_ignored_mask = (target != self.ignore_index).to(input.dtype)
+            not_ignored_mask = target != self.ignore_index
             log_prb *= not_ignored_mask.unsqueeze(dim=1)
         if self.reduction == 'sum':
             smooth_loss = -log_prb.sum()
@@ -2517,10 +2517,10 @@ class DropBlock2D(nn.Module):
             return x
         else:
             gamma = self._compute_gamma(x)
-            mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).to(x)
+            mask = torch.rand(x.shape[0], *x.shape[2:]) < gamma
             block_mask, keeped = self._compute_block_mask(mask)
             out = x * block_mask[:, (None), :, :]
-            out = out * (block_mask.numel() / keeped).to(out)
+            out = out * (block_mask.numel() / keeped)
             return out
 
     def _compute_block_mask(self, mask):
@@ -2529,7 +2529,7 @@ class DropBlock2D(nn.Module):
             .block_size // 2)
         if self.block_size % 2 == 0:
             block_mask = block_mask[:, :, :-1, :-1]
-        keeped = block_mask.numel() - block_mask.sum().to(torch.float32)
+        keeped = block_mask.numel() - block_mask.sum()
         block_mask = 1 - block_mask.squeeze(1)
         return block_mask, keeped
 
@@ -4221,6 +4221,7 @@ class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
     def test_024(self):
         self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
 
+    @_fails_compile()
     def test_025(self):
         self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4, 'expplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

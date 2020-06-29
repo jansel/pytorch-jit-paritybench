@@ -642,14 +642,11 @@ class Test_tugstugi_pytorch_speech_commands(_paritybench_base):
         self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(CifarResNeXt(*[], **{'nlabels': 4}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_002(self):
         self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_003(self):
+    def test_002(self):
         self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_003(self):
         self._check(VGG(*[], **{'features': ReLU()}), [torch.rand([512, 512])], {})
 

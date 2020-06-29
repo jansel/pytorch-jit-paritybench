@@ -990,5 +990,9 @@ class Test_salesforce_nonauto_nmt(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
+        self._check(MoEHead(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(MultiHead2(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 64, 4]), torch.rand([4, 64, 4]), torch.rand([4, 16, 4, 4])], {})
 

@@ -522,7 +522,7 @@ class LabelSmoothingLoss(nn.Module):
         output = output.view(-1, self.tgt_vocab_size)
         target = target.view(-1)
         model_prob = self.one_hot.repeat(target.size(0), 1)
-        model_prob = model_prob.to(device=target.device)
+        model_prob = model_prob
         model_prob.scatter_(1, target.unsqueeze(1), self.confidence)
         model_prob.masked_fill_((target == self.ignore_index).unsqueeze(1), 0)
         output = output.view(orig_shapes[0])

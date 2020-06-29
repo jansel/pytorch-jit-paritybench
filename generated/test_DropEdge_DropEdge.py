@@ -524,8 +524,8 @@ class GCNModel(nn.Module):
             outactivation, withbn, withloop)
         self.reset_parameters()
         if mixmode:
-            self.midlayer = self.midlayer.to(device)
-            self.outgc = self.outgc.to(device)
+            self.midlayer = self.midlayer
+            self.outgc = self.outgc
 
     def reset_parameters(self):
         pass
@@ -537,7 +537,7 @@ class GCNModel(nn.Module):
             x = self.ingc(fea, adj)
         x = F.dropout(x, self.dropout, training=self.training)
         if self.mixmode:
-            x = x.to(device)
+            x = x
         for i in range(len(self.midlayer)):
             midgc = self.midlayer[i]
             x = midgc(x, adj)

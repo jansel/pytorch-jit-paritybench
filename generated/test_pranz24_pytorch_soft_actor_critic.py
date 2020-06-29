@@ -129,9 +129,9 @@ class GaussianPolicy(nn.Module):
         return action, log_prob, mean
 
     def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return super(GaussianPolicy, self).to(device)
+        self.action_scale = self.action_scale
+        self.action_bias = self.action_bias
+        return super(GaussianPolicy, self)
 
 
 class DeterministicPolicy(nn.Module):
@@ -166,10 +166,10 @@ class DeterministicPolicy(nn.Module):
         return action, torch.tensor(0.0), mean
 
     def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        self.noise = self.noise.to(device)
-        return super(DeterministicPolicy, self).to(device)
+        self.action_scale = self.action_scale
+        self.action_bias = self.action_bias
+        self.noise = self.noise
+        return super(DeterministicPolicy, self)
 
 
 import torch

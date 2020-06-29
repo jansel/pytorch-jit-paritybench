@@ -458,8 +458,7 @@ class MMBTModel(nn.Module):
                     ] * attention_mask[:, (None), (None), :]
             else:
                 extended_attention_mask = attention_mask[:, (None), (None), :]
-        extended_attention_mask = extended_attention_mask.to(dtype=next(
-            self.parameters()).dtype)
+        extended_attention_mask = extended_attention_mask
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         if encoder_attention_mask.dim() == 3:
             encoder_extended_attention_mask = encoder_attention_mask[:, (
@@ -467,8 +466,7 @@ class MMBTModel(nn.Module):
         if encoder_attention_mask.dim() == 2:
             encoder_extended_attention_mask = encoder_attention_mask[:, (
                 None), (None), :]
-        encoder_extended_attention_mask = encoder_extended_attention_mask.to(
-            dtype=next(self.parameters()).dtype)
+        encoder_extended_attention_mask = encoder_extended_attention_mask
         encoder_extended_attention_mask = (1.0 -
             encoder_extended_attention_mask) * -10000.0
         if head_mask is not None:
@@ -479,7 +477,7 @@ class MMBTModel(nn.Module):
                     -1, -1, -1, -1)
             elif head_mask.dim() == 2:
                 head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)
-            head_mask = head_mask.to(dtype=next(self.parameters()).dtype)
+            head_mask = head_mask
         else:
             head_mask = [None] * self.config.num_hidden_layers
         encoder_outputs = self.transformer.encoder(embedding_output,
@@ -4587,7 +4585,7 @@ class M4CDecodingBCEWithMaskLoss(nn.Module):
         losses = F.binary_cross_entropy_with_logits(scores, targets,
             reduction='none')
         losses *= loss_mask.unsqueeze(-1)
-        count = torch.max(torch.sum(loss_mask), self.one.to(losses.device))
+        count = torch.max(torch.sum(loss_mask), self.one)
         loss = torch.sum(losses) / count
         return loss
 
@@ -4679,72 +4677,100 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_facebookresearch_mmf(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(BertImageIntermediate(*[], **{'config': _mock_config(v_hidden_size=4, v_intermediate_size=4, v_hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BCNet(*[], **{'v_dim': 4, 'q_dim': 4, 'h_dim': 4, 'h_out': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertBiAttention(*[], **{'config': _mock_config(bi_hidden_size=4, bi_num_attention_heads=4, visualization=4, v_hidden_size=4, v_attention_probs_dropout_prob=0.5, hidden_size=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertImageIntermediate(*[], **{'config': _mock_config(v_hidden_size=4, v_intermediate_size=4, v_hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(BertImageSelfAttention(*[], **{'config': _mock_config(v_hidden_size=4, v_num_attention_heads=4, dynamic_attention=4, visualization=4, hidden_size=4, v_attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, visualization=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(BiAttention(*[], **{'x_dim': 4, 'y_dim': 4, 'z_dim': 4, 'glimpse': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(Block(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_009(self):
         self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_010(self):
         self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
-    def test_005(self):
+    def test_011(self):
         self._check(ConvNet(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_012(self):
         self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
 
-    def test_007(self):
+    def test_013(self):
         self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_014(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_015(self):
         self._check(GatedTanh(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_016(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_017(self):
         self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_018(self):
         self._check(LinearTransform(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_019(self):
         self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_020(self):
+        self._check(MFB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_021(self):
         self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_022(self):
         self._check(MfbExpand(*[], **{'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_023(self):
         self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_024(self):
         self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_025(self):
         self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_019(self):
+    def test_026(self):
         self._check(ReLUWithWeightNormFC(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_027(self):
         self._check(WeightNormClassifier(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

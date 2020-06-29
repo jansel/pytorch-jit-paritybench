@@ -705,15 +705,15 @@ class CXReconLoss(torch.nn.Module):
         self.feat_extractor = feat_extractor
         self.device = device
         if device is not None:
-            self.feat_extractor = self.feat_extractor.to(device)
+            self.feat_extractor = self.feat_extractor
         self.weight = weight
 
     def forward(self, imgs, recon_imgs, coarse_imgs=None):
         if self.device is not None:
-            imgs = imgs.to(self.device)
-            recon_imgs = recon_imgs.to(self.device)
+            imgs = imgs
+            recon_imgs = recon_imgs
             if coarse_imgs is not None:
-                coarse_imgs = coarse_imgs.to(self.device)
+                coarse_imgs = coarse_imgs
         imgs = F.interpolate(imgs, (224, 224))
         recon_imgs = F.interpolate(recon_imgs, (224, 224))
         ori_feats, _ = self.feat_extractor(imgs)
@@ -1386,43 +1386,39 @@ class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(InpaintSANet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
-    def test_009(self):
         self._check(L1ReconLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(MaskDisLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_010(self):
         self._check(MultiLayerVGG(*[], **{'features': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_011(self):
         self._check(ReconLoss(*[], **{'chole_alpha': 4, 'cunhole_alpha': 4, 'rhole_alpha': 4, 'runhole_alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_012(self):
         self._check(SNConvWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_013(self):
         self._check(SNDisLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_014(self):
         self._check(SNGatedConv2dWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_015(self):
         self._check(SNGatedDeConv2dWithActivation(*[], **{'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_016(self):
         self._check(SNGenLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_017(self):
         self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_018(self):
         self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
 

@@ -303,7 +303,7 @@ class ContrastiveLoss(torch.nn.Module):
         cm_matrix2 = cm_matrix1.permute(0, 2, 1, 3)
         dist_matrix = torch.norm(cm_matrix1 - cm_matrix2, p=self.norm, dim=3)
         repulsion_dist = 2 * self.delta_dist * (1 - torch.eye(C))
-        repulsion_dist = repulsion_dist.unsqueeze(0).to(cluster_means.device)
+        repulsion_dist = repulsion_dist.unsqueeze(0)
         hinged_dist = torch.clamp(repulsion_dist - dist_matrix, min=0) ** 2
         hinged_dist = torch.sum(hinged_dist, dim=(1, 2))
         return hinged_dist / (C * (C - 1))
@@ -364,8 +364,7 @@ class DiceLoss2D(nn.Module):
         shape.insert(1, self.classes)
         shape = tuple(shape)
         src = target.unsqueeze(1)
-        return torch.zeros(shape).to(target.device).scatter_(1, src, 1
-            ).squeeze(0)
+        return torch.zeros(shape).scatter_(1, src, 1).squeeze(0)
 
     def compute_per_channel_dice(self, input, target):
         epsilon = 1e-05
@@ -440,8 +439,7 @@ class PixelWiseCrossEntropyLoss(nn.Module):
         weights = weights.unsqueeze(0)
         weights = weights.expand_as(input)
         if self.class_weights is None:
-            class_weights = torch.ones(input.size()[1]).float().to(input.device
-                )
+            class_weights = torch.ones(input.size()[1]).float()
         else:
             class_weights = self.class_weights
         class_weights = class_weights.view(1, -1, 1, 1, 1)
@@ -1657,15 +1655,48 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
         self._check(BlueBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_002(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(DownBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_005(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(InConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(LUConv(*[], **{'nchan': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_008(self):
+        self._check(OutConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(OutputTransition(*[], **{'in_channels': 4, 'classes': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_010(self):
+        self._check(PEXP(*[], **{'n_input': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(ResidualConv(*[], **{'nin': 4, 'nout': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_014(self):
         self._check(UpBlock1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
+    def test_015(self):
+        self._check(UpBlock2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
     @_fails_compile()
-    def test_005(self):
+    def test_016(self):
         self._check(_MaskingLossWrapper(*[], **{'loss': MSELoss(), 'ignore_index': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

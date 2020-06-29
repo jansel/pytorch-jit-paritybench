@@ -2592,25 +2592,29 @@ class Test_naver_claf(_paritybench_base):
     def test_004(self):
         self._check(LayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
+        self._check(LstmCellWithProjection(*[], **{'input_size': 4, 'hidden_size': 4, 'cell_size': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
+
+    def test_006(self):
         self._check(NoAnswer(*[], **{'embed_dim': 4, 'bias_hidden_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(PointwiseConv(*[], **{'input_size': 4, 'num_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(PositionalEncoding(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(PositionwiseFeedForward(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(SeqAttnMatch(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

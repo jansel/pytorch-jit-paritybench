@@ -1077,7 +1077,7 @@ class Voxelization(nn.Module):
         else:
             norm_coords = (norm_coords + 1) / 2.0
         norm_coords = torch.clamp(norm_coords * self.r, 0, self.r - 1)
-        vox_coords = torch.round(norm_coords).to(torch.int32)
+        vox_coords = torch.round(norm_coords)
         return F.avg_voxelize(features, vox_coords, self.r), norm_coords
 
     def extra_repr(self):

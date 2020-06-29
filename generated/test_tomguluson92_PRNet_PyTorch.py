@@ -238,8 +238,7 @@ class WeightMaskLoss(nn.Module):
         super(WeightMaskLoss, self).__init__()
         if os.path.exists(mask_path):
             self.mask = cv2.imread(mask_path, 0)
-            self.mask = torch.from_numpy(preprocess(self.mask)).float().to(
-                'cuda')
+            self.mask = torch.from_numpy(preprocess(self.mask)).float()
         else:
             raise FileNotFoundError(
                 'Mask File Not Found! Please Check your Settings!')
@@ -397,8 +396,7 @@ class SSIM(torch.nn.Module):
         self.alpha = alpha
         if os.path.exists(mask_path):
             self.mask = cv2.imread(mask_path, 0)
-            self.mask = torch.from_numpy(preprocess(self.mask)).float().to(
-                'cuda')
+            self.mask = torch.from_numpy(preprocess(self.mask)).float()
         else:
             raise FileNotFoundError(
                 'Mask File Not Found! Please Check your Settings!')
@@ -417,7 +415,4 @@ class Test_tomguluson92_PRNet_PyTorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(ResBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(ResFCN256(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

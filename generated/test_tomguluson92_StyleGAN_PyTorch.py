@@ -125,7 +125,7 @@ class ApplyNoise(nn.Module):
         if noise is None:
             noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=
                 x.device, dtype=x.dtype)
-        return x + self.weight.view(1, -1, 1, 1) * noise.to(x.device)
+        return x + self.weight.view(1, -1, 1, 1) * noise
 
 
 class ApplyStyle(nn.Module):
@@ -204,7 +204,7 @@ class Blur2d(nn.Module):
 
     def forward(self, x):
         if self.f is not None:
-            kernel = self.f.expand(x.size(1), -1, -1, -1).to(x.device)
+            kernel = self.f.expand(x.size(1), -1, -1, -1)
             x = F.conv2d(x, kernel, stride=self.stride, padding=int((self.f
                 .size(2) - 1) / 2), groups=x.size(1))
             return x
@@ -424,7 +424,7 @@ class G_synthesis(nn.Module):
         for layer_idx in range(num_layers):
             res = layer_idx // 2 + 2
             shape = [1, 1, 2 ** res, 2 ** res]
-            self.noise_inputs.append(torch.randn(*shape).to('cuda'))
+            self.noise_inputs.append(torch.randn(*shape))
         self.blur = Blur2d(f)
         self.channel_shrinkage = Conv2d(input_channels=self.nf(self.
             resolution_log2 - 2), output_channels=self.nf(self.
@@ -516,7 +516,7 @@ class StyleGenerator(nn.Module):
                reduce to
                b * t
             """
-            dlatents1 = dlatents1 * torch.Tensor(coefs).to(dlatents1.device)
+            dlatents1 = dlatents1 * torch.Tensor(coefs)
         img = self.synthesis(dlatents1)
         return img
 

@@ -169,12 +169,12 @@ class PinballLoss(nn.Module):
         self.device = device
 
     def forward(self, predictions, actuals):
-        cond = torch.zeros_like(predictions).to(self.device)
-        loss = torch.sub(actuals, predictions).to(self.device)
+        cond = torch.zeros_like(predictions)
+        loss = torch.sub(actuals, predictions)
         less_than = torch.mul(loss, torch.mul(torch.gt(loss, cond).type(
-            torch.FloatTensor).to(self.device), self.training_tau))
+            torch.FloatTensor), self.training_tau))
         greater_than = torch.mul(loss, torch.mul(torch.lt(loss, cond).type(
-            torch.FloatTensor).to(self.device), self.training_tau - 1))
+            torch.FloatTensor), self.training_tau - 1))
         final_loss = torch.add(less_than, greater_than)
         return torch.sum(final_loss) / self.output_size * 2
 
@@ -387,7 +387,7 @@ class ESRNNTrainer(nn.Module):
 
     def __init__(self, model, dataloader, run_id, config, ohe_headers):
         super(ESRNNTrainer, self).__init__()
-        self.model = model.to(config['device'])
+        self.model = model
         self.config = config
         self.dl = dataloader
         self.ohe_headers = ohe_headers
@@ -542,3 +542,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_damitkwr_ESRNN_GPU(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(PinballLoss(*[], **{'training_tau': False, 'output_size': 4, 'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+

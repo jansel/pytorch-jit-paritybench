@@ -551,3 +551,180 @@ class ProxyNCALoss(torch.nn.Module):
         negative_log_proxy_nca_loss = torch.mean(dist_to_pos_proxies[:, (0)
             ] + torch.logsumexp(-dist_to_neg_proxies, dim=1))
         return negative_log_proxy_nca_loss
+
+
+class CEClassLoss(torch.nn.Module):
+
+    def __init__(self, inp_dim, n_classes):
+        """
+        Basic Cross Entropy Loss for reference. Can be useful.
+        Contains its own mapping network, so the actual network can remain untouched.
+
+        Args:
+            inp_dim:   int, embedding dimension of network.
+            n_classes: int, number of target classes.
+        Returns:
+            Nothing!
+        """
+        super(CEClassLoss, self).__init__()
+        self.mapper = torch.nn.Sequential(torch.nn.Linear(inp_dim, n_classes))
+        self.ce_loss = torch.nn.CrossEntropyLoss()
+
+    def forward(self, batch, labels):
+        """
+        Args:
+            batch:   torch.Tensor() [(BS x embed_dim)], batch of embeddings
+            labels:  np.ndarray [(BS x 1)], for each element of the batch assigns a class [0,...,C-1]
+        Returns:
+            cross-entropy loss (torch.Tensor(), batch-averaged by default)
+        """
+        return self.ce_loss(self.mapper(batch), labels.type(torch.cuda.
+            LongTensor))
+
+
+model_urls = {'googlenet':
+    'https://download.pytorch.org/models/googlenet-1378be20.pth'}
+
+
+def googlenet(pretrained=False, **kwargs):
+    """GoogLeNet (Inception v1) model architecture from
+    `"Going Deeper with Convolutions" <http://arxiv.org/abs/1409.4842>`_.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        aux_logits (bool): If True, adds two auxiliary branches that can improve training.
+            Default: *False* when pretrained is True otherwise *True*
+        transform_input (bool): If True, preprocesses the input according to the method with which it
+            was trained on ImageNet. Default: *False*
+    """
+    if pretrained:
+        if 'transform_input' not in kwargs:
+            kwargs['transform_input'] = True
+        if 'aux_logits' not in kwargs:
+            kwargs['aux_logits'] = False
+        if kwargs['aux_logits']:
+            warnings.warn(
+                'auxiliary heads in the pretrained googlenet model are NOT pretrained, so make sure to train them'
+                )
+        original_aux_logits = kwargs['aux_logits']
+        kwargs['aux_logits'] = True
+        kwargs['init_weights'] = False
+        model = GoogLeNet(**kwargs)
+        model.load_state_dict(model_zoo.load_url(model_urls['googlenet']))
+        if not original_aux_logits:
+            model.aux_logits = False
+            del model.aux1, model.aux2
+        return model
+    return GoogLeNet(**kwargs)
+
+
+def rename_attr(model, attr, name):
+    """
+    Rename attribute in a class. Simply helper function.
+
+    Args:
+        model:  General Class for which attributes should be renamed.
+        attr:   str, Name of target attribute.
+        name:   str, New attribute name.
+    """
+    setattr(model, name, getattr(model, attr))
+    delattr(model, attr)
+
+
+class GoogLeNet(nn.Module):
+    """
+    Container for GoogLeNet s.t. it can be used for metric learning.
+    The Network has been broken down to allow for higher modularity, if one wishes
+    to target specific layers/blocks directly.
+    """
+
+    def __init__(self, opt):
+        """
+        Args:
+            opt: argparse.Namespace, contains all training-specific parameters.
+        Returns:
+            Nothing!
+        """
+        super(GoogLeNet, self).__init__()
+        self.pars = opt
+        self.model = googlenet.googlenet(num_classes=1000, pretrained=
+            'imagenet' if not opt.not_pretrained else False)
+        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.
+            model.modules()):
+            module.eval()
+            module.train = lambda _: None
+        rename_attr(self.model, 'fc', 'last_linear')
+        self.layer_blocks = nn.ModuleList([self.model.inception3a, self.
+            model.inception3b, self.model.maxpool3, self.model.inception4a,
+            self.model.inception4b, self.model.inception4c, self.model.
+            inception4d, self.model.inception4e, self.model.maxpool4, self.
+            model.inception5a, self.model.inception5b, self.model.avgpool])
+        self.model.last_linear = torch.nn.Linear(self.model.last_linear.
+            in_features, opt.embed_dim)
+
+    def forward(self, x):
+        x = self.model.conv3(self.model.conv2(self.model.maxpool1(self.
+            model.conv1(x))))
+        x = self.model.maxpool2(x)
+        for layerblock in self.layer_blocks:
+            x = layerblock(x)
+        x = x.view(x.size(0), -1)
+        x = self.model.dropout(x)
+        mod_x = self.model.last_linear(x)
+        return (mod_x if self.pars.loss == 'npair' else torch.nn.functional
+            .normalize(mod_x, dim=-1))
+
+
+class ResNet50(nn.Module):
+    """
+    Container for ResNet50 s.t. it can be used for metric learning.
+    The Network has been broken down to allow for higher modularity, if one wishes
+    to target specific layers/blocks directly.
+    """
+
+    def __init__(self, opt, list_style=False, no_norm=False):
+        super(ResNet50, self).__init__()
+        self.pars = opt
+        if not opt.not_pretrained:
+            None
+            self.model = ptm.__dict__['resnet50'](num_classes=1000,
+                pretrained='imagenet')
+            None
+        else:
+            None
+            self.model = ptm.__dict__['resnet50'](num_classes=1000,
+                pretrained=None)
+        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.
+            model.modules()):
+            module.eval()
+            module.train = lambda _: None
+        self.model.last_linear = torch.nn.Linear(self.model.last_linear.
+            in_features, opt.embed_dim)
+        self.layer_blocks = nn.ModuleList([self.model.layer1, self.model.
+            layer2, self.model.layer3, self.model.layer4])
+
+    def forward(self, x, is_init_cluster_generation=False):
+        x = self.model.maxpool(self.model.relu(self.model.bn1(self.model.
+            conv1(x))))
+        for layerblock in self.layer_blocks:
+            x = layerblock(x)
+        x = self.model.avgpool(x)
+        x = x.view(x.size(0), -1)
+        mod_x = self.model.last_linear(x)
+        return (mod_x if self.pars.loss == 'npair' else torch.nn.functional
+            .normalize(mod_x, dim=-1))
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_Confusezius_Deep_Metric_Learning_Baselines(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(Inception(*[], **{'in_channels': 4, 'ch1x1': 4, 'ch3x3red': 4, 'ch3x3': 4, 'ch5x5red': 4, 'ch5x5': 4, 'pool_proj': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(InceptionAux(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+

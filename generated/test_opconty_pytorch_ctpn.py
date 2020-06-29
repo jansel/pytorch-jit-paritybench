@@ -63,7 +63,7 @@ class RPN_REGR_Loss(nn.Module):
         except Exception as e:
             None
             loss = torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class RPN_CLS_Loss(nn.Module):
@@ -80,7 +80,7 @@ class RPN_CLS_Loss(nn.Module):
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
         loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
             ) > 0 else torch.tensor(0.0)
-        return loss.to(self.device)
+        return loss
 
 
 class BasicConv(nn.Module):
@@ -146,4 +146,11 @@ class Test_opconty_pytorch_ctpn(_paritybench_base):
     pass
     def test_000(self):
         self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(RPN_CLS_Loss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(RPN_REGR_Loss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

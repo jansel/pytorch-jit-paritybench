@@ -472,8 +472,8 @@ class InvertibleConv1x1(nn.Module):
             else:
                 weight = self.weight
         else:
-            self.l_mask = self.l_mask.to(input.device)
-            self.eye = self.eye.to(input.device)
+            self.l_mask = self.l_mask
+            self.eye = self.eye
             lower = self.lower * self.l_mask + self.eye
             u = self.upper * self.l_mask.transpose(0, 1).contiguous()
             u += torch.diag(self.sign_s * torch.exp(self.log_s))

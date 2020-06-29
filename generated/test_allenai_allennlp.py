@@ -2429,7 +2429,7 @@ class SampledSoftmaxLoss(torch.nn.Module):
     def forward(self, embeddings: torch.Tensor, targets: torch.Tensor,
         target_token_embedding: torch.Tensor=None) ->torch.Tensor:
         if embeddings.shape[0] == 0:
-            return torch.tensor(0.0).to(embeddings.device)
+            return torch.tensor(0.0)
         if not self.training:
             return self._forward_eval(embeddings, targets)
         else:
@@ -2492,7 +2492,7 @@ class SampledSoftmaxLoss(torch.nn.Module):
     def log_uniform_candidate_sampler(self, targets, choice_func=_choice):
         np_sampled_ids, num_tries = choice_func(self._num_words, self.
             _num_samples)
-        sampled_ids = torch.from_numpy(np_sampled_ids).to(targets.device)
+        sampled_ids = torch.from_numpy(np_sampled_ids)
         target_probs = torch.log((targets.float() + 2.0) / (targets.float() +
             1.0)) / self._log_num_words_p1
         target_expected_count = -1.0 * (torch.exp(num_tries * torch.log1p(-
@@ -2906,19 +2906,23 @@ class Test_allenai_allennlp(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(MaskedLayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LstmCellWithProjection(*[], **{'input_size': 4, 'hidden_size': 4, 'cell_size': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(ResidualWithLayerDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MaskedLayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(ResidualWithLayerDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(_Net1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(_Net2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -1021,11 +1021,11 @@ class SyncBatchNorm(_BatchNorm):
         out = None
         if self.running_mean is not None:
             if self.running_mean.dtype != input.dtype:
-                input = input.to(self.running_mean.dtype)
+                input = input
                 cast = input.dtype
         elif self.weight is not None:
             if self.weight.dtype != input.dtype:
-                input = input.to(self.weight.dtype)
+                input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
             torch.cuda.nvtx.range_pop()
@@ -1070,7 +1070,7 @@ class SyncBatchNorm(_BatchNorm):
             torch.cuda.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
                 mean, var, self.eps, process_group, world_size)
-        out = out.to(cast)
+        out = out
 
 
 class MyModel(torch.nn.Module):
@@ -3255,9 +3255,9 @@ class VQVAE(nn.Module):
                 'spec']
             sl = t.mean(sl)
             return sl
-        recons_loss = t.zeros(()).to(x.device)
-        spec_loss = t.zeros(()).to(x.device)
-        multispec_loss = t.zeros(()).to(x.device)
+        recons_loss = t.zeros(())
+        spec_loss = t.zeros(())
+        multispec_loss = t.zeros(())
         x_target = audio_postprocess(x.float(), hps)
         for level in reversed(range(self.levels)):
             x_out = self.postprocess(x_outs[level])

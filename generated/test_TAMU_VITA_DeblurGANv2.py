@@ -1454,18 +1454,11 @@ class Test_TAMU_VITA_DeblurGANv2(_paritybench_base):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_009(self):
         self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

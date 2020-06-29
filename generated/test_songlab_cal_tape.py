@@ -918,27 +918,35 @@ class Test_songlab_cal_tape(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(ProteinLSTMLayer(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(ProteinBertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, output_attentions=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(ProteinResNetPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(ProteinLSTMLayer(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(SequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ProteinResNetPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(SequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(SequenceToSequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(SimpleConv(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(SimpleMLP(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(ValuePredictionHead(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(mLSTM(*[], **{'config': _mock_config(hidden_size=4, input_size=4)}), [torch.rand([4, 4, 4])], {})
 

@@ -107,8 +107,7 @@ class VAE(nn.Module):
 
     def decode(self, state, z=None):
         if z is None:
-            z = torch.randn((state.shape[0], self.latent_dim)).to(self.device
-                ).clamp(-0.5, 0.5)
+            z = torch.randn((state.shape[0], self.latent_dim)).clamp(-0.5, 0.5)
         a = F.relu(self.d1(torch.cat([state, z], 1)))
         a = F.relu(self.d2(a))
         return self.max_action * torch.tanh(self.d3(a))

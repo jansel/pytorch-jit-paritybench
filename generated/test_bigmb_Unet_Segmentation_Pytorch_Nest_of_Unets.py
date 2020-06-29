@@ -608,28 +608,24 @@ class Test_bigmb_Unet_Segmentation_Pytorch_Nest_of_Unets(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_008(self):
         self._check(RRCNN_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(Recurrent_block(*[], **{'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(Unet_dict(*[], **{'n_labels': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_012(self):
+    def test_011(self):
         self._check(conv_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_012(self):
         self._check(conv_block_nested(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_013(self):
         self._check(up_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

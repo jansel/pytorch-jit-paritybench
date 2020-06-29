@@ -132,3 +132,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_spro_pytorch_seq2seq_intent_parsing(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+

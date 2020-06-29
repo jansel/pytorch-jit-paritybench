@@ -52,8 +52,7 @@ class GraphWaveletLayer(torch.nn.Module):
             in_channels, self.out_channels))
         self.diagonal_weight_indices = torch.LongTensor([[node for node in
             range(self.ncount)], [node for node in range(self.ncount)]])
-        self.diagonal_weight_indices = self.diagonal_weight_indices.to(self
-            .device)
+        self.diagonal_weight_indices = self.diagonal_weight_indices
         self.diagonal_weight_filter = torch.nn.Parameter(torch.Tensor(self.
             ncount, 1))
 

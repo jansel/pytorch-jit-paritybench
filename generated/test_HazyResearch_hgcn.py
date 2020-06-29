@@ -395,7 +395,7 @@ class BaseModel(nn.Module):
         if args.c is not None:
             self.c = torch.tensor([args.c])
             if not args.cuda == -1:
-                self.c = self.c.to(args.device)
+                self.c = self.c
         else:
             self.c = nn.Parameter(torch.Tensor([1.0]))
         self.manifold = getattr(manifolds, self.manifold_name)()

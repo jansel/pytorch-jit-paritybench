@@ -1896,60 +1896,52 @@ class Test_saic_vul_image_harmonization(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(HRNetBB(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 64, 32, 32]), torch.rand([4, 64, 32, 32])], {})
-
-    @_fails_compile()
-    def test_008(self):
         self._check(ISEUNetV1(*[], **{'depth': 1}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(MaskedChannelAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(MaskedGlobalMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(MaxPoolDownSize(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_011(self):
         self._check(ObjectAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
-        self._check(ResNetBackbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
-    def test_014(self):
+    def test_012(self):
         self._check(SEDeconvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_013(self):
         self._check(SSAMImageHarmonization(*[], **{'depth': 1}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_016(self):
+    def test_014(self):
         self._check(ScaleLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_015(self):
         self._check(SimpleInputFusion(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_018(self):
+    def test_016(self):
         self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_017(self):
         self._check(SpatialOCR_Module(*[], **{'in_channels': 4, 'key_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_018(self):
         self._check(_ASPP(*[], **{'in_channels': 4, 'atrous_rates': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_019(self):
         self._check(_BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_020(self):
         self._check(_DeepLabHead(*[], **{'out_channels': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_021(self):
         self._check(_SkipProject(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

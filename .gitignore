@@ -11,3 +11,5 @@ paritybench_download.tar.bz2
 output.log
 *.last
 *.pyc
+*.rej
+*.swo

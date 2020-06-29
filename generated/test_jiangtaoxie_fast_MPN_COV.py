@@ -861,10 +861,10 @@ class CBP(nn.Module):
             interSmall = torch.arange(img * bsn, min(upper, (img + 1) * bsn
                 ), dtype=torch.long)
             batch_x = x_flat[(interLarge), :]
-            sketch1 = batch_x.mm(self.sparseM[0].to(x.device)).unsqueeze(2)
+            sketch1 = batch_x.mm(self.sparseM[0]).unsqueeze(2)
             sketch1 = torch.fft(torch.cat((sketch1, torch.zeros(sketch1.
                 size(), device=x.device)), dim=2), 1)
-            sketch2 = batch_x.mm(self.sparseM[1].to(x.device)).unsqueeze(2)
+            sketch2 = batch_x.mm(self.sparseM[1]).unsqueeze(2)
             sketch2 = torch.fft(torch.cat((sketch2, torch.zeros(sketch2.
                 size(), device=x.device)), dim=2), 1)
             Re = sketch1[:, :, (0)].mul(sketch2[:, :, (0)]) - sketch1[:, :, (1)

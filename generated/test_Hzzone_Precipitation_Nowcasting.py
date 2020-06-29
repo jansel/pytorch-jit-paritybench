@@ -68,10 +68,10 @@ import logging
 import torch.nn.functional as F
 
 
-_global_config['HKO'] = 4
-
-
 _global_config['GLOBAL'] = 4
+
+
+_global_config['HKO'] = 4
 
 
 def make_layers(block):
@@ -206,7 +206,7 @@ class Weighted_mse_mae(nn.Module):
             S, B = mse.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
             if torch.cuda.is_available():
-                w = w.to(mse.get_device())
+                w = w
             mse = (w * mse.permute(1, 0)).permute(1, 0)
             mae = (w * mae.permute(1, 0)).permute(1, 0)
         return self.NORMAL_LOSS_GLOBAL_SCALE * (self.mse_weight * torch.
@@ -235,7 +235,7 @@ class WeightedCrossEntropyLoss(nn.Module):
             B, S, H, W = error.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
             if torch.cuda.is_available():
-                w = w.to(error.get_device())
+                w = w
             error = (w * error.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         error = error.permute(1, 0, 2, 3).unsqueeze(2)
         return torch.mean(error * mask.float())

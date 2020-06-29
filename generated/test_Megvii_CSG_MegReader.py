@@ -884,8 +884,7 @@ class AttentionRNNCell(nn.Module):
         """
         batch_size = word_input.size(0)
         word_embedded_onehot = self.embedding(word_input.to(last_hidden.
-            device).type(torch.long)).view(1, batch_size, -1).to(last_hidden
-            .device)
+            device).type(torch.long)).view(1, batch_size, -1)
         word_embedded = self.word_linear(word_embedded_onehot)
         attn_weights = self.attn(last_hidden, encoder_outputs)
         context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
@@ -1199,16 +1198,16 @@ class CTCLoss2D(nn.Module):
         T, H = classify.shape[:2]
         targets_indices = expanded_targets.repeat(H, 1, 1)
         tiny = self.tiny
-        probability = torch.log((torch.zeros(S, H, N) + tiny) / H).to(device)
+        probability = torch.log((torch.zeros(S, H, N) + tiny) / H)
         probability[0] = classify[(0), :, :, (self.blank)]
         probability[1] = classify[0].gather(2, targets_indices[:, :, 1:2]
             ).permute(2, 0, 1)
         mask_skipping = torch.ne(expanded_targets[:, 2:], expanded_targets[
             :, :-2]).transpose(0, 1)
-        mask_skipping = mask_skipping.unsqueeze(1).type(torch.float).to(device)
+        mask_skipping = mask_skipping.unsqueeze(1).type(torch.float)
         mask_not_skipping = 1 - mask_skipping
         length_indices = torch.linspace(0, S - 1, S).repeat(N, 1, 1).transpose(
-            0, 2).to(device)
+            0, 2)
         zeros = self.zeros.repeat(S, 1, N).view(S, 1, N)
         count_computable = torch.cat([mask_skipping[0:1] + 1, mask_skipping
             [0:1] + 1, mask_skipping + 1], dim=0)
@@ -1799,7 +1798,7 @@ class ClassificationModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
@@ -1807,8 +1806,8 @@ class ClassificationModel(nn.Module):
 
     def forward(self, batch, training=True):
         data, label = batch
-        data = data.to(self.device)
-        label = label.to(self.device)
+        data = data
+        label = label
         if training:
             loss, pred = self.model(data, targets=label, train=True)
             return loss, pred
@@ -1823,7 +1822,7 @@ class DetectionModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
@@ -1831,10 +1830,10 @@ class DetectionModel(nn.Module):
 
     def forward(self, batch, training=True):
         data, label, meta = batch
-        data = data.to(self.device)
+        data = data
         data = data.float() / 255.0
         for key, value in label.items():
-            label[key] = value.to(self.device)
+            label[key] = value
         if training:
             loss, pred, metrics = self.model(data, label, meta, train=True)
             loss = loss.mean()
@@ -1851,7 +1850,7 @@ class DetectionEnsembleModel(nn.Module):
         self.sizes = args['sizes']
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
@@ -1860,10 +1859,10 @@ class DetectionEnsembleModel(nn.Module):
     def forward(self, batch, training=True):
         assert not training
         data, label, meta = batch
-        data = data.to(self.device)
+        data = data
         data = data.float() / 255.0
         for key, value in label.items():
-            label[key] = value.to(self.device)
+            label[key] = value
         size = data.shape[2], data.shape[3]
         heatmaps = []
         for size0 in self.sizes:
@@ -1882,17 +1881,17 @@ class SequenceRecognitionModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
         return '/' + args['backbone'] + '/' + args['decoder']
 
     def forward(self, batch, training=True):
-        images = batch['image'].to(self.device)
+        images = batch['image']
         if self.training:
-            labels = batch['label'].to(self.device)
-            lengths = batch['length'].to(self.device).type(torch.long)
+            labels = batch['label']
+            lengths = batch['length'].type(torch.long)
             loss, pred = self.model(images, targets=labels, lengths=lengths,
                 train=True)
             return loss, pred
@@ -1907,17 +1906,17 @@ class SegRecognitionModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
         return '/' + args['backbone'] + '/' + args['decoder']
 
     def forward(self, batch, training=True):
-        images = batch['image'].to(self.device)
+        images = batch['image']
         if self.training:
-            mask = batch['mask'].to(self.device)
-            classify = batch['classify'].to(self.device).type(torch.long)
+            mask = batch['mask']
+            classify = batch['classify'].type(torch.long)
             return self.model(images, mask=mask, classify=classify, train=True)
         else:
             return self.model(images, train=False)
@@ -1930,7 +1929,7 @@ class IntegralRegressionRecognitionModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
@@ -1939,7 +1938,7 @@ class IntegralRegressionRecognitionModel(nn.Module):
     def forward(self, batch, training=True):
         args = dict()
         for key in batch.keys():
-            args[key] = batch[key].to(self.device)
+            args[key] = batch[key]
         images = args.pop('image')
         return self.model(images, **args)
 
@@ -1951,7 +1950,7 @@ class GridSamplingModel(nn.Module):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
-        self.to(self.device)
+        self
 
     @staticmethod
     def model_name(args):
@@ -1960,7 +1959,7 @@ class GridSamplingModel(nn.Module):
     def forward(self, batch, training=True):
         args = dict()
         for key in batch.keys():
-            args[key] = batch[key].to(self.device)
+            args[key] = batch[key]
         images = args.pop('image')
         return self.model(images, **args)
 
@@ -1995,8 +1994,4 @@ class Test_Megvii_CSG_MegReader(_paritybench_base):
     @_fails_compile()
     def test_006(self):
         self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(PPMDeepsup(*[], **{}), [torch.rand([4, 4, 2048, 64, 64])], {})
 

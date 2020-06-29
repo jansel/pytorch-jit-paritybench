@@ -1410,10 +1410,8 @@ class AdversarialLoss(nn.Module):
         """
         super(AdversarialLoss, self).__init__()
         self.type = type
-        self.register_buffer('real_label', torch.tensor(target_real_label).
-            to(device))
-        self.register_buffer('fake_label', torch.tensor(target_fake_label).
-            to(device))
+        self.register_buffer('real_label', torch.tensor(target_real_label))
+        self.register_buffer('fake_label', torch.tensor(target_fake_label))
         if type == 'nsgan':
             self.criterion = nn.BCELoss()
         elif type == 'lsgan':
@@ -1782,13 +1780,21 @@ class Test_amjltc295_Free_Form_Video_Inpainting(_paritybench_base):
     def test_002(self):
         self._check(Dist2LogitLayer(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(L1LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GatedConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_004(self):
+        self._check(L1LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(L2LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(VanillaConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 

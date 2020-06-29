@@ -103,8 +103,7 @@ class AnalyticalMarkowitz(nn.Module):
         device = covmat.device
         dtype = covmat.dtype
         covmat_inv = torch.inverse(covmat)
-        ones = torch.ones(n_samples, n_assets, 1).to(device=device, dtype=dtype
-            )
+        ones = torch.ones(n_samples, n_assets, 1)
         if rets is not None:
             expected_returns = rets.view(n_samples, n_assets, 1)
         else:
@@ -713,8 +712,7 @@ class ExponentialCollapse(nn.Module):
         w_unscaled = [1]
         for _ in range(1, n_steps):
             w_unscaled.append(self.forgetting_factor * w_unscaled[-1] + 1)
-        w_unscaled = torch.Tensor(w_unscaled).to(dtype=x.dtype, device=x.device
-            )
+        w_unscaled = torch.Tensor(w_unscaled)
         w = w_unscaled / w_unscaled.sum()
         return (x * w.view(*view)).sum(dim=self.collapse_dim)
 
@@ -1016,7 +1014,7 @@ class KMeans(torch.nn.Module):
                 raise ValueError(
                     'The feature size of manually provided cluster centers is different from the input'
                     )
-            cluster_centers = manual_init.to(dtype=dtype, device=device)
+            cluster_centers = manual_init
         return cluster_centers
 
     def forward(self, x, manual_init=None):
@@ -1304,7 +1302,7 @@ class Zoom(torch.nn.Module):
         translate = 1 - scale
         theta = torch.stack([torch.tensor([[1, 0, 0], [0, s, t]]) for s, t in
             zip(scale, translate)], dim=0)
-        theta = theta.to(device=x.device, dtype=x.dtype)
+        theta = theta
         grid = nn.functional.affine_grid(theta, x.shape)
         x_zoomed = nn.functional.grid_sample(x, grid, mode=self.mode,
             padding_mode=self.padding_mode, align_corners=False)
@@ -1332,30 +1330,34 @@ class Test_jankrepl_deepdow(_paritybench_base):
     def test_004(self):
         self._check(Cov2Corr(*[], **{}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
+        self._check(CovarianceMatrix(*[], **{}), [torch.rand([4, 4, 4])], {})
+
+    def test_006(self):
         self._check(ElementCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(ExponentialCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(MaxCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(NCO(*[], **{'n_clusters': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(RNN(*[], **{'n_channels': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(SoftmaxAllocator(*[], **{}), [torch.rand([4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(SumCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(WeightNorm(*[], **{'n_assets': 4}), [torch.rand([4, 4, 4, 4])], {})
 

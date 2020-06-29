@@ -72,13 +72,13 @@ import torch.backends.cudnn as cudnn
 import time
 
 
-_global_config['ANs_select_rate'] = 4
+_global_config['device'] = 4
 
 
 _global_config['ANs_size'] = 4
 
 
-_global_config['device'] = 4
+_global_config['ANs_select_rate'] = 4
 
 
 class ANsDiscovery(nn.Module):
@@ -189,8 +189,7 @@ class ANsDiscovery(nn.Module):
                 'Start to find %d neighbours for each anchor sample' % self
                 .ANs_size)
             anchor_features = features.index_select(0, self.anchor_indexes)
-            self.neighbours = torch.LongTensor(ANs_num, self.ANs_size).to(cfg
-                .device)
+            self.neighbours = torch.LongTensor(ANs_num, self.ANs_size)
             for start in xrange(0, ANs_num, batch_size):
                 logger.progress(start, ANs_num, 'processing %d/%d samples...')
                 end = start + batch_size
@@ -273,10 +272,10 @@ class NonParametricClassifierOP(Function):
         return gradInput, None, None, None, None
 
 
-_global_config['npc_momentum'] = 4
-
-
 _global_config['npc_temperature'] = 4
+
+
+_global_config['npc_momentum'] = 4
 
 
 class NonParametricClassifier(nn.Module):

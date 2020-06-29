@@ -267,7 +267,7 @@ class Gauss(nn.Module):
     def sample_cell(self, batch_size):
         eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size,
             self.lat_dim))))
-        eps.to(device)
+        eps
         return eps.unsqueeze(0)
 
     def build_bow_rep(self, lat_code, n_sample):
@@ -479,8 +479,7 @@ class VmfDiff(torch.nn.Module):
     def estimate_param(self, latent_code):
         ret_dict = {}
         ret_dict['kappa'] = torch.max(torch.min(self.func_kappa(latent_code
-            ) * 10 + 50, torch.tensor(150.0).to(device)), torch.tensor(10.0
-            ).to(device))
+            ) * 10 + 50, torch.tensor(150.0)), torch.tensor(10.0))
         mu = self.func_mu(latent_code)
         norm = torch.norm(mu, 2, 1, keepdim=True)
         mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
@@ -497,8 +496,8 @@ class VmfDiff(torch.nn.Module):
         d = self.lat_dim
         rt_bag = []
         const = torch.tensor(np.log(np.pi) * d / 2 + np.log(2) - sp.
-            loggamma(d / 2).real - d / 2 * np.log(2 * np.pi)).to(device)
-        d = torch.tensor([d], dtype=torch.float).to(device)
+            loggamma(d / 2).real - d / 2 * np.log(2 * np.pi))
+        d = torch.tensor([d], dtype=torch.float)
         batchsz = kappa.size()[0]
         rt_tensor = torch.zeros(batchsz)
         for k_idx in range(batchsz):
@@ -508,7 +507,7 @@ class VmfDiff(torch.nn.Module):
                 1, k))
             combin = first + second + const
             rt_tensor[k_idx] = combin
-        return rt_tensor.to(device)
+        return rt_tensor
 
     def build_bow_rep(self, lat_code, n_sample):
         batch_sz = lat_code.size()[0]
@@ -532,20 +531,20 @@ class VmfDiff(torch.nn.Module):
         mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
         w = self._sample_weight_batch(kappa, lat_dim, batch_sz)
         w = w.unsqueeze(1)
-        w_var = GVar(w * torch.ones(batch_sz, lat_dim).to(device))
+        w_var = GVar(w * torch.ones(batch_sz, lat_dim))
         v = self._sample_ortho_batch(mu, lat_dim)
         scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) -
             torch.pow(w_var, 2))
         orth_term = v * scale_factr
         muscale = mu * w_var
         sampled_vec = orth_term + muscale
-        return sampled_vec.unsqueeze(0).to(device)
+        return sampled_vec.unsqueeze(0)
 
     def _sample_weight_batch(self, kappa, dim, batch_sz=1):
         result = np.zeros(batch_sz)
         for b in range(batch_sz):
             result[b] = self._sample_weight(kappa[b], dim)
-        return torch.from_numpy(result).float().to(device)
+        return torch.from_numpy(result).float()
 
     def _sample_weight(self, kappa, dim):
         """Rejection sampling scheme for sampling distance from center on
@@ -2642,4 +2641,7 @@ class Test_jiacheng_xu_vmf_vae_nlp(_paritybench_base):
     pass
     def test_000(self):
         self._check(Code2Code(*[], **{'inp_dim': 4, 'tgt_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(DCNNEncoder(*[], **{'inp_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 

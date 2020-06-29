@@ -265,10 +265,9 @@ class Decoder(nn.Module):
         """ Set all hidden states/cells, for decoding purpose"""
         device = next(self.parameters()).device
         if self.enable_cell:
-            self.hidden_state = hidden_state[0].to(device), hidden_state[1].to(
-                device)
+            self.hidden_state = hidden_state[0], hidden_state[1]
         else:
-            self.hidden_state = hidden_state.to(device)
+            self.hidden_state = hidden_state
 
     def get_state(self):
         """ Return all hidden states/cells, for decoding purpose"""
@@ -750,7 +749,7 @@ class BeamDecoder(nn.Module):
                     ctc_prob, ctc_state = ctc_prefix.cheap_compute(hypothesis
                         .outIndex, prev_ctc_state, candidates)
                     ctc_char = torch.FloatTensor(ctc_prob - hypothesis.ctc_prob
-                        ).to(device)
+                        )
                     hack_ctc_char = torch.zeros_like(cur_prob).data.fill_(
                         LOG_ZERO)
                     for idx, char in enumerate(candidates):
@@ -962,8 +961,7 @@ class BaseAttention(nn.Module):
         self.mask = np.zeros((bs, self.num_head, ts))
         for idx, sl in enumerate(k_len):
             self.mask[(idx), :, sl:] = 1
-        self.mask = torch.from_numpy(self.mask).to(k_len.device, dtype=
-            torch.bool).view(-1, ts)
+        self.mask = torch.from_numpy(self.mask).view(-1, ts)
 
     def _attend(self, energy, value):
         attn = energy / self.temperature
@@ -1124,7 +1122,7 @@ class EmbeddingRegularizer(nn.Module):
                 y_emb = self.emb_table(label)
             if self.distance == 'CosEmb':
                 loss = self.measurement(x_emb.view(-1, self.dim), y_emb.
-                    view(-1, self.dim), torch.ones(1).to(dec_state.device))
+                    view(-1, self.dim), torch.ones(1))
             else:
                 loss = self.measurement(x_emb.view(-1, self.dim), y_emb.
                     view(-1, self.dim))
@@ -1144,4 +1142,8 @@ class Test_Alexander_H_Liu_End_to_end_ASR_Pytorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(CNNExtractor(*[], **{'input_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(Decoder(*[], **{'input_dim': 4, 'vocab_size': 4, 'module': LSTM, 'dim': 4, 'layer': 1, 'dropout': 0.5}), [torch.rand([4, 4])], {})
 

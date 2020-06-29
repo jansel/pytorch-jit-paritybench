@@ -194,5 +194,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 class Test_descriptinc_melgan_neurips(_paritybench_base):
     pass
     def test_000(self):
+        self._check(Generator(*[], **{'input_size': 4, 'ngf': 4, 'n_residual_layers': 1}), [torch.rand([4, 4, 4])], {})
+
+    def test_001(self):
         self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 64])], {})
 

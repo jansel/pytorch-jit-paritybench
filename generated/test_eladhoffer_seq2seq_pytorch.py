@@ -1894,7 +1894,7 @@ class RecurrentEncoder(nn.Module):
         if isinstance(inputs, PackedSequence):
             emb = PackedSequence(self.embedding_dropout(self.embedder(
                 inputs.data)), inputs.batch_sizes)
-            bsizes = inputs.batch_sizes.to(device=inputs.data.device)
+            bsizes = inputs.batch_sizes
             max_batch = int(bsizes[0])
             time_dim = 1 if self.batch_first else 0
             range_batch = torch.arange(0, max_batch, dtype=bsizes.dtype,
@@ -2687,44 +2687,48 @@ class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(AverageNetwork(*[], **{'input_size': 4, 'inner_linear': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AttentionLayer(*[], **{'query_size': 4, 'key_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(HiddenTransform(*[], **{'input_shape': 4, 'output_shape': 4}), [torch.rand([4, 4])], {})
+        self._check(AverageNetwork(*[], **{'input_size': 4, 'inner_linear': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HiddenTransform(*[], **{'input_shape': 4, 'output_shape': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(MultiHeadAttentionV2(*[], **{'input_size': 4, 'output_size': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(OrderAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(MultiHeadAttentionV2(*[], **{'input_size': 4, 'output_size': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(PositionalEmbedding(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(OrderAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(SDPAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(PositionalEmbedding(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
+        self._check(SDPAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(TimeNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

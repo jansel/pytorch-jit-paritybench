@@ -106,7 +106,7 @@ class NT_Xent(nn.Module):
         positive_samples = torch.cat((sim_i_j, sim_j_i), dim=0).reshape(
             self.batch_size * 2, 1)
         negative_samples = sim[self.mask].reshape(self.batch_size * 2, -1)
-        labels = torch.zeros(self.batch_size * 2).to(self.device).long()
+        labels = torch.zeros(self.batch_size * 2).long()
         logits = torch.cat((positive_samples, negative_samples), dim=1)
         loss = self.criterion(logits, labels)
         loss /= 2 * self.batch_size
@@ -401,4 +401,7 @@ class Test_Spijkervet_SimCLR(_paritybench_base):
 
     def test_002(self):
         self._check(LogisticRegression(*[], **{'n_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(NT_Xent(*[], **{'batch_size': 4, 'temperature': 4, 'device': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 

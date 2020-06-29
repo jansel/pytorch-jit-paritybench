@@ -228,9 +228,9 @@ class BertTagger(nn.Module):
         output = output.contiguous().view(-1, self.labels_num)
         output = self.softmax(output)
         label = label.contiguous().view(-1, 1)
-        label_mask = (label > 0).float().to(torch.device(label.device))
-        one_hot = torch.zeros(label_mask.size(0), self.labels_num).to(torch
-            .device(label.device)).scatter_(1, label, 1.0)
+        label_mask = (label > 0).float()
+        one_hot = torch.zeros(label_mask.size(0), self.labels_num).scatter_(
+            1, label, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         label = label.contiguous().view(-1)
@@ -433,11 +433,11 @@ class CnnEncoder(nn.Module):
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
         padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            ).to(emb.device)
+            )
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
         padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1]).to(emb.device)
+            kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
@@ -472,13 +472,13 @@ class GatedcnnEncoder(nn.Module):
         batch_size, seq_len, _ = emb.size()
         res_input = torch.transpose(emb.unsqueeze(3), 1, 2)
         padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            ).to(emb.device)
+            )
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
         gate = self.gate_1(emb)
         hidden = hidden * torch.sigmoid(gate)
         padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1]).to(emb.device)
+            kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, (conv_i, gate_i) in enumerate(zip(self.conv, self.gate)):
             hidden, gate = conv_i(hidden), gate_i(hidden)
@@ -548,11 +548,11 @@ class RcnnEncoder(nn.Module):
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
         padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            ).to(emb.device)
+            )
         hidden = torch.cat([padding, output], dim=1).unsqueeze(1)
         hidden = self.conv_1(hidden)
         padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1]).to(emb.device)
+            kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
@@ -589,11 +589,11 @@ class CrnnEncoder(nn.Module):
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
         padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            ).to(emb.device)
+            )
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
         padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1]).to(emb.device)
+            kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
@@ -932,7 +932,7 @@ class CnnSubencoder(nn.Module):
     def forward(self, ids):
         emb = self.embedding_layer(ids)
         padding = torch.zeros([emb.size(0), self.kernel_size - 1, self.
-            emb_size]).to(emb.device)
+            emb_size])
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         conv_output = F.relu(self.cnn(emb)).squeeze(3)
         conv_output = F.max_pool1d(conv_output, conv_output.size(2)).squeeze(2)
@@ -952,9 +952,8 @@ class LstmSubencoder(nn.Module):
 
     def forward(self, ids):
         batch_size, _ = ids.size()
-        hidden = torch.zeros(self.layers_num, batch_size, self.hidden_size).to(
-            ids.device), torch.zeros(self.layers_num, batch_size, self.
-            hidden_size).to(ids.device)
+        hidden = torch.zeros(self.layers_num, batch_size, self.hidden_size
+            ), torch.zeros(self.layers_num, batch_size, self.hidden_size)
         emb = self.embedding_layer(ids)
         output, hidden = self.rnn(emb, hidden)
         output = output.mean(1)
@@ -988,9 +987,8 @@ class BertTarget(nn.Module):
         tgt_mlm = tgt_mlm[tgt_mlm > 0]
         output_mlm = self.mlm_linear_2(output_mlm)
         output_mlm = self.softmax(output_mlm)
-        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).to(torch
-            .device(output_mlm.device)).scatter_(1, tgt_mlm.contiguous().
-            view(-1, 1), 1.0)
+        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(
+            1, tgt_mlm.contiguous().view(-1, 1), 1.0)
         numerator = -torch.sum(output_mlm * one_hot, 1)
         denominator = torch.tensor(output_mlm.size(0) + 1e-06)
         loss_mlm = torch.sum(numerator) / denominator
@@ -1049,11 +1047,9 @@ class BilmTarget(nn.Module):
         output_forward = output_forward.contiguous().view(-1, self.vocab_size)
         output_forward = self.softmax(output_forward)
         tgt_forward = tgt_forward.contiguous().view(-1, 1)
-        label_mask_forward = (tgt_forward > 0).float().to(torch.device(
-            output_forward.device))
+        label_mask_forward = (tgt_forward > 0).float()
         one_hot_forward = torch.zeros(label_mask_forward.size(0), self.
-            vocab_size).to(torch.device(output_forward.device)).scatter_(1,
-            tgt_forward, 1.0)
+            vocab_size).scatter_(1, tgt_forward, 1.0)
         numerator_forward = -torch.sum(output_forward * one_hot_forward, 1)
         label_mask_forward = label_mask_forward.contiguous().view(-1)
         tgt_forward = tgt_forward.contiguous().view(-1)
@@ -1068,11 +1064,9 @@ class BilmTarget(nn.Module):
             )
         output_backward = self.softmax(output_backward)
         tgt_backward = tgt_backward.contiguous().view(-1, 1)
-        label_mask_backward = (tgt_backward > 0).float().to(torch.device(
-            output_backward.device))
+        label_mask_backward = (tgt_backward > 0).float()
         one_hot_backward = torch.zeros(label_mask_backward.size(0), self.
-            vocab_size).to(torch.device(output_backward.device)).scatter_(1,
-            tgt_backward, 1.0)
+            vocab_size).scatter_(1, tgt_backward, 1.0)
         numerator_backward = -torch.sum(output_backward * one_hot_backward, 1)
         label_mask_backward = label_mask_backward.contiguous().view(-1)
         tgt_backward = tgt_backward.contiguous().view(-1)
@@ -1142,9 +1136,9 @@ class LmTarget(nn.Module):
         output = output.contiguous().view(-1, self.vocab_size)
         output = self.softmax(output)
         tgt = tgt.contiguous().view(-1, 1)
-        label_mask = (tgt > 0).float().to(torch.device(output.device))
-        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).to(torch
-            .device(output.device)).scatter_(1, tgt, 1.0)
+        label_mask = (tgt > 0).float()
+        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(
+            1, tgt, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         tgt = tgt.contiguous().view(-1)
@@ -1180,9 +1174,8 @@ class MlmTarget(nn.Module):
         tgt_mlm = tgt_mlm[tgt_mlm > 0]
         output_mlm = self.mlm_linear_2(output_mlm)
         output_mlm = self.softmax(output_mlm)
-        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).to(torch
-            .device(output_mlm.device)).scatter_(1, tgt_mlm.contiguous().
-            view(-1, 1), 1.0)
+        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(
+            1, tgt_mlm.contiguous().view(-1, 1), 1.0)
         numerator = -torch.sum(output_mlm * one_hot, 1)
         denominator = torch.tensor(output_mlm.size(0) + 1e-06)
         loss_mlm = torch.sum(numerator) / denominator
@@ -1262,9 +1255,9 @@ class S2sTarget(nn.Module):
         output = output.contiguous().view(-1, self.vocab_size)
         output = self.softmax(output)
         tgt = tgt.contiguous().view(-1, 1)
-        label_mask = (tgt > 0).float().to(torch.device(output.device))
-        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).to(torch
-            .device(output.device)).scatter_(1, tgt, 1.0)
+        label_mask = (tgt > 0).float()
+        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(
+            1, tgt, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         tgt = tgt.contiguous().view(-1)
@@ -1318,17 +1311,21 @@ class Test_dbiir_UER_py(_paritybench_base):
     def test_010(self):
         self._check(LstmSubencoder(*[], **{'args': _mock_config(emb_size=4, sub_layers_num=1, dropout=0.5), 'vocab_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
+    @_fails_compile()
     def test_011(self):
+        self._check(MultiHeadedAttention(*[], **{'hidden_size': 4, 'heads_num': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_012(self):
         self._check(PositionwiseFeedForward(*[], **{'hidden_size': 4, 'feedforward_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(RcnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(TransformerLayer(*[], **{'args': _mock_config(hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(WordEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {})
 

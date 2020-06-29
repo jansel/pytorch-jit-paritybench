@@ -158,13 +158,13 @@ class DeepFM(nn.Module):
         """
             load input data
         """
-        model = self.train().to(device=self.device)
+        model = self.train()
         criterion = F.binary_cross_entropy_with_logits
         for _ in range(epochs):
             for t, (xi, xv, y) in enumerate(loader_train):
-                xi = xi.to(device=self.device, dtype=self.dtype)
-                xv = xv.to(device=self.device, dtype=torch.float)
-                y = y.to(device=self.device, dtype=torch.float)
+                xi = xi
+                xv = xv
+                y = y
                 total = model(xi, xv)
                 loss = criterion(total, y)
                 optimizer.zero_grad()
@@ -185,9 +185,9 @@ class DeepFM(nn.Module):
         model.eval()
         with torch.no_grad():
             for xi, xv, y in loader:
-                xi = xi.to(device=self.device, dtype=self.dtype)
-                xv = xv.to(device=self.device, dtype=torch.float)
-                y = y.to(device=self.device, dtype=torch.bool)
+                xi = xi
+                xv = xv
+                y = y
                 total = model(xi, xv)
                 preds = F.sigmoid(total) > 0.5
                 num_correct += (preds == y).sum()

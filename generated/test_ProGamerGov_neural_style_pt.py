@@ -124,7 +124,7 @@ class ModelParallel(nn.Module):
 
     def chunks_to_devices(self, chunks):
         for i, chunk in enumerate(chunks):
-            chunk.to(self.device_list[i])
+            chunk
         return chunks
 
     def c(self, input, i):
@@ -140,7 +140,7 @@ class ModelParallel(nn.Module):
         for i, chunk in enumerate(self.chunks):
             if i < len(self.chunks) - 1:
                 input = self.c(chunk(self.c(input, i).to(self.device_list[i
-                    ])), i + 1).to(self.device_list[i + 1])
+                    ])), i + 1)
             else:
                 input = chunk(input)
         return input

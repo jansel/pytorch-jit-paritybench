@@ -403,6 +403,3 @@ class Test_speedinghzl_Pytorch_Deeplab(_paritybench_base):
     def test_002(self):
         self._check(Residual_Covolution(*[], **{'icol': 4, 'ocol': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(Residual_Refinement_Module(*[], **{'num_classes': 4}), [torch.rand([4, 2048, 64, 64])], {})
-

@@ -415,10 +415,10 @@ class SceneGraphGroundtruth(nn.Module):
                     object_features.append(jactorch.one_hot(mapped_values,
                         len(info['values'])))
             object_features = torch.cat(object_features, dim=-1)
-            object_features = object_features.float().to(input.device)
+            object_features = object_features.float()
             relation_features = feed_dict['relations_spatial_relation'][
                 relation_index:relation_index + nr_objects * nr_objects]
-            relation_features = relation_features.float().to(input.device)
+            relation_features = relation_features.float()
             outputs.append((None, object_features, relation_features.view(
                 nr_objects, nr_objects, 4)))
             objects_index += nr_objects

@@ -1592,6 +1592,3 @@ class Test_clovaai_EXTD_Pytorch(_paritybench_base):
     def test_003(self):
         self._check(Max_AvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-

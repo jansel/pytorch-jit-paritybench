@@ -98,6 +98,14 @@ class DeduceParameters(object):
             sorted_args = self.sorted_args(tb, error_msg)
             self.last_traceback = traceback.format_exc(-2)
 
+            if error_msg.startswith('AssertionError:'):
+                # Error msg often not useful for assert error
+                try:
+                    line = traceback.extract_tb(tb, limit=-1)[0].line
+                    error_msg = f"{error_msg} {line}"
+                except IndexError:
+                    pass
+
         self.attempt_log.append((guess_str, error_msg))
 
         if Guess.apply_fixors(self.get_fixors(), error_msg):
@@ -135,21 +143,27 @@ class DeduceParameters(object):
         args.sort(key=lambda x: x.contained_in_line(msg), reverse=True)
         return args
 
+    def search_n(self, limit):
+        if str(self) in self.tried:
+            return False
+        for attempt in range(limit):
+            if self.search_once():
+                return True
+        return False
+
     def search(self, limit: int = 10):
-        try:
-            for attempt in range(limit):
-                if self.search_once():
+        for gen in range(2):
+            try:
+                if self.search_n(limit):
                     return self.last_result
-        except DeductionFailed:
-            pass  # ignore error as we will try again
+            except DeductionFailed:
+                pass  # ignore error as we will try again
 
-        for arg in self.all_args():
-            arg.alt_guess()
+            for arg in self.all_args():
+                arg.alt_guess(gen)
 
-        if str(self) not in self.tried:
-            for attempt in range(limit):
-                if self.search_once():
-                    return self.last_result
+        if self.search_n(limit):
+            return self.last_result
 
         raise DeductionFailed(self.attempt_log, str(type(self.nn_module)), self.last_traceback)
 
@@ -304,10 +318,11 @@ class DeduceParameter(object):
             this_count = reduce(lambda a, b: a * b, self._guesses[-1].shape)
             return count == this_count
 
-    def alt_guess(self):
+    def alt_guess(self, gen):
         if isinstance(self._guesses[-1], TensorGuess):
             # try starting with a smaller size
-            self.change_guess(TensorGuess([TensorGuess.default_size] * 2))
+            new_size = [2, 3][gen]
+            self.change_guess(TensorGuess([TensorGuess.default_size] * new_size))
 
 
 class Guess(object):
@@ -404,7 +419,9 @@ class LiteralGuess(Guess):
                 (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
                  lambda v: 0.5 if v == self.value else None),
                 (r"member .* should be callable",
-                 lambda: torch.nn.ReLU())
+                 lambda: torch.nn.ReLU()),
+                (r'''assert.*in\s+[(\[{]\s*(?P<v>\d+|'[^'\\]*'|"[^"\\]*")''',
+                 lambda v: v),
             ])
 
         if isinstance(self.value, list):

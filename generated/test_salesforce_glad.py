@@ -234,13 +234,12 @@ class Model(nn.Module):
             for i, e in enumerate(batch):
                 for s, v in e.turn_label:
                     labels[s][i][self.ontology.values[s].index(v)] = 1
-            labels = {s: torch.Tensor(m).to(self.device) for s, m in labels
-                .items()}
+            labels = {s: torch.Tensor(m) for s, m in labels.items()}
             loss = 0
             for s in self.ontology.slots:
                 loss += F.binary_cross_entropy(ys[s], labels[s])
         else:
-            loss = torch.Tensor([0]).to(self.device)
+            loss = torch.Tensor([0])
         return loss, {s: v.data.tolist() for s, v in ys.items()}
 
     def get_train_logger(self):

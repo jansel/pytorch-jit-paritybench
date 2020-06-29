@@ -1,10 +1,7 @@
 import argparse
 import logging
-import multiprocessing
 import os
 import re
-import resource
-import signal
 import sys
 import tempfile
 import time
@@ -14,9 +11,10 @@ from unittest.mock import patch
 
 import torch
 
-from paritybench.reporting import Stats, ErrorAggregatorDict
-from paritybench.module_extractor import PyTorchModuleExtractor
 from paritybench.crawler import CrawlGitHub
+from paritybench.module_extractor import PyTorchModuleExtractor
+from paritybench.reporting import Stats, ErrorAggregatorDict
+from paritybench.utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
@@ -112,41 +110,6 @@ def test_zipfile(path):
                 OSError("Crash testing module"),
                 path
             ), Stats({"crash": 1})
-
-
-def call_with_timeout(fn, args, kwargs, timeout=10):
-    parent_conn, child_conn = multiprocessing.Pipe()
-    start = time.time()
-    proc = multiprocessing.Process(target=call_with_timeout_subproc, args=(fn, args, kwargs, child_conn))
-    proc.start()
-    while proc.is_alive():
-        if parent_conn.poll(1):
-            result = parent_conn.recv()
-            proc.join()
-            return result
-        if time.time() - start > timeout:
-            os.kill(proc.pid, signal.SIGINT)  # maybe generate a stack trace for debugging
-            time.sleep(1)
-            proc.terminate()
-            proc.join(10)
-            raise TimeoutError(f"took longer than {timeout} seconds")
-
-    proc.join()
-    if proc.exitcode == 0:
-        return parent_conn.recv()
-    else:
-        raise OSError(f"exitcode should be 0, got {proc.exitcode}")
-
-
-def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
-    _, hard = resource.getrlimit(resource.RLIMIT_AS)
-    resource.setrlimit(resource.RLIMIT_AS, (10 * 1024 ** 3, hard))
-    try:
-        result = fn(*args, *kwargs)
-        return_pipe.send(result)
-    except Exception:
-        log.exception("Error from subprocess")
-        sys.exit(1)
 
 
 def test_zipfile_subproc(tempdir: str, path: str):

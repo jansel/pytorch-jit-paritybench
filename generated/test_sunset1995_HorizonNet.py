@@ -262,8 +262,8 @@ class HorizonNet(nn.Module):
 
     def _prepare_x(self, x):
         if self.x_mean.device != x.device:
-            self.x_mean = self.x_mean.to(x.device)
-            self.x_std = self.x_std.to(x.device)
+            self.x_mean = self.x_mean
+            self.x_std = self.x_std
         return (x[:, :3] - self.x_mean) / self.x_std
 
     def forward(self, x):

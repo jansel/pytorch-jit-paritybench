@@ -559,7 +559,7 @@ class FocalLoss(_WeightedLoss):
         logpt = torch.squeeze(logpt, dim=1)
         pt = torch.exp(logpt)
         if self.weight is not None:
-            self.weight = self.weight.to(i)
+            self.weight = self.weight
             at = self.weight[(None), :, (None)]
             at = at.expand((t.size(0), -1, t.size(2)))
             at = at.gather(1, t.long())
@@ -857,7 +857,7 @@ class GaussianFilter(nn.Module):
         """
         chns = x.shape[1]
         sp_dim = self.spatial_dims
-        x = torch.as_tensor(x).to(self.kernel[0]).contiguous()
+        x = torch.as_tensor(x).contiguous()
 
         def _conv(input_, d):
             if d < 0:

@@ -75,7 +75,7 @@ class DiscriminativeLoss(nn.Module):
             if K > n:
                 m = int(K - n)
                 filled = torch.zeros(m, embedding_size)
-                filled = filled.to(embedded.device)
+                filled = filled
                 mu = torch.cat([mu, filled], dim=0)
             centroids.append(mu)
         centroids = torch.stack(centroids)
@@ -111,7 +111,7 @@ class DiscriminativeLoss(nn.Module):
             diff = mu_a - mu_b
             norm = torch.norm(diff, 2, dim=2)
             margin = 2 * self.delta_d * (1.0 - torch.eye(n))
-            margin = margin.to(centroids.device)
+            margin = margin
             distance = torch.sum(torch.clamp(margin - norm, min=0.0) ** 2)
             distance /= float(n * (n - 1))
             loss += distance
@@ -185,7 +185,7 @@ class STN3D(nn.Module):
         x = self.mlp1(x)
         x = F.max_pool1d(x, num_points).squeeze(2)
         x = self.mlp2(x)
-        I = torch.eye(self.input_channels).view(-1).to(x.device)
+        I = torch.eye(self.input_channels).view(-1)
         x = x + I
         x = x.view(-1, self.input_channels, self.input_channels)
         return x

@@ -1637,44 +1637,40 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
     def test_004(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(UNet_LRes(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 64, 64])], {})
-
-    def test_006(self):
         self._check(conv23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(conv23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(conv23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_008(self):
         self._check(convTranspose23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_009(self):
         self._check(convTranspose23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_010(self):
         self._check(convTranspose23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_011(self):
         self._check(convUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_012(self):
         self._check(dropout23DUnit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_013(self):
         self._check(maxPool23DUinit(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_014(self):
         self._check(residualUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_015(self):
         self._check(unetConvUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_016(self):
         self._check(upsampleUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

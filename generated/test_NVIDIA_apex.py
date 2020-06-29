@@ -2562,11 +2562,11 @@ class SyncBatchNorm(_BatchNorm):
         out = None
         if self.running_mean is not None:
             if self.running_mean.dtype != input.dtype:
-                input = input.to(self.running_mean.dtype)
+                input = input
                 cast = input.dtype
         elif self.weight is not None:
             if self.weight.dtype != input.dtype:
-                input = input.to(self.weight.dtype)
+                input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
             torch.cuda.nvtx.range_pop()
@@ -2611,7 +2611,7 @@ class SyncBatchNorm(_BatchNorm):
             torch.cuda.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
                 mean, var, self.eps, process_group, world_size)
-        return out.to(cast)
+        return out
 
 
 class Foo(torch.nn.Module):

@@ -512,3 +512,7 @@ class Test_thu_ml_tianshou(_paritybench_base):
     def test_003(self):
         self._check(RecurrentActorProb(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_004(self):
+        self._check(RecurrentCritic(*[], **{'layer_num': 1, 'state_shape': 4}), [torch.rand([4, 4, 4])], {})
+

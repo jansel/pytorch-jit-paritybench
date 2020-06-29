@@ -104,7 +104,7 @@ class Loss(nn.modules.loss._Loss):
                 self.loss_module.append(l['function'])
         self.log = torch.Tensor()
         device = torch.device('cpu' if args.cpu else 'cuda')
-        self.loss_module.to(device)
+        self.loss_module
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
@@ -320,7 +320,7 @@ class Model(nn.Module):
         self.n_GPUs = args.n_GPUs
         self.save_models = args.save_models
         module = import_module('model.' + args.model.lower())
-        self.model = module.make_model(args).to(self.device)
+        self.model = module.make_model(args)
         if args.precision == 'half':
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
@@ -429,7 +429,7 @@ class Model(nn.Module):
                 tfnp = v2np[:, :, ::-1, :].copy()
             elif op == 't':
                 tfnp = v2np.transpose((0, 1, 3, 2)).copy()
-            ret = torch.Tensor(tfnp).to(self.device)
+            ret = torch.Tensor(tfnp)
             if self.precision == 'half':
                 ret = ret.half()
             return ret
@@ -737,7 +737,7 @@ class Loss(nn.modules.loss._Loss):
                 self.loss_module.append(l['function'])
         self.log = torch.Tensor()
         device = torch.device('cpu' if args.cpu else 'cuda')
-        self.loss_module.to(device)
+        self.loss_module
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
@@ -953,7 +953,7 @@ class Model(nn.Module):
         self.n_GPUs = args.n_GPUs
         self.save_models = args.save_models
         module = import_module('model.' + args.model.lower())
-        self.model = module.make_model(args).to(self.device)
+        self.model = module.make_model(args)
         if args.precision == 'half':
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
@@ -1062,7 +1062,7 @@ class Model(nn.Module):
                 tfnp = v2np[:, :, ::-1, :].copy()
             elif op == 't':
                 tfnp = v2np.transpose((0, 1, 3, 2)).copy()
-            ret = torch.Tensor(tfnp).to(self.device)
+            ret = torch.Tensor(tfnp)
             if self.precision == 'half':
                 ret = ret.half()
             return ret

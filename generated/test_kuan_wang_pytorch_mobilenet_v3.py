@@ -213,8 +213,11 @@ class Test_kuan_wang_pytorch_mobilenet_v3(_paritybench_base):
         self._check(Identity(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(MobileBottleneck(*[], **{'inp': 4, 'oup': 4, 'kernel': 3, 'stride': 1, 'exp': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(SEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

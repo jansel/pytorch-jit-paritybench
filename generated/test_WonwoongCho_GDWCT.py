@@ -194,7 +194,7 @@ class WCT(nn.Module):
         c_A_mean = torch.mean(c_A_, dim=2, keepdim=True)
         c_A_ = c_A_ - c_A_mean
         cov_c = torch.bmm(c_A_, c_A_.permute(0, 2, 1)).div(B * H * W - 1
-            ) + eps * torch.eye(n_mem).unsqueeze(0).to(self.device)
+            ) + eps * torch.eye(n_mem).unsqueeze(0)
         whitend = c_A_.unsqueeze(0).contiguous().view(C, B, -1).permute(1, 0, 2
             )
         colored_B = torch.bmm(X_B, whitend).unsqueeze(3).view(B, C, H, -1)
@@ -470,4 +470,8 @@ class Test_WonwoongCho_GDWCT(_paritybench_base):
     @_fails_compile()
     def test_003(self):
         self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(WCT(*[], **{'n_group': 4, 'device': 4, 'input_dim': 4, 'mlp_dim': 4, 'bias_dim': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 

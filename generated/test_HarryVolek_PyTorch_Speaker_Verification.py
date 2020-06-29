@@ -126,17 +126,15 @@ class GE2ELoss(nn.Module):
 
     def __init__(self, device):
         super(GE2ELoss, self).__init__()
-        self.w = nn.Parameter(torch.tensor(10.0).to(device), requires_grad=True
-            )
-        self.b = nn.Parameter(torch.tensor(-5.0).to(device), requires_grad=True
-            )
+        self.w = nn.Parameter(torch.tensor(10.0), requires_grad=True)
+        self.b = nn.Parameter(torch.tensor(-5.0), requires_grad=True)
         self.device = device
 
     def forward(self, embeddings):
         torch.clamp(self.w, 1e-06)
         centroids = get_centroids(embeddings)
         cossim = get_cossim(embeddings, centroids)
-        sim_matrix = self.w * cossim.to(self.device) + self.b
+        sim_matrix = self.w * cossim + self.b
         loss, _ = calc_loss(sim_matrix)
         return loss
 
@@ -146,3 +144,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 class Test_HarryVolek_PyTorch_Speaker_Verification(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(GE2ELoss(*[], **{'device': 4}), [torch.rand([4, 4, 4])], {})
+

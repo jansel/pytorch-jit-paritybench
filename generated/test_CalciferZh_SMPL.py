@@ -224,7 +224,7 @@ class SMPLModel(Module):
         for name in ['J_regressor', 'weights', 'posedirs', 'v_template',
             'shapedirs']:
             _tensor = getattr(self, name)
-            setattr(self, name, _tensor.to(device))
+            setattr(self, name, _tensor)
 
     @staticmethod
     def rodrigues(r):
@@ -246,13 +246,13 @@ class SMPLModel(Module):
         theta_dim = theta.shape[0]
         r_hat = r / theta
         cos = torch.cos(theta)
-        z_stick = torch.zeros(theta_dim, dtype=torch.float64).to(r.device)
+        z_stick = torch.zeros(theta_dim, dtype=torch.float64)
         m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)],
             r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0),
             (1)], r_hat[:, (0), (0)], z_stick), dim=1)
         m = torch.reshape(m, (-1, 3, 3))
-        i_cube = (torch.eye(3, dtype=torch.float64).unsqueeze(dim=0) +
-            torch.zeros((theta_dim, 3, 3), dtype=torch.float64)).to(r.device)
+        i_cube = torch.eye(3, dtype=torch.float64).unsqueeze(dim=0
+            ) + torch.zeros((theta_dim, 3, 3), dtype=torch.float64)
         A = r_hat.permute(0, 2, 1)
         dot = torch.matmul(A, r_hat)
         R = cos * i_cube + (1 - cos) * dot + torch.sin(theta) * m
@@ -272,8 +272,7 @@ class SMPLModel(Module):
     Tensor after appending of shape [4,4]
 
     """
-        ones = torch.tensor([[0.0, 0.0, 0.0, 1.0]], dtype=torch.float64).to(x
-            .device)
+        ones = torch.tensor([[0.0, 0.0, 0.0, 1.0]], dtype=torch.float64)
         ret = torch.cat((x, ones), dim=0)
         return ret
 
@@ -291,8 +290,7 @@ class SMPLModel(Module):
     A tensor of shape [batch_size, 4, 4] after appending.
 
     """
-        zeros43 = torch.zeros((x.shape[0], 4, 3), dtype=torch.float64).to(x
-            .device)
+        zeros43 = torch.zeros((x.shape[0], 4, 3), dtype=torch.float64)
         ret = torch.cat((zeros43, x), dim=2)
         return ret
 
@@ -336,9 +334,8 @@ class SMPLModel(Module):
             v_posed = v_shaped
         else:
             R_cube = R_cube_big[1:]
-            I_cube = (torch.eye(3, dtype=torch.float64).unsqueeze(dim=0) +
-                torch.zeros((R_cube.shape[0], 3, 3), dtype=torch.float64)).to(
-                self.device)
+            I_cube = torch.eye(3, dtype=torch.float64).unsqueeze(dim=0
+                ) + torch.zeros((R_cube.shape[0], 3, 3), dtype=torch.float64)
             lrotmin = torch.reshape(R_cube - I_cube, (-1, 1)).squeeze()
             v_posed = v_shaped + torch.tensordot(self.posedirs, lrotmin,
                 dims=([2], [0]))
@@ -351,11 +348,11 @@ class SMPLModel(Module):
                 parent[i]), :], (3, 1))), dim=1))))
         stacked = torch.stack(results, dim=0)
         results = stacked - self.pack(torch.matmul(stacked, torch.reshape(
-            torch.cat((J, torch.zeros((24, 1), dtype=torch.float64).to(self
-            .device)), dim=1), (24, 4, 1))))
+            torch.cat((J, torch.zeros((24, 1), dtype=torch.float64)), dim=1
+            ), (24, 4, 1))))
         T = torch.tensordot(self.weights, results, dims=([1], [0]))
         rest_shape_h = torch.cat((v_posed, torch.ones((v_posed.shape[0], 1),
-            dtype=torch.float64).to(self.device)), dim=1)
+            dtype=torch.float64)), dim=1)
         v = torch.matmul(T, torch.reshape(rest_shape_h, (-1, 4, 1)))
         v = torch.reshape(v, (-1, 4))[:, :3]
         result = v + torch.reshape(trans, (1, 3))
@@ -390,7 +387,7 @@ class SMPLModel(Module):
             'posedirs', 'v_template', 'shapedirs']:
             _tensor = getattr(self, name)
             None
-            setattr(self, name, _tensor.to(device))
+            setattr(self, name, _tensor)
 
     @staticmethod
     def rodrigues(r):
@@ -412,13 +409,13 @@ class SMPLModel(Module):
         theta_dim = theta.shape[0]
         r_hat = r / theta
         cos = torch.cos(theta)
-        z_stick = torch.zeros(theta_dim, dtype=torch.float64).to(r.device)
+        z_stick = torch.zeros(theta_dim, dtype=torch.float64)
         m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)],
             r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0),
             (1)], r_hat[:, (0), (0)], z_stick), dim=1)
         m = torch.reshape(m, (-1, 3, 3))
-        i_cube = (torch.eye(3, dtype=torch.float64).unsqueeze(dim=0) +
-            torch.zeros((theta_dim, 3, 3), dtype=torch.float64)).to(r.device)
+        i_cube = torch.eye(3, dtype=torch.float64).unsqueeze(dim=0
+            ) + torch.zeros((theta_dim, 3, 3), dtype=torch.float64)
         A = r_hat.permute(0, 2, 1)
         dot = torch.matmul(A, r_hat)
         R = cos * i_cube + (1 - cos) * dot + torch.sin(theta) * m
@@ -439,7 +436,7 @@ class SMPLModel(Module):
 
     """
         ones = torch.tensor([[[0.0, 0.0, 0.0, 1.0]]], dtype=torch.float64
-            ).expand(x.shape[0], -1, -1).to(x.device)
+            ).expand(x.shape[0], -1, -1)
         ret = torch.cat((x, ones), dim=1)
         return ret
 
@@ -458,7 +455,7 @@ class SMPLModel(Module):
 
     """
         zeros43 = torch.zeros((x.shape[0], x.shape[1], 4, 3), dtype=torch.
-            float64).to(x.device)
+            float64)
         ret = torch.cat((zeros43, x), dim=3)
         return ret
 
@@ -507,9 +504,9 @@ class SMPLModel(Module):
             v_posed = v_shaped
         else:
             R_cube = R_cube_big[:, 1:, :, :]
-            I_cube = (torch.eye(3, dtype=torch.float64).unsqueeze(dim=0) +
-                torch.zeros((batch_num, R_cube.shape[1], 3, 3), dtype=torch
-                .float64)).to(self.device)
+            I_cube = torch.eye(3, dtype=torch.float64).unsqueeze(dim=0
+                ) + torch.zeros((batch_num, R_cube.shape[1], 3, 3), dtype=
+                torch.float64)
             lrotmin = (R_cube - I_cube).reshape(batch_num, -1, 1).squeeze(dim=2
                 )
             v_posed = v_shaped + torch.tensordot(lrotmin, self.posedirs,
@@ -524,11 +521,11 @@ class SMPLModel(Module):
         stacked = torch.stack(results, dim=1)
         results = stacked - self.pack(torch.matmul(stacked, torch.reshape(
             torch.cat((J, torch.zeros((batch_num, 24, 1), dtype=torch.
-            float64).to(self.device)), dim=2), (batch_num, 24, 4, 1))))
+            float64)), dim=2), (batch_num, 24, 4, 1))))
         T = torch.tensordot(results, self.weights, dims=([1], [1])).permute(
             0, 3, 1, 2)
         rest_shape_h = torch.cat((v_posed, torch.ones((batch_num, v_posed.
-            shape[1], 1), dtype=torch.float64).to(self.device)), dim=2)
+            shape[1], 1), dtype=torch.float64)), dim=2)
         v = torch.matmul(T, torch.reshape(rest_shape_h, (batch_num, -1, 4, 1)))
         v = torch.reshape(v, (batch_num, -1, 4))[:, :, :3]
         result = v + torch.reshape(trans, (batch_num, 1, 3))

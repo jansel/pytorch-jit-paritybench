@@ -491,7 +491,7 @@ class MultiboxLoss(nn.Module):
         self.center_variance = center_variance
         self.size_variance = size_variance
         self.priors = priors
-        self.priors.to(device)
+        self.priors
 
     def forward(self, confidence, predicted_locations, labels, gt_locations):
         """Compute classification loss and smooth l1 loss.
@@ -554,7 +554,7 @@ class SSD(nn.Module):
                 ) else 'cpu')
         if is_test:
             self.config = config
-            self.priors = config.priors.to(self.device)
+            self.priors = config.priors
 
     def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         confidences = []

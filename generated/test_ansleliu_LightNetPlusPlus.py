@@ -1099,10 +1099,10 @@ class DropBlock2D(nn.Module):
             gamma *= sh / (sh - self.block_size + 1)
         M = torch.bernoulli(torch.ones_like(input) * gamma)
         Msum = F.conv2d(M, torch.ones((input.shape[1], 1, self.block_size,
-            self.block_size)).to(device=input.device, dtype=input.dtype),
-            padding=self.block_size // 2, groups=input.shape[1])
+            self.block_size)), padding=self.block_size // 2, groups=input.
+            shape[1])
         torch.set_printoptions(threshold=5000)
-        mask = (Msum < 1).to(device=input.device, dtype=input.dtype)
+        mask = Msum < 1
         return input * mask * mask.numel() / mask.sum()
 
 
@@ -2292,3 +2292,224 @@ def execute_replication_callbacks(modules):
         for j, m in enumerate(module.modules()):
             if hasattr(m, '__data_parallel_replicate__'):
                 m.__data_parallel_replicate__(ctxs[j], i)
+
+
+class DataParallelModel(DataParallel):
+    """Implements data parallelism at the module level.
+
+    This container parallelizes the application of the given module by
+    splitting the input across the specified devices by chunking in the
+    batch dimension.
+    In the forward pass, the module is replicated on each device,
+    and each replica handles a portion of the input. During the backwards pass, gradients from each replica are summed into the original module.
+    Note that the outputs are not gathered, please use compatible
+    :class:`encoding.parallel.DataParallelCriterion`.
+
+    The batch size should be larger than the number of GPUs used. It should
+    also be an integer multiple of the number of GPUs so that each chunk is
+    the same size (so that each GPU processes the same number of samples).
+
+    Args:
+        module: module to be parallelized
+        device_ids: CUDA devices (default: all devices)
+
+    Reference:
+        Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi,
+        Amit Agrawal. “Context Encoding for Semantic Segmentation.
+        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2018*
+
+    Example::
+
+        >>> net = encoding.nn.DataParallelModel(model, device_ids=[0, 1, 2])
+        >>> y = net(x)
+    """
+
+    def gather(self, outputs, output_device):
+        return outputs
+
+    def replicate(self, module, device_ids):
+        modules = super(DataParallelModel, self).replicate(module, device_ids)
+        execute_replication_callbacks(modules)
+        return modules
+
+
+class Reduce(Function):
+
+    @staticmethod
+    def forward(ctx, *inputs):
+        ctx.target_gpus = [inputs[i].get_device() for i in range(len(inputs))]
+        inputs = sorted(inputs, key=lambda i: i.get_device())
+        return comm.reduce_add(inputs)
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return Broadcast.apply(ctx.target_gpus, gradOutput)
+
+
+torch_ver = torch.__version__[:3]
+
+
+def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
+    devices=None):
+    assert len(modules) == len(inputs)
+    assert len(targets) == len(inputs)
+    if kwargs_tup:
+        assert len(modules) == len(kwargs_tup)
+    else:
+        kwargs_tup = ({},) * len(modules)
+    if devices is not None:
+        assert len(modules) == len(devices)
+    else:
+        devices = [None] * len(modules)
+    lock = threading.Lock()
+    results = {}
+    if torch_ver != '0.3':
+        grad_enabled = torch.is_grad_enabled()
+
+    def _worker(i, module, input, target, kwargs, device=None):
+        if torch_ver != '0.3':
+            torch.set_grad_enabled(grad_enabled)
+        if device is None:
+            device = get_a_var(input).get_device()
+        try:
+            with torch.cuda.device(device):
+                output = module(input, target)
+            with lock:
+                results[i] = output
+        except Exception as e:
+            with lock:
+                results[i] = e
+    if len(modules) > 1:
+        threads = [threading.Thread(target=_worker, args=(i, module, input,
+            target, kwargs, device)) for i, (module, input, target, kwargs,
+            device) in enumerate(zip(modules, inputs, targets, kwargs_tup,
+            devices))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        _worker(0, modules[0], inputs[0], kwargs_tup[0], devices[0])
+    outputs = []
+    for i in range(len(inputs)):
+        output = results[i]
+        if isinstance(output, Exception):
+            raise output
+        outputs.append(output)
+    return outputs
+
+
+class DataParallelCriterion(DataParallel):
+    """
+    Calculate loss in multiple-GPUs, which balance the memory usage for
+    Semantic Segmentation.
+
+    The targets are splitted across the specified devices by chunking in
+    the batch dimension. Please use together with :class:`encoding.parallel.DataParallelModel`.
+
+    Reference:
+        Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi,
+        Amit Agrawal. “Context Encoding for Semantic Segmentation.
+        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2018*
+
+    Example::
+
+        >>> net = encoding.nn.DataParallelModel(model, device_ids=[0, 1, 2])
+        >>> criterion = encoding.nn.DataParallelCriterion(criterion, device_ids=[0, 1, 2])
+        >>> y = net(x)
+        >>> loss = criterion(y, target)
+    """
+
+    def forward(self, inputs, *targets, **kwargs):
+        if not self.device_ids:
+            return self.module(inputs, *targets, **kwargs)
+        targets, kwargs = self.scatter(targets, kwargs, self.device_ids)
+        if len(self.device_ids) == 1:
+            return self.module(inputs, *targets[0], **kwargs[0])
+        replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
+        targets = tuple(targets_per_gpu[0] for targets_per_gpu in targets)
+        outputs = _criterion_parallel_apply(replicas, inputs, targets, kwargs)
+        return Reduce.apply(*outputs) / len(outputs)
+
+
+import torch
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_ansleliu_LightNetPlusPlus(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ASPPBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(CABlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(CoordInfo(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(DSConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(DropBlock2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(GPConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(GaussianBlur(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(LightHeadBlock(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(MBConvBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'expand_ratio': 4, 'kernel_size': 3, 'stride': 1, 'dilate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(MDConv(*[], **{'in_planes': 4, 'kernel_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ModifiedSCSEBlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_015(self):
+        self._check(PABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_016(self):
+        self._check(PBCSABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_017(self):
+        self._check(SCSABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_018(self):
+        self._check(SCSEBlock(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_019(self):
+        self._check(SEBlock(*[], **{'in_planes': 4, 'reduced_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(UnsharpMask(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(UnsharpMaskV2(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+

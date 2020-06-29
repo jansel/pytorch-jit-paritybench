@@ -144,8 +144,8 @@ class MaskedLinear(Module):
         tensor = self.weight.data.cpu().numpy()
         mask = self.mask.data.cpu().numpy()
         new_mask = np.where(abs(tensor) < threshold, 0, mask)
-        self.weight.data = torch.from_numpy(tensor * new_mask).to(weight_dev)
-        self.mask.data = torch.from_numpy(new_mask).to(mask_dev)
+        self.weight.data = torch.from_numpy(tensor * new_mask)
+        self.mask.data = torch.from_numpy(new_mask)
 
 
 import torch

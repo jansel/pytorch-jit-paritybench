@@ -2575,10 +2575,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
         if candidate_inds.sum().item() == 0:
             empty_boxlists = []
             for a in anchors:
-                empty_boxlist = BoxList(torch.Tensor(0, 4).to(device), a.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([]).to(
-                    device))
-                empty_boxlist.add_field('scores', torch.Tensor([]).to(device))
+                empty_boxlist = BoxList(torch.Tensor(0, 4), a.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([]))
+                empty_boxlist.add_field('scores', torch.Tensor([]))
                 empty_boxlists.append(empty_boxlist)
             return empty_boxlists
         pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
@@ -2674,12 +2673,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
                     result = result[keep]
                 results.append(result)
             else:
-                empty_boxlist = BoxList(torch.zeros(1, 4).to('cuda'),
-                    boxlist.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([1]).to(
-                    'cuda'))
-                empty_boxlist.add_field('scores', torch.Tensor([0.01]).to(
-                    'cuda'))
+                empty_boxlist = BoxList(torch.zeros(1, 4), boxlist.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([1]))
+                empty_boxlist.add_field('scores', torch.Tensor([0.01]))
                 results.append(empty_boxlist)
         return results
 
@@ -3086,10 +3082,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
         if candidate_inds.sum().item() == 0:
             empty_boxlists = []
             for a in anchors:
-                empty_boxlist = BoxList(torch.Tensor(0, 4).to(device), a.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([]).to(
-                    device))
-                empty_boxlist.add_field('scores', torch.Tensor([]).to(device))
+                empty_boxlist = BoxList(torch.Tensor(0, 4), a.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([]))
+                empty_boxlist.add_field('scores', torch.Tensor([]))
                 empty_boxlists.append(empty_boxlist)
             return empty_boxlists
         pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
@@ -3176,12 +3171,9 @@ class RetinaNetPostProcessor(torch.nn.Module):
                     result = result[keep]
                 results.append(result)
             else:
-                empty_boxlist = BoxList(torch.zeros(1, 4).to('cuda'),
-                    boxlist.size)
-                empty_boxlist.add_field('labels', torch.LongTensor([1]).to(
-                    'cuda'))
-                empty_boxlist.add_field('scores', torch.Tensor([0.01]).to(
-                    'cuda'))
+                empty_boxlist = BoxList(torch.zeros(1, 4), boxlist.size)
+                empty_boxlist.add_field('labels', torch.LongTensor([1]))
+                empty_boxlist.add_field('scores', torch.Tensor([0.01]))
                 results.append(empty_boxlist)
         return results
 

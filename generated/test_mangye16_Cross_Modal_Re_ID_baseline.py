@@ -494,15 +494,8 @@ class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
         self._check(OriTripletLoss(*[], **{'batch_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(base_resnet(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(embed_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
         self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_007(self):
+    def test_005(self):
         self._check(visible_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

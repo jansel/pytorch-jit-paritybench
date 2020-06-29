@@ -294,14 +294,14 @@ class VGG_perceptual_loss(nn.Module):
         if pretrained:
             self.vgg_features.load_state_dict(torch.load(
                 'utils/vgg16_pretrained_features.pth'))
-        self.vgg_features.to(device)
+        self.vgg_features
         for params in self.vgg_features.parameters():
             params.requires_grad = False
         self.layer_name_mapping = {'3': 'relu1_2', '8': 'relu2_2', '15':
             'relu3_3', '22': 'relu4_3'}
 
     def forward(self, input, target):
-        loss = torch.tensor(0.0).to(self.device)
+        loss = torch.tensor(0.0)
         for name, module in self.vgg_features._modules.items():
             input = module(input)
             target = module(target)

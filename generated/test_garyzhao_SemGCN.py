@@ -238,10 +238,10 @@ class SemCHGraphConv(nn.Module):
     def forward(self, input):
         h0 = torch.matmul(input, self.W[0]).unsqueeze(1).transpose(1, 3)
         h1 = torch.matmul(input, self.W[1]).unsqueeze(1).transpose(1, 3)
-        adj = -9000000000000000.0 * torch.ones_like(self.adj).to(input.device)
+        adj = -9000000000000000.0 * torch.ones_like(self.adj)
         adj[self.m] = self.e.view(-1)
         adj = F.softmax(adj, dim=2)
-        E = torch.eye(adj.size(1), dtype=torch.float).to(input.device)
+        E = torch.eye(adj.size(1), dtype=torch.float)
         E = E.unsqueeze(0).repeat(self.out_features, 1, 1)
         output = torch.matmul(adj * E, h0) + torch.matmul(adj * (1 - E), h1)
         output = output.transpose(1, 3).squeeze(1)
@@ -283,10 +283,10 @@ class SemGraphConv(nn.Module):
     def forward(self, input):
         h0 = torch.matmul(input, self.W[0])
         h1 = torch.matmul(input, self.W[1])
-        adj = -9000000000000000.0 * torch.ones_like(self.adj).to(input.device)
+        adj = -9000000000000000.0 * torch.ones_like(self.adj)
         adj[self.m] = self.e
         adj = F.softmax(adj, dim=1)
-        M = torch.eye(adj.size(0), dtype=torch.float).to(input.device)
+        M = torch.eye(adj.size(0), dtype=torch.float)
         output = torch.matmul(adj * M, h0) + torch.matmul(adj * (1 - M), h1)
         if self.bias is not None:
             return output + self.bias.view(1, 1, -1)

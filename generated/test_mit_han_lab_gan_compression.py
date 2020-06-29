@@ -590,7 +590,7 @@ class VGGLoss(nn.Module):
 
     def __init__(self, device):
         super(VGGLoss, self).__init__()
-        self.vgg = VGG19().to(device)
+        self.vgg = VGG19()
         self.vgg.eval()
         util.set_requires_grad(self.vgg, False)
         self.criterion = nn.L1Loss()

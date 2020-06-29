@@ -698,3 +698,6 @@ class Test_ethanfetaya_NRI(_paritybench_base):
     def test_000(self):
         self._check(CNN(*[], **{'n_in': 4, 'n_hid': 4, 'n_out': 4}), [torch.rand([4, 4, 64])], {})
 
+    def test_001(self):
+        self._check(MLP(*[], **{'n_in': 4, 'n_hid': 4, 'n_out': 4}), [torch.rand([4, 4, 4])], {})
+

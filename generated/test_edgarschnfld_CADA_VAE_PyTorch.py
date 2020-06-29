@@ -89,7 +89,7 @@ class encoder_template(nn.Module):
         self._logvar = nn.Linear(in_features=self.layer_sizes[-2],
             out_features=latent_size)
         self.apply(weights_init)
-        self.to(device)
+        self
 
     def forward(self, x):
         h = self.feature_encoder(x)
@@ -107,7 +107,7 @@ class decoder_template(nn.Module):
             layer_sizes[1]), nn.ReLU(), nn.Linear(self.layer_sizes[1],
             output_dim))
         self.apply(weights_init)
-        self.to(device)
+        self
 
     def forward(self, x):
         return self.feature_decoder(x)
@@ -201,7 +201,7 @@ class Model(nn.Module):
         pass
 
     def map_label(self, label, classes):
-        mapped_label = torch.LongTensor(label.size()).to(self.device)
+        mapped_label = torch.LongTensor(label.size())
         for i in range(classes.size(0)):
             mapped_label[label == classes[i]] = i
         return mapped_label
@@ -271,10 +271,9 @@ class Model(nn.Module):
                 i += 1
                 label, data_from_modalities = self.dataset.next_batch(self.
                     batch_size)
-                label = label.long().to(self.device)
+                label = label.long()
                 for j in range(len(data_from_modalities)):
-                    data_from_modalities[j] = data_from_modalities[j].to(self
-                        .device)
+                    data_from_modalities[j] = data_from_modalities[j]
                     data_from_modalities[j].requires_grad = False
                 loss = self.trainstep(data_from_modalities[0],
                     data_from_modalities[1])
@@ -300,10 +299,8 @@ class Model(nn.Module):
         train_seen_label = self.dataset.data['train_seen']['labels']
         novelclass_aux_data = self.dataset.novelclass_aux_data
         seenclass_aux_data = self.dataset.seenclass_aux_data
-        novel_corresponding_labels = self.dataset.novelclasses.long().to(self
-            .device)
-        seen_corresponding_labels = self.dataset.seenclasses.long().to(self
-            .device)
+        novel_corresponding_labels = self.dataset.novelclasses.long()
+        seen_corresponding_labels = self.dataset.seenclasses.long()
         novel_test_feat = self.dataset.data['test_unseen']['resnet_features']
         seen_test_feat = self.dataset.data['test_seen']['resnet_features']
         test_seen_label = self.dataset.data['test_seen']['labels']
@@ -331,11 +328,11 @@ class Model(nn.Module):
         with torch.no_grad():
             self.reparameterize_with_noise = False
             mu1, var1 = self.encoder['resnet_features'](novel_test_feat)
-            test_novel_X = self.reparameterize(mu1, var1).to(self.device).data
-            test_novel_Y = test_novel_label.to(self.device)
+            test_novel_X = self.reparameterize(mu1, var1).data
+            test_novel_Y = test_novel_label
             mu2, var2 = self.encoder['resnet_features'](seen_test_feat)
-            test_seen_X = self.reparameterize(mu2, var2).to(self.device).data
-            test_seen_Y = test_seen_label.to(self.device)
+            test_seen_X = self.reparameterize(mu2, var2).data
+            test_seen_Y = test_seen_label
             self.reparameterize_with_noise = True
 
             def sample_train_data_on_sample_per_class_basis(features, label,
@@ -435,4 +432,7 @@ class Test_edgarschnfld_CADA_VAE_PyTorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(LINEAR_LOGSOFTMAX(*[], **{'input_dim': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(encoder_template(*[], **{'input_dim': 4, 'latent_size': 4, 'hidden_size_rule': [4, 4], 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
 

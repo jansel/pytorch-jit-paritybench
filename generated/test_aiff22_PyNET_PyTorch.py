@@ -439,8 +439,7 @@ class SSIM(torch.nn.Module):
         if channel == self.channel and self.window.dtype == img1.dtype:
             window = self.window
         else:
-            window = create_window(self.window_size, channel).to(img1.device
-                ).type(img1.dtype)
+            window = create_window(self.window_size, channel).type(img1.dtype)
             self.window = window
             self.channel = channel
         return ssim(img1, img2, window=window, window_size=self.window_size,
@@ -501,5 +500,9 @@ class Test_aiff22_PyNET_PyTorch(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(MSSSIM(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

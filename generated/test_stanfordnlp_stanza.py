@@ -2168,9 +2168,16 @@ class Test_stanfordnlp_stanza(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
+        self._check(PairwiseBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(PairwiseBilinear(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(SequenceUnitDropout(*[], **{'dropprob': 4, 'replacement_id': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
 

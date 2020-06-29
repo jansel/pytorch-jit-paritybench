@@ -395,7 +395,7 @@ class ProposalTargetAssigner(nn.Module):
     def to_device(self, item):
         """Move items to anchors.device for fast rotated IOU."""
         keys = ['boxes', 'class_idx', 'box_ignore']
-        items = [item[k].to(self.anchors.device) for k in keys]
+        items = [item[k] for k in keys]
         return items
 
     def forward(self, item):
@@ -497,8 +497,8 @@ class RefinementTargetAssigner(nn.Module):
         class_ids = torch.cat(item['class_ids'], dim=0)
         keypoints = item['keypoints']
         device = keypoints.device
-        anchor_sizes = self.anchor_sizes.to(device)
-        anchor_radii = self.anchor_radii.to(device)
+        anchor_sizes = self.anchor_sizes
+        anchor_radii = self.anchor_radii
         i, j, k = self.match_keypoints(boxes, keypoints, anchor_radii,
             class_ids, box_counts)
         inds = i, j, class_ids[k]

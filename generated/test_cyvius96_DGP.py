@@ -509,3 +509,7 @@ class Test_cyvius96_DGP(_paritybench_base):
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
+    def test_001(self):
+        self._check(GraphConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+

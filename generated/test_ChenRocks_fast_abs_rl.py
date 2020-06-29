@@ -306,7 +306,7 @@ class ExtractSumm(nn.Module):
                 ]
 
             def zero(n, device):
-                z = torch.zeros(n, self._art_enc.input_size).to(device)
+                z = torch.zeros(n, self._art_enc.input_size)
                 return z
             enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device
                 )], dim=0) if n != max_n else s) for s, n in zip(enc_sents,
@@ -357,7 +357,7 @@ class PtrExtractSumm(nn.Module):
                 ]
 
             def zero(n, device):
-                z = torch.zeros(n, self._art_enc.input_size).to(device)
+                z = torch.zeros(n, self._art_enc.input_size)
                 return z
             enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device
                 )], dim=0) if n != max_n else s) for s, n in zip(enc_sents,
@@ -748,7 +748,7 @@ class Seq2SeqSumm(nn.Module):
         attention, init_dec_states = self.encode(article, art_lens)
         mask = len_mask(art_lens, attention.device).unsqueeze(-2)
         attention = attention, mask
-        tok = torch.LongTensor([go] * batch_size).to(article.device)
+        tok = torch.LongTensor([go] * batch_size)
         outputs = []
         attns = []
         states = init_dec_states
@@ -762,7 +762,7 @@ class Seq2SeqSumm(nn.Module):
     def decode(self, article, go, eos, max_len):
         attention, init_dec_states = self.encode(article)
         attention = attention, None
-        tok = torch.LongTensor([go]).to(article.device)
+        tok = torch.LongTensor([go])
         outputs = []
         attns = []
         states = init_dec_states

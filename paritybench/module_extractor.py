@@ -7,7 +7,6 @@ import re
 import subprocess
 import tempfile
 import types
-import unittest
 import zipfile
 from typing import TextIO, List
 
@@ -17,6 +16,7 @@ from astor import to_source
 from .deduce_parameters import DeduceParameters, DeduceParameter
 from .reporting import Stats, ErrorAggregatorDict
 from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES, CheckCallableMembers
+from .utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
@@ -278,91 +278,18 @@ class PyTorchModuleExtractor(object):
     def test_nn_module(self, name: str, nn_cls: type):
         self.stats["total"] += 1
         checker = CheckCallableMembers.run(self.name_to_ast.get(name))
-
-        init_signature = inspect.signature(nn_cls)
         try:
-            init_deducer = DeduceParameters(
-                nn_cls,
-                *DeduceParameters.initial_args_init(init_signature),
-                checker=checker.check)
-            init_deducer.search()
-            nn_module = init_deducer.last_result
-        except Exception as e:
-            return self.errors.record('init', e, nn_cls)
-
-        try:
-            nn_module.eval()
-        except:
-            pass
-
-        self.stats["init_ok"] += 1
-
-        forward_signature = inspect.signature(nn_module.forward)
-        try:
-            forward_deducer = DeduceParameters(
-                nn_module,
-                *DeduceParameters.initial_args_forward(forward_signature))
-            forward_deducer.search()
-            args = forward_deducer.last_args
-            kwargs = forward_deducer.last_kwargs
-            python_output = forward_deducer.last_result
-        except Exception as e:
-            return self.errors.record('deduce', e, nn_cls)
-
-        self.stats["deduced_args_ok"] += 1
-
-        try:
-            script = torch.jit.script(nn_module)
-        except Exception as e:
-            self.testcases.append((
-                name,
-                init_deducer.testcase_args(),
-                forward_deducer.testcase_args(),
-                False
-            ))
-
-            return self.errors.record('compile', e, nn_cls)
-
-        self.stats["jit_compiles"] += 1
-
-        self.testcases.append((
-            name,
-            init_deducer.testcase_args(),
-            forward_deducer.testcase_args(),
-            True
-        ))
-
-        if not RUN_SCRIPT:
-            return
-
-        try:
-            script_output = script(*args, **kwargs)
-        except Exception as e:
-            return self.errors.record('run', e, nn_cls)
-
-        try:
-            # JitTestCase().checkScript(nn_module, args)  doesn't work
-            self.assertEqual(script_output, python_output)
-        except Exception as e:
-            return self.errors.record('output', e, nn_cls)
-
-        self.stats["jit_correct"] += 1
-
-    def assertEqual(self, a, b):
-        # TODO(jansel): find/reuse an existing version of this
-        tc = unittest.TestCase()
-        if isinstance(a, torch.Tensor):
-            tc.assertTrue(torch.allclose(a, b))
-        elif isinstance(a, (list, tuple)):
-            tc.assertEqual(len(a), len(b))
-            for a_, b_ in zip(a, b):
-                self.assertEqual(a_, b_)
-        elif isinstance(a, dict):
-            tc.assertEqual(set(a.keys()), set(b.keys()))
-            for key in a.keys():
-                self.assertEqual(a[key], b[key])
-        else:
-            tc.assertEqual(a, b)
+            stats, errors, testcases = call_with_timeout(
+                extract_nn_module,
+                args=(name, nn_cls, checker, self.errors.context),
+                timeout=10)
+            self.errors.update(errors)
+            self.stats.update(stats)
+            self.testcases.extend(testcases)
+        except OSError:
+            self.stats["module_crash"] += 1
+        except TimeoutError:
+            self.stats["module_timeout"] += 1
 
     def main(self, filename: str):
         basename = re.sub(r"[.]zip$", "", os.path.basename(filename))
@@ -400,6 +327,66 @@ class PyTorchModuleExtractor(object):
                 ))
 
             index += 1
+
+
+def extract_nn_module(name: str, nn_cls: type, checker, context):
+    errors = ErrorAggregatorDict(context)
+    stats = Stats()
+    testcases = []
+    extract_nn_module_inner(name, nn_cls, checker, stats, errors, testcases)
+    return stats, errors, testcases
+
+
+def extract_nn_module_inner(name: str, nn_cls: type, checker, stats, errors, testcases):
+    init_signature = inspect.signature(nn_cls)
+    try:
+        init_deducer = DeduceParameters(
+            nn_cls,
+            *DeduceParameters.initial_args_init(init_signature),
+            checker=checker.check)
+        init_deducer.search()
+        nn_module = init_deducer.last_result
+    except Exception as e:
+        return errors.record('init', e, nn_cls)
+
+    try:
+        nn_module.eval()
+    except:
+        pass
+
+    stats["init_ok"] += 1
+
+    forward_signature = inspect.signature(nn_module.forward)
+    try:
+        forward_deducer = DeduceParameters(
+            nn_module,
+            *DeduceParameters.initial_args_forward(forward_signature))
+        forward_deducer.search()
+    except Exception as e:
+        return errors.record('deduce', e, nn_cls)
+
+    stats["deduced_args_ok"] += 1
+
+    try:
+        torch.jit.script(nn_module)
+    except Exception as e:
+        testcases.append((
+            name,
+            init_deducer.testcase_args(),
+            forward_deducer.testcase_args(),
+            False
+        ))
+
+        return errors.record('compile', e, nn_cls)
+
+    stats["jit_compiles"] += 1
+
+    testcases.append((
+        name,
+        init_deducer.testcase_args(),
+        forward_deducer.testcase_args(),
+        True
+    ))
 
 
 class IncrementalModule(object):
