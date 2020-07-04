@@ -68,10 +68,13 @@ subword = _module
 tokenizer = _module
 vocab = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1269,6 +1272,7 @@ class S2sTarget(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dbiir_UER_py(_paritybench_base):
@@ -1292,14 +1296,14 @@ class Test_dbiir_UER_py(_paritybench_base):
         self._check(BilstmEncoder(*[], **{'args': _mock_config(hidden_size=4, layers_num=1, emb_size=4, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(CnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(CnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
         self._check(CrnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(GatedcnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=1, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GatedcnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
@@ -1313,7 +1317,7 @@ class Test_dbiir_UER_py(_paritybench_base):
 
     @_fails_compile()
     def test_011(self):
-        self._check(MultiHeadedAttention(*[], **{'hidden_size': 4, 'heads_num': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(MultiHeadedAttention(*[], **{'hidden_size': 4, 'heads_num': 4, 'dropout': 0.5}), [torch.rand([4, 64, 4]), torch.rand([4, 16, 4, 4]), torch.rand([4, 64, 4]), torch.rand([4, 4, 64, 64])], {})
 
     def test_012(self):
         self._check(PositionwiseFeedForward(*[], **{'hidden_size': 4, 'feedforward_size': 4}), [torch.rand([4, 4, 4, 4])], {})

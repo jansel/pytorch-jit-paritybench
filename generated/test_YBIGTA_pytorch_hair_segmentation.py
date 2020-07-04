@@ -16,10 +16,13 @@ joint_transforms = _module
 metrics = _module
 trainer_verbose = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,10 +62,19 @@ from torch.nn import functional as F
 import numpy as np
 
 
+from torchvision.models import squeezenet1_1
+
+
+from torchvision.models import resnet101
+
+
 from torch.nn.init import xavier_normal_
 
 
 from collections import OrderedDict
+
+
+import torchvision.transforms as std_trnsf
 
 
 def fixed_padding(inputs, kernel_size, rate):
@@ -516,7 +528,7 @@ class HairMattingLoss(nn.modules.loss._Loss):
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, pred, true, image):
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = 'cuda' if torch.is_available() else 'cpu'
         loss2 = None
         if self.ratio_of_gradient > 0:
             sobel_kernel_x = torch.Tensor([[1.0, 0.0, -1.0], [2.0, 0.0, -
@@ -659,13 +671,13 @@ class PSPNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(HairMattingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'return_with_logits': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 128, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -676,19 +688,28 @@ class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
         self._check(OrangeBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(PSPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
         self._check(PyramidPoolingModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_004(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_005(self):
-        self._check(UpsampleLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNet101Extractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(SqueezeNetExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
+        self._check(UpsampleLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(_ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 

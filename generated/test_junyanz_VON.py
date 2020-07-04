@@ -47,10 +47,13 @@ util_render = _module
 util_voxel = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1285,6 +1288,10 @@ class CroppingLayer(nn.Module):
             return new_sil, new_depth, bbox, shape_stat
 
 
+def affine_grid3d(theta, size):
+    return AffineGridGen3DFunction.apply(theta, size)
+
+
 typename_to_func_infix = {'torch.FloatTensor': 'VTN_Float_',
     'torch.DoubleTensor': 'VTN_Double_', 'torch.cuda.FloatTensor':
     'VTN_Cuda_', 'torch.cuda.DoubleTensor': 'VTN_CudaDouble_'}
@@ -1296,7 +1303,97 @@ def function_by_type(name_, typename):
     return typename_to_func_infix[typename] + name_
 
 
+def grid_sample3d(input, grid):
+    """
+    Perform trilinear interpolation on 3D matrices
+    input: batch * channel * x * y * z
+    grid: batch * gridx * gridy * gridz * 3
+    output: batch * channel * gridx * gridy * gridz
+    The interpolation is performed on each channel independently
+    """
+    return GridSampler3D.apply(input, grid)
+
+
+class VoxelRenderLayer(nn.Module):
+
+    def __init__(self, voxel_shape, camera_distance=2.0, fl=0.05, w=0.0612,
+        res=128, nsamples_factor=1.5):
+        super().__init__()
+        self.camera_distance = camera_distance
+        self.fl = fl
+        self.w = w
+        self.voxel_shape = voxel_shape
+        self.nsamples_factor = nsamples_factor
+        self.res = res
+        self.register_buffer('grid', self.grid_gen())
+        self.grid_sampler3d = grid_sample3d
+        self.calc_stop_prob = CalcStopProb().apply
+        self.affine_grid3d = affine_grid3d
+
+    def forward(self, voxel_in, rotation_matrix=None):
+        if rotation_matrix is None:
+            voxel_rot = voxel_in
+        else:
+            voxel_rot_grid = self.affine_grid3d(rotation_matrix, voxel_in.shape
+                )
+            voxel_rot = self.grid_sampler3d(voxel_in, voxel_rot_grid)
+        voxel_align = self.grid_sampler3d(voxel_rot, self.grid)
+        voxel_align = voxel_align.permute(0, 1, 3, 4, 2)
+        voxel_align = torch.clamp(voxel_align, 0.0001, 1 - 0.0001)
+        voxel_align = voxel_align.contiguous()
+        stop_prob = self.calc_stop_prob(voxel_align)
+        exp_depth = torch.matmul(stop_prob, self.depth_weight)
+        back_groud_prob = torch.prod(1.0 - voxel_align, dim=4)
+        back_groud_prob = torch.clamp(back_groud_prob, 0.0001, 1 - 0.0001)
+        back_groud_prob = back_groud_prob * (self.camera_distance + 1.0)
+        exp_depth = exp_depth + back_groud_prob
+        exp_sil = torch.sum(stop_prob, dim=4)
+        return torch.transpose(exp_sil, 2, 3), torch.transpose(exp_depth, 2, 3)
+
+    def grid_gen(self, numtype=np.float32):
+        n, c, sx, sy, sz = self.voxel_shape
+        nsamples = int(sz * self.nsamples_factor)
+        res = self.res
+        w = self.w
+        dist = self.camera_distance
+        self.register_buffer('depth_weight', torch.linspace(dist - 1, dist +
+            1, nsamples))
+        fl = self.fl
+        grid = np.zeros([n, nsamples, res, res, 3], dtype=numtype)
+        h_linspace = np.linspace(w / 2, -w / 2, res)
+        w_linspace = np.linspace(w / 2, -w / 2, res)
+        H, W = np.meshgrid(h_linspace, w_linspace)
+        cam = np.array([[[-dist, 0, 0]]])
+        grid_vec = np.zeros([res, res, 3], dtype=numtype)
+        grid_vec[:, :, (1)] = W
+        grid_vec[:, :, (2)] = H
+        grid_vec[:, :, (0)] = -(dist - fl)
+        grid_vec = grid_vec - cam
+        self.grid_vec = grid_vec
+        grid_vec_a = grid_vec * ((dist - 1) / fl)
+        grid_vec_b = grid_vec * ((dist + 1) / fl)
+        for idn in range(n):
+            for ids in range(nsamples):
+                grid[(idn), (ids), :, :, :] = grid_vec_b - (1 - ids / nsamples
+                    ) * (grid_vec_b - grid_vec_a)
+        grid = grid + cam
+        return torch.from_numpy(grid.astype(numtype))
+
+
+class AffineGridGen3D(nn.Module):
+
+    def forward(self, theta, size):
+        return affine_grid3d(theta, size)
+
+
+class GridSampler3D(nn.Module):
+
+    def forward(self, theta, size):
+        return grid_sample3d(theta, size)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_junyanz_VON(_paritybench_base):
@@ -1315,20 +1412,24 @@ class Test_junyanz_VON(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(E_adaIN(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
+        self._check(ResBlocks(*[], **{'num_blocks': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
         self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -25,10 +25,13 @@ model = _module
 test = _module
 train_renderer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -484,6 +487,55 @@ class Bottleneck(nn.Module):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+class ResNet_wobn(nn.Module):
+
+    def __init__(self, num_inputs, depth, num_outputs):
+        super(ResNet_wobn, self).__init__()
+        self.in_planes = 64
+        block, num_blocks = cfg(depth)
+        self.conv0 = conv3x3(num_inputs, 32, 2)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=2)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=1)
+        self.conv4 = weightNorm(nn.Conv2d(512, 1, 1, 1, 0))
+        self.relu_1 = TReLU()
+        self.conv1 = weightNorm(nn.Conv2d(65 + 2, 64, 1, 1, 0))
+        self.conv2 = weightNorm(nn.Conv2d(64, 64, 1, 1, 0))
+        self.conv3 = weightNorm(nn.Conv2d(64, 32, 1, 1, 0))
+        self.relu_2 = TReLU()
+        self.relu_3 = TReLU()
+        self.relu_4 = TReLU()
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def a2img(self, x):
+        tmp = coord.expand(x.shape[0], 2, 64, 64)
+        x = x.repeat(64, 64, 1, 1).permute(2, 3, 0, 1)
+        x = self.relu_2(self.conv1(torch.cat([x, tmp], 1)))
+        x = self.relu_3(self.conv2(x))
+        x = self.relu_4(self.conv3(x))
+        return x
+
+    def forward(self, input):
+        x, a = input
+        a = self.a2img(a)
+        x = self.relu_1(self.conv0(x))
+        x = torch.cat([x, a], 1)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.conv4(x)
+        return x.view(x.size(0), 64)
+
+
 class TReLU(nn.Module):
 
     def __init__(self):
@@ -557,6 +609,7 @@ class FCN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_megvii_research_ICCV2019_LearningToPaint(_paritybench_base):

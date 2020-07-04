@@ -36,10 +36,13 @@ train = _module
 test = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,15 @@ from torch.autograd import Variable as V
 import torch.backends.cudnn as cudnn
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as trn
+
+
+import torchvision.models as models
+
+
 import torch.utils.model_zoo as model_zoo
 
 
@@ -86,6 +98,9 @@ import collections
 
 
 from scipy.stats import rankdata
+
+
+import torchvision.transforms.functional as trn_F
 
 
 from torch.autograd import Function
@@ -1735,6 +1750,7 @@ class FineTuneModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hendrycks_robustness(_paritybench_base):
@@ -1764,19 +1780,22 @@ class Test_hendrycks_robustness(_paritybench_base):
         self._check(LearnedGroupConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NetworkBlock(*[], **{'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(_DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(_Transition(*[], **{'in_channels': 4, 'args': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
 

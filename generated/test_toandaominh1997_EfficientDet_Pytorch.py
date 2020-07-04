@@ -25,10 +25,13 @@ util = _module
 vis_bbox = _module
 visualization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -48,6 +51,9 @@ import torch
 
 
 import math
+
+
+from torchvision.ops import nms
 
 
 from torch import nn
@@ -99,6 +105,12 @@ import torch.utils.data
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
 
 
 import torch.optim as optim
@@ -1418,6 +1430,7 @@ class Identity(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_toandaominh1997_EfficientDet_Pytorch(_paritybench_base):
@@ -1456,6 +1469,10 @@ class Test_toandaominh1997_EfficientDet_Pytorch(_paritybench_base):
     def test_009(self):
         self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
+        self._check(RetinaHead(*[], **{'num_classes': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    def test_011(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

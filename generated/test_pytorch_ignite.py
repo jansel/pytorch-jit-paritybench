@@ -192,10 +192,13 @@ test_root_mean_squared_error = _module
 test_running_average = _module
 test_top_k_categorical_accuracy = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -220,10 +223,10 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import SGD
 
 
+from torchvision.models import wide_resnet50_2
+
+
 from torch.cuda.amp import GradScaler
-
-
-from torch.cuda.amp import autocast
 
 
 import torch.nn.functional as F
@@ -235,6 +238,18 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 
+from torchvision.datasets import MNIST
+
+
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import Normalize
+
+
 import numpy as np
 
 
@@ -244,10 +259,19 @@ import random
 from torch.optim import Adam
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 from collections import OrderedDict
 
 
 from collections import namedtuple
+
+
+from torchvision import models
 
 
 import warnings
@@ -271,7 +295,16 @@ import torch.optim.lr_scheduler as lrs
 import torch.distributed as dist
 
 
+from torchvision.models.resnet import resnet50
+
+
+from torchvision.models.segmentation import deeplabv3_resnet101
+
+
 from torch.distributions import Categorical
+
+
+import numbers
 
 
 from collections.abc import Mapping
@@ -815,6 +848,7 @@ class DummyPretrainedModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorch_ignite(_paritybench_base):
@@ -836,5 +870,13 @@ class Test_pytorch_ignite(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
+        self._check(TransformerNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

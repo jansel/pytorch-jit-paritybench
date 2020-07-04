@@ -17,10 +17,13 @@ wsdan = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -45,6 +48,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torchvision import transforms
+
+
 from torch.utils.data import DataLoader
 
 
@@ -61,6 +67,9 @@ import time
 
 
 import random
+
+
+import torchvision.transforms as transforms
 
 
 class CBAMLayer(nn.Module):
@@ -111,6 +120,111 @@ class SPPLayer(nn.Module):
             else:
                 spp = torch.cat([spp, out.view(B, -1)], dim=1)
         return spp
+
+
+class Inception3(nn.Module):
+
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False
+        ):
+        super(Inception3, self).__init__()
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
+        self.Mixed_5b = InceptionA(192, pool_features=32)
+        self.Mixed_5c = InceptionA(256, pool_features=64)
+        self.Mixed_5d = InceptionA(288, pool_features=64)
+        self.Mixed_6a = InceptionB(288)
+        self.Mixed_6b = InceptionC(768, channels_7x7=128)
+        self.Mixed_6c = InceptionC(768, channels_7x7=160)
+        self.Mixed_6d = InceptionC(768, channels_7x7=160)
+        self.Mixed_6e = InceptionC(768, channels_7x7=192)
+        if aux_logits:
+            self.AuxLogits = InceptionAux(768, num_classes)
+        self.Mixed_7a = InceptionD(768)
+        self.Mixed_7b = InceptionE(1280)
+        self.Mixed_7c = InceptionE(2048)
+        self.fc = nn.Linear(2048, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
+                X = stats.truncnorm(-2, 2, scale=stddev)
+                values = torch.Tensor(X.rvs(m.weight.data.numel()))
+                values = values.view(m.weight.data.size())
+                m.weight.data.copy_(values)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        if self.transform_input:
+            x = x.clone()
+            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        if self.training and self.aux_logits:
+            aux = self.AuxLogits(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        x = F.avg_pool2d(x, kernel_size=8)
+        x = F.dropout(x, training=self.training)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        if self.training and self.aux_logits:
+            return x, aux
+        return x
+
+    def get_features_mixed_6e(self):
+        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.
+            Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.
+            Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3,
+            stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.
+            Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.
+            Mixed_6e)
+
+    def get_features_mixed_7c(self):
+        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.
+            Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.
+            Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3,
+            stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.
+            Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.
+            Mixed_6e, self.Mixed_7a, self.Mixed_7b, self.Mixed_7c)
+
+    def load_state_dict(self, state_dict, strict=True):
+        model_dict = self.state_dict()
+        pretrained_dict = {k: v for k, v in state_dict.items() if k in
+            model_dict and model_dict[k].size() == v.size()}
+        if len(pretrained_dict) == len(state_dict):
+            logging.info('%s: All params loaded' % type(self).__name__)
+        else:
+            logging.info('%s: Some params were not loaded:' % type(self).
+                __name__)
+            not_loaded_keys = [k for k in state_dict.keys() if k not in
+                pretrained_dict.keys()]
+            logging.info(('%s, ' * (len(not_loaded_keys) - 1) + '%s') %
+                tuple(not_loaded_keys))
+        model_dict.update(pretrained_dict)
+        super(Inception3, self).load_state_dict(model_dict)
 
 
 class InceptionA(nn.Module):
@@ -631,6 +745,7 @@ class CenterLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):

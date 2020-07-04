@@ -10,10 +10,13 @@ preprocess = _module
 solver = _module
 utility = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -39,6 +42,9 @@ import time
 
 
 from torch.autograd import Variable
+
+
+from torchvision.utils import save_image
 
 
 import random
@@ -176,6 +182,7 @@ class DomainClassifier(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hujinsen_pytorch_StarGAN_VC(_paritybench_base):
@@ -184,7 +191,7 @@ class Test_hujinsen_pytorch_StarGAN_VC(_paritybench_base):
         self._check(Down2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4])], {})
+        self._check(Generator(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 1, 1])], {})
 
     def test_002(self):
         self._check(Up2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})

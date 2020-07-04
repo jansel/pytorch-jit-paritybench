@@ -30,10 +30,13 @@ create_lmdb = _module
 extract_subimgs_single = _module
 generate_dataset = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -62,6 +65,9 @@ import torch.nn.functional as F
 
 
 import math
+
+
+import torchvision
 
 
 import torch.nn.utils.spectral_norm as spectral_norm
@@ -98,6 +104,9 @@ import torch.nn.init as init
 
 
 from collections import namedtuple
+
+
+from torchvision import models as tv
 
 
 class Get_gradient(nn.Module):
@@ -1312,12 +1321,13 @@ class resnet(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Maclory_SPSR(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -1336,14 +1346,36 @@ class Test_Maclory_SPSR(_paritybench_base):
         self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNet101FeatureExtractor(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
     def test_007(self):
-        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(ScalingLayer(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(ShortcutBlock(*[], **{'submodule': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ScalingLayer(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_010(self):
+        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(VGGFeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(alexnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(resnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(squeezenet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -230,10 +230,13 @@ test_zoom_affine = _module
 test_zoomd = _module
 versioneer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1141,7 +1144,41 @@ class HighResNet(nn.Module):
 GlobalAliases = {}
 
 
+def alias(*names):
+    """
+    Stores the decorated function or class in the global aliases table under the given names and as the `__aliases__`
+    member of the decorated object. This new member will contain all alias names declared for that object.
+    """
+
+    def _outer(obj):
+        for n in names:
+            with alias_lock:
+                GlobalAliases[n] = obj
+        obj.__aliases__ = getattr(obj, '__aliases__', ()) + tuple(names)
+        return obj
+    return _outer
+
+
+def export(modname):
+    """
+    Make the decorated object a member of the named module. This will also add the object under its aliases if it has
+    a `__aliases__` member, thus this decorator should be before the `alias` decorator to pick up those names. Alias
+    names which conflict with package names or existing members will be ignored.
+    """
+
+    def _inner(obj):
+        mod = import_module(modname)
+        if not hasattr(mod, obj.__name__):
+            setattr(mod, obj.__name__, obj)
+            for alias in getattr(obj, '__aliases__', ()):
+                if not hasattr(mod, alias):
+                    setattr(mod, alias, obj)
+        return obj
+    return _inner
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Project_MONAI_MONAI(_paritybench_base):
@@ -1158,7 +1195,7 @@ class Test_Project_MONAI_MONAI(_paritybench_base):
         self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(SkipConnection(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SkipConnection(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

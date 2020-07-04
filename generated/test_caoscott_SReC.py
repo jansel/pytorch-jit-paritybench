@@ -22,10 +22,13 @@ torchac = _module
 train = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -54,6 +57,9 @@ import torch.utils.data as data
 
 
 from torch.nn import functional as F
+
+
+import torchvision.transforms as T
 
 
 from torch import nn
@@ -478,7 +484,21 @@ class LogisticMixtureProbability(NamedTuple):
 Probs = Tuple[torch.Tensor, Optional[LogisticMixtureProbability], int]
 
 
+def group_2x2(x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.
+    Tensor, torch.Tensor]:
+    """ Group 2x2 patches of x on its own channel
+        param x: N C H W
+        returns: Tuple[N 4 C H/2 W/2]
+    """
+    _, _, h, w = x.size()
+    x_even_height = x[:, :, 0:h:2, :]
+    x_odd_height = x[:, :, 1:h:2, :]
+    return x_even_height[:, :, :, 0:w:2], x_even_height[:, :, :, 1:w:2
+        ], x_odd_height[:, :, :, 0:w:2], x_odd_height[:, :, :, 1:w:2]
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_caoscott_SReC(_paritybench_base):

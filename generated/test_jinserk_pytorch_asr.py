@@ -72,10 +72,13 @@ batch_train = _module
 prepare = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -95,6 +98,9 @@ from torch.autograd import Variable
 
 
 import torch.nn.functional as F
+
+
+import torchvision.utils as tvu
 
 
 import math
@@ -127,10 +133,19 @@ from torch.nn.modules.loss import _Loss
 from torch.utils.data.dataset import ConcatDataset
 
 
+from torchvision.models.densenet import _DenseLayer
+
+
+from torchvision.models.densenet import _DenseBlock
+
+
 import random
 
 
 from torch.utils.data import DataLoader
+
+
+import torchaudio
 
 
 import scipy.io.wavfile
@@ -2022,6 +2037,7 @@ class InferenceBatchSoftmax(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jinserk_pytorch_asr(_paritybench_base):
@@ -2033,45 +2049,49 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(BatchRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_003(self):
         self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(ConvCapsule(*[], **{'in_channel': 4, 'in_dim': 4, 'out_channel': 4, 'out_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 20, 64, 64])], {})
 
-    def test_004(self):
+    @_fails_compile()
+    def test_005(self):
+        self._check(DistributedDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    def test_006(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(InferenceBatchSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_008(self):
         self._check(LSTMCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(LogWithLabelSmoothing(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(Lookahead(*[], **{'n_features': 4, 'context': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(MaskedSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
-        self._check(MultiOut(*[], **{'modules': [ReLU()]}), [], {})
-
-    @_fails_compile()
-    def test_011(self):
-        self._check(SequenceWise(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_012(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SequenceWise(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

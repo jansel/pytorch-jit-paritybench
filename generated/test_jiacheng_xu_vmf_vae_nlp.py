@@ -100,10 +100,13 @@ util = _module
 vMF = _module
 vae_model = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -241,6 +244,141 @@ class Code2Bit(torch.nn.Module):
 
 def GVar(x):
     return x.to(device)
+
+
+class vMF(torch.nn.Module):
+
+    def __init__(self, lat_dim, kappa=0):
+        super().__init__()
+        self.lat_dim = lat_dim
+        self.func_mu = torch.nn.Linear(lat_dim, lat_dim)
+        self.kappa = kappa
+        self.norm_eps = 1
+        self.normclip = torch.nn.Hardtanh(0, 10 - 1)
+
+    def estimate_param(self, latent_code):
+        mu = self.mu(latent_code)
+        return {'mu': mu}
+
+    def compute_KLD(self):
+        kld = GVar(torch.zeros(1))
+        return kld
+
+    def vmf_unif_sampler(self, mu):
+        batch_size, id_dim = mu.size()
+        result_list = []
+        for i in range(batch_size):
+            munorm = mu[i].norm().expand(id_dim)
+            munoise = self.add_norm_noise(munorm, self.norm_eps)
+            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
+                w = self._sample_weight(self.kappa, id_dim)
+                wtorch = GVar(w * torch.ones(id_dim))
+                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
+                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.
+                    pow(wtorch, 2))
+                orth_term = v * scale_factr
+                muscale = mu[i] * wtorch / munorm
+                sampled_vec = (orth_term + muscale) * munoise
+            else:
+                rand_draw = GVar(torch.randn(id_dim))
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
+                    id_dim)
+                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
+                sampled_vec = rand_draw * GVar(rand_norms)
+            result_list.append(sampled_vec)
+        return torch.stack(result_list, 0)
+
+    def vmf_sampler(self, mu):
+        mu = mu.cpu()
+        batch_size, id_dim = mu.size()
+        result_list = []
+        for i in range(batch_size):
+            munorm = mu[i].norm().expand(id_dim)
+            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
+                w = vMF.sample_vmf_w(self.kappa, id_dim)
+                wtorch = GVar(w * torch.ones(id_dim))
+                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
+                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.
+                    pow(wtorch, 2))
+                orth_term = v * scale_factr
+                muscale = mu[i] * wtorch / munorm
+                sampled_vec = (orth_term + muscale) * munorm
+            else:
+                rand_draw = GVar(torch.randn(id_dim))
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
+                    id_dim)
+                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
+                sampled_vec = rand_draw * GVar(rand_norms)
+            result_list.append(sampled_vec)
+        return torch.stack(result_list, 0)
+
+    def build_bow_rep(self, lat_code, n_sample):
+        batch_sz = lat_code.size()[0]
+        tup = self.estimate_param(latent_code=lat_code)
+        kld = self.compute_KLD()
+        vecs = []
+        for ns in range(n_sample):
+            vec = self.vmf_unif_sampler(tup['mu'])
+            vecs.append(vec)
+        return tup, kld, vecs
+
+    @staticmethod
+    def _sample_weight(kappa, dim):
+        """Rejection sampling scheme for sampling distance from center on
+        surface of the sphere.
+        """
+        dim = dim - 1
+        b = dim / (np.sqrt(4.0 * kappa ** 2 + dim ** 2) + 2 * kappa)
+        x = (1.0 - b) / (1.0 + b)
+        c = kappa * x + dim * np.log(1 - x ** 2)
+        while True:
+            z = np.random.beta(dim / 2.0, dim / 2.0)
+            w = (1.0 - (1.0 + b) * z) / (1.0 - (1.0 - b) * z)
+            u = np.random.uniform(low=0, high=1)
+            if kappa * w + dim * np.log(1.0 - x * w) - c >= np.log(u):
+                return w
+
+    def _sample_orthonormal_to(self, mu, dim):
+        """Sample point on sphere orthogonal to mu.
+        """
+        v = GVar(torch.randn(dim))
+        rescale_value = mu.dot(v) / mu.norm()
+        proj_mu_v = mu * rescale_value.expand(dim)
+        ortho = v - proj_mu_v
+        ortho_norm = torch.norm(ortho)
+        return ortho / ortho_norm.expand_as(ortho)
+
+    @staticmethod
+    def sample_vmf_v(mu):
+        import scipy.linalg as la
+        mat = np.matrix(mu)
+        if mat.shape[1] > mat.shape[0]:
+            mat = mat.T
+        U, _, _ = la.svd(mat)
+        nu = np.matrix(np.random.randn(mat.shape[0])).T
+        x = np.dot(U[:, 1:], nu[1:, :])
+        return x / la.norm(x)
+
+    @staticmethod
+    def sample_vmf_w(kappa, m):
+        b = (-2 * kappa + np.sqrt(4.0 * kappa ** 2 + (m - 1) ** 2)) / (m - 1)
+        a = (m - 1 + 2 * kappa + np.sqrt(4 * kappa ** 2 + (m - 1) ** 2)) / 4
+        d = 4 * a * b / (1 + b) - (m - 1) * np.log(m - 1)
+        while True:
+            z = np.random.beta(0.5 * (m - 1), 0.5 * (m - 1))
+            W = (1 - (1 + b) * z) / (1 + (1 - b) * z)
+            T = 2 * a * b / (1 + (1 - b) * z)
+            u = np.random.uniform(0, 1)
+            if (m - 1) * np.log(T) - T + d >= np.log(u):
+                return W
+
+    def add_norm_noise(self, munorm, eps):
+        """
+        KL loss is - log(maxvalue/eps)
+        cut at maxvalue-eps, and add [0,eps] noise.
+        """
+        trand = torch.rand(1).expand(munorm.size()) * eps
+        return self.normclip(munorm) + GVar(trand)
 
 
 class Gauss(nn.Module):
@@ -2107,6 +2245,141 @@ class HighVarGauss(nn.Module):
         return tup, kld, vec
 
 
+class vMF(nn.Module):
+
+    def __init__(self, lat_dim, kappa=0):
+        super().__init__()
+        self.lat_dim = lat_dim
+        self.mu = torch.nn.Linear(lat_dim, lat_dim)
+        self.kappa = kappa
+        self.norm_eps = 1
+        self.normclip = torch.nn.Hardtanh(0, 10 - 1)
+
+    def estimate_param(self, latent_code):
+        mu = self.mu(latent_code)
+        return {'mu': mu}
+
+    def compute_KLD(self):
+        kld = 0
+        return kld
+
+    def vmf_unif_sampler(self, mu):
+        batch_size, id_dim = mu.size()
+        result_list = []
+        for i in range(batch_size):
+            munorm = mu[i].norm().expand(id_dim)
+            munoise = self.add_norm_noise(munorm, self.norm_eps)
+            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
+                w = self._sample_weight(self.kappa, id_dim)
+                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
+                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
+                scale_factr = torch.sqrt(torch.autograd.Variable(torch.ones
+                    (id_dim)) - torch.pow(wtorch, 2))
+                orth_term = v * scale_factr
+                muscale = mu[i] * wtorch / munorm
+                sampled_vec = (orth_term + muscale) * munoise
+            else:
+                rand_draw = torch.autograd.Variable(torch.randn(id_dim))
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
+                    id_dim)
+                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
+                sampled_vec = rand_draw * torch.autograd.Variable(rand_norms)
+            result_list.append(sampled_vec)
+        return torch.stack(result_list, 0)
+
+    def vmf_sampler(self, mu):
+        mu = mu.cpu()
+        batch_size, id_dim = mu.size()
+        result_list = []
+        for i in range(batch_size):
+            munorm = mu[i].norm().expand(id_dim)
+            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
+                w = vMF.sample_vmf_w(self.kappa, id_dim)
+                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
+                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
+                scale_factr = torch.sqrt(Variable(torch.ones(id_dim)) -
+                    torch.pow(wtorch, 2))
+                orth_term = v * scale_factr
+                muscale = mu[i] * wtorch / munorm
+                sampled_vec = (orth_term + muscale) * munorm
+            else:
+                rand_draw = Variable(torch.randn(id_dim))
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
+                    id_dim)
+                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
+                sampled_vec = rand_draw * Variable(rand_norms)
+            result_list.append(sampled_vec)
+        return torch.stack(result_list, 0)
+
+    def build_bow_rep(self, lat_code, n_sample):
+        batch_sz = lat_code.size()[0]
+        tup = self.estimate_param(latent_code=lat_code)
+        kld = 0
+        vecs = []
+        for ns in range(n_sample):
+            vec = self.vmf_unif_sampler(tup['mu'])
+            vecs.append(vec)
+        return tup, kld, vecs
+
+    @staticmethod
+    def _sample_weight(kappa, dim):
+        """Rejection sampling scheme for sampling distance from center on
+        surface of the sphere.
+        """
+        dim = dim - 1
+        b = dim / (np.sqrt(4.0 * kappa ** 2 + dim ** 2) + 2 * kappa)
+        x = (1.0 - b) / (1.0 + b)
+        c = kappa * x + dim * np.log(1 - x ** 2)
+        while True:
+            z = np.random.beta(dim / 2.0, dim / 2.0)
+            w = (1.0 - (1.0 + b) * z) / (1.0 - (1.0 - b) * z)
+            u = np.random.uniform(low=0, high=1)
+            if kappa * w + dim * np.log(1.0 - x * w) - c >= np.log(u):
+                return w
+
+    def _sample_orthonormal_to(self, mu, dim):
+        """Sample point on sphere orthogonal to mu.
+        """
+        v = Variable(torch.randn(dim))
+        rescale_value = mu.dot(v) / mu.norm()
+        proj_mu_v = mu * rescale_value.expand(dim)
+        ortho = v - proj_mu_v
+        ortho_norm = torch.norm(ortho)
+        return ortho / ortho_norm.expand_as(ortho)
+
+    @staticmethod
+    def sample_vmf_v(mu):
+        import scipy.linalg as la
+        mat = np.matrix(mu)
+        if mat.shape[1] > mat.shape[0]:
+            mat = mat.T
+        U, _, _ = la.svd(mat)
+        nu = np.matrix(np.random.randn(mat.shape[0])).T
+        x = np.dot(U[:, 1:], nu[1:, :])
+        return x / la.norm(x)
+
+    @staticmethod
+    def sample_vmf_w(kappa, m):
+        b = (-2 * kappa + np.sqrt(4.0 * kappa ** 2 + (m - 1) ** 2)) / (m - 1)
+        a = (m - 1 + 2 * kappa + np.sqrt(4 * kappa ** 2 + (m - 1) ** 2)) / 4
+        d = 4 * a * b / (1 + b) - (m - 1) * np.log(m - 1)
+        while True:
+            z = np.random.beta(0.5 * (m - 1), 0.5 * (m - 1))
+            W = (1 - (1 + b) * z) / (1 + (1 - b) * z)
+            T = 2 * a * b / (1 + (1 - b) * z)
+            u = np.random.uniform(0, 1)
+            if (m - 1) * np.log(T) - T + d >= np.log(u):
+                return W
+
+    def add_norm_noise(self, munorm, eps):
+        """
+        KL loss is - log(maxvalue/eps)
+        cut at maxvalue-eps, and add [0,eps] noise.
+        """
+        trand = torch.rand(1).expand(munorm.size()) * eps
+        return self.normclip(munorm) + torch.autograd.Variable(trand)
+
+
 class BowVAE(torch.nn.Module):
 
     def __init__(self, vocab_size, n_hidden, n_lat, n_sample, batch_size,
@@ -2635,6 +2908,7 @@ class VAEModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jiacheng_xu_vmf_vae_nlp(_paritybench_base):
@@ -2644,4 +2918,7 @@ class Test_jiacheng_xu_vmf_vae_nlp(_paritybench_base):
 
     def test_001(self):
         self._check(DCNNEncoder(*[], **{'inp_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(SingleEmbeddings(*[], **{'opt': _mock_config(dropout_emb=0.5, full_dict_size=4, inp_dim=4)}), [torch.zeros([4], dtype=torch.int64)], {})
 

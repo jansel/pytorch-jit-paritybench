@@ -7,10 +7,13 @@ tab_model = _module
 tab_network = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -379,7 +382,7 @@ class TabNet(torch.nn.Module):
             virtual_batch_size, momentum)
         self.initial_bn = BatchNorm1d(self.post_embed_dim, momentum=0.01)
         if device_name == 'auto':
-            if torch.cuda.is_available():
+            if torch.is_available():
                 device_name = 'cuda'
             else:
                 device_name = 'cpu'
@@ -594,6 +597,7 @@ class EmbeddingGenerator(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dreamquark_ai_tabnet(_paritybench_base):

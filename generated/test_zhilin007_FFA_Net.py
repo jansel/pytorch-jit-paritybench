@@ -11,10 +11,13 @@ models = _module
 option = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -25,6 +28,12 @@ __version__ = '1.0.0'
 
 
 import torch
+
+
+import torchvision
+
+
+import torchvision.transforms as tfs
 
 
 import time
@@ -48,6 +57,12 @@ import warnings
 from torch import nn
 
 
+import torchvision.utils as vutils
+
+
+from torchvision.models import vgg16
+
+
 from math import exp
 
 
@@ -57,7 +72,13 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+from torchvision.transforms import ToPILImage
+
+
 import torch.nn as nn
+
+
+from torchvision.utils import make_grid
 
 
 class PALayer(nn.Module):
@@ -188,6 +209,7 @@ class LossNetwork(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zhilin007_FFA_Net(_paritybench_base):
@@ -196,5 +218,8 @@ class Test_zhilin007_FFA_Net(_paritybench_base):
         self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
+        self._check(FFA(*[], **{'gps': 3, 'blocks': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_002(self):
         self._check(PALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 64, 64])], {})
 

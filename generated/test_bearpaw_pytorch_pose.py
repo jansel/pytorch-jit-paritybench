@@ -26,10 +26,13 @@ misc = _module
 osutils = _module
 transforms = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -54,10 +57,22 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 
 
+import torchvision.datasets as datasets
+
+
 import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torchvision.models.resnet import model_urls
+
+
+from torchvision.models.resnet import BasicBlock
+
+
+from torchvision.models.resnet import Bottleneck
 
 
 import math
@@ -611,6 +626,7 @@ class PreResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bearpaw_pytorch_pose(_paritybench_base):
@@ -619,8 +635,11 @@ class Test_bearpaw_pytorch_pose(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(JointsMSELoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(DeconvHead(*[], **{'in_channels': 4, 'num_layers': 1, 'num_filters': 4, 'kernel_size': 4, 'conv_kernel_size': 1, 'num_joints': 4, 'depth_dim': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ResPoseNet(*[], **{'backbone': ReLU(), 'head': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(JointsMSELoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_003(self):
+        self._check(ResPoseNet(*[], **{'backbone': _mock_layer(), 'head': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

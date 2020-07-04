@@ -32,10 +32,13 @@ train = _module
 valid = _module
 convert_from_iNat = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -166,7 +169,8 @@ class ResNet(nn.Module):
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dictNone
+            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
             if k.startswith('module'):
@@ -222,7 +226,8 @@ class BBN_ResNet(nn.Module):
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dictNone
+            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
             if k.startswith('module'):
@@ -337,7 +342,8 @@ class ResNet_Cifar(nn.Module):
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dictNone
+            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
             if k.startswith('module'):
@@ -356,6 +362,62 @@ class ResNet_Cifar(nn.Module):
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
+        return out
+
+
+class BBN_ResNet_Cifar(nn.Module):
+
+    def __init__(self, block, num_blocks):
+        super(BBN_ResNet_Cifar, self).__init__()
+        self.in_planes = 16
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
+            bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2] - 1, stride=2)
+        self.cb_block = block(self.in_planes, self.in_planes, stride=1)
+        self.rb_block = block(self.in_planes, self.in_planes, stride=1)
+        self.apply(_weights_init)
+
+    def load_model(self, pretrain):
+        None
+        model_dict = self.state_dict()
+        pretrain_dict = torch.load(pretrain)['state_dict']
+        from collections import OrderedDict
+        new_dict = OrderedDict()
+        for k, v in pretrain_dict.items():
+            if k.startswith('module'):
+                k = k[7:]
+            if 'fc' not in k and 'classifier' not in k:
+                k = k.replace('backbone.', '')
+                new_dict[k] = v
+        model_dict.update(new_dict)
+        self.load_state_dict(model_dict)
+        None
+
+    def _make_layer(self, block, planes, num_blocks, stride, add_flag=True):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x, **kwargs):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        if 'feature_cb' in kwargs:
+            out = self.cb_block(out)
+            return out
+        elif 'feature_rb' in kwargs:
+            out = self.rb_block(out)
+            return out
+        out1 = self.cb_block(out)
+        out2 = self.rb_block(out)
+        out = torch.cat((out1, out2), dim=1)
         return out
 
 
@@ -477,7 +539,102 @@ class Identity(nn.Module):
         return x
 
 
+class Network(nn.Module):
+
+    def __init__(self, cfg, mode='train', num_classes=1000):
+        super(Network, self).__init__()
+        pretrain = (True if mode == 'train' and cfg.RESUME_MODEL == '' and 
+            cfg.BACKBONE.PRETRAINED_MODEL != '' else False)
+        self.num_classes = num_classes
+        self.cfg = cfg
+        self.backbone = eval(self.cfg.BACKBONE.TYPE)(self.cfg, pretrain=
+            pretrain, pretrained_model=cfg.BACKBONE.PRETRAINED_MODEL,
+            last_layer_stride=2)
+        self.module = self._get_module()
+        self.classifier = self._get_classifer()
+        self.feature_len = self.get_feature_length()
+
+    def forward(self, x, **kwargs):
+        if ('feature_flag' in kwargs or 'feature_cb' in kwargs or 
+            'feature_rb' in kwargs):
+            return self.extract_feature(x, **kwargs)
+        elif 'classifier_flag' in kwargs:
+            return self.classifier(x)
+        x = self.backbone(x)
+        x = self.module(x)
+        x = x.view(x.shape[0], -1)
+        x = self.classifier(x)
+        return x
+
+    def extract_feature(self, x, **kwargs):
+        if 'bbn' in self.cfg.BACKBONE.TYPE:
+            x = self.backbone(x, **kwargs)
+        else:
+            x = self.backbone(x)
+        x = self.module(x)
+        x = x.view(x.shape[0], -1)
+        return x
+
+    def freeze_backbone(self):
+        None
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+
+    def load_backbone_model(self, backbone_path=''):
+        self.backbone.load_model(backbone_path)
+        None
+
+    def load_model(self, model_path):
+        pretrain_dict = torch.load(model_path, map_location='cpu' if self.
+            cfg.CPU_MODE else 'cuda')
+        pretrain_dict = pretrain_dict['state_dict'
+            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        model_dict = self.state_dict()
+        from collections import OrderedDict
+        new_dict = OrderedDict()
+        for k, v in pretrain_dict.items():
+            if k.startswith('module'):
+                new_dict[k[7:]] = v
+            else:
+                new_dict[k] = v
+        model_dict.update(new_dict)
+        self.load_state_dict(model_dict)
+        None
+
+    def get_feature_length(self):
+        if 'cifar' in self.cfg.BACKBONE.TYPE:
+            num_features = 64
+        else:
+            num_features = 2048
+        if 'bbn' in self.cfg.BACKBONE.TYPE:
+            num_features = num_features * 2
+        return num_features
+
+    def _get_module(self):
+        module_type = self.cfg.MODULE.TYPE
+        if module_type == 'GAP':
+            module = GAP()
+        elif module_type == 'Identity':
+            module = Identity()
+        else:
+            raise NotImplementedError
+        return module
+
+    def _get_classifer(self):
+        bias_flag = self.cfg.CLASSIFIER.BIAS
+        num_features = self.get_feature_length()
+        if self.cfg.CLASSIFIER.TYPE == 'FCNorm':
+            classifier = FCNorm(num_features, self.num_classes)
+        elif self.cfg.CLASSIFIER.TYPE == 'FC':
+            classifier = nn.Linear(num_features, self.num_classes, bias=
+                bias_flag)
+        else:
+            raise NotImplementedError
+        return classifier
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Megvii_Nanjing_BBN(_paritybench_base):
@@ -499,5 +656,5 @@ class Test_Megvii_Nanjing_BBN(_paritybench_base):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(LambdaLayer(*[], **{'lambd': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaLayer(*[], **{'lambd': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

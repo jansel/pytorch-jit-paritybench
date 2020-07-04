@@ -18,10 +18,13 @@ LSQ_layer = _module
 utils = _module
 main = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1652,6 +1655,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
@@ -1670,20 +1674,24 @@ class Test_wvangansbeke_LaneDetection_End2End(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(MSE_Loss(*[], **{'options': _mock_config(no_cuda=4)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(Spatial_transformer_net(*[], **{'size': [4, 4], 'channels_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MSE_Loss(*[], **{'options': _mock_config(no_cuda=False)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Spatial_transformer_net(*[], **{'size': [4, 4], 'channels_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(resnet_block(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(simple_net(*[], **{'nclasses': 4}), [torch.rand([4, 3, 64, 64])], {})
 

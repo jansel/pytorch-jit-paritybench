@@ -26,10 +26,13 @@ predicting = _module
 util = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -503,6 +506,288 @@ def split_s3_path(url):
     return bucket_name, s3_path
 
 
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def get_from_cache(url, cache_dir=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url)
+    else:
+        response = requests.head(url, allow_redirects=True)
+        if response.status_code != 200:
+            raise IOError('HEAD request failed for url {} with status code {}'
+                .format(url, response.status_code))
+        etag = response.headers.get('ETag')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path):
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info('%s not found in cache, downloading to %s', url,
+                temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file)
+            else:
+                http_get(url, temp_file)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path
+                )
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w', encoding='utf-8') as meta_file:
+                json.dump(meta, meta_file)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.
+            format(url_or_filename))
+
+
+def load_tf_weights_in_bert(model, tf_checkpoint_path):
+    """ Load tf checkpoints in a pytorch model
+    """
+    try:
+        import re
+        import numpy as np
+        import tensorflow as tf
+    except ImportError:
+        print(
+            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
+            )
+        raise
+    tf_path = os.path.abspath(tf_checkpoint_path)
+    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
+    init_vars = tf.train.list_variables(tf_path)
+    names = []
+    arrays = []
+    for name, shape in init_vars:
+        print('Loading TF weight {} with shape {}'.format(name, shape))
+        array = tf.train.load_variable(tf_path, name)
+        names.append(name)
+        arrays.append(array)
+    for name, array in zip(names, arrays):
+        name = name.split('/')
+        if any(n in ['adam_v', 'adam_m'] for n in name):
+            print('Skipping {}'.format('/'.join(name)))
+            continue
+        pointer = model
+        for m_name in name:
+            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
+                l = re.split('_(\\d+)', m_name)
+            else:
+                l = [m_name]
+            if l[0] == 'kernel' or l[0] == 'gamma':
+                pointer = getattr(pointer, 'weight')
+            elif l[0] == 'output_bias' or l[0] == 'beta':
+                pointer = getattr(pointer, 'bias')
+            elif l[0] == 'output_weights':
+                pointer = getattr(pointer, 'weight')
+            else:
+                pointer = getattr(pointer, l[0])
+            if len(l) >= 2:
+                num = int(l[1])
+                pointer = pointer[num]
+        if m_name[-11:] == '_embeddings':
+            pointer = getattr(pointer, 'weight')
+        elif m_name == 'kernel':
+            array = np.transpose(array)
+        try:
+            assert pointer.shape == array.shape
+        except AssertionError as e:
+            e.args += pointer.shape, array.shape
+            raise
+        print('Initialize PyTorch weight {}'.format(name))
+        pointer.data = torch.from_numpy(array)
+    return model
+
+
+class BertPreTrainedModel(nn.Module):
+    """ An abstract class to handle weights initialization and
+        a simple interface for dowloading and loading pretrained models.
+    """
+
+    def __init__(self, config, *inputs, **kwargs):
+        super(BertPreTrainedModel, self).__init__()
+        if not isinstance(config, BertConfig):
+            raise ValueError(
+                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
+                .format(self.__class__.__name__, self.__class__.__name__))
+        self.config = config
+
+    def init_bert_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=self.config.
+                initializer_range)
+        elif isinstance(module, BertLayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+        if isinstance(module, nn.Linear) and module.bias is not None:
+            module.bias.data.zero_()
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
+        cache_dir=None, from_tf=False, *inputs, **kwargs):
+        """
+        Instantiate a BertPreTrainedModel from a pre-trained model file or a pytorch state dict.
+        Download and cache the pre-trained model file if needed.
+        Params:
+            pretrained_model_name_or_path: either:
+                - a str with the name of a pre-trained model to load selected in the list of:
+                    . `bert-base-uncased`
+                    . `bert-large-uncased`
+                    . `bert-base-cased`
+                    . `bert-large-cased`
+                    . `bert-base-multilingual-uncased`
+                    . `bert-base-multilingual-cased`
+                    . `bert-base-chinese`
+                - a path or url to a pretrained model archive containing:
+                    . `bert_config.json` a configuration file for the model
+                    . `pytorch_model.bin` a PyTorch dump of a BertForPreTraining instance
+                - a path or url to a pretrained model archive containing:
+                    . `bert_config.json` a configuration file for the model
+                    . `model.chkpt` a TensorFlow checkpoint
+            from_tf: should we load the weights from a locally saved TensorFlow checkpoint
+            cache_dir: an optional path to a folder in which the pre-trained models will be cached.
+            state_dict: an optional state dictionnary (collections.OrderedDict object) to use instead of Google pre-trained models
+            *inputs, **kwargs: additional input for the specific Bert class
+                (ex: num_labels for BertForSequenceClassification)
+        """
+        if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+        else:
+            archive_file = pretrained_model_name_or_path
+        try:
+            resolved_archive_file = cached_path(archive_file, cache_dir=
+                cache_dir)
+        except EnvironmentError:
+            logger.error(
+                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
+                .format(pretrained_model_name_or_path, ', '.join(
+                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            return None
+        if resolved_archive_file == archive_file:
+            None
+        else:
+            None
+        tempdir = None
+        if os.path.isdir(resolved_archive_file) or from_tf:
+            serialization_dir = resolved_archive_file
+        else:
+            tempdir = tempfile.mkdtemp()
+            None
+            with tarfile.open(resolved_archive_file, 'r:gz') as archive:
+                archive.extractall(tempdir)
+            serialization_dir = tempdir
+        config_file = os.path.join(serialization_dir, CONFIG_NAME)
+        config = BertConfig.from_json_file(config_file)
+        logger.info('Model config {}'.format(config))
+        model = cls(config, *inputs, **kwargs)
+        if state_dict is None and not from_tf:
+            weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
+            None
+            state_dict = torch.load(weights_path, map_location='cpu' if not
+                torch.is_available() else None)
+        if tempdir:
+            shutil.rmtree(tempdir)
+        if from_tf:
+            weights_path = os.path.join(serialization_dir, TF_WEIGHTS_NAME)
+            return load_tf_weights_in_bert(model, weights_path)
+        old_keys = []
+        new_keys = []
+        for key in state_dict.keys():
+            new_key = None
+            if 'gamma' in key:
+                new_key = key.replace('gamma', 'weight')
+            if 'beta' in key:
+                new_key = key.replace('beta', 'bias')
+            if new_key:
+                old_keys.append(key)
+                new_keys.append(new_key)
+        for old_key, new_key in zip(old_keys, new_keys):
+            state_dict[new_key] = state_dict.pop(old_key)
+        missing_keys = []
+        unexpected_keys = []
+        error_msgs = []
+        metadata = getattr(state_dict, '_metadata', None)
+        state_dict = state_dict.copy()
+        if metadata is not None:
+            state_dict._metadata = metadata
+
+        def load(module, prefix=''):
+            local_metadata = {} if metadata is None else metadata.get(prefix
+                [:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata,
+                True, missing_keys, unexpected_keys, error_msgs)
+            for name, child in module._modules.items():
+                if child is not None:
+                    load(child, prefix + name + '.')
+        start_prefix = ''
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
+            state_dict.keys()):
+            start_prefix = 'bert.'
+        load(model, prefix=start_prefix)
+        if len(missing_keys) > 0:
+            logger.info(
+                'Weights of {} not initialized from pretrained model: {}'.
+                format(model.__class__.__name__, missing_keys))
+        if len(unexpected_keys) > 0:
+            logger.info('Weights from pretrained model not used in {}: {}'.
+                format(model.__class__.__name__, unexpected_keys))
+        if len(error_msgs) > 0:
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
+                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+        return model
+
+
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
@@ -763,64 +1048,6 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-def load_tf_weights_in_bert(model, tf_checkpoint_path):
-    """ Load tf checkpoints in a pytorch model
-    """
-    try:
-        import re
-        import numpy as np
-        import tensorflow as tf
-    except ImportError:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
-        raise
-    tf_path = os.path.abspath(tf_checkpoint_path)
-    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
-    init_vars = tf.train.list_variables(tf_path)
-    names = []
-    arrays = []
-    for name, shape in init_vars:
-        print('Loading TF weight {} with shape {}'.format(name, shape))
-        array = tf.train.load_variable(tf_path, name)
-        names.append(name)
-        arrays.append(array)
-    for name, array in zip(names, arrays):
-        name = name.split('/')
-        if any(n in ['adam_v', 'adam_m'] for n in name):
-            print('Skipping {}'.format('/'.join(name)))
-            continue
-        pointer = model
-        for m_name in name:
-            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
-                l = re.split('_(\\d+)', m_name)
-            else:
-                l = [m_name]
-            if l[0] == 'kernel' or l[0] == 'gamma':
-                pointer = getattr(pointer, 'weight')
-            elif l[0] == 'output_bias' or l[0] == 'beta':
-                pointer = getattr(pointer, 'bias')
-            elif l[0] == 'output_weights':
-                pointer = getattr(pointer, 'weight')
-            else:
-                pointer = getattr(pointer, l[0])
-            if len(l) >= 2:
-                num = int(l[1])
-                pointer = pointer[num]
-        if m_name[-11:] == '_embeddings':
-            pointer = getattr(pointer, 'weight')
-        elif m_name == 'kernel':
-            array = np.transpose(array)
-        try:
-            assert pointer.shape == array.shape
-        except AssertionError as e:
-            e.args += pointer.shape, array.shape
-            raise
-        print('Initialize PyTorch weight {}'.format(name))
-        pointer.data = torch.from_numpy(array)
-    return model
-
-
 class BertPreTrainedModel(nn.Module):
     """ An abstract class to handle weights initialization and
         a simple interface for dowloading and loading pretrained models.
@@ -907,7 +1134,7 @@ class BertPreTrainedModel(nn.Module):
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
             None
             state_dict = torch.load(weights_path, map_location='cpu' if not
-                torch.cuda.is_available() else None)
+                torch.is_available() else None)
         if tempdir:
             shutil.rmtree(tempdir)
         if from_tf:
@@ -961,12 +1188,13 @@ class BertPreTrainedModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_basketballandlearn_Dureader_Bert(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})

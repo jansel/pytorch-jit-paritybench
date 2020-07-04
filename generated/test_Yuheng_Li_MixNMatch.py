@@ -10,10 +10,13 @@ train_first_stage = _module
 train_second_stage = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -36,6 +39,12 @@ import torch.nn as nn
 
 
 import torch.optim as optim
+
+
+import torchvision.utils as vutils
+
+
+import torchvision.transforms as transforms
 
 
 import random
@@ -127,10 +136,10 @@ def upBlock(in_planes, out_planes):
     return block
 
 
-_global_config['GAN'] = 4
-
-
 _global_config['FINE_GRAINED_CATEGORIES'] = 4
+
+
+_global_config['GAN'] = 4
 
 
 class BACKGROUND_STAGE(nn.Module):
@@ -898,6 +907,7 @@ class Dis_Dis(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Yuheng_Li_MixNMatch(_paritybench_base):
@@ -905,36 +915,46 @@ class Test_Yuheng_Li_MixNMatch(_paritybench_base):
     def test_000(self):
         self._check(BACKGROUND_D(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(CHILD_STAGE(*[], **{'ngf': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Bi_Dis_base(*[], **{'code_len': 4}), [torch.rand([4, 3, 128, 128]), torch.rand([4, 4])], {})
 
     def test_002(self):
-        self._check(ConvT_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CHILD_D(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
     def test_003(self):
-        self._check(Conv_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CHILD_STAGE(*[], **{'ngf': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Dis_Dis(*[], **{'in_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvT_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(FeatureExtractor(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(Conv_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(GET_IMAGE(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Dis_Dis(*[], **{'in_c': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(GET_MASK(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FeatureExtractor(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_008(self):
-        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GET_IMAGE(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(Gaussian(*[], **{'std': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GET_MASK(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(Linear_Block(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
+        self._check(Gaussian(*[], **{'std': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(Linear_Block(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(PARENT_D(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_014(self):
         self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
 

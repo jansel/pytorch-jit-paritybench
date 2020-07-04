@@ -10,10 +10,13 @@ self_learn = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,6 +60,12 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 
 import math
+
+
+from torchtext import data
+
+
+from torchtext import datasets
 
 
 import logging
@@ -358,7 +367,7 @@ class LSTMCritic(nn.Module):
         lens = mask.sum(-1).long()
         lens, indices = torch.sort(lens, dim=0, descending=True)
         if trg.is_cuda:
-            with torch.cuda.device_of(trg):
+            with torch.device_of(trg):
                 lens = lens.tolist()
         trgs = pack_padded_sequence(trgs[(indices), :, :], lens,
             batch_first=True)
@@ -551,7 +560,7 @@ class Decoder(nn.Module):
         eos_yet = encoding[0].data.new(B).byte().zero_()
         attentions = []
         for t in range(T):
-            torch.cuda.nvtx.mark(f'greedy:{t}')
+            torch.nvtx.mark(f'greedy:{t}')
             hiddens[0][:, (t)] = self.dropout(hiddens[0][:, (t)] + F.
                 embedding(outs[:, (t)], embedW))
             inter_attention = []
@@ -957,6 +966,7 @@ class Transformer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_salesforce_nonauto_nmt(_paritybench_base):
@@ -967,11 +977,11 @@ class Test_salesforce_nonauto_nmt(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(DecoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=0.5, d_hidden=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(DecoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=4, d_hidden=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(EncoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=0.5, d_hidden=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(EncoderLayer(*[], **{'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=4, d_hidden=4)}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

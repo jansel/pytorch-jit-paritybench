@@ -89,10 +89,13 @@ models_test = _module
 torch_utils_test = _module
 utils_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -2879,6 +2882,7 @@ class ChimeraLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mpariente_asteroid(_paritybench_base):
@@ -2891,7 +2895,7 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(BaseTasNet(*[], **{'encoder': ReLU(), 'masker': ReLU(), 'decoder': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseTasNet(*[], **{'encoder': _mock_layer(), 'masker': _mock_layer(), 'decoder': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -2906,7 +2910,7 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
-        self._check(MultiSrcNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MultiSrcNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
@@ -2914,7 +2918,7 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(PairwiseNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(PairwiseNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_009(self):
         self._check(SeparableDilatedConv1DBlock(*[], **{}), [torch.rand([4, 256, 64])], {})
@@ -2925,9 +2929,17 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     @_fails_compile()
     def test_011(self):
-        self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleRNN(*[], **{'rnn_type': 'gru', 'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(SingleSrcNegSDR(*[], **{'sdr_type': snr}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(SingleSrcNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(StackedResidualRNN(*[], **{'rnn_type': 'gru', 'n_units': 4}), [torch.rand([4, 4, 4])], {})
 

@@ -67,10 +67,13 @@ torch_3rd_layers = _module
 torch_v4_feature = _module
 txt_table_v1 = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -137,6 +140,9 @@ import torch.nn.functional as F
 from collections import OrderedDict
 
 
+import torchvision
+
+
 from torch.nn.modules.module import Module
 
 
@@ -185,6 +191,28 @@ def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
             m.weight.data.normal_(mean=0, std=gaussian_std)
             m.bias.data.zero_()
     return nn_module_or_seq
+
+
+class _naiReg_Net(nn.Module):
+
+    @staticmethod
+    def head_seq(in_size, reg_n_D, nr_cate=12, nr_fc8=334):
+        seq = nn.Sequential(nn.Linear(in_size, nr_fc8), nn.ReLU(inplace=
+            True), nn.Linear(nr_fc8, nr_cate * reg_n_D))
+        init_weights_by_filling(seq, gaussian_std=0.005)
+        return seq
+    """BVLC alexnet architecture (Note: slightly different from pytorch implementation.)"""
+
+    def __init__(self, nr_cate=12, net_arch='alexnet', pretrained=True):
+        super(_naiReg_Net, self).__init__()
+        _Trunk = net_arch2Trunk[net_arch]
+        self.trunk = _Trunk(pretrained=pretrained)
+        self.nr_cate = nr_cate
+        self.top_size = 4096 if not self.trunk.net_arch.startswith('resnet'
+            ) else 2048
+
+    def forword(self, x, label):
+        raise NotImplementedError
 
 
 class down(nn.Module):
@@ -461,6 +489,90 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
         dtype=np.float64)
     weight[(range(in_channels)), (range(out_channels)), :, :] = filt
     return torch.from_numpy(weight).float()
+
+
+class VGG16_Trunk(nn.Module):
+
+    def __init__(self, init_weights=True):
+        super(VGG16_Trunk, self).__init__()
+        self.net_arch = 'vgg16_bn'
+        self.conv1 = down([64, 64], in_channels=3)
+        self.conv2 = down(['M', 128, 128], in_channels=64)
+        self.conv3 = down(['M', 256, 256, 256], in_channels=128)
+        self.conv4 = down(['M', 512, 512, 512], in_channels=256)
+        self.conv5 = down(['M', 512, 512, 512], in_channels=512)
+        self.deconv5 = up([512, 512, 512, 'M'], in_channels=512)
+        self.deconv4 = up([512, 512, 256, 'M'], in_channels=512 + 512)
+        self.deconv3 = up([256, 256, 128, 'M'], in_channels=256 + 256)
+        self.deconv2 = up([128, 64, 'M'], in_channels=128 + 128)
+        self.deconv1 = up([64, 3], in_channels=64 + 64)
+        self.deconv1.deconv = self.deconv1.deconv[:-1]
+        if init_weights:
+            self.init_weights('torchmodel')
+
+    def forward(self, x):
+        """ x is input image data.
+            x is of shape:  (batchsize, 3, 224, 224)  """
+        en1 = self.conv1(x)
+        en2, poolInd1 = self.conv2(en1)
+        en3, poolInd2 = self.conv3(en2)
+        en4, poolInd3 = self.conv4(en3)
+        en5, poolInd4 = self.conv5(en4)
+        de4 = self.deconv5(en5, poolInd4, en4)
+        de3 = self.deconv4(de4, poolInd3, en3)
+        de2 = self.deconv3(de3, poolInd2, en2)
+        de1 = self.deconv2(de2, poolInd1, en1)
+        x = self.deconv1(de1)
+        return x
+
+    def init_weights(self, pretrained='caffemodel'):
+        """ Two ways to init weights:
+            1) by copying pretrained weights.
+            2) by filling empirical  weights. (e.g. gaussian, xavier, uniform, constant, bilinear).
+        """
+        if pretrained is None:
+            None
+            init_weights_by_filling(self)
+        elif pretrained == 'caffemodel':
+            None
+            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2',
+                conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1=
+                'conv3.conv.0', conv3_2='conv3.conv.2', conv3_3=
+                'conv3.conv.4', conv4_1='conv4.conv.0', conv4_2=
+                'conv4.conv.2', conv4_3='conv4.conv.4', conv5_1=
+                'conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
+            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch,
+                src2dsts=src2dsts)
+        elif pretrained == 'torchmodel':
+            src2dsts = odict([map(str.strip, x.split('=')) for x in map(str
+                .strip, open(this_dir + '/src2dsts.vgg16_bn.txt').readlines
+                ()) if not x.startswith('=')])
+            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch,
+                strict=False, src2dsts=src2dsts)
+        else:
+            raise NotImplementedError
+        for name, m in self.named_modules():
+            if isinstance(m, nn.ConvTranspose2d):
+                None
+                assert m.kernel_size[0] == m.kernel_size[1]
+                try:
+                    initial_weight = get_upsampling_weight(m.in_channels, m
+                        .out_channels, m.kernel_size[0])
+                    None
+                    m.weight.data.copy_(initial_weight)
+                except:
+                    None
+                    pass
+            elif isinstance(m, nn.BatchNorm2d):
+                None
+                m.weight.data.normal_(1.0, 0.02)
+                m.bias.data.fill_(0)
+        return self
+
+    def fix_conv1_conv2(self):
+        for layer in range(10):
+            for p in self.features[layer].parameters():
+                p.requires_grad = False
 
 
 class down(nn.Module):
@@ -1127,6 +1239,87 @@ class Test_AlexNet(nn.Module):
         return Pred
 
 
+class _Inception3_Trunk(nn.Module):
+
+    def __init__(self, aux_logits=True, transform_input=False, init_weights
+        =True, start=None, end=None):
+        super(_Inception3_Trunk, self).__init__()
+        self.net_arch = 'inception_v3'
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
+        self.Mixed_5b = InceptionA(192, pool_features=32)
+        self.Mixed_5c = InceptionA(256, pool_features=64)
+        self.Mixed_5d = InceptionA(288, pool_features=64)
+        self.Mixed_6a = InceptionB(288)
+        self.Mixed_6b = InceptionC(768, channels_7x7=128)
+        self.Mixed_6c = InceptionC(768, channels_7x7=160)
+        self.Mixed_6d = InceptionC(768, channels_7x7=160)
+        self.Mixed_6e = InceptionC(768, channels_7x7=192)
+        if aux_logits:
+            self.AuxLogits = InceptionAux(768, num_classes)
+        self.Mixed_7a = InceptionD(768)
+        self.Mixed_7b = InceptionE(1280)
+        self.Mixed_7c = InceptionE(2048)
+        self.fc = nn.Linear(2048, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
+                X = stats.truncnorm(-2, 2, scale=stddev)
+                values = torch.Tensor(X.rvs(m.weight.numel()))
+                values = values.view(m.weight.size())
+                m.weight.data.copy_(values)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        self._layer_names = [name for name, module in self.named_children()]
+        if init_weights:
+            self.init_weights(pretrained='caffemodel')
+        self.truck_seq = self.sub_seq(start=start, end=end)
+
+    def forward(self, x):
+        if self.transform_input:
+            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 -
+                0.5) / 0.5
+            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 -
+                0.5) / 0.5
+            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 -
+                0.5) / 0.5
+            x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        if self.training and self.aux_logits:
+            aux = self.AuxLogits(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        x = F.avg_pool2d(x, kernel_size=8)
+        x = F.dropout(x, training=self.training)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        if self.training and self.aux_logits:
+            return x, aux
+        return x
+
+
 class InceptionA(nn.Module):
 
     def __init__(self, in_channels, pool_features):
@@ -1561,10 +1754,10 @@ def make_layers_vggm():
         nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
 
 
-_global_config['D'] = 4
-
-
 _global_config['E'] = 4
+
+
+_global_config['D'] = 4
 
 
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])
@@ -1738,6 +1931,7 @@ class LocalResponseNorm(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_leoshine_Spherical_Regression(_paritybench_base):

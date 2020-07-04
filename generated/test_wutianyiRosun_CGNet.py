@@ -34,10 +34,13 @@ summary = _module
 trainID2labelID = _module
 vis_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -71,7 +74,13 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 
+import torchvision.transforms as transforms
+
+
 from torch import nn
+
+
+from torchvision.models import resnet18
 
 
 import torch.nn.functional as F
@@ -90,6 +99,9 @@ from torch.nn import BatchNorm2d as bn
 
 
 from torch.nn import init
+
+
+import torchvision
 
 
 class SpatialPath(nn.Module):
@@ -148,21 +160,6 @@ class FFM(nn.Module):
         x = self.conv2(x)
         x = torch.sigmoid(x)
         return feature + x.expand_as(feature) * feature
-
-
-model_urls = {'xception':
-    'https://www.dropbox.com/s/1hplpzet9d7dv29/xception-c0a72b38.pth.tar?dl=1'}
-
-
-def resnet18(pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
-    return model
 
 
 class ContextPath(nn.Module):
@@ -276,6 +273,10 @@ class FFM(nn.Module):
         x = self.conv2(x)
         x = torch.sigmoid(x)
         return feature + x.expand_as(feature) * feature
+
+
+model_urls = {'xception':
+    'https://www.dropbox.com/s/1hplpzet9d7dv29/xception-c0a72b38.pth.tar?dl=1'}
 
 
 def xception(pretrained=False, **kwargs):
@@ -1702,7 +1703,7 @@ class BottleNeck(nn.Module):
                 pad = Variable(torch.Tensor(input_shape[0], self.
                     output_channels - self.input_channels, input_shape[2] //
                     2, input_shape[3] // 2).zero_(), requires_grad=False)
-                if torch.cuda.is_available:
+                if torch.is_available:
                     pad = pad
                 main = torch.cat((main, pad), 1)
         elif self.upsampling:
@@ -2805,4 +2806,124 @@ class CrossEntropyLoss2d(nn.Module):
 
     def forward(self, outputs, targets):
         return self.loss(F.log_softmax(outputs, 1), targets)
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_wutianyiRosun_CGNet(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(ARM(*[], **{'input_h': 4, 'input_w': 4, 'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ASPP_module(*[], **{'inplanes': 4, 'planes': 4, 'rate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(BNPReLU(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(C(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(CDilated(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(ChannelWiseConv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(ChannelWiseDilatedConv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(Classifier_Module(*[], **{'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(Context_Guided_Network(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_013(self):
+        self._check(Conv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(ConvBN(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(ConvBNPReLU(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(DenseASPP(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_017(self):
+        self._check(DilatedConv(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
+        self._check(DilatedParllelResidualBlockB(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_019(self):
+        self._check(DownSamplerB(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(ESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(ESPNet_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_022(self):
+        self._check(InitialBlock(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_023(self):
+        self._check(InputInjection(*[], **{'downsamplingRatio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
+        self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_025(self):
+        self._check(PSPModule(*[], **{'inChannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
+        self._check(RRB(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
+        self._check(Residual_Covolution(*[], **{'icol': 4, 'ocol': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
+        self._check(SegNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_029(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_030(self):
+        self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_032(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_034(self):
+        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

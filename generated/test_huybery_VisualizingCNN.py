@@ -7,10 +7,13 @@ vgg16_conv = _module
 vgg16_deconv = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -29,10 +32,19 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
+from torchvision.transforms import transforms
+
+
 import numpy as np
 
 
 from functools import partial
+
+
+import torchvision.models as models
+
+
+import torchvision
 
 
 from collections import OrderedDict
@@ -152,6 +164,7 @@ class Vgg16Deconv(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_huybery_VisualizingCNN(_paritybench_base):

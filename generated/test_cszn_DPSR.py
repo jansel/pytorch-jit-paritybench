@@ -11,10 +11,13 @@ utils_deblur = _module
 utils_image = _module
 utils_logger = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -296,6 +299,7 @@ class SRResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cszn_DPSR(_paritybench_base):
@@ -304,7 +308,7 @@ class Test_cszn_DPSR(_paritybench_base):
         self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
 
     def test_001(self):
-        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(MeanShift(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
@@ -313,14 +317,17 @@ class Test_cszn_DPSR(_paritybench_base):
         self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_005(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_006(self):
-        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_007(self):
-        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_008(self):
+        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -28,10 +28,13 @@ utils = _module
 logger = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -81,6 +84,9 @@ from torch.autograd import grad
 
 
 import torch.cuda as cuda
+
+
+from torchvision import utils as vutils
 
 
 from time import time
@@ -137,6 +143,9 @@ import torch.backends.cudnn as cudnn
 import random
 
 
+import torchvision.transforms as transforms
+
+
 class tofp16(nn.Module):
     """
     Model wrapper that implements::
@@ -152,6 +161,21 @@ class tofp16(nn.Module):
         return (input.half() for input in inputs)
 
 
+class Normal(object):
+
+    def __init__(self, mean=0, std=1):
+        """
+
+        :param mean:
+        :param std:
+        """
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        return normal_(tensor, self.mean, self.std)
+
+
 class Xavier_Uniform(object):
 
     def __init__(self, gain=1):
@@ -163,6 +187,44 @@ class Xavier_Uniform(object):
 
     def __call__(self, tensor):
         return xavier_uniform_(tensor, self.gain)
+
+
+class ResGenerator(nn.Module):
+
+    def __init__(self, output_size, num_classes=0, latent_size=100,
+        kernel_size=3, activation=nn.ReLU(), conv_groups=1, attention=False,
+        dropout_ratio=0):
+        super(ResGenerator, self).__init__()
+        padding = floor(kernel_size / 2)
+        self.num_classes = num_classes
+        output_channels = output_size[0]
+        self.size = output_size[1]
+        self.fc = Linear(latent_size, 4 * 4 * self.size * 8)
+        current_size = 4
+        self.layers = nn.ModuleList()
+        in_channels = self.size * 8
+        while current_size < self.size:
+            self.layers.append(GeneratorResBlock(in_channels, in_channels //
+                2, num_classes, upsample_size=2, kernel_size=kernel_size,
+                activation=activation, conv_groups=conv_groups if 
+                current_size == 4 else 1, dropout_ratio=dropout_ratio))
+            current_size *= 2
+            in_channels = in_channels // 2
+            if current_size == self.size // 2 and attention:
+                self.layers.append(SelfAttention(in_channels))
+        self.net = nn.Sequential(BatchNorm2d(in_channels, weight_init=
+            Normal(1.0, 0.02)), Conv2d(in_channels, output_channels,
+            kernel_size=kernel_size, padding=padding, weight_init=
+            Xavier_Uniform()), nn.Tanh())
+
+    def forward(self, inputs, labels=None):
+        outputs = self.fc(inputs).view(-1, self.size * 8, 4, 4)
+        for layer in self.layers:
+            if self.num_classes > 1 and not isinstance(layer, SelfAttention):
+                outputs = layer(outputs, labels)
+            else:
+                outputs = layer(outputs)
+        return self.net(outputs)
 
 
 class StandardGenerator(nn.Module):
@@ -205,6 +267,54 @@ class StandardGenerator(nn.Module):
             else:
                 outputs = layer(outputs)
         return torch.tanh(self.final_conv(outputs))
+
+
+class ResProjectionDiscriminator(nn.Module):
+
+    def __init__(self, input_size, num_classes=0, kernel_size=3, activation
+        =nn.ReLU(), attention=True, apply_sigmoid=False, conv_groups=1,
+        dropout_ratio=0):
+        super(ResProjectionDiscriminator, self).__init__()
+        self.num_classes = num_classes
+        in_channels = input_size[0]
+        out_channels = in_channels
+        size = input_size[1]
+        self.apply_sigmoid = apply_sigmoid
+        layers = [DiscriminatorResBlock(in_channels, size, kernel_size=
+            kernel_size, activation=activation, initial_activation=False,
+            dropout_ratio=dropout_ratio)]
+        current_size = size
+        in_channels = size
+        while current_size > 4:
+            layers.append(DiscriminatorResBlock(in_channels, in_channels * 
+                2, kernel_size=kernel_size, downsample_size=2, activation=
+                activation, conv_groups=conv_groups, dropout_ratio=
+                dropout_ratio))
+            current_size /= 2
+            in_channels *= 2
+            if current_size == size // 2 and attention:
+                layers.append(SelfAttention(in_channels))
+        layers.append(GlobalAvgPool2d())
+        self.fc = spectral_norm(Linear(in_channels, out_channels,
+            weight_init=Xavier_Uniform()))
+        self.net = nn.Sequential(*layers)
+        if self.num_classes > 1:
+            self.embed = spectral_norm(Embedding(num_classes, in_channels,
+                weight_init=Xavier_Uniform()))
+
+    def forward(self, inputs, labels=None):
+        outputs = self.net(inputs)
+        linear_out = self.fc(outputs)
+        if self.num_classes > 1:
+            embed = self.embed(labels.long()).squeeze(1)
+            size = outputs.size(1)
+            dot = torch.bmm(outputs.view(-1, 1, size), embed.view(-1, size, 1)
+                ).squeeze(2)
+            return torch.sigmoid(linear_out + dot
+                ) if self.apply_sigmoid else linear_out + dot
+        else:
+            return torch.sigmoid(linear_out
+                ) if self.apply_sigmoid else linear_out
 
 
 class StandardProjectionDiscriminator(nn.Module):
@@ -252,21 +362,6 @@ class StandardProjectionDiscriminator(nn.Module):
         else:
             return torch.sigmoid(linear_out
                 ) if self.apply_sigmoid else linear_out
-
-
-class Normal(object):
-
-    def __init__(self, mean=0, std=1):
-        """
-
-        :param mean:
-        :param std:
-        """
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, tensor):
-        return normal_(tensor, self.mean, self.std)
 
 
 class DCGANGenerator(nn.Module):
@@ -1194,6 +1289,7 @@ class BatchNorm(_BatchNorm):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_johnolafenwa_TorchFusion(_paritybench_base):

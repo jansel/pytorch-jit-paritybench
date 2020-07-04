@@ -23,10 +23,13 @@ main = _module
 progress_bar = _module
 super_resolve = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -54,7 +57,13 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 
 
+import torchvision.transforms as transforms
+
+
 import torch.nn.functional as F
+
+
+from torchvision.models.vgg import vgg16
 
 
 import torch.nn.init as init
@@ -1081,6 +1090,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_icpm_super_resolution(_paritybench_base):
@@ -1117,26 +1127,32 @@ class Test_icpm_super_resolution(_paritybench_base):
 
     @_fails_compile()
     def test_010(self):
-        self._check(Generator(*[], **{'n_residual_blocks': 1, 'upsample_factor': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(Generator(*[], **{'n_residual_blocks': 4, 'upsample_factor': 4}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_011(self):
         self._check(Net(*[], **{'num_channels': 4, 'base_channels': 4, 'num_residuals': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(ResnetBlock(*[], **{'num_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PSBlock(*[], **{'input_size': 4, 'output_size': 4, 'scale_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PixelShuffleBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'upscale_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(UpBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResnetBlock(*[], **{'num_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
-        self._check(UpsampleBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UpBlockPix(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_017(self):
+        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
+        self._check(UpsampleBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
         self._check(Upsampler(*[], **{'scale': 1.0, 'n_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
 

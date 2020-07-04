@@ -130,10 +130,13 @@ remove_solver_states = _module
 test_net = _module
 train_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -308,6 +311,56 @@ class BatchNorm2d(torch.nn.BatchNorm2d):
             return super(BatchNorm2d, self).forward(x)
         output_shape = x.shape
         return _NewEmptyTensorOp.apply(x, output_shape)
+
+
+class _ROIAlign(Function):
+
+    @staticmethod
+    def forward(ctx, input, roi, output_size, spatial_scale, sampling_ratio):
+        ctx.save_for_backward(roi)
+        ctx.output_size = _pair(output_size)
+        ctx.spatial_scale = spatial_scale
+        ctx.sampling_ratio = sampling_ratio
+        ctx.input_shape = input.size()
+        output = _C.roi_align_forward(input, roi, spatial_scale,
+            output_size[0], output_size[1], sampling_ratio)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        rois, = ctx.saved_tensors
+        output_size = ctx.output_size
+        spatial_scale = ctx.spatial_scale
+        sampling_ratio = ctx.sampling_ratio
+        bs, ch, h, w = ctx.input_shape
+        grad_input = _C.roi_align_backward(grad_output, rois, spatial_scale,
+            output_size[0], output_size[1], bs, ch, h, w, sampling_ratio)
+        return grad_input, None, None, None, None
+
+
+roi_align = _ROIAlign.apply
+
+
+class ROIAlign(nn.Module):
+
+    def __init__(self, output_size, spatial_scale, sampling_ratio):
+        super(ROIAlign, self).__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+
+    def forward(self, input, rois):
+        return roi_align(input, rois, self.output_size, self.spatial_scale,
+            self.sampling_ratio)
+
+    def __repr__(self):
+        tmpstr = self.__class__.__name__ + '('
+        tmpstr += 'output_size=' + str(self.output_size)
+        tmpstr += ', spatial_scale=' + str(self.spatial_scale)
+        tmpstr += ', sampling_ratio=' + str(self.sampling_ratio)
+        tmpstr += ')'
+        return tmpstr
 
 
 class _ROIPool(Function):
@@ -1074,6 +1127,133 @@ _STAGE_SPECS = Registry({'R-50-C4': ResNet50StagesTo4, 'R-50-C5':
     'R-50-FPN-RETINANET': ResNet50FPNStagesTo5, 'R-101-FPN':
     ResNet101FPNStagesTo5, 'R-101-FPN-RETINANET': ResNet101FPNStagesTo5,
     'R-152-FPN': ResNet152FPNStagesTo5})
+
+
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
+    dilation=1):
+    blocks = []
+    stride = first_stride
+    for _ in range(block_count):
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride, dilation=dilation))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1)
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+
+    def _freeze_backbone(self, freeze_at):
+        if freeze_at < 0:
+            return
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
+        dilation=1):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride, dilation=
+                dilation)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
 
 
 class Bottleneck(nn.Module):
@@ -2272,32 +2452,6 @@ class PostProcessor(nn.Module):
             keep = torch.nonzero(keep).squeeze(1)
             result = result[keep]
         return result
-
-
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
-
-
-_global_config['MODEL'] = 4
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
 
 
 def make_fc(dim_in, hidden_dim, use_gn=False):
@@ -3576,11 +3730,10 @@ class FCOSModule(torch.nn.Module):
         l_b = [center - step, center + step]
         r_b = [center + step, center + step]
         if self.dense_points == 4:
-            points = torch.cuda.FloatTensor([l_t, r_t, l_b, r_b], device=device
-                )
+            points = torch.FloatTensor([l_t, r_t, l_b, r_b], device=device)
         elif self.dense_points == 5:
-            points = torch.cuda.FloatTensor([l_t, r_t, [center, center],
-                l_b, r_b], device=device)
+            points = torch.FloatTensor([l_t, r_t, [center, center], l_b,
+                r_b], device=device)
         else:
             None
         points.reshape(1, -1, 2)
@@ -4473,6 +4626,7 @@ class RPNModule(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yqyao_FCOS_PLUS(_paritybench_base):
@@ -4483,56 +4637,60 @@ class Test_yqyao_FCOS_PLUS(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(Bottleneck(*[], **{'in_channels': 4, 'bottleneck_channels': 4, 'out_channels': 4, 'num_groups': 1, 'stride_in_1x1': 1, 'stride': 1, 'dilation': 1, 'norm_func': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(CascadeConv3x3(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+    def test_005(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': 'relu', 'bn_type': 'bn'}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

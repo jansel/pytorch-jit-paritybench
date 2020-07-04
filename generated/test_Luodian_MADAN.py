@@ -55,10 +55,13 @@ train_fcn = _module
 train_fcn_adda = _module
 train_fcn_mdan = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -92,6 +95,9 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+import torchvision
+
+
 from torch import nn
 
 
@@ -101,7 +107,16 @@ from torch.autograd import Variable
 from torch.utils import model_zoo
 
 
+from torchvision.models import vgg
+
+
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import logging.config
@@ -120,6 +135,9 @@ import functools
 
 
 from torch.optim import lr_scheduler
+
+
+from torchvision.transforms import transforms
 
 
 from collections import deque
@@ -389,6 +407,130 @@ def safe_load_state_dict(net, state_dict):
         logging.info('Skipped loading some parameters: {}'.format(skipped))
 
 
+class DRN(nn.Module):
+    transform = torchvision.transforms.Compose([torchvision.transforms.
+        ToTensor(), torchvision.transforms.Normalize(mean=[0.485, 0.456, 
+        0.406], std=[0.229, 0.224, 0.225])])
+
+    def __init__(self, block, layers, num_cls=1000, channels=(16, 32, 64, 
+        128, 256, 512, 512, 512), out_map=False, out_middle=False,
+        pool_size=28, weights_init=None, pretrained=True, finetune=False,
+        output_last_ft=False, modelname='drn26'):
+        if output_last_ft:
+            None
+        super(DRN, self).__init__()
+        self.inplanes = channels[0]
+        self.output_last_ft = output_last_ft
+        self.out_map = out_map
+        self.out_dim = channels[-1]
+        self.out_middle = out_middle
+        self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
+            padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(channels[0])
+        self.relu = nn.ReLU(inplace=True)
+        self.layer1 = self._make_layer(BasicBlock, channels[0], layers[0],
+            stride=1)
+        self.layer2 = self._make_layer(BasicBlock, channels[1], layers[1],
+            stride=2)
+        self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2)
+        self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2)
+        self.layer5 = self._make_layer(block, channels[4], layers[4],
+            dilation=2, new_level=False)
+        self.layer6 = None if layers[5] == 0 else self._make_layer(block,
+            channels[5], layers[5], dilation=4, new_level=False)
+        self.layer7 = None if layers[6] == 0 else self._make_layer(BasicBlock,
+            channels[6], layers[6], dilation=2, new_level=False, residual=False
+            )
+        self.layer8 = None if layers[7] == 0 else self._make_layer(BasicBlock,
+            channels[7], layers[7], dilation=1, new_level=False, residual=False
+            )
+        if num_cls > 0:
+            self.avgpool = nn.AvgPool2d(pool_size)
+            self.fc = nn.Conv2d(self.out_dim, num_cls, kernel_size=1,
+                stride=1, padding=0, bias=True)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        if pretrained:
+            if not weights_init is None:
+                state_dict = torch.load(weights_init)
+                None
+            else:
+                state_dict = model_zoo.load_url(model_urls[modelname])
+            if finetune:
+                del state_dict['fc.weight']
+                del state_dict['fc.bias']
+                safe_load_state_dict(self, state_dict)
+                None
+            else:
+                self.load_state_dict(state_dict)
+                None
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
+        new_level=True, residual=True):
+        assert dilation == 1 or dilation % 2 == 0
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
+                block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample,
+            dilation=(1, 1) if dilation == 1 else (dilation // 2 if
+            new_level else dilation, dilation), residual=residual))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, residual=residual,
+                dilation=(dilation, dilation)))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        y = list()
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.layer1(x)
+        y.append(x)
+        x = self.layer2(x)
+        y.append(x)
+        x = self.layer3(x)
+        y.append(x)
+        x = self.layer4(x)
+        y.append(x)
+        x = self.layer5(x)
+        y.append(x)
+        if self.layer6 is not None:
+            x = self.layer6(x)
+            y.append(x)
+        if self.layer7 is not None:
+            x = self.layer7(x)
+            y.append(x)
+        if self.layer8 is not None:
+            x = self.layer8(x)
+            y.append(x)
+        if self.output_last_ft:
+            ft_to_save = x
+        if self.out_map:
+            x = self.fc(x)
+            x = nn.functional.interpolate(x, (h, w), mode='bilinear',
+                align_corners=True)
+        else:
+            x = self.avgpool(x)
+            x = self.fc(x)
+            x = x.view(x.size(0), -1)
+        if self.out_middle:
+            return x, y
+        elif self.output_last_ft:
+            return x, ft_to_save
+        else:
+            return x
+
+
 def get_upsample_filter(size):
     """Make a 2D bilinear kernel suitable for upsampling"""
     factor = (size + 1) // 2
@@ -440,6 +582,111 @@ def make_layers(cfg, batch_norm=False):
             layers.extend(modules)
             in_channels = v
     return nn.Sequential(*layers)
+
+
+@register_model('fcn8s')
+class VGG16_FCN8s(nn.Module):
+    transform = torchvision.transforms.Compose([torchvision.transforms.
+        ToTensor(), torchvision.transforms.Normalize(mean=[0.485, 0.456, 
+        0.406], std=[0.229, 0.224, 0.225])])
+
+    def __init__(self, num_cls=19, pretrained=True, weights_init=None,
+        output_last_ft=False):
+        super().__init__()
+        self.output_last_ft = output_last_ft
+        if weights_init:
+            batch_norm = False
+        else:
+            batch_norm = True
+        self.vgg = make_layers(vgg.cfg['D'], batch_norm=False)
+        self.vgg_head = nn.Sequential(nn.Conv2d(512, 4096, 7), nn.ReLU(
+            inplace=True), nn.Dropout2d(p=0.5), nn.Conv2d(4096, 4096, 1),
+            nn.ReLU(inplace=True), nn.Dropout2d(p=0.5), nn.Conv2d(4096,
+            num_cls, 1))
+        self.upscore2 = self.upscore_pool4 = Bilinear(2, num_cls)
+        self.upscore8 = Bilinear(8, num_cls)
+        self.score_pool4 = nn.Conv2d(512, num_cls, 1)
+        for param in self.score_pool4.parameters():
+            init.constant_(param, 0)
+        self.score_pool3 = nn.Conv2d(256, num_cls, 1)
+        for param in self.score_pool3.parameters():
+            init.constant_(param, 0)
+        if pretrained:
+            if weights_init is not None:
+                self.load_weights(torch.load(weights_init))
+            else:
+                self.load_base_weights()
+
+    def load_base_vgg(self, weights_state_dict):
+        vgg_state_dict = self.get_dict_by_prefix(weights_state_dict, 'vgg.')
+        self.vgg.load_state_dict(vgg_state_dict)
+
+    def load_vgg_head(self, weights_state_dict):
+        vgg_head_state_dict = self.get_dict_by_prefix(weights_state_dict,
+            'vgg_head.')
+        self.vgg_head.load_state_dict(vgg_head_state_dict)
+
+    def get_dict_by_prefix(self, weights_state_dict, prefix):
+        return {k[len(prefix):]: v for k, v in weights_state_dict.items() if
+            k.startswith(prefix)}
+
+    def load_weights(self, weights_state_dict):
+        self.load_base_vgg(weights_state_dict)
+        self.load_vgg_head(weights_state_dict)
+
+    def split_vgg_head(self):
+        self.classifier = list(self.vgg_head.children())[-1]
+        self.vgg_head_feat = nn.Sequential(*list(self.vgg_head.children())[:-1]
+            )
+
+    def forward(self, x):
+        input = x
+        x = F.pad(x, (99, 99, 99, 99), mode='constant', value=0)
+        intermediates = {}
+        fts_to_save = {(16): 'pool3', (23): 'pool4'}
+        for i, module in enumerate(self.vgg):
+            x = module(x)
+            if i in fts_to_save:
+                intermediates[fts_to_save[i]] = x
+        ft_to_save = 5
+        last_ft = {}
+        for i, module in enumerate(self.vgg_head):
+            x = module(x)
+            if i == ft_to_save:
+                last_ft = x
+        _, _, h, w = x.size()
+        upscore2 = self.upscore2(x)
+        pool4 = intermediates['pool4']
+        score_pool4 = self.score_pool4(0.01 * pool4)
+        score_pool4c = _crop(score_pool4, upscore2, offset=5)
+        fuse_pool4 = upscore2 + score_pool4c
+        upscore_pool4 = self.upscore_pool4(fuse_pool4)
+        pool3 = intermediates['pool3']
+        score_pool3 = self.score_pool3(0.0001 * pool3)
+        score_pool3c = _crop(score_pool3, upscore_pool4, offset=9)
+        fuse_pool3 = upscore_pool4 + score_pool3c
+        upscore8 = self.upscore8(fuse_pool3)
+        score = _crop(upscore8, input, offset=31)
+        if self.output_last_ft:
+            return score, last_ft
+        else:
+            return score
+
+    def load_base_weights(self):
+        """This is complicated because we converted the base model to be fully
+		convolutional, so some surgery needs to happen here."""
+        base_state_dict = model_zoo.load_url(vgg.model_urls['vgg16'])
+        vgg_state_dict = {k[len('features.'):]: v for k, v in
+            base_state_dict.items() if k.startswith('features.')}
+        self.vgg.load_state_dict(vgg_state_dict)
+        vgg_head_params = self.vgg_head.parameters()
+        for k, v in base_state_dict.items():
+            if not k.startswith('classifier.'):
+                continue
+            if k.startswith('classifier.6.'):
+                continue
+            vgg_head_param = next(vgg_head_params)
+            vgg_head_param.data = v.view(vgg_head_param.size())
 
 
 class Discriminator(nn.Module):
@@ -820,6 +1067,7 @@ class Classifier(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Luodian_MADAN(_paritybench_base):
@@ -835,11 +1083,17 @@ class Test_Luodian_MADAN(_paritybench_base):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 4096, 64, 64])], {})
 
     def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
     def test_004(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_005(self):
+        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_007(self):
         self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
 

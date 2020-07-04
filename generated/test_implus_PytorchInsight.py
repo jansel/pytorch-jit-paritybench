@@ -175,10 +175,13 @@ pascal_voc = _module
 test = _module
 voc_eval = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -213,6 +216,15 @@ import torch.optim as optim
 
 
 import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
 
 
 import torch.nn.functional as F
@@ -255,6 +267,9 @@ from torch.nn import functional as F
 
 
 import torch.nn.init as init
+
+
+import torchvision
 
 
 from torch.distributed import get_world_size
@@ -6107,8 +6122,8 @@ class SingleRoIExtractor(nn.Module):
         out_size = self.roi_layers[0].out_size
         num_levels = len(feats)
         target_lvls = self.map_roi_levels(rois, num_levels)
-        roi_feats = torch.cuda.FloatTensor(rois.size()[0], self.
-            out_channels, out_size, out_size).fill_(0)
+        roi_feats = torch.FloatTensor(rois.size()[0], self.out_channels,
+            out_size, out_size).fill_(0)
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
@@ -6587,8 +6602,8 @@ class RoIPool(Module):
         return roi_pool(features, rois, self.out_size, self.spatial_scale)
 
 
-import unittest
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_implus_PytorchInsight(_paritybench_base):
@@ -6641,10 +6656,13 @@ class Test_implus_PytorchInsight(_paritybench_base):
     def test_013(self):
         self._check(L2Norm(*[], **{'n_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @unittest.skip("crashes")
+    @_fails_compile()
     def test_014(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShuffleNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_015(self):
+        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
         self._check(SpatialGroupEnhance(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 

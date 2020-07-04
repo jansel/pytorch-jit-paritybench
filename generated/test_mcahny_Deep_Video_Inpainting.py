@@ -24,10 +24,13 @@ utils = _module
 vinet = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -564,7 +567,172 @@ def to_var(x, volatile=False):
     return Variable(x, volatile=volatile)
 
 
+class VINet_final(nn.Module):
+
+    def __init__(self, opt):
+        super(VINet_final, self).__init__()
+        self.opt = opt
+        self.encoder1 = VI_2D_Encoder_3(self.opt)
+        self.encoder2 = VI_2D_Encoder_3(self.opt)
+        self.bottleneck = VI_2D_BottleNeck(self.opt, in_ch=256)
+        self.convlstm = ConvLSTM(input_size=128, hidden_size=128, kernel_size=3
+            )
+        self.decoder = VI_2D_Decoder_3(self.opt)
+        self.flownet = LongFlowNetCorr(self.opt, 128)
+        self.flownet_64 = LongFlowNetCorr(self.opt, 96 + 2)
+        self.flownet_128 = LongFlowNetCorr(self.opt, 64 + 2)
+        if self.opt.prev_warp:
+            self.flownet_256 = LongFlowNetCorr(self.opt, 32 + 2)
+            self.masknet_256 = MaskEstimator_(self.opt, 32)
+            self.warping_256 = Resample2d()
+        self.masknet = MaskEstimator_(self.opt, 128)
+        self.masknet_64 = MaskEstimator_(self.opt, 96)
+        self.masknet_128 = MaskEstimator_(self.opt, 64)
+        self.st_agg = VI_Aggregator(self.opt, in_ch=128, T=5)
+        self.st_agg_64 = VI_Aggregator(self.opt, in_ch=96, T=5)
+        self.st_agg_128 = VI_Aggregator(self.opt, in_ch=64, T=5)
+        self.warping = WarpingLayer()
+        self.warping_64 = WarpingLayer()
+        self.warping_128 = WarpingLayer()
+
+    def forward(self, masked_img, mask, prev_state=None, prev_feed=None, idx=0
+        ):
+        T = masked_img.size(2)
+        ref_idx = (T - 1) // 2
+        ones = to_var(torch.ones(mask.size()))
+        enc_output = []
+        enc_input = torch.cat([masked_img, ones, ones * mask], dim=1)
+        f1, f1_64, f1_128, f1_256 = self.encoder1(enc_input[:, :, (ref_idx),
+            :, :])
+        f2, f2_64, f2_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 2),
+            :, :])
+        f3, f3_64, f3_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 1),
+            :, :])
+        f4, f4_64, f4_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 1),
+            :, :])
+        f5, f5_64, f5_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 2),
+            :, :])
+        f6, f6_64, f6_128, f6_256 = self.encoder2(prev_feed)
+        flow2 = self.flownet(f1, f2)
+        flow3 = self.flownet(f1, f3)
+        flow4 = self.flownet(f1, f4)
+        flow5 = self.flownet(f1, f5)
+        flow6 = self.flownet(f1, f6)
+        f2_warp = self.warping(f2, flow2)
+        f3_warp = self.warping(f3, flow3)
+        f4_warp = self.warping(f4, flow4)
+        f5_warp = self.warping(f5, flow5)
+        f6_warp = self.warping(f6, flow6)
+        f_stack_oth = torch.stack([f2_warp, f3_warp, f4_warp, f5_warp,
+            f6_warp], 2)
+        f_agg = self.st_agg(f_stack_oth).squeeze(2)
+        occlusion_mask = self.masknet(torch.abs(f1 - f_agg))
+        f_syn = (1 - occlusion_mask) * f1 + occlusion_mask * f_agg
+        bott_input = torch.cat([f1, f_syn], 1)
+        output = self.bottleneck(bott_input)
+        state = self.convlstm(output, prev_state)
+        flow2_64 = F.upsample(flow2, scale_factor=2, mode='bilinear') * 2
+        flow3_64 = F.upsample(flow3, scale_factor=2, mode='bilinear') * 2
+        flow4_64 = F.upsample(flow4, scale_factor=2, mode='bilinear') * 2
+        flow5_64 = F.upsample(flow5, scale_factor=2, mode='bilinear') * 2
+        flow6_64 = F.upsample(flow6, scale_factor=2, mode='bilinear') * 2
+        f2_64_warp = self.warping_64(f2_64, flow2_64)
+        f3_64_warp = self.warping_64(f3_64, flow3_64)
+        f4_64_warp = self.warping_64(f4_64, flow4_64)
+        f5_64_warp = self.warping_64(f5_64, flow5_64)
+        f6_64_warp = self.warping_64(f6_64, flow6_64)
+        flow2_64 = self.flownet_64(f1_64, f2_64_warp, flow2_64) + flow2_64
+        flow3_64 = self.flownet_64(f1_64, f3_64_warp, flow3_64) + flow3_64
+        flow4_64 = self.flownet_64(f1_64, f4_64_warp, flow4_64) + flow4_64
+        flow5_64 = self.flownet_64(f1_64, f5_64_warp, flow5_64) + flow5_64
+        flow6_64 = self.flownet_64(f1_64, f6_64_warp, flow6_64) + flow6_64
+        f2_64_warp = self.warping_64(f2_64, flow2_64)
+        f3_64_warp = self.warping_64(f3_64, flow3_64)
+        f4_64_warp = self.warping_64(f4_64, flow4_64)
+        f5_64_warp = self.warping_64(f5_64, flow5_64)
+        f6_64_warp = self.warping_64(f6_64, flow6_64)
+        f_stack_64_oth = torch.stack([f2_64_warp, f3_64_warp, f4_64_warp,
+            f5_64_warp, f6_64_warp], 2)
+        f_agg_64 = self.st_agg_64(f_stack_64_oth).squeeze(2)
+        occlusion_mask_64 = self.masknet_64(torch.abs(f1_64 - f_agg_64))
+        f_syn_64 = (1 - occlusion_mask_64
+            ) * f1_64 + occlusion_mask_64 * f_agg_64
+        flow2_128 = F.upsample(flow2_64, scale_factor=2, mode='bilinear') * 2
+        flow3_128 = F.upsample(flow3_64, scale_factor=2, mode='bilinear') * 2
+        flow4_128 = F.upsample(flow4_64, scale_factor=2, mode='bilinear') * 2
+        flow5_128 = F.upsample(flow5_64, scale_factor=2, mode='bilinear') * 2
+        flow6_128 = F.upsample(flow6_64, scale_factor=2, mode='bilinear') * 2
+        f2_128_warp = self.warping_128(f2_128, flow2_128)
+        f3_128_warp = self.warping_128(f3_128, flow3_128)
+        f4_128_warp = self.warping_128(f4_128, flow4_128)
+        f5_128_warp = self.warping_128(f5_128, flow5_128)
+        f6_128_warp = self.warping_128(f6_128, flow6_128)
+        flow2_128 = self.flownet_128(f1_128, f2_128_warp, flow2_128
+            ) + flow2_128
+        flow3_128 = self.flownet_128(f1_128, f3_128_warp, flow3_128
+            ) + flow3_128
+        flow4_128 = self.flownet_128(f1_128, f4_128_warp, flow4_128
+            ) + flow4_128
+        flow5_128 = self.flownet_128(f1_128, f5_128_warp, flow5_128
+            ) + flow5_128
+        flow6_128 = self.flownet_128(f1_128, f6_128_warp, flow6_128
+            ) + flow6_128
+        f2_128_warp = self.warping_128(f2_128, flow2_128)
+        f3_128_warp = self.warping_128(f3_128, flow3_128)
+        f4_128_warp = self.warping_128(f4_128, flow4_128)
+        f5_128_warp = self.warping_128(f5_128, flow5_128)
+        f6_128_warp = self.warping_128(f6_128, flow6_128)
+        f_stack_128_oth = torch.stack([f2_128_warp, f3_128_warp,
+            f4_128_warp, f5_128_warp, f6_128_warp], 2)
+        f_agg_128 = self.st_agg_128(f_stack_128_oth).squeeze(2)
+        occlusion_mask_128 = self.masknet_128(torch.abs(f1_128 - f_agg_128))
+        f_syn_128 = (1 - occlusion_mask_128
+            ) * f1_128 + occlusion_mask_128 * f_agg_128
+        output, _ = self.decoder(state[0].unsqueeze(2), x2_64_warp=f_syn_64
+            .unsqueeze(2), x2_128_warp=f_syn_128.unsqueeze(2))
+        occ_mask = F.upsample(occlusion_mask, scale_factor=8, mode='bilinear')
+        occ_mask_64 = F.upsample(occlusion_mask_64, scale_factor=4, mode=
+            'bilinear')
+        occ_mask_128 = F.upsample(occlusion_mask_128, scale_factor=2, mode=
+            'bilinear')
+        flow6_256, flow6_512 = None, None
+        if self.opt.prev_warp:
+            if prev_state is not None or idx != 0:
+                flow6_256 = F.upsample(flow6_128, scale_factor=2, mode=
+                    'bilinear') * 2
+                flow6_512 = F.upsample(flow6_128, scale_factor=4, mode=
+                    'bilinear') * 4
+                f6_256_warp = self.warping_256(f6_256, flow6_256)
+                flow6_256 = self.flownet_256(f1_256, f6_256_warp, flow6_256
+                    ) + flow6_256
+                occlusion_mask_256 = self.masknet_256(torch.abs(f1_256 -
+                    f6_256_warp))
+                output_ = output
+                if self.opt.double_size:
+                    prev_feed_warp = self.warping_256(prev_feed[:, :3],
+                        flow6_512)
+                    occlusion_mask_512 = F.upsample(occlusion_mask_256,
+                        scale_factor=2, mode='nearest')
+                    output = (1 - occlusion_mask_512.unsqueeze(2)
+                        ) * output + occlusion_mask_512 * prev_feed_warp.unsqueeze(
+                        2)
+                    flow6_256 = flow6_512
+                else:
+                    prev_feed_warp = self.warping_256(prev_feed[:, :3],
+                        flow6_256)
+                    output = (1 - occlusion_mask_256.unsqueeze(2)
+                        ) * output + occlusion_mask_256 * prev_feed_warp.unsqueeze(
+                        2)
+                if self.opt.loss_on_raw:
+                    output = output, output_
+        return output, torch.stack([flow2_128, flow3_128, flow4_128,
+            flow5_128, flow6_128], 2), state, torch.stack([occ_mask, 1 -
+            occ_mask, occ_mask_64, 1 - occ_mask_64, occ_mask_128, 1 -
+            occ_mask_128], 2), flow6_256
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mcahny_Deep_Video_Inpainting(_paritybench_base):
@@ -588,12 +756,16 @@ class Test_mcahny_Deep_Video_Inpainting(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(VI_2D_BottleNeck(*[], **{'opt': 4, 'in_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(VI_2D_BottleNeck(*[], **{'opt': _mock_config(), 'in_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(VI_Aggregator(*[], **{'opt': 4, 'in_ch': 4, 'T': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(VI_2D_Encoder_3(*[], **{'opt': _mock_config(double_size=4)}), [torch.rand([4, 5, 64, 64])], {})
 
+    @_fails_compile()
     def test_007(self):
+        self._check(VI_Aggregator(*[], **{'opt': _mock_config(), 'in_ch': 4, 'T': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_008(self):
         self._check(WarpingLayer(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
 

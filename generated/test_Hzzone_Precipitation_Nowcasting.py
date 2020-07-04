@@ -28,10 +28,13 @@ trajGRU = _module
 train_and_test = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -68,10 +71,10 @@ import logging
 import torch.nn.functional as F
 
 
-_global_config['GLOBAL'] = 4
-
-
 _global_config['HKO'] = 4
+
+
+_global_config['GLOBAL'] = 4
 
 
 def make_layers(block):
@@ -205,7 +208,7 @@ class Weighted_mse_mae(nn.Module):
         if self._lambda is not None:
             S, B = mse.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 w = w
             mse = (w * mse.permute(1, 0)).permute(1, 0)
             mae = (w * mae.permute(1, 0)).permute(1, 0)
@@ -234,7 +237,7 @@ class WeightedCrossEntropyLoss(nn.Module):
         if self._lambda is not None:
             B, S, H, W = error.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 w = w
             error = (w * error.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         error = error.permute(1, 0, 2, 3).unsqueeze(2)
@@ -306,10 +309,11 @@ class BaseConvRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Hzzone_Precipitation_Nowcasting(_paritybench_base):
     pass
     def test_000(self):
-        self._check(EF(*[], **{'encoder': ReLU(), 'forecaster': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EF(*[], **{'encoder': _mock_layer(), 'forecaster': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

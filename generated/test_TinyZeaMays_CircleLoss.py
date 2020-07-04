@@ -5,10 +5,13 @@ circle_loss = _module
 circle_loss_early = _module
 mnist_example = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -34,6 +37,12 @@ from torch.optim import SGD
 
 
 from torch.utils.data import DataLoader
+
+
+from torchvision.datasets import MNIST
+
+
+from torchvision.transforms import ToTensor
 
 
 class CircleLoss(nn.Module):
@@ -134,6 +143,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_TinyZeaMays_CircleLoss(_paritybench_base):

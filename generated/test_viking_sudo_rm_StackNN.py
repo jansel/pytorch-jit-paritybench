@@ -65,10 +65,13 @@ reverse = _module
 visualization = _module
 visualizers = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -453,6 +456,14 @@ def to_string(obj):
         return str(obj)
 
 
+def top(num_steps):
+    return num_steps
+
+
+def top_to_bottom(num_steps):
+    return reversed(range(num_steps))
+
+
 class Struct(nn.Module):
     """
     Abstract class for implementing neural data structures, such as
@@ -581,9 +592,9 @@ class Struct(nn.Module):
 
 class Queue(nn.Module):
     """
-	Neural queue implementation based on Grefenstette et al., 2015.
-	@see https://arxiv.org/pdf/1506.02516.pdf
-	"""
+    Neural queue implementation based on Grefenstette et al., 2015.
+    @see https://arxiv.org/pdf/1506.02516.pdf
+    """
 
     def __init__(self, batch_size, embedding_size):
         super(Queue, self).__init__()
@@ -595,11 +606,11 @@ class Queue(nn.Module):
 
     def forward(self, v, u, d):
         """
-		@param v [batch_size, embedding_size] matrix to push
-		@param u [batch_size,] vector of pop signals in (0, 1)
-		@param d [batch_size,] vector of push signals in (0, 1)
-		@return [batch_size, embedding_size] read matrix
-		"""
+        @param v [batch_size, embedding_size] matrix to push
+        @param u [batch_size,] vector of pop signals in (0, 1)
+        @param d [batch_size,] vector of push signals in (0, 1)
+        @return [batch_size, embedding_size] read matrix
+        """
         v = v.view(1, self.batch_size, self.embedding_size)
         self.V = torch.cat([self.V, v], 0) if len(self.V.data) != 0 else v
         old_t = self.s.size(0) if self.s.size() else 0
@@ -629,8 +640,8 @@ class Queue(nn.Module):
 
     def log(self):
         """
-		Prints a representation of the queue to stdout.
-		"""
+        Prints a representation of the queue to stdout.
+        """
         V = self.V.data
         if not V.shape:
             None
@@ -644,9 +655,9 @@ class Queue(nn.Module):
 
 class Stack(nn.Module):
     """
-	Neural stack implementation based on Grefenstette et al., 2015.
-	@see https://arxiv.org/pdf/1506.02516.pdf
-	"""
+    Neural stack implementation based on Grefenstette et al., 2015.
+    @see https://arxiv.org/pdf/1506.02516.pdf
+    """
 
     def __init__(self, batch_size, embedding_size, k=None):
         super(Stack, self).__init__()
@@ -659,11 +670,11 @@ class Stack(nn.Module):
 
     def forward(self, v, u, d):
         """
-		@param v [batch_size, embedding_size] matrix to push
-		@param u [batch_size,] vector of pop signals in (0, 1)
-		@param d [batch_size,] vector of push signals in (0, 1)
-		@return [batch_size, embedding_size] or [batch_size, self.k, embedding_size] read matrix
-		"""
+        @param v [batch_size, embedding_size] matrix to push
+        @param u [batch_size,] vector of pop signals in (0, 1)
+        @param d [batch_size,] vector of push signals in (0, 1)
+        @return [batch_size, embedding_size] or [batch_size, self.k, embedding_size] read matrix
+        """
         v = v.view(1, self.batch_size, self.embedding_size)
         self.V = torch.cat([self.V, v], 0) if len(self.V.data) != 0 else v
         old_t = self.s.data.shape[0] if self.s.data.shape else 0
@@ -701,8 +712,8 @@ class Stack(nn.Module):
 
     def log(self):
         """
-		Prints a representation of the stack to stdout.
-		"""
+        Prints a representation of the stack to stdout.
+        """
         V = self.V.data
         if not V.shape:
             None
@@ -715,6 +726,7 @@ class Stack(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_viking_sudo_rm_StackNN(_paritybench_base):
@@ -725,9 +737,9 @@ class Test_viking_sudo_rm_StackNN(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Queue(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4])], {})
+        self._check(Queue(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Stack(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4])], {})
+        self._check(Stack(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {})
 

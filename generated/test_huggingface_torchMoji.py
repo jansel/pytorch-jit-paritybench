@@ -37,10 +37,13 @@ sentence_tokenizer = _module
 tokenizer = _module
 word_generator = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -546,7 +549,7 @@ class TorchMoji(nn.Module):
         """
         return_numpy = False
         return_tensor = False
-        if isinstance(input_seqs, (torch.LongTensor, torch.cuda.LongTensor)):
+        if isinstance(input_seqs, (torch.LongTensor, torch.LongTensor)):
             input_seqs = Variable(input_seqs)
             return_tensor = True
         elif not isinstance(input_seqs, Variable):
@@ -606,6 +609,7 @@ class TorchMoji(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_huggingface_torchMoji(_paritybench_base):

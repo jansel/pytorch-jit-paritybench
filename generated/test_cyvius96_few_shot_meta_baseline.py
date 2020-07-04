@@ -56,10 +56,13 @@ train_meta = _module
 utils = _module
 few_shot = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -82,6 +85,9 @@ import torch.nn.functional as F
 
 
 import numpy as np
+
+
+from torchvision import transforms
 
 
 from torch.utils.data import DataLoader
@@ -791,12 +797,13 @@ class ResNet12(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cyvius96_few_shot_meta_baseline(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Block(*[], **{'inplanes': 4, 'planes': 4, 'downsample': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'inplanes': 4, 'planes': 4, 'downsample': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(ConvNet4(*[], **{}), [torch.rand([4, 3, 64, 64])], {})

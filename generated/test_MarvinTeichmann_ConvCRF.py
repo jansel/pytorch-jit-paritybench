@@ -13,10 +13,13 @@ synthetic = _module
 test_utils = _module
 visualization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -380,7 +383,7 @@ class ConvCRF(nn.Module):
         self.conf = conf
         self.unary_weight = unary_weight
         if self.use_gpu:
-            if not torch.cuda.is_available():
+            if not torch.is_available():
                 logging.error('GPU mode requested but not avaible.')
                 logging.error('Please run using use_gpu=False.')
                 raise ValueError
@@ -453,6 +456,7 @@ class ConvCRF(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MarvinTeichmann_ConvCRF(_paritybench_base):

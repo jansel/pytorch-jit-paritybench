@@ -19,10 +19,13 @@ _transformers = _module
 _weightloader = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,6 +60,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from torch import onnx
@@ -495,6 +504,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MTlab_onnx2caffe(_paritybench_base):
@@ -512,8 +522,11 @@ class Test_MTlab_onnx2caffe(_paritybench_base):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(broadcast_add(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_005(self):
+        self._check(broadcast_add(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_006(self):
         self._check(broadcast_mul(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 

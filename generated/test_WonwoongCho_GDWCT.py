@@ -6,10 +6,13 @@ model = _module
 run = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -62,6 +65,15 @@ import torch.nn.init as init
 
 
 import random
+
+
+from torchvision.utils import save_image
+
+
+from torchvision.utils import make_grid
+
+
+import torchvision.utils as vutils
 
 
 class Content_Encoder(nn.Module):
@@ -451,27 +463,40 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_WonwoongCho_GDWCT(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(Decoder(*[], **{'input_dim': 4, 'mask': 4, 'n_group': 4, 'bias_dim': 4, 'mlp_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(Content_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(Decoder(*[], **{'input_dim': 4, 'mask': 4, 'n_group': 4, 'bias_dim': 4, 'mlp_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(WCT(*[], **{'n_group': 4, 'device': 4, 'input_dim': 4, 'mlp_dim': 4, 'bias_dim': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(Style_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(WCT(*[], **{'n_group': 4, 'device': 0, 'input_dim': 4, 'mlp_dim': 4, 'bias_dim': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
 

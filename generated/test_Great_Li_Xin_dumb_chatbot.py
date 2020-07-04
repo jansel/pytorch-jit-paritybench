@@ -11,10 +11,13 @@ model_utils = _module
 prerequisites = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -64,6 +67,57 @@ GO_token = 1
 
 
 _global_config['TRAIN'] = 4
+
+
+class Seq2Seq(nn.Module):
+
+    def __init__(self, encoder, decoder, max_length=20, tie_weights=False):
+        super(Seq2Seq, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.max_length = max_length
+        if USE_CUDA:
+            self.encoder
+            self.decoder
+        if tie_weights:
+            self.decoder.embedding.weight = self.encoder.embedding.weight
+
+    def forward(self, input_group, target_group=(None, None),
+        teacher_forcing_ratio=0.5):
+        input_var, input_lens = input_group
+        encoder_outputs, encoder_hidden = self.encoder(input_var, input_lens)
+        batch_size = input_var.size(1)
+        target_var, target_lens = target_group
+        if target_var is None or target_lens is None:
+            max_target_length = self.max_length
+            teacher_forcing_ratio = 0
+        else:
+            max_target_length = max(target_lens)
+        all_decoder_outputs = torch.zeros(max_target_length, batch_size,
+            self.decoder.output_size)
+        decoder_input = torch.tensor([GO_token] * batch_size, requires_grad
+            =False)
+        if USE_CUDA:
+            all_decoder_outputs = all_decoder_outputs
+            decoder_input = decoder_input
+        decoder_hidden = encoder_hidden[:self.decoder.num_layers]
+        for t in range(max_target_length):
+            decoder_output, decoder_hidden, decoder_attn = self.decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
+            all_decoder_outputs[t] = decoder_output
+            use_teacher_forcing = random.random() < teacher_forcing_ratio
+            if use_teacher_forcing:
+                decoder_input = target_var[t]
+            else:
+                top_v, top_i = decoder_output.data.topk(1, dim=1)
+                decoder_input = top_i.squeeze(1).clone().detach()
+        return all_decoder_outputs
+
+    def response(self, input_var):
+        length = input_var.size(0)
+        input_group = input_var, [length]
+        decoder_outputs = self.forward(input_group, teacher_forcing_ratio=0)
+        return decoder_outputs
 
 
 class Attn(nn.Module):
@@ -166,6 +220,7 @@ class Decoder(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Great_Li_Xin_dumb_chatbot(_paritybench_base):

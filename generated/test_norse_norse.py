@@ -62,10 +62,13 @@ test = _module
 test_encode = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -81,6 +84,9 @@ import time
 import torch
 
 
+import torchaudio
+
+
 import numpy as np
 
 
@@ -91,6 +97,9 @@ import uuid
 
 
 from collections import namedtuple
+
+
+import torchvision
 
 
 from typing import NamedTuple
@@ -304,6 +313,26 @@ class LSNNPolicy(torch.nn.Module):
         m, _ = torch.max(voltages, 0)
         p_y = torch.nn.functional.softmax(m, dim=1)
         return p_y
+
+
+class LIFConvNet(torch.nn.Module):
+
+    def __init__(self, num_channels, device='cpu'):
+        super(LIFConvNet, self).__init__()
+        if FLAGS.net == 'convnet':
+            dtype = torch.float
+            self.rsnn = ConvNet(device=device, num_channels=num_channels,
+                feature_size=32, dtype=dtype)
+        elif FLAGS.net == 'convnet4':
+            self.rsnn = ConvNet4(device=device, num_channels=num_channels,
+                feature_size=32)
+        self.device = device
+
+    def forward(self, x):
+        voltages = self.rsnn(x.permute(1, 0, 2, 3, 4))
+        m, _ = torch.max(voltages, 0)
+        log_p_y = torch.nn.functional.log_softmax(m, dim=1)
+        return log_p_y
 
 
 class LIFConvNet(torch.nn.Module):
@@ -2137,6 +2166,7 @@ class LSNNFeedForwardCell(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_norse_norse(_paritybench_base):

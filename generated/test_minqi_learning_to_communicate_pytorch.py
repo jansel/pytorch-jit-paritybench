@@ -12,10 +12,13 @@ switch_game = _module
 analyze_results = _module
 dotdic = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -143,7 +146,12 @@ class SwitchCNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_minqi_learning_to_communicate_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(SwitchCNet(*[], **{'opt': _mock_config(game_comm_bits=4, game_nagents=4, model_rnn_size=4, model_action_aware=4, model_dial=4, game_action_space_total=4, comm_enabled=4, model_bn=4, model_comm_narrow=4, model_rnn_dropout_rate=0.5, model_rnn_layers=1)}), [torch.zeros([1024], dtype=torch.int64), torch.rand([64, 4, 4, 4]), torch.rand([1, 1024, 4]), torch.zeros([1024], dtype=torch.int64), torch.zeros([1024], dtype=torch.int64)], {})
+

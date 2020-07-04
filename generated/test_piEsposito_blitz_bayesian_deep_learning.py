@@ -32,10 +32,13 @@ variational_estimator_test = _module
 variational_estimator = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,6 +60,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
+
+
 import numpy as np
 
 
@@ -73,6 +82,9 @@ import torch.optim
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as datasets
 
 
 import torch.nn
@@ -226,6 +238,42 @@ def variational_estimator(nn_class):
 
 
 @variational_estimator
+class BayesianCNN(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = BayesianConv2d(1, 6, (5, 5))
+        self.conv2 = BayesianConv2d(6, 16, (5, 5))
+        self.fc1 = BayesianLinear(256, 120)
+        self.fc2 = BayesianLinear(120, 84)
+        self.fc3 = BayesianLinear(84, 10)
+
+    def forward(self, x):
+        out = F.relu(self.conv1(x))
+        out = F.max_pool2d(out, 2)
+        out = F.relu(self.conv2(out))
+        out = F.max_pool2d(out, 2)
+        out = out.view(out.size(0), -1)
+        out = F.relu(self.fc1(out))
+        out = F.relu(self.fc2(out))
+        out = self.fc3(out)
+        return out
+
+
+@variational_estimator
+class BayesianRegressor(nn.Module):
+
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.blinear1 = BayesianLinear(input_dim, 512)
+        self.blinear2 = BayesianLinear(512, output_dim)
+
+    def forward(self, x):
+        x_ = self.blinear1(x)
+        return self.blinear2(x_)
+
+
+@variational_estimator
 class VGG(nn.Module):
     """
     VGG model 
@@ -331,6 +379,7 @@ class ScaleMixturePrior(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_piEsposito_blitz_bayesian_deep_learning(_paritybench_base):

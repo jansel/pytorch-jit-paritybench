@@ -11,10 +11,13 @@ policy = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -153,18 +156,19 @@ class NoisyLinear(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hengyuan_hu_rainbow(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicNetwork(*[], **{'conv': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicNetwork(*[], **{'conv': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(DistributionalBasicNetwork(*[], **{'conv': ReLU(), 'fc': ReLU(), 'num_actions': 4, 'num_atoms': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(DistributionalBasicNetwork(*[], **{'conv': _mock_layer(), 'fc': _mock_layer(), 'num_actions': 4, 'num_atoms': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_002(self):
-        self._check(DuelingNetwork(*[], **{'conv': ReLU(), 'adv': ReLU(), 'val': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DuelingNetwork(*[], **{'conv': _mock_layer(), 'adv': _mock_layer(), 'val': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):

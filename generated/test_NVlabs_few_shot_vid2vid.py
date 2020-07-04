@@ -77,10 +77,13 @@ html = _module
 image_pool = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -142,6 +145,9 @@ from torch.nn.parallel._functions import ReduceAddCoalesced
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+import torchvision
 
 
 from collections import OrderedDict
@@ -373,7 +379,7 @@ class BaseModel(torch.nn.Module):
         self.opt = opt
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
-        self.Tensor = torch.cuda.FloatTensor if self.gpu_ids else torch.Tensor
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
         self.old_lr = opt.lr
         self.pose = 'pose' in opt.dataset_mode
@@ -404,7 +410,7 @@ class BaseModel(torch.nn.Module):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         torch.save(network.cpu().state_dict(), save_path)
-        if len(gpu_ids) and torch.cuda.is_available():
+        if len(gpu_ids) and torch.is_available():
             network
 
     def load_network(self, network, network_label, epoch_label, save_dir=''):
@@ -680,9 +686,96 @@ def execute_replication_callbacks(modules):
                 m.__data_parallel_replicate__(ctxs[j], i)
 
 
+class MyModel(nn.Module):
+
+    def __init__(self, opt, model):
+        super(MyModel, self).__init__()
+        self.opt = opt
+        model = model
+        self.module = model
+        self.model = DataParallelWithCallback(model, device_ids=opt.gpu_ids)
+        if opt.batch_for_first_gpu != -1:
+            self.bs_per_gpu = (opt.batchSize - opt.batch_for_first_gpu) // (len
+                (opt.gpu_ids) - 1)
+        else:
+            self.bs_per_gpu = int(np.ceil(float(opt.batchSize) / len(opt.
+                gpu_ids)))
+        self.pad_bs = self.bs_per_gpu * len(opt.gpu_ids) - opt.batchSize
+
+    def forward(self, *inputs, **kwargs):
+        inputs = self.add_dummy_to_tensor(inputs, self.pad_bs)
+        outputs = self.model(*inputs, **kwargs, dummy_bs=self.pad_bs)
+        if self.pad_bs == self.bs_per_gpu:
+            return self.remove_dummy_from_tensor(outputs, 1)
+        return outputs
+
+    def add_dummy_to_tensor(self, tensors, add_size=0):
+        if add_size == 0 or tensors is None:
+            return tensors
+        if type(tensors) == list or type(tensors) == tuple:
+            return [self.add_dummy_to_tensor(tensor, add_size) for tensor in
+                tensors]
+        if isinstance(tensors, torch.Tensor):
+            dummy = torch.zeros_like(tensors)[:add_size]
+            tensors = torch.cat([dummy, tensors])
+        return tensors
+
+    def remove_dummy_from_tensor(self, tensors, remove_size=0):
+        if remove_size == 0 or tensors is None:
+            return tensors
+        if type(tensors) == list or type(tensors) == tuple:
+            return [self.remove_dummy_from_tensor(tensor, remove_size) for
+                tensor in tensors]
+        if isinstance(tensors, torch.Tensor):
+            tensors = tensors[remove_size:]
+        return tensors
+
+
 def actvn(x):
     out = F.leaky_relu(x, 0.2)
     return out
+
+
+def generalNorm(norm):
+    if 'spade' in norm:
+        return SPADE
+
+    def get_norm(norm):
+        if 'instance' in norm:
+            return nn.InstanceNorm2d
+        elif 'syncbatch' in norm:
+            return SynchronizedBatchNorm2d
+        elif 'batch' in norm:
+            return nn.BatchNorm2d
+    norm = get_norm(norm)
+
+
+    class NormalNorm(norm):
+
+        def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=
+            False, **kwargs):
+            super(NormalNorm, self).__init__(*args, **kwargs)
+
+        def forward(self, input, label=None, weight=None):
+            return super(NormalNorm, self).forward(input)
+    return NormalNorm
+
+
+class SPADEConv2d(nn.Module):
+
+    def __init__(self, fin, fout, norm='batch', hidden_nc=0, kernel_size=3,
+        padding=1, stride=1):
+        super().__init__()
+        self.conv = sn(nn.Conv2d(fin, fout, kernel_size=kernel_size, stride
+            =stride, padding=padding))
+        Norm = generalNorm(norm)
+        self.bn = Norm(fout, hidden_nc=hidden_nc, norm=norm, ks=3)
+
+    def forward(self, x, label=None):
+        x = self.conv(x)
+        out = self.bn(x, label)
+        out = actvn(out)
+        return out
 
 
 def concat(a, b, dim=0):
@@ -2133,6 +2226,7 @@ class VGG_Activations(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
@@ -2140,42 +2234,61 @@ class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
     def test_000(self):
         self._check(BaseModel(*[], **{}), [], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(DataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    def test_002(self):
         self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(L1Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(L2Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    @_fails_compile()
+    def test_012(self):
+        self._check(SPADEConv2d(*[], **{'fin': 4, 'fout': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(SPADEResnetBlock(*[], **{'fin': 4, 'fout': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(VGGLoss(*[], **{'opt': _mock_config(), 'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_015(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_016(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_017(self):
         self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

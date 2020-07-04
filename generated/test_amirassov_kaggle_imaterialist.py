@@ -200,10 +200,13 @@ split = _module
 submit = _module
 visualization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1437,6 +1440,31 @@ class FCOSHead(nn.Module):
         return torch.sqrt(centerness_targets)
 
 
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
 norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
     ), 'GN': ('gn', nn.GroupNorm)}
 
@@ -1480,6 +1508,50 @@ def build_norm_layer(cfg, num_features, postfix=''):
     for param in layer.parameters():
         param.requires_grad = requires_grad
     return name, layer
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
+        None, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(
+        type='BN'), dcn=None):
+        super(BasicBlock, self).__init__()
+        assert dcn is None, 'Not implemented yet.'
+        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
+        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
+        self.conv1 = build_conv_layer(conv_cfg, inplanes, planes, 3, stride
+            =stride, padding=dilation, dilation=dilation, bias=False)
+        self.add_module(self.norm1_name, norm1)
+        self.conv2 = build_conv_layer(conv_cfg, planes, planes, 3, padding=
+            1, bias=False)
+        self.add_module(self.norm2_name, norm2)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.dilation = dilation
+        assert not with_cp
+
+    @property
+    def norm1(self):
+        return getattr(self, self.norm1_name)
+
+    @property
+    def norm2(self):
+        return getattr(self, self.norm2_name)
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.norm2(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.relu(out)
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -1628,6 +1700,153 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
             groups=groups, base_width=base_width, style=style, with_cp=
             with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg, dcn=dcn))
     return nn.Sequential(*layers)
+
+
+@BACKBONES.register_module
+class ResNet(nn.Module):
+    """ResNet backbone.
+
+    Args:
+        depth (int): Depth of resnet, from {18, 34, 50, 101, 152}.
+        num_stages (int): Resnet stages, normally 4.
+        strides (Sequence[int]): Strides of the first block of each stage.
+        dilations (Sequence[int]): Dilation of each stage.
+        out_indices (Sequence[int]): Output from which stages.
+        style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
+            layer is the 3x3 conv layer, otherwise the stride-two layer is
+            the first 1x1 conv layer.
+        frozen_stages (int): Stages to be frozen (stop grad and set eval mode).
+            -1 means not freezing any parameters.
+        norm_cfg (dict): dictionary to construct and config norm layer.
+        norm_eval (bool): Whether to set norm layers to eval mode, namely,
+            freeze running stats (mean and var). Note: Effect on Batch Norm
+            and its variants only.
+        with_cp (bool): Use checkpoint or not. Using checkpoint will save some
+            memory while slowing down the training speed.
+        zero_init_residual (bool): whether to use zero init for last norm layer
+            in resblocks to let them behave as identity.
+    """
+    arch_settings = {(18): (BasicBlock, (2, 2, 2, 2)), (34): (BasicBlock, (
+        3, 4, 6, 3)), (50): (Bottleneck, (3, 4, 6, 3)), (101): (Bottleneck,
+        (3, 4, 23, 3)), (152): (Bottleneck, (3, 8, 36, 3))}
+
+    def __init__(self, depth, num_stages=4, strides=(1, 2, 2, 2), dilations
+        =(1, 1, 1, 1), out_indices=(0, 1, 2, 3), style='pytorch',
+        frozen_stages=-1, conv_cfg=None, norm_cfg=dict(type='BN',
+        requires_grad=True), norm_eval=True, dcn=None, stage_with_dcn=(
+        False, False, False, False), with_cp=False, zero_init_residual=True):
+        super(ResNet, self).__init__()
+        if depth not in self.arch_settings:
+            raise KeyError('invalid depth {} for resnet'.format(depth))
+        self.depth = depth
+        self.num_stages = num_stages
+        assert num_stages >= 1 and num_stages <= 4
+        self.strides = strides
+        self.dilations = dilations
+        assert len(strides) == len(dilations) == num_stages
+        self.out_indices = out_indices
+        assert max(out_indices) < num_stages
+        self.style = style
+        self.frozen_stages = frozen_stages
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.with_cp = with_cp
+        self.norm_eval = norm_eval
+        self.dcn = dcn
+        self.stage_with_dcn = stage_with_dcn
+        if dcn is not None:
+            assert len(stage_with_dcn) == num_stages
+        self.zero_init_residual = zero_init_residual
+        self.block, stage_blocks = self.arch_settings[depth]
+        self.stage_blocks = stage_blocks[:num_stages]
+        self.inplanes = 64
+        self._make_stem_layer()
+        self.res_layers = []
+        for i, num_blocks in enumerate(self.stage_blocks):
+            stride = strides[i]
+            dilation = dilations[i]
+            dcn = self.dcn if self.stage_with_dcn[i] else None
+            planes = 64 * 2 ** i
+            res_layer = make_res_layer(self.block, self.inplanes, planes,
+                num_blocks, stride=stride, dilation=dilation, style=self.
+                style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=
+                norm_cfg, dcn=dcn)
+            self.inplanes = planes * self.block.expansion
+            layer_name = 'layer{}'.format(i + 1)
+            self.add_module(layer_name, res_layer)
+            self.res_layers.append(layer_name)
+        self._freeze_stages()
+        self.feat_dim = self.block.expansion * 64 * 2 ** (len(self.
+            stage_blocks) - 1)
+
+    @property
+    def norm1(self):
+        return getattr(self, self.norm1_name)
+
+    def _make_stem_layer(self):
+        self.conv1 = build_conv_layer(self.conv_cfg, 3, 64, kernel_size=7,
+            stride=2, padding=3, bias=False)
+        self.norm1_name, norm1 = build_norm_layer(self.norm_cfg, 64, postfix=1)
+        self.add_module(self.norm1_name, norm1)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+    def _freeze_stages(self):
+        if self.frozen_stages >= 0:
+            self.norm1.eval()
+            for m in [self.conv1, self.norm1]:
+                for param in m.parameters():
+                    param.requires_grad = False
+        for i in range(1, self.frozen_stages + 1):
+            m = getattr(self, 'layer{}'.format(i))
+            m.eval()
+            for param in m.parameters():
+                param.requires_grad = False
+
+    def init_weights(self, pretrained=None):
+        if isinstance(pretrained, str):
+            logger = logging.getLogger()
+            load_checkpoint(self, pretrained, strict=False, logger=logger)
+        elif pretrained is None:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    kaiming_init(m)
+                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
+                    constant_init(m, 1)
+            if self.dcn is not None:
+                for m in self.modules():
+                    if isinstance(m, Bottleneck) and hasattr(m, 'conv2_offset'
+                        ):
+                        constant_init(m.conv2_offset, 0)
+            if self.zero_init_residual:
+                for m in self.modules():
+                    if isinstance(m, Bottleneck):
+                        constant_init(m.norm3, 0)
+                    elif isinstance(m, BasicBlock):
+                        constant_init(m.norm2, 0)
+        else:
+            raise TypeError('pretrained must be a str or None')
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.norm1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        outs = []
+        for i, layer_name in enumerate(self.res_layers):
+            res_layer = getattr(self, layer_name)
+            x = res_layer(x)
+            if i in self.out_indices:
+                outs.append(x)
+        return tuple(outs)
+
+    def train(self, mode=True):
+        super(ResNet, self).train(mode)
+        self._freeze_stages()
+        if mode and self.norm_eval:
+            for m in self.modules():
+                if isinstance(m, _BatchNorm):
+                    m.eval()
 
 
 class L2Norm(nn.Module):
@@ -2414,8 +2633,8 @@ class SingleRoIExtractor(nn.Module):
         out_size = self.roi_layers[0].out_size
         num_levels = len(feats)
         target_lvls = self.map_roi_levels(rois, num_levels)
-        roi_feats = torch.cuda.FloatTensor(rois.size()[0], self.
-            out_channels, out_size, out_size).fill_(0)
+        roi_feats = torch.FloatTensor(rois.size()[0], self.out_channels,
+            out_size, out_size).fill_(0)
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
@@ -3028,6 +3247,7 @@ class SigmoidFocalLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_amirassov_kaggle_imaterialist(_paritybench_base):

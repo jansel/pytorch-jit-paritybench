@@ -92,10 +92,13 @@ test_config = _module
 test_messenger = _module
 versioneer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -260,7 +263,211 @@ class AbstractNetwork(object):
         return self._init_kwargs
 
 
+class AbstractPyTorchNetwork(AbstractNetwork, torch.nn.Module):
+    """
+    Abstract Class for PyTorch Networks
+
+    See Also
+    --------
+    `torch.nn.Module`
+    :class:`AbstractNetwork`
+
+    """
+
+    @abc.abstractmethod
+    def __init__(self, **kwargs):
+        """
+
+        Parameters
+        ----------
+        **kwargs :
+            keyword arguments (are passed to :class:`AbstractNetwork`'s `
+            __init__ to register them as init kwargs
+
+        """
+        torch.nn.Module.__init__(self)
+        AbstractNetwork.__init__(self, **kwargs)
+
+    @abc.abstractmethod
+    def forward(self, *inputs):
+        """
+        Forward inputs through module (defines module behavior)
+        Parameters
+        ----------
+        inputs : list
+            inputs of arbitrary type and number
+
+        Returns
+        -------
+        Any
+            result: module results of arbitrary type and number
+
+        """
+        raise NotImplementedError()
+
+    def __call__(self, *args, **kwargs):
+        """
+        Calls Forward method
+
+        Parameters
+        ----------
+        *args :
+            positional arguments (passed to `forward`)
+        **kwargs :
+            keyword arguments (passed to `forward`)
+
+        Returns
+        -------
+        Any
+            result: module results of arbitrary type and number
+
+        """
+        return torch.jit.ScriptModule.__call__(self, *args, **kwargs)
+
+    @staticmethod
+    def prepare_batch(batch: dict, input_device, output_device):
+        """
+        Helper Function to prepare Network Inputs and Labels (convert them
+        to correct type and shape and push them to correct devices)
+
+        Parameters
+        ----------
+        batch : dict
+            dictionary containing all the data
+        input_device : torch.device
+            device for network inputs
+        output_device : torch.device
+            device for network outputs
+
+        Returns
+        -------
+        dict
+            dictionary containing data in correct type and shape and on
+            correct device
+
+        """
+        return_dict = {'data': torch.from_numpy(batch['data']).to(input_device)
+            }
+        for key, vals in batch.items():
+            if key == 'data':
+                continue
+            return_dict[key] = torch.from_numpy(vals).to(output_device)
+        return return_dict
+
+    @staticmethod
+    def closure(model, data_dict: dict, optimizers: dict, losses: dict,
+        iter_num: int, fold=0, **kwargs):
+        """
+        closure method to do a single backpropagation step
+
+        Parameters
+        ----------
+        model : :class:`AbstractPyTorchNetwork`
+            trainable model
+        data_dict : dict
+            dictionary containing the data
+        optimizers : dict
+            dictionary of optimizers to optimize model's parameters
+        losses : dict
+            dict holding the losses to calculate errors
+            (gradients from different losses will be accumulated)
+        iter_num: int
+            the number of of the current iteration in the current epoch;
+            Will be restarted at zero at the beginning of every epoch
+        fold : int
+            Current Fold in Crossvalidation (default: 0)
+        **kwargs:
+            additional keyword arguments
+
+        Returns
+        -------
+        dict
+            Loss values (with same keys as input dict losses)
+        dict
+            Arbitrary number of predictions as numpy array
+
+        """
+        loss_vals = {}
+        total_loss = 0
+        with torch.enable_grad():
+            inputs = data_dict['data']
+            preds = model(inputs)
+            for key, crit_fn in losses.items():
+                _loss_val = crit_fn(preds['pred'], data_dict['label'])
+                loss_vals[key] = _loss_val.item()
+                total_loss += _loss_val
+            optimizers['default'].zero_grad()
+            with scale_loss(total_loss, optimizers['default']) as scaled_loss:
+                scaled_loss.backward()
+            optimizers['default'].step()
+        return loss_vals, {k: v.detach() for k, v in preds.items()}
+
+
+class DataParallelPyTorchNetwork(AbstractPyTorchNetwork, torch.nn.DataParallel
+    ):
+    """
+    A Wrapper around a :class:`AbstractPyTorchNetwork` instance to
+    implement parallel training by splitting the batches
+    """
+
+    def __init__(self, module: AbstractPyTorchNetwork, device_ids=None,
+        output_device=None, dim=0):
+        """
+
+        Parameters
+        ----------
+        module : :class:`AbstractPyTorchNetwork`
+            the module to wrap (will be replicated on all devices)
+        device_ids : list
+            a list containing the devices to use (either as strings or as
+            :class:`chainer.backend.Device`).
+        output_device : str or :class:`chainer.backend.Device`
+            The output device
+            Make sure, your labels are also on this device
+            for loss calculation!
+            If not specified, the second device of ``devices`` will be used
+            for output gathering.
+        dim : int
+            the index of the batchdimension (usually 0, but can become
+            e.g. 1 in NLP tasks)
+
+        """
+        AbstractPyTorchNetwork.__init__(self)
+        torch.nn.DataParallel.__init__(self, module, device_ids,
+            output_device, dim)
+
+    def forward(self, *args, **kwargs):
+        """
+        Scatters the inputs (both positional and keyword arguments) across
+        all devices, feeds them through model replicas and re-builds
+        batches on output device
+
+        Parameters
+        ----------
+        *args :
+            positional arguments of arbitrary number and type
+        **kwargs :
+            keyword arguments of arbitrary number and type
+
+        Returns
+        -------
+        Any
+            combined output from all scattered models
+
+        """
+        return torch.nn.DataParallel.forward(*args, **kwargs)
+
+    @property
+    def closure(self):
+        return self.module.closure
+
+    @property
+    def prepare_batch(self):
+        return self.module.prepare_batch
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_delira_dev_delira(_paritybench_base):

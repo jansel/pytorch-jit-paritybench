@@ -10,10 +10,13 @@ preprocess_data = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -187,7 +190,7 @@ class Model(nn.Module):
 
     @property
     def device(self):
-        if self.args.gpu is not None and torch.cuda.is_available():
+        if self.args.gpu is not None and torch.is_available():
             return torch.device('cuda')
         else:
             return torch.device('cpu')
@@ -383,10 +386,12 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_salesforce_glad(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(SelfAttention(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4]), [4, 4]], {})
+        self._check(FixedEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [], {'input': torch.zeros([4], dtype=torch.int64)})
 

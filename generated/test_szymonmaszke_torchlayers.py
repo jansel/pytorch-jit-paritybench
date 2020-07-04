@@ -30,10 +30,13 @@ pooling = _module
 regularization = _module
 upsample = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -354,6 +357,79 @@ class HardSwish(torch.nn.Module):
 
     def forward(self, tensor: torch.Tensor):
         return hard_swish(tensor)
+
+
+class SeparableConv(torch.nn.Module):
+    """Separable convolution layer (a.k.a. depthwise separable convolution).
+
+    Based on input shape it either creates 1D, 2D or 3D separable convolution
+    for inputs of shape 3D, 4D, 5D respectively (including batch as first dimension).
+
+    Additional `same` `padding` mode was added and set as default.
+    This mode preserves all dimensions excepts channels.
+
+    `kernel_size` got a default value of `3`.
+
+    .. note::
+                **IMPORTANT**: `same` currently works only for odd values of `kernel_size`,
+                `dilation` and `stride`. If any of those is even you should explicitly pad
+                your input asymmetrically with `torch.functional.pad` or a-like.
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of channels in the input image
+    out_channels : int
+        Number of channels produced by the convolution
+    kernel_size : Union[int, Tuple[int, int], Tuple[int, int, int]], optional
+        Size of the convolving kernel. User can specify `int` or 2-tuple (for `Conv2d`)
+        or 3-tuple (for `Conv3d`). Default: `3`
+    stride : Union[int, Tuple[int, int], Tuple[int, int, int]], optional
+        Stride of the convolution. User can specify `int` or 2-tuple (for `Conv2d`)
+        or 3-tuple (for `Conv3d`). Default: `3`
+    padding : Union[str, int, Tuple[int, int], Tuple[int, int, int]], optional
+        Padding added to both sides of the input. String "same" can be used with odd
+        `kernel_size`, `stride` and `dilation`
+        User can specify `int` or 2-tuple (for `Conv2d`)
+        or 3-tuple (for `Conv3d`). Default: `same`
+    dilation : Union[int, Tuple[int, int], Tuple[int, int, int]], optional
+        Spacing between kernel elements. String "same" can be used with odd
+        `kernel_size`, `stride` and `dilation`
+        User can specify `int` or 2-tuple (for `Conv2d`)
+        or 3-tuple (for `Conv3d`). Default: `1`
+    bias : bool, optional
+        If ``True``, adds a learnable bias to the output. Default: ``True``
+    padding_mode : string, optional
+        Accepted values `zeros` and `circular` Default: `zeros`
+
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size=3,
+        stride=1, padding='same', dilation=1, bias: bool=True, padding_mode:
+        str='zeros'):
+        super().__init__()
+        self.in_channels: int = in_channels
+        self.out_channels: int = out_channels
+        self.kernel_size: typing.Union[int, typing.Tuple[int, int], typing.
+            Tuple[int, int, int]] = kernel_size
+        self.stride: typing.Union[int, typing.Tuple[int, int], typing.Tuple
+            [int, int, int]] = stride
+        self.padding: typing.Union[str, int, typing.Tuple[int, int], typing
+            .Tuple[int, int, int]] = padding
+        self.dilation: typing.Union[int, typing.Tuple[int, int], typing.
+            Tuple[int, int, int]] = dilation
+        self.bias: bool = bias
+        self.padding_mode: str = padding_mode
+        self.depthwise = Conv(in_channels=in_channels, out_channels=
+            in_channels, kernel_size=kernel_size, stride=stride, padding=
+            padding, dilation=dilation, groups=in_channels, bias=bias,
+            padding_mode=padding_mode)
+        self.pointwise = Conv(in_channels=in_channels, out_channels=
+            out_channels, kernel_size=1, stride=1, padding=0, dilation=1,
+            groups=1, bias=False, padding_mode=padding_mode)
+
+    def forward(self, inputs):
+        return self.pointwise(self.depthwise(inputs))
 
 
 class ChannelShuffle(torch.nn.Module):
@@ -1276,6 +1352,7 @@ class ConvPixelShuffle(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_szymonmaszke_torchlayers(_paritybench_base):
@@ -1297,27 +1374,38 @@ class Test_szymonmaszke_torchlayers(_paritybench_base):
     def test_004(self):
         self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(Poly(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'function': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_006(self):
-        self._check(Residual(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Poly(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Reshape(*[], **{}), [torch.rand([4])], {})
 
     def test_008(self):
-        self._check(StochasticDepth(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Residual(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StochasticDepth(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
+        self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(WeightDecay(*[], **{'module': _mock_layer(), 'weight_decay': 4}), [], {'input': torch.rand([4, 4])})
+
+    def test_015(self):
         self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

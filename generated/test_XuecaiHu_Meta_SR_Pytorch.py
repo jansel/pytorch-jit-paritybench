@@ -31,10 +31,13 @@ test = _module
 trainer = _module
 utility = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -60,6 +63,9 @@ import torch.optim as optim
 
 
 from torch.autograd import Variable
+
+
+import torchvision.models as models
 
 
 import math
@@ -1060,6 +1066,7 @@ class RDN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_XuecaiHu_Meta_SR_Pytorch(_paritybench_base):
@@ -1074,8 +1081,14 @@ class Test_XuecaiHu_Meta_SR_Pytorch(_paritybench_base):
         self._check(Pos2Weight(*[], **{'inC': 4}), [torch.rand([3, 3])], {})
 
     def test_003(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RCAB(*[], **{'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ResBlock(*[], **{'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

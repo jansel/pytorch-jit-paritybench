@@ -37,10 +37,13 @@ mask = _module
 timer = _module
 yolo = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -89,10 +92,7 @@ def _make_layers(in_channels, net_cfg):
     return nn.Sequential(*layers), in_channels
 
 
-_global_config['multi_scale_inp_size'] = 1.0
-
-
-_global_config['object_scale'] = 1.0
+_global_config['anchors'] = 4
 
 
 _global_config['noobject_scale'] = 1.0
@@ -101,19 +101,22 @@ _global_config['noobject_scale'] = 1.0
 _global_config['class_scale'] = 1.0
 
 
-_global_config['multi_scale_out_size'] = 1.0
-
-
 _global_config['num_classes'] = 4
 
 
-_global_config['anchors'] = 4
+_global_config['multi_scale_out_size'] = 1.0
+
+
+_global_config['iou_thresh'] = 4
 
 
 _global_config['coord_scale'] = 1.0
 
 
-_global_config['iou_thresh'] = 4
+_global_config['object_scale'] = 1.0
+
+
+_global_config['multi_scale_inp_size'] = 1.0
 
 
 def _process_batch(data, size_index):
@@ -496,6 +499,7 @@ class FC(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_longcw_yolo2_pytorch(_paritybench_base):

@@ -7,10 +7,13 @@ c2_model_loading = _module
 resnet = _module
 train_val = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -51,6 +54,9 @@ import torch.backends.cudnn as cudnn
 
 
 import torch.nn.parallel
+
+
+from torchvision import transforms
 
 
 class SpatialCGNL(nn.Module):
@@ -274,6 +280,129 @@ ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for
 
 _STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5,
     'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
+
+
+nl_type = 'cgnlx'
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
+    blocks = []
+    stride = first_stride
+    for idx in range(block_count):
+        if idx == 5 and block_count == 6:
+            if nl_type == 'nl':
+                blocks.append(SpatialNL(in_channels, int(in_channels / 2),
+                    use_scale=True))
+            elif nl_type == 'cgnl':
+                blocks.append(SpatialCGNL(in_channels, int(in_channels / 2),
+                    use_scale=False, groups=8))
+            elif nl_type == 'cgnlx':
+                blocks.append(SpatialCGNLx(in_channels, int(in_channels / 2
+                    ), use_scale=False, groups=8, order=3))
+            else:
+                pass
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+nl_nums = 1
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1)
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+        if nl_nums == 1:
+            for name, m in self._modules['layer3'][-2].named_modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.normal_(m.weight, mean=0, std=0.01)
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.constant_(m.weight, 0)
+                    nn.init.constant_(m.bias, 0)
+                elif isinstance(m, nn.GroupNorm):
+                    nn.init.constant_(m.weight, 0)
+                    nn.init.constant_(m.bias, 0)
+
+    def _freeze_backbone(self, freeze_at):
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
 
 
 class BottleneckWithFixedBatchNorm(nn.Module):
@@ -684,6 +813,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_KaiyuYue_cgnl_network_pytorch(_paritybench_base):

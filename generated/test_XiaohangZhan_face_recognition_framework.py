@@ -29,10 +29,13 @@ split_id_ratio = _module
 visualize = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -64,6 +67,9 @@ import torch.optim
 
 
 from torch.utils.data import DataLoader
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -1589,7 +1595,7 @@ class ArcFullyConnected(Module):
                 th = math.cos(math.pi - self.m)
                 arc_score = where(score - th > 0, arc_score, score - self.s *
                     mm)
-        one_hot = Variable(torch.cuda.FloatTensor(out.shape).fill_(0))
+        one_hot = Variable(torch.FloatTensor(out.shape).fill_(0))
         out += (arc_score - score) * one_hot.scatter_(1, label.view(-1, 1), 1)
         return out
 
@@ -1641,67 +1647,79 @@ class MultiTaskWithLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_XiaohangZhan_face_recognition_framework(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ArcFullyConnected(*[], **{'in_features': 4, 'out_features': 4, 's': 4, 'm': 0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_005(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_006(self):
-        self._check(BranchSeparables(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
 
     def test_007(self):
-        self._check(BranchSeparablesReduction(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BranchSeparables(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BranchSeparablesReduction(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(CellStem0(*[], **{}), [torch.rand([4, 96, 64, 64])], {})
+        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(CellStem1(*[], **{}), [torch.rand([4, 96, 4, 4]), torch.rand([4, 168, 64, 64])], {})
+        self._check(CellStem0(*[], **{}), [torch.rand([4, 96, 64, 64])], {})
 
     def test_011(self):
-        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CellStem1(*[], **{}), [torch.rand([4, 96, 4, 4]), torch.rand([4, 168, 64, 64])], {})
 
+    @_fails_compile()
     def test_012(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(InceptionResNetV2(*[], **{'avgpool': 4, 'feature_dim': 4}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_013(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_015(self):
-        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_016(self):
-        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_017(self):
-        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
+        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(VGG(*[], **{'features': _mock_layer(), 'feature_dim': 4}), [torch.rand([25088, 25088])], {})
+
+    def test_022(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

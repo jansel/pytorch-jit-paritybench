@@ -19,10 +19,13 @@ model = _module
 utils = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -126,7 +129,7 @@ class Model(nn.Module):
         else:
             spans, words, single_features = inputs
         words = words.type(torch.LongTensor)
-        if torch.cuda.is_available():
+        if torch.is_available():
             words = words
         embed_words = self.drop(self.word_embeds(words).view(words.size()[0
             ], -1))
@@ -138,7 +141,7 @@ class Model(nn.Module):
                 LongTensor)
             ana_words_long = ana_words.view(batchsize, -1).type(torch.
                 LongTensor)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 ant_words_long = ant_words_long
                 ana_words_long = ana_words_long
             ant_embed_words = self.drop(self.word_embeds(ant_words_long).
@@ -153,6 +156,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_huggingface_neuralcoref(_paritybench_base):

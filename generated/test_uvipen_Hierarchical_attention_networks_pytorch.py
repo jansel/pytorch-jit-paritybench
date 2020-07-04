@@ -10,10 +10,13 @@ word_att_model = _module
 test = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -70,7 +73,7 @@ class HierAttNet(nn.Module):
             word_hidden_size)
         self.sent_hidden_state = torch.zeros(2, batch_size, self.
             sent_hidden_size)
-        if torch.cuda.is_available():
+        if torch.is_available():
             self.word_hidden_state = self.word_hidden_state
             self.sent_hidden_state = self.sent_hidden_state
 
@@ -172,7 +175,12 @@ class WordAttNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_uvipen_Hierarchical_attention_networks_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(SentAttNet(*[], **{}), [torch.rand([4, 4, 100]), torch.rand([2, 4, 50])], {})
+

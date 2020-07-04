@@ -59,10 +59,13 @@ statistics = _module
 pyvotkit = _module
 tracker_config = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -190,6 +193,175 @@ class Bottleneck_nop(nn.Module):
         out += residual
         out = self.relu(out)
         return out
+
+
+def find_caller():
+
+    def current_frame():
+        try:
+            raise Exception
+        except:
+            return sys.exc_info()[2].tb_frame.f_back
+    f = current_frame()
+    if f is not None:
+        f = f.f_back
+    rv = '(unknown file)', 0, '(unknown function)'
+    while hasattr(f, 'f_code'):
+        co = f.f_code
+        filename = os.path.normcase(co.co_filename)
+        rv = co.co_filename, f.f_lineno, co.co_name
+        if filename == _srcfile:
+            f = f.f_back
+            continue
+        break
+    rv = list(rv)
+    rv[0] = os.path.basename(rv[0])
+    return rv
+
+
+class Filter:
+
+    def __init__(self, flag):
+        self.flag = flag
+
+    def filter(self, x):
+        return self.flag
+
+
+def get_format_custom(logger, level):
+    if 'SLURM_PROCID' in os.environ:
+        rank = int(os.environ['SLURM_PROCID'])
+        if level == logging.INFO:
+            logger.addFilter(Filter(rank == 0))
+    else:
+        rank = 0
+    format_str = '[%(asctime)s-rk{}-%(message)s'.format(rank)
+    formatter = logging.Formatter(format_str)
+    return formatter
+
+
+def get_format(logger, level):
+    if 'SLURM_PROCID' in os.environ:
+        rank = int(os.environ['SLURM_PROCID'])
+        if level == logging.INFO:
+            logger.addFilter(Filter(rank == 0))
+    else:
+        rank = 0
+    format_str = ('[%(asctime)s-rk{}-%(filename)s#%(lineno)3d] %(message)s'
+        .format(rank))
+    formatter = logging.Formatter(format_str)
+    return formatter
+
+
+logs = set()
+
+
+def init_log(name, level=logging.INFO, format_func=get_format):
+    if (name, level) in logs:
+        return
+    logs.add((name, level))
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    formatter = format_func(logger, level)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    return logger
+
+
+class LogOnce:
+
+    def __init__(self):
+        self.logged = set()
+        self.logger = init_log('log_once', format_func=get_format_custom)
+
+    def log(self, strings):
+        fn, lineno, caller = find_caller()
+        key = fn, lineno, caller, strings
+        if key in self.logged:
+            return
+        self.logged.add(key)
+        message = '{filename:s}<{caller}>#{lineno:3d}] {strings}'.format(
+            filename=fn, lineno=lineno, strings=strings, caller=caller)
+        self.logger.info(message)
+
+
+def log_once(strings):
+    once_logger.log(strings)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, layer4=False, layer3=False):
+        self.inplanes = 64
+        super(ResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0,
+            bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.feature_size = 128 * block.expansion
+        if layer3:
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
+                dilation=2)
+            self.feature_size = (256 + 128) * block.expansion
+        else:
+            self.layer3 = lambda x: x
+        if layer4:
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
+                dilation=4)
+            self.feature_size = 512 * block.expansion
+        else:
+            self.layer4 = lambda x: x
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
+        downsample = None
+        dd = dilation
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            if stride == 1 and dilation == 1:
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
+                    block.expansion, kernel_size=1, stride=stride, bias=
+                    False), nn.BatchNorm2d(planes * block.expansion))
+            else:
+                if dilation > 1:
+                    dd = dilation // 2
+                    padding = dd
+                else:
+                    dd = 1
+                    padding = 0
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
+                    block.expansion, kernel_size=3, stride=stride, bias=
+                    False, padding=padding, dilation=dd), nn.BatchNorm2d(
+                    planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample,
+            dilation=dd))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, dilation=dilation))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        p1 = self.layer1(x)
+        p2 = self.layer2(p1)
+        p3 = self.layer3(p2)
+        log_once('p3 {}'.format(p3.size()))
+        p4 = self.layer4(p3)
+        return p2, p3, p4
 
 
 class ResDownS(nn.Module):
@@ -663,6 +835,107 @@ class DepthCorr(nn.Module):
         return out
 
 
+def center2corner(center):
+    """
+    :param center: Center or np.array 4*N
+    :return: Corner or np.array 4*N
+    """
+    if isinstance(center, Center):
+        x, y, w, h = center
+        return Corner(x - w * 0.5, y - h * 0.5, x + w * 0.5, y + h * 0.5)
+    else:
+        x, y, w, h = center[0], center[1], center[2], center[3]
+        x1 = x - w * 0.5
+        y1 = y - h * 0.5
+        x2 = x + w * 0.5
+        y2 = y + h * 0.5
+        return x1, y1, x2, y2
+
+
+def corner2center(corner):
+    """
+    :param corner: Corner or np.array 4*N
+    :return: Center or 4 np.array N
+    """
+    if isinstance(corner, Corner):
+        x1, y1, x2, y2 = corner
+        return Center((x1 + x2) * 0.5, (y1 + y2) * 0.5, x2 - x1, y2 - y1)
+    else:
+        x1, y1, x2, y2 = corner[0], corner[1], corner[2], corner[3]
+        x = (x1 + x2) * 0.5
+        y = (y1 + y2) * 0.5
+        w = x2 - x1
+        h = y2 - y1
+        return x, y, w, h
+
+
+class Anchors:
+
+    def __init__(self, cfg):
+        self.stride = 8
+        self.ratios = [0.33, 0.5, 1, 2, 3]
+        self.scales = [8]
+        self.round_dight = 0
+        self.image_center = 0
+        self.size = 0
+        self.anchor_density = 1
+        self.__dict__.update(cfg)
+        self.anchor_num = len(self.scales) * len(self.ratios
+            ) * self.anchor_density ** 2
+        self.anchors = None
+        self.all_anchors = None
+        self.generate_anchors()
+
+    def generate_anchors(self):
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
+        size = self.stride * self.stride
+        count = 0
+        anchors_offset = self.stride / self.anchor_density
+        anchors_offset = np.arange(self.anchor_density) * anchors_offset
+        anchors_offset = anchors_offset - np.mean(anchors_offset)
+        x_offsets, y_offsets = np.meshgrid(anchors_offset, anchors_offset)
+        for x_offset, y_offset in zip(x_offsets.flatten(), y_offsets.flatten()
+            ):
+            for r in self.ratios:
+                if self.round_dight > 0:
+                    ws = round(math.sqrt(size * 1.0 / r), self.round_dight)
+                    hs = round(ws * r, self.round_dight)
+                else:
+                    ws = int(math.sqrt(size * 1.0 / r))
+                    hs = int(ws * r)
+                for s in self.scales:
+                    w = ws * s
+                    h = hs * s
+                    self.anchors[count][:] = [-w * 0.5 + x_offset, -h * 0.5 +
+                        y_offset, w * 0.5 + x_offset, h * 0.5 + y_offset][:]
+                    count += 1
+
+    def generate_all_anchors(self, im_c, size):
+        if self.image_center == im_c and self.size == size:
+            return False
+        self.image_center = im_c
+        self.size = size
+        a0x = im_c - size // 2 * self.stride
+        ori = np.array([a0x] * 4, dtype=np.float32)
+        zero_anchors = self.anchors + ori
+        x1 = zero_anchors[:, (0)]
+        y1 = zero_anchors[:, (1)]
+        x2 = zero_anchors[:, (2)]
+        y2 = zero_anchors[:, (3)]
+        x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [
+            x1, y1, x2, y2])
+        cx, cy, w, h = corner2center([x1, y1, x2, y2])
+        disp_x = np.arange(0, size).reshape(1, 1, -1) * self.stride
+        disp_y = np.arange(0, size).reshape(1, -1, 1) * self.stride
+        cx = cx + disp_x
+        cy = cy + disp_y
+        zero = np.zeros((self.anchor_num, size, size), dtype=np.float32)
+        cx, cy, w, h = map(lambda x: x + zero, [cx, cy, w, h])
+        x1, y1, x2, y2 = center2corner([cx, cy, w, h])
+        self.all_anchors = np.stack([x1, y1, x2, y2]), np.stack([cx, cy, w, h])
+        return True
+
+
 def get_cls_loss(pred, label, select):
     if len(select.size()) == 0:
         return 0
@@ -724,6 +997,115 @@ def weight_l1_loss(pred_loc, label_loc, loss_weight):
     diff = diff.sum(dim=1).view(b, -1, sh, sw)
     loss = diff * loss_weight
     return loss.sum().div(b)
+
+
+class SiamMask(nn.Module):
+
+    def __init__(self, anchors=None, o_sz=63, g_sz=127):
+        super(SiamMask, self).__init__()
+        self.anchors = anchors
+        self.anchor_num = len(self.anchors['ratios']) * len(self.anchors[
+            'scales'])
+        self.anchor = Anchors(anchors)
+        self.features = None
+        self.rpn_model = None
+        self.mask_model = None
+        self.o_sz = o_sz
+        self.g_sz = g_sz
+        self.upSample = nn.UpsamplingBilinear2d(size=[g_sz, g_sz])
+        self.all_anchors = None
+
+    def set_all_anchors(self, image_center, size):
+        if not self.anchor.generate_all_anchors(image_center, size):
+            return
+        all_anchors = self.anchor.all_anchors[1]
+        self.all_anchors = torch.from_numpy(all_anchors).float()
+        self.all_anchors = [self.all_anchors[i] for i in range(4)]
+
+    def feature_extractor(self, x):
+        return self.features(x)
+
+    def rpn(self, template, search):
+        pred_cls, pred_loc = self.rpn_model(template, search)
+        return pred_cls, pred_loc
+
+    def mask(self, template, search):
+        pred_mask = self.mask_model(template, search)
+        return pred_mask
+
+    def _add_rpn_loss(self, label_cls, label_loc, lable_loc_weight,
+        label_mask, label_mask_weight, rpn_pred_cls, rpn_pred_loc,
+        rpn_pred_mask):
+        rpn_loss_cls = select_cross_entropy_loss(rpn_pred_cls, label_cls)
+        rpn_loss_loc = weight_l1_loss(rpn_pred_loc, label_loc, lable_loc_weight
+            )
+        rpn_loss_mask, iou_m, iou_5, iou_7 = select_mask_logistic_loss(
+            rpn_pred_mask, label_mask, label_mask_weight)
+        return rpn_loss_cls, rpn_loss_loc, rpn_loss_mask, iou_m, iou_5, iou_7
+
+    def run(self, template, search, softmax=False):
+        """
+        run network
+        """
+        template_feature = self.feature_extractor(template)
+        search_feature = self.feature_extractor(search)
+        rpn_pred_cls, rpn_pred_loc = self.rpn(template_feature, search_feature)
+        rpn_pred_mask = self.mask(template_feature, search_feature)
+        if softmax:
+            rpn_pred_cls = self.softmax(rpn_pred_cls)
+        return (rpn_pred_cls, rpn_pred_loc, rpn_pred_mask, template_feature,
+            search_feature)
+
+    def softmax(self, cls):
+        b, a2, h, w = cls.size()
+        cls = cls.view(b, 2, a2 // 2, h, w)
+        cls = cls.permute(0, 2, 3, 4, 1).contiguous()
+        cls = F.log_softmax(cls, dim=4)
+        return cls
+
+    def forward(self, input):
+        """
+        :param input: dict of input with keys of:
+                'template': [b, 3, h1, w1], input template image.
+                'search': [b, 3, h2, w2], input search image.
+                'label_cls':[b, max_num_gts, 5] or None(self.training==False),
+                                     each gt contains x1,y1,x2,y2,class.
+        :return: dict of loss, predict, accuracy
+        """
+        template = input['template']
+        search = input['search']
+        if self.training:
+            label_cls = input['label_cls']
+            label_loc = input['label_loc']
+            lable_loc_weight = input['label_loc_weight']
+            label_mask = input['label_mask']
+            label_mask_weight = input['label_mask_weight']
+        (rpn_pred_cls, rpn_pred_loc, rpn_pred_mask, template_feature,
+            search_feature) = self.run(template, search, softmax=self.training)
+        outputs = dict()
+        outputs['predict'] = [rpn_pred_loc, rpn_pred_cls, rpn_pred_mask,
+            template_feature, search_feature]
+        if self.training:
+            (rpn_loss_cls, rpn_loss_loc, rpn_loss_mask, iou_acc_mean,
+                iou_acc_5, iou_acc_7) = (self._add_rpn_loss(label_cls,
+                label_loc, lable_loc_weight, label_mask, label_mask_weight,
+                rpn_pred_cls, rpn_pred_loc, rpn_pred_mask))
+            outputs['losses'] = [rpn_loss_cls, rpn_loss_loc, rpn_loss_mask]
+            outputs['accuracy'] = [iou_acc_mean, iou_acc_5, iou_acc_7]
+        return outputs
+
+    def template(self, z):
+        self.zf = self.feature_extractor(z)
+        cls_kernel, loc_kernel = self.rpn_model.template(self.zf)
+        return cls_kernel, loc_kernel
+
+    def track(self, x, cls_kernel=None, loc_kernel=None, softmax=False):
+        xf = self.feature_extractor(x)
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model.track(xf, cls_kernel,
+            loc_kernel)
+        if softmax:
+            rpn_pred_cls = self.softmax(rpn_pred_cls)
+        return rpn_pred_cls, rpn_pred_loc
 
 
 class SiamMask(nn.Module):
@@ -935,6 +1317,7 @@ class SiamRPN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_foolwood_SiamMask(_paritybench_base):

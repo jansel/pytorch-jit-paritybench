@@ -27,10 +27,13 @@ train = _module
 image = _module
 tqdm = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -121,6 +124,108 @@ class SubNet(nn.Module):
 def _sigmoid(x):
     x = torch.clamp(x.sigmoid_(), min=0.0001, max=1 - 0.0001)
     return x
+
+
+model_urls = {'resnet18':
+    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
+    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
+    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101':
+    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152':
+    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnext50_32x4d':
+    'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
+    'resnext101_32x8d':
+    'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
+    'wide_resnet50_2':
+    'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
+    'wide_resnet101_2':
+    'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth'}
+
+
+def resnet101_features(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNetFeatures(BottleneckFeatures, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+def resnet152_features(pretrained=False, **kwargs):
+    """Constructs a ResNet-152 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNetFeatures(BottleneckFeatures, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
+    return model
+
+
+def resnet50_features(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNetFeatures(BottleneckFeatures, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
+    return model
+
+
+def resnext101_32x8d(pretrained=False, **kwargs):
+    """ResNeXt-101 32x8d model from
+    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    kwargs['groups'] = 32
+    kwargs['width_per_group'] = 8
+    model = ResNetFeatures(BottleneckFeatures, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls[
+            'resnext101_32x8d']))
+    return model
+
+
+class MatrixNetAnchors(nn.Module):
+
+    def __init__(self, classes, resnet, layers):
+        super(MatrixNetAnchors, self).__init__()
+        self.classes = classes
+        self.resnet = resnet
+        if self.resnet == 'resnext101_32x8d':
+            _resnet = resnext101_32x8d(pretrained=True)
+        elif self.resnet == 'resnet101':
+            _resnet = resnet101_features(pretrained=True)
+        elif self.resnet == 'resnet50':
+            _resnet = resnet50_features(pretrained=True)
+        elif self.resnet == 'resnet152':
+            _resnet = resnet152_features(pretrained=True)
+        try:
+            self.matrix_net = MatrixNet(_resnet, layers)
+        except:
+            None
+            sys.exit()
+        self.subnet_tl_corners_regr = SubNet(mode='tl_corners')
+        self.subnet_br_corners_regr = SubNet(mode='br_corners')
+        self.subnet_anchors_heats = SubNet(mode='classes')
+
+    def forward(self, x):
+        features = self.matrix_net(x)
+        anchors_tl_corners_regr = [self.subnet_tl_corners_regr(feature) for
+            feature in features]
+        anchors_br_corners_regr = [self.subnet_br_corners_regr(feature) for
+            feature in features]
+        anchors_heatmaps = [_sigmoid(self.subnet_anchors_heats(feature)) for
+            feature in features]
+        return (anchors_heatmaps, anchors_tl_corners_regr,
+            anchors_br_corners_regr)
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -388,6 +493,50 @@ class SubNet(nn.Module):
             x = self.base_activation(layer(x))
         x = self.subnet_output(x)
         return x
+
+
+class MatrixNetCorners(nn.Module):
+
+    def __init__(self, classes, resnet, layers):
+        super(MatrixNetCorners, self).__init__()
+        self.classes = classes
+        self.resnet = resnet
+        if self.resnet == 'resnext101_32x8d':
+            _resnet = resnext101_32x8d(pretrained=True)
+        elif self.resnet == 'resnet101':
+            _resnet = resnet101_features(pretrained=True)
+        elif self.resnet == 'resnet50':
+            _resnet = resnet50_features(pretrained=True)
+        elif self.resnet == 'resnet152':
+            _resnet = resnet152_features(pretrained=True)
+        try:
+            self.feature_pyramid = MatrixNet(_resnet, layers)
+        except:
+            None
+            sys.exit()
+        self.subnet_tl_corners_regr = SubNet(mode='corners')
+        self.subnet_tl_centers_regr = SubNet(mode='centers')
+        self.subnet_br_corners_regr = SubNet(mode='corners')
+        self.subnet_br_centers_regr = SubNet(mode='centers')
+        self.subnet_tl_heats = SubNet(mode='classes')
+        self.subnet_br_heats = SubNet(mode='classes')
+
+    def forward(self, x):
+        features = self.feature_pyramid(x)
+        tl_corners_regr = [self.subnet_tl_corners_regr(feature) for feature in
+            features]
+        tl_centers_regr = [F.relu(self.subnet_tl_centers_regr(feature)) for
+            feature in features]
+        br_corners_regr = [self.subnet_br_corners_regr(feature) for feature in
+            features]
+        br_centers_regr = [F.relu(self.subnet_br_centers_regr(feature)) for
+            feature in features]
+        tl_heatmaps = [_sigmoid(self.subnet_tl_heats(feature)) for feature in
+            features]
+        br_heatmaps = [_sigmoid(self.subnet_br_heats(feature)) for feature in
+            features]
+        return (tl_heatmaps, br_heatmaps, tl_corners_regr, br_corners_regr,
+            tl_centers_regr, br_centers_regr)
 
 
 class model(nn.Module):
@@ -706,12 +855,12 @@ class DataParallel(Module):
     def __init__(self, module, device_ids=None, output_device=None, dim=0,
         chunk_sizes=None):
         super(DataParallel, self).__init__()
-        if not torch.cuda.is_available():
+        if not torch.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -772,7 +921,12 @@ class DummyModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_arashwan_matrixnet(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(DummyModule(*[], **{'model': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+

@@ -26,10 +26,13 @@ privacy_engine_test = _module
 utils_test = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -60,6 +63,15 @@ import torch.optim as optim
 import torch.utils.data
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
+
+
 import time
 
 
@@ -81,10 +93,22 @@ import torch.utils.data.distributed
 import torch.utils.tensorboard as tensorboard
 
 
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
+
+
 import numpy as np
 
 
 import torch.nn.functional as F
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from typing import List
@@ -108,7 +132,13 @@ from torch.functional import F
 from torch.nn.modules.activation import MultiheadAttention
 
 
+from torchvision import models
+
+
 from torch.utils.data import DataLoader
+
+
+from torchvision.datasets import FakeData
 
 
 from typing import Tuple
@@ -130,6 +160,52 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet DP Training')
 
 
 opt = parser.parse_args()
+
+
+class Generator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Generator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
+            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
+            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
+            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
+            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
+            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
+            4, 2, 1, bias=False), nn.Tanh())
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Discriminator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
+            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
+            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
+            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
+            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
+            4, 1, 0, bias=False), nn.Sigmoid())
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output.view(-1, 1).squeeze(1)
 
 
 class SampleConvNet(nn.Module):
@@ -442,6 +518,7 @@ class BasicModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_facebookresearch_pytorch_dp(_paritybench_base):

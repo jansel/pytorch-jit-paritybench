@@ -8,10 +8,13 @@ loss = _module
 main = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,7 +62,7 @@ class CapsuleNet(nn.Module):
         classes = F.softmax(classes, dim=-1)
         if y is None:
             _, max_length_indices = classes.max(dim=1)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 y = Variable(torch.eye(config.NUM_CLASSES)).index_select(dim
                     =0, index=max_length_indices)
             else:
@@ -101,7 +104,7 @@ class CapsuleLayer(nn.Module):
             priors = x[(None), :, :, (None), :] @ self.route_weights[:, (
                 None), :, :, :]
             logits = Variable(torch.zeros(*priors.size()))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 logits = logits
             for i in range(self.num_iterations):
                 probs = F.softmax(logits, dim=2)
@@ -134,14 +137,11 @@ class CapsuleLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_leftthomas_CapsNet(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CapsuleLayer(*[], **{'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
         self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

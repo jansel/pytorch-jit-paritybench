@@ -64,10 +64,13 @@ infer_dataloader_example = _module
 remove_optim_lr_s_in_ckpt = _module
 visualize_rank_list = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -105,6 +108,9 @@ from copy import deepcopy
 
 
 from torch.nn.parallel import DataParallel
+
+
+import torchvision.transforms.functional as F
 
 
 class BaseModel(nn.Module):
@@ -283,6 +289,7 @@ class TransparentDataParallel(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_huanghoujing_EANet(_paritybench_base):
@@ -292,4 +299,8 @@ class Test_huanghoujing_EANet(_paritybench_base):
 
     def test_001(self):
         self._check(PartSegHead(*[], **{'cfg': _mock_config(in_c=4, mid_c=4, num_classes=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(TransparentDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 

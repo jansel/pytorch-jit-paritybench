@@ -81,10 +81,13 @@ train = _module
 network = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -587,6 +590,138 @@ _ChildMessage = collections.namedtuple('Message', ['sum', 'ssum', 'sum_size'])
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
+class _batchnormtrain(Function):
+
+    @staticmethod
+    def forward(ctx, input, mean, std, gamma, beta):
+        ctx.save_for_backward(input, mean, std, gamma, beta)
+        if input.is_cuda:
+            output = gpu.batchnorm_forward(input, mean, std, gamma, beta)
+        else:
+            output = cpu.batchnorm_forward(input, mean, std, gamma, beta)
+        return output
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        input, mean, std, gamma, beta = ctx.saved_variables
+        if gradOutput.is_cuda:
+            gradInput, gradMean, gradStd, gradGamma, gradBeta = (gpu.
+                batchnorm_backward(gradOutput, input, mean, std, gamma,
+                beta, True))
+        else:
+            raise NotImplemented
+        return gradInput, gradMean, gradStd, gradGamma, gradBeta
+
+
+def batchnormtrain(input, mean, std, gamma, beta):
+    """Applies Batch Normalization over a 3d input that is seen as a
+    mini-batch.
+
+    .. _encoding.batchnormtrain:
+
+    .. math::
+
+        y = \\frac{x - \\mu[x]}{ \\sqrt{var[x] + \\epsilon}} * \\gamma + \\beta
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    """
+    return _batchnormtrain.apply(input, mean, std, gamma, beta)
+
+
+class _sum_square(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        if input.is_cuda:
+            xsum, xsqusum = gpu.sumsquare_forward(input)
+        else:
+            xsum, xsqusum = cpu.sumsquare_forward(input)
+        return xsum, xsqusum
+
+    @staticmethod
+    def backward(ctx, gradSum, gradSquare):
+        input, = ctx.saved_variables
+        if input.is_cuda:
+            gradInput = gpu.sumsquare_backward(input, gradSum, gradSquare)
+        else:
+            raise NotImplemented
+        return gradInput
+
+
+def sum_square(input):
+    """Calculate sum of elements and sum of squares for Batch Normalization"""
+    return _sum_square.apply(input)
+
+
+class _SyncBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(_SyncBatchNorm, self).__init__(num_features, eps=eps,
+            momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not self.training:
+            return batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input_shape[0], self.num_features, -1)
+        N = input.size(0) * input.size(2)
+        xsum, xsqsum = sum_square(input)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(xsum,
+                xsqsum, N))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(xsum,
+                xsqsum, N))
+        return batchnormtrain(input, mean, 1.0 / inv_std, self.weight, self
+            .bias).view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
+            get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
+                2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        self.running_mean = (1 - self.momentum
+            ) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum
+            ) * self.running_var + self.momentum * unbias_var.data
+        return mean, (bias_var + self.eps) ** -0.5
+
+
 class SigmoidFocalLoss(nn.Module):
 
     def __init__(self, ignore_label, gamma=2.0, alpha=0.25, reduction='mean'):
@@ -614,6 +749,54 @@ class SigmoidFocalLoss(nn.Module):
         if self.reduction == 'mean':
             loss = loss.mean()
         return loss
+
+
+class ProbOhemCrossEntropy2d(nn.Module):
+
+    def __init__(self, ignore_label, reduction='mean', thresh=0.6, min_kept
+        =256, down_ratio=1, use_weight=False):
+        super(ProbOhemCrossEntropy2d, self).__init__()
+        self.ignore_label = ignore_label
+        self.thresh = float(thresh)
+        self.min_kept = int(min_kept)
+        self.down_ratio = down_ratio
+        if use_weight:
+            weight = torch.FloatTensor([1.4297, 1.4805, 1.4363, 3.365, 
+                2.6635, 1.4311, 2.1943, 1.4817, 1.4513, 2.1984, 1.5295, 
+                1.6892, 3.2224, 1.4727, 7.5978, 9.4117, 15.2588, 5.6818, 
+                2.2067])
+            self.criterion = torch.nn.CrossEntropyLoss(reduction=reduction,
+                weight=weight, ignore_index=ignore_label)
+        else:
+            self.criterion = torch.nn.CrossEntropyLoss(reduction=reduction,
+                ignore_index=ignore_label)
+
+    def forward(self, pred, target):
+        b, c, h, w = pred.size()
+        target = target.view(-1)
+        valid_mask = target.ne(self.ignore_label)
+        target = target * valid_mask.long()
+        num_valid = valid_mask.sum()
+        prob = F.softmax(pred, dim=1)
+        prob = prob.transpose(0, 1).reshape(c, -1)
+        if self.min_kept > num_valid:
+            logger.info('Labels: {}'.format(num_valid))
+        elif num_valid > 0:
+            prob = prob.masked_fill_(1 - valid_mask, 1)
+            mask_prob = prob[target, torch.arange(len(target), dtype=torch.
+                long)]
+            threshold = self.thresh
+            if self.min_kept > 0:
+                _, index = torch.sort(mask_prob)
+                threshold_index = index[min(len(index), self.min_kept) - 1]
+                if mask_prob[threshold_index] > self.thresh:
+                    threshold = mask_prob[threshold_index]
+                kept_mask = mask_prob.le(threshold)
+                target = target * kept_mask.long()
+                valid_mask = valid_mask * kept_mask
+        target = target.masked_fill_(1 - valid_mask, self.ignore_label)
+        target = target.view(b, h, w)
+        return self.criterion(pred, target)
 
 
 class ConvBnRelu(nn.Module):
@@ -919,10 +1102,10 @@ def resnet101(pretrained_model=None, **kwargs):
     return model
 
 
-_global_config['bn_momentum'] = 4
-
-
 _global_config['bn_eps'] = 4
+
+
+_global_config['bn_momentum'] = 4
 
 
 class BiSeNet(nn.Module):
@@ -2205,6 +2388,7 @@ class PyramidPooling(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ycszen_TorchSeg(_paritybench_base):
@@ -2229,24 +2413,40 @@ class Test_ycszen_TorchSeg(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(DFNHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DFN(*[], **{'out_planes': 4, 'criterion': _mock_layer(), 'aux_criterion': _mock_layer(), 'alpha': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_006(self):
+        self._check(DFNHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(FCN(*[], **{'out_planes': 4, 'criterion': _mock_layer()}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(FeatureFusion(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_007(self):
+    def test_010(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    @_fails_compile()
+    def test_011(self):
+        self._check(PSPNet(*[], **{'out_planes': 4, 'criterion': _mock_layer()}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_012(self):
         self._check(PyramidPooling(*[], **{'name': 4, 'out_planes': 4}), [torch.rand([4, 4096, 4, 4])], {})
 
-    def test_009(self):
+    def test_013(self):
         self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_014(self):
         self._check(SpatialPath(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_015(self):
         self._check(_FCNHead(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

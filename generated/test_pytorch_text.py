@@ -56,10 +56,13 @@ unsupervised_learning = _module
 experimental = _module
 raw = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -81,7 +84,19 @@ import time
 from torch.utils.data import DataLoader
 
 
+from torchtext.data.utils import ngrams_iterator
+
+
+from torchtext.data.utils import get_tokenizer
+
+
+from torchtext.utils import unicode_csv_reader
+
+
 import torch.nn as nn
+
+
+from torchtext.datasets import text_classification
 
 
 from torch.utils.data.dataset import random_split
@@ -91,6 +106,9 @@ from collections import Counter
 
 
 import numpy as np
+
+
+import torchtext.data
 
 
 class TextSentiment(nn.Module):
@@ -119,6 +137,7 @@ class TextSentiment(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorch_text(_paritybench_base):

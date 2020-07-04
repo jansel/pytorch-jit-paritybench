@@ -17,10 +17,13 @@ soft_dice_loss = _module
 swish = _module
 triplet_loss = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -855,43 +858,49 @@ class TripletLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_CoinCheung_pytorch_loss(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(FocalLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BatchSoftDiceLoss(*[], **{}), [torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(FocalLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FocalLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(LabelSmoothSoftmaxCEV1(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(FocalLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(MishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneralizedSoftDiceLoss(*[], **{}), [torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(MishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LabelSmoothSoftmaxCEV1(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_005(self):
-        self._check(SoftDiceLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(SoftDiceLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(SwishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SoftDiceLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(SwishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SoftDiceLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(SwishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(SwishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

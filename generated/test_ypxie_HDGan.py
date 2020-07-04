@@ -52,10 +52,13 @@ test_loader = _module
 train_worker = _module
 train_nd_worker = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -101,6 +104,9 @@ import time
 import functools
 
 
+from torchvision.utils import make_grid
+
+
 import math
 
 
@@ -111,6 +117,9 @@ from torch import nn as nnl
 
 
 import collections
+
+
+import torchvision.transforms as transforms
 
 
 from functools import reduce
@@ -141,7 +150,7 @@ class condEmbedding(nn.Module):
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def sample_encoded_context(self, mean, logsigma, kl_loss=False):
-        epsilon = Variable(torch.cuda.FloatTensor(mean.size()).normal_())
+        epsilon = Variable(torch.FloatTensor(mean.size()).normal_())
         stddev = logsigma.exp()
         return epsilon.mul(stddev).add_(mean)
 
@@ -2159,6 +2168,38 @@ class InceptionV4(nn.Module):
         return x
 
 
+class ResNeXt101_32x4d(nn.Module):
+
+    def __init__(self, nb_classes=1000):
+        super(ResNeXt101_32x4d, self).__init__()
+        self.features = resnext101_32x4d_features
+        self.avgpool = nn.AvgPool2d((7, 7), (1, 1))
+        self.fc = nn.Linear(2048, nb_classes)
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
+class ResNeXt101_64x4d(nn.Module):
+
+    def __init__(self, nb_classes=1000):
+        super(ResNeXt101_64x4d, self).__init__()
+        self.features = resnext101_64x4d_features
+        self.avgpool = nn.AvgPool2d((7, 7), (1, 1))
+        self.fc = nn.Linear(2048, nb_classes)
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
 class LambdaBase(nn.Sequential):
 
     def __init__(self, fn, *args):
@@ -2198,6 +2239,7 @@ class WideResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ypxie_HDGan(_paritybench_base):
@@ -2217,52 +2259,60 @@ class Test_ypxie_HDGan(_paritybench_base):
     def test_004(self):
         self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
 
+    @_fails_compile()
     def test_005(self):
+        self._check(Generator(*[], **{'sent_dim': 4, 'noise_dim': 4, 'emb_dim': 4, 'hid_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_006(self):
         self._check(ImageDown(*[], **{'input_size': 4, 'num_chan': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(ImgSenRanking(*[], **{'dim_image': 4, 'sent_dim': 4, 'hid_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_021(self):
         self._check(Sent2FeatMap(*[], **{'in_dim': 4, 'row': 4, 'col': 4, 'channel': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(condEmbedding(*[], **{'noise_dim': 4, 'emb_dim': 4}), [torch.rand([4, 0, 4, 4])], {})
 

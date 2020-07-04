@@ -14,10 +14,13 @@ eval = _module
 fid = _module
 lpips = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -48,6 +51,12 @@ import torch.nn.functional as F
 import time
 
 
+import torchvision
+
+
+import torchvision.utils as vutils
+
+
 from collections import namedtuple
 
 
@@ -55,6 +64,9 @@ from copy import deepcopy
 
 
 from functools import partial
+
+
+from torchvision import models
 
 
 from scipy import linalg
@@ -202,8 +214,7 @@ class Generator(nn.Module):
             self.decode.insert(0, AdainResBlk(dim_out, dim_out, style_dim,
                 w_hpf=w_hpf))
         if w_hpf > 0:
-            device = torch.device('cuda' if torch.cuda.is_available() else
-                'cpu')
+            device = torch.device('cuda' if torch.is_available() else 'cpu')
             self.hpf = HighPass(w_hpf, device)
 
     def forward(self, x, s, masks=None):
@@ -416,6 +427,371 @@ def listdir(dname):
     return fnames
 
 
+def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=
+    True, shuffle=True, num_workers=4, drop_last=False):
+    print('Preparing DataLoader for the evaluation phase...')
+    if imagenet_normalize:
+        height, width = 299, 299
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+    else:
+        height, width = img_size, img_size
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
+    transform = transforms.Compose([transforms.Resize([img_size, img_size]),
+        transforms.Resize([height, width]), transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)])
+    dataset = DefaultDataset(root, transform=transform)
+    return data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=
+        shuffle, num_workers=num_workers, pin_memory=True, drop_last=drop_last)
+
+
+@torch.no_grad()
+def calculate_fid_given_paths(paths, img_size=256, batch_size=50):
+    print('Calculating FID given paths %s and %s...' % (paths[0], paths[1]))
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    inception = InceptionV3().eval().to(device)
+    loaders = [get_eval_loader(path, img_size, batch_size) for path in paths]
+    mu, cov = [], []
+    for loader in loaders:
+        actvs = []
+        for x in tqdm(loader, total=len(loader)):
+            actv = inception(x.to(device))
+            actvs.append(actv)
+        actvs = torch.cat(actvs, dim=0).cpu().detach().numpy()
+        mu.append(np.mean(actvs, axis=0))
+        cov.append(np.cov(actvs, rowvar=False))
+    fid_value = frechet_distance(mu[0], cov[0], mu[1], cov[1])
+    return fid_value
+
+
+def calculate_fid_for_all_tasks(args, domains, step, mode):
+    print('Calculating FID for all tasks...')
+    fid_values = OrderedDict()
+    for trg_domain in domains:
+        src_domains = [x for x in domains if x != trg_domain]
+        for src_domain in src_domains:
+            task = '%s2%s' % (src_domain, trg_domain)
+            path_real = os.path.join(args.train_img_dir, trg_domain)
+            path_fake = os.path.join(args.eval_dir, task)
+            print('Calculating FID for %s...' % task)
+            fid_value = calculate_fid_given_paths(paths=[path_real,
+                path_fake], img_size=args.img_size, batch_size=args.
+                val_batch_size)
+            fid_values['FID_%s/%s' % (mode, task)] = fid_value
+    fid_mean = 0
+    for _, value in fid_values.items():
+        fid_mean += value / len(fid_values)
+    fid_values['FID_%s/mean' % mode] = fid_mean
+    filename = os.path.join(args.eval_dir, 'FID_%.5i_%s.json' % (step, mode))
+    utils.save_json(fid_values, filename)
+
+
+@torch.no_grad()
+def calculate_lpips_given_images(group_of_images):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    lpips = LPIPS().eval().to(device)
+    lpips_values = []
+    num_rand_outputs = len(group_of_images)
+    for i in range(num_rand_outputs - 1):
+        for j in range(i + 1, num_rand_outputs):
+            lpips_values.append(lpips(group_of_images[i], group_of_images[j]))
+    lpips_value = torch.mean(torch.stack(lpips_values, dim=0))
+    return lpips_value.item()
+
+
+@torch.no_grad()
+def calculate_metrics(nets, args, step, mode):
+    print('Calculating evaluation metrics...')
+    assert mode in ['latent', 'reference']
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    domains = os.listdir(args.val_img_dir)
+    domains.sort()
+    num_domains = len(domains)
+    print('Number of domains: %d' % num_domains)
+    lpips_dict = OrderedDict()
+    for trg_idx, trg_domain in enumerate(domains):
+        src_domains = [x for x in domains if x != trg_domain]
+        if mode == 'reference':
+            path_ref = os.path.join(args.val_img_dir, trg_domain)
+            loader_ref = get_eval_loader(root=path_ref, img_size=args.
+                img_size, batch_size=args.val_batch_size,
+                imagenet_normalize=False, drop_last=True)
+        for src_idx, src_domain in enumerate(src_domains):
+            path_src = os.path.join(args.val_img_dir, src_domain)
+            loader_src = get_eval_loader(root=path_src, img_size=args.
+                img_size, batch_size=args.val_batch_size,
+                imagenet_normalize=False)
+            task = '%s2%s' % (src_domain, trg_domain)
+            path_fake = os.path.join(args.eval_dir, task)
+            shutil.rmtree(path_fake, ignore_errors=True)
+            os.makedirs(path_fake)
+            lpips_values = []
+            print('Generating images and calculating LPIPS for %s...' % task)
+            for i, x_src in enumerate(tqdm(loader_src, total=len(loader_src))):
+                N = x_src.size(0)
+                x_src = x_src.to(device)
+                y_trg = torch.tensor([trg_idx] * N).to(device)
+                masks = nets.fan.get_heatmap(x_src) if args.w_hpf > 0 else None
+                group_of_images = []
+                for j in range(args.num_outs_per_domain):
+                    if mode == 'latent':
+                        z_trg = torch.randn(N, args.latent_dim).to(device)
+                        s_trg = nets.mapping_network(z_trg, y_trg)
+                    else:
+                        try:
+                            x_ref = next(iter_ref).to(device)
+                        except:
+                            iter_ref = iter(loader_ref)
+                            x_ref = next(iter_ref).to(device)
+                        if x_ref.size(0) > N:
+                            x_ref = x_ref[:N]
+                        s_trg = nets.style_encoder(x_ref, y_trg)
+                    x_fake = nets.generator(x_src, s_trg, masks=masks)
+                    group_of_images.append(x_fake)
+                    for k in range(N):
+                        filename = os.path.join(path_fake, '%.4i_%.2i.png' %
+                            (i * args.val_batch_size + (k + 1), j + 1))
+                        utils.save_image(x_fake[k], ncol=1, filename=filename)
+                lpips_value = calculate_lpips_given_images(group_of_images)
+                lpips_values.append(lpips_value)
+            lpips_mean = np.array(lpips_values).mean()
+            lpips_dict['LPIPS_%s/%s' % (mode, task)] = lpips_mean
+        del loader_src
+        if mode == 'reference':
+            del loader_ref
+            del iter_ref
+    lpips_mean = 0
+    for _, value in lpips_dict.items():
+        lpips_mean += value / len(lpips_dict)
+    lpips_dict['LPIPS_%s/mean' % mode] = lpips_mean
+    filename = os.path.join(args.eval_dir, 'LPIPS_%.5i_%s.json' % (step, mode))
+    utils.save_json(lpips_dict, filename)
+    calculate_fid_for_all_tasks(args, domains, step=step, mode=mode)
+
+
+def adv_loss(logits, target):
+    assert target in [1, 0]
+    targets = torch.full_like(logits, fill_value=target)
+    loss = F.binary_cross_entropy_with_logits(logits, targets)
+    return loss
+
+
+def r1_reg(d_out, x_in):
+    batch_size = x_in.size(0)
+    grad_dout = torch.autograd.grad(outputs=d_out.sum(), inputs=x_in,
+        create_graph=True, retain_graph=True, only_inputs=True)[0]
+    grad_dout2 = grad_dout.pow(2)
+    assert grad_dout2.size() == x_in.size()
+    reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
+    return reg
+
+
+def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None,
+    masks=None):
+    assert (z_trg is None) != (x_ref is None)
+    x_real.requires_grad_()
+    out = nets.discriminator(x_real, y_org)
+    loss_real = adv_loss(out, 1)
+    loss_reg = r1_reg(out, x_real)
+    with torch.no_grad():
+        if z_trg is not None:
+            s_trg = nets.mapping_network(z_trg, y_trg)
+        else:
+            s_trg = nets.style_encoder(x_ref, y_trg)
+        x_fake = nets.generator(x_real, s_trg, masks=masks)
+    out = nets.discriminator(x_fake, y_trg)
+    loss_fake = adv_loss(out, 0)
+    loss = loss_real + loss_fake + args.lambda_reg * loss_reg
+    return loss, Munch(real=loss_real.item(), fake=loss_fake.item(), reg=
+        loss_reg.item())
+
+
+def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=
+    None, masks=None):
+    assert (z_trgs is None) != (x_refs is None)
+    if z_trgs is not None:
+        z_trg, z_trg2 = z_trgs
+    if x_refs is not None:
+        x_ref, x_ref2 = x_refs
+    if z_trgs is not None:
+        s_trg = nets.mapping_network(z_trg, y_trg)
+    else:
+        s_trg = nets.style_encoder(x_ref, y_trg)
+    x_fake = nets.generator(x_real, s_trg, masks=masks)
+    out = nets.discriminator(x_fake, y_trg)
+    loss_adv = adv_loss(out, 1)
+    s_pred = nets.style_encoder(x_fake, y_trg)
+    loss_sty = torch.mean(torch.abs(s_pred - s_trg))
+    if z_trgs is not None:
+        s_trg2 = nets.mapping_network(z_trg2, y_trg)
+    else:
+        s_trg2 = nets.style_encoder(x_ref2, y_trg)
+    x_fake2 = nets.generator(x_real, s_trg2, masks=masks)
+    x_fake2 = x_fake2.detach()
+    loss_ds = torch.mean(torch.abs(x_fake - x_fake2))
+    masks = nets.fan.get_heatmap(x_fake) if args.w_hpf > 0 else None
+    s_org = nets.style_encoder(x_real, y_org)
+    x_rec = nets.generator(x_fake, s_org, masks=masks)
+    loss_cyc = torch.mean(torch.abs(x_rec - x_real))
+    loss = (loss_adv + args.lambda_sty * loss_sty - args.lambda_ds *
+        loss_ds + args.lambda_cyc * loss_cyc)
+    return loss, Munch(adv=loss_adv.item(), sty=loss_sty.item(), ds=loss_ds
+        .item(), cyc=loss_cyc.item())
+
+
+def moving_average(model, model_test, beta=0.999):
+    for param, param_test in zip(model.parameters(), model_test.parameters()):
+        param_test.data = torch.lerp(param.data, param_test.data, beta)
+
+
+class Solver(nn.Module):
+
+    def __init__(self, args):
+        super().__init__()
+        self.args = args
+        self.device = torch.device('cuda' if torch.is_available() else 'cpu')
+        self.nets, self.nets_ema = build_model(args)
+        for name, module in self.nets.items():
+            utils.print_network(module, name)
+            setattr(self, name, module)
+        for name, module in self.nets_ema.items():
+            setattr(self, name + '_ema', module)
+        if args.mode == 'train':
+            self.optims = Munch()
+            for net in self.nets.keys():
+                if net == 'fan':
+                    continue
+                self.optims[net] = torch.optim.Adam(params=self.nets[net].
+                    parameters(), lr=args.f_lr if net == 'mapping_network' else
+                    args.lr, betas=[args.beta1, args.beta2], weight_decay=
+                    args.weight_decay)
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir,
+                '{:06d}_nets.ckpt'), **self.nets), CheckpointIO(ospj(args.
+                checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema),
+                CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'
+                ), **self.optims)]
+        else:
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir,
+                '{:06d}_nets_ema.ckpt'), **self.nets_ema)]
+        self
+        for name, network in self.named_children():
+            if 'ema' not in name and 'fan' not in name:
+                None
+                network.apply(utils.he_init)
+
+    def _save_checkpoint(self, step):
+        for ckptio in self.ckptios:
+            ckptio.save(step)
+
+    def _load_checkpoint(self, step):
+        for ckptio in self.ckptios:
+            ckptio.load(step)
+
+    def _reset_grad(self):
+        for optim in self.optims.values():
+            optim.zero_grad()
+
+    def train(self, loaders):
+        args = self.args
+        nets = self.nets
+        nets_ema = self.nets_ema
+        optims = self.optims
+        fetcher = InputFetcher(loaders.src, loaders.ref, args.latent_dim,
+            'train')
+        fetcher_val = InputFetcher(loaders.val, None, args.latent_dim, 'val')
+        inputs_val = next(fetcher_val)
+        if args.resume_iter > 0:
+            self._load_checkpoint(args.resume_iter)
+        initial_lambda_ds = args.lambda_ds
+        None
+        start_time = time.time()
+        for i in range(args.resume_iter, args.total_iters):
+            inputs = next(fetcher)
+            x_real, y_org = inputs.x_src, inputs.y_src
+            x_ref, x_ref2, y_trg = inputs.x_ref, inputs.x_ref2, inputs.y_ref
+            z_trg, z_trg2 = inputs.z_trg, inputs.z_trg2
+            masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
+            d_loss, d_losses_latent = compute_d_loss(nets, args, x_real,
+                y_org, y_trg, z_trg=z_trg, masks=masks)
+            self._reset_grad()
+            d_loss.backward()
+            optims.discriminator.step()
+            d_loss, d_losses_ref = compute_d_loss(nets, args, x_real, y_org,
+                y_trg, x_ref=x_ref, masks=masks)
+            self._reset_grad()
+            d_loss.backward()
+            optims.discriminator.step()
+            g_loss, g_losses_latent = compute_g_loss(nets, args, x_real,
+                y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+            self._reset_grad()
+            g_loss.backward()
+            optims.generator.step()
+            optims.mapping_network.step()
+            optims.style_encoder.step()
+            g_loss, g_losses_ref = compute_g_loss(nets, args, x_real, y_org,
+                y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+            self._reset_grad()
+            g_loss.backward()
+            optims.generator.step()
+            moving_average(nets.generator, nets_ema.generator, beta=0.999)
+            moving_average(nets.mapping_network, nets_ema.mapping_network,
+                beta=0.999)
+            moving_average(nets.style_encoder, nets_ema.style_encoder, beta
+                =0.999)
+            if args.lambda_ds > 0:
+                args.lambda_ds -= initial_lambda_ds / args.ds_iter
+            if (i + 1) % args.print_every == 0:
+                elapsed = time.time() - start_time
+                elapsed = str(datetime.timedelta(seconds=elapsed))[:-7]
+                log = 'Elapsed time [%s], Iteration [%i/%i], ' % (elapsed, 
+                    i + 1, args.total_iters)
+                all_losses = dict()
+                for loss, prefix in zip([d_losses_latent, d_losses_ref,
+                    g_losses_latent, g_losses_ref], ['D/latent_', 'D/ref_',
+                    'G/latent_', 'G/ref_']):
+                    for key, value in loss.items():
+                        all_losses[prefix + key] = value
+                all_losses['G/lambda_ds'] = args.lambda_ds
+                log += ' '.join([('%s: [%.4f]' % (key, value)) for key,
+                    value in all_losses.items()])
+                None
+            if (i + 1) % args.sample_every == 0:
+                os.makedirs(args.sample_dir, exist_ok=True)
+                utils.debug_image(nets_ema, args, inputs=inputs_val, step=i + 1
+                    )
+            if (i + 1) % args.save_every == 0:
+                self._save_checkpoint(step=i + 1)
+            if (i + 1) % args.eval_every == 0:
+                calculate_metrics(nets_ema, args, i + 1, mode='latent')
+                calculate_metrics(nets_ema, args, i + 1, mode='reference')
+
+    @torch.no_grad()
+    def sample(self, loaders):
+        args = self.args
+        nets_ema = self.nets_ema
+        os.makedirs(args.result_dir, exist_ok=True)
+        self._load_checkpoint(args.resume_iter)
+        src = next(InputFetcher(loaders.src, None, args.latent_dim, 'test'))
+        ref = next(InputFetcher(loaders.ref, None, args.latent_dim, 'test'))
+        fname = ospj(args.result_dir, 'reference.jpg')
+        None
+        utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y,
+            fname)
+        fname = ospj(args.result_dir, 'video_ref.mp4')
+        None
+        utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
+
+    @torch.no_grad()
+    def evaluate(self):
+        args = self.args
+        nets_ema = self.nets_ema
+        resume_iter = args.resume_iter
+        self._load_checkpoint(args.resume_iter)
+        calculate_metrics(nets_ema, args, step=resume_iter, mode='latent')
+        calculate_metrics(nets_ema, args, step=resume_iter, mode='reference')
+
+
 class HourGlass(nn.Module):
 
     def __init__(self, num_modules, depth, num_features, first_one=False):
@@ -462,7 +838,7 @@ class AddCoordsTh(nn.Module):
         super(AddCoordsTh, self).__init__()
         self.with_r = with_r
         self.with_boundary = with_boundary
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device('cuda' if torch.is_available() else 'cpu')
         with torch.no_grad():
             x_coords = torch.arange(height).unsqueeze(1).expand(height, width
                 ).float()
@@ -579,6 +955,151 @@ OPPAIR = namedtuple('OPPAIR', 'shift resize')
 IDXPAIR = namedtuple('IDXPAIR', 'start end')
 
 
+def normalize(x, eps=1e-10):
+    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
+
+
+def resize(x, p=2):
+    """Resize heatmaps."""
+    return x ** p
+
+
+def shift(x, N):
+    """Shift N pixels up or down."""
+    up = N >= 0
+    N = abs(N)
+    _, _, H, W = x.size()
+    head = torch.arange(N)
+    tail = torch.arange(H - N)
+    if up:
+        head = torch.arange(H - N) + N
+        tail = torch.arange(N)
+    else:
+        head = torch.arange(N) + (H - N)
+        tail = torch.arange(H - N)
+    perm = torch.cat([head, tail]).to(x.device)
+    out = x[:, :, (perm), :]
+    return out
+
+
+def truncate(x, thres=0.1):
+    """Remove small values in heatmaps."""
+    return torch.where(x < thres, torch.zeros_like(x), x)
+
+
+def preprocess(x):
+    """Preprocess 98-dimensional heatmaps."""
+    N, C, H, W = x.size()
+    x = truncate(x)
+    x = normalize(x)
+    sw = H // 256
+    operations = Munch(chin=OPPAIR(0, 3), eyebrows=OPPAIR(-7 * sw, 2),
+        nostrils=OPPAIR(8 * sw, 4), lipupper=OPPAIR(-8 * sw, 4), liplower=
+        OPPAIR(8 * sw, 4), lipinner=OPPAIR(-2 * sw, 3))
+    for part, ops in operations.items():
+        start, end = index_map[part]
+        x[:, start:end] = resize(shift(x[:, start:end], ops.shift), ops.resize)
+    zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.
+        arange(index_map.chin.end, 33), torch.LongTensor([index_map.
+        eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.
+        lipedges.start, index_map.lipedges.end])])
+    x[:, (zero_out)] = 0
+    start, end = index_map.nose
+    x[:, start + 1:end] = shift(x[:, start + 1:end], 4 * sw)
+    x[:, start:end] = resize(x[:, start:end], 1)
+    start, end = index_map.eyes
+    x[:, start:end] = resize(x[:, start:end], 1)
+    x[:, start:end] = resize(shift(x[:, start:end], -8), 3) + shift(x[:,
+        start:end], -24)
+    x2 = deepcopy(x)
+    x2[:, index_map.chin.start:index_map.chin.end] = 0
+    x2[:, index_map.lipedges.start:index_map.lipinner.end] = 0
+    x2[:, index_map.eyebrows.start:index_map.eyebrows.end] = 0
+    x = torch.sum(x, dim=1, keepdim=True)
+    x2 = torch.sum(x2, dim=1, keepdim=True)
+    x[x != x] = 0
+    x2[x != x] = 0
+    return x.clamp_(0, 1), x2.clamp_(0, 1)
+
+
+class FAN(nn.Module):
+
+    def __init__(self, num_modules=1, end_relu=False, num_landmarks=98,
+        fname_pretrained=None):
+        super(FAN, self).__init__()
+        self.num_modules = num_modules
+        self.end_relu = end_relu
+        self.conv1 = CoordConvTh(256, 256, True, False, in_channels=3,
+            out_channels=64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = ConvBlock(64, 128)
+        self.conv3 = ConvBlock(128, 128)
+        self.conv4 = ConvBlock(128, 256)
+        self.add_module('m0', HourGlass(1, 4, 256, first_one=True))
+        self.add_module('top_m_0', ConvBlock(256, 256))
+        self.add_module('conv_last0', nn.Conv2d(256, 256, 1, 1, 0))
+        self.add_module('bn_end0', nn.BatchNorm2d(256))
+        self.add_module('l0', nn.Conv2d(256, num_landmarks + 1, 1, 1, 0))
+        if fname_pretrained is not None:
+            self.load_pretrained_weights(fname_pretrained)
+
+    def load_pretrained_weights(self, fname):
+        if torch.is_available():
+            checkpoint = torch.load(fname)
+        else:
+            checkpoint = torch.load(fname, map_location=torch.device('cpu'))
+        model_weights = self.state_dict()
+        model_weights.update({k: v for k, v in checkpoint['state_dict'].
+            items() if k in model_weights})
+        self.load_state_dict(model_weights)
+
+    def forward(self, x):
+        x, _ = self.conv1(x)
+        x = F.relu(self.bn1(x), True)
+        x = F.avg_pool2d(self.conv2(x), 2, stride=2)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        outputs = []
+        boundary_channels = []
+        tmp_out = None
+        ll, boundary_channel = self._modules['m0'](x, tmp_out)
+        ll = self._modules['top_m_0'](ll)
+        ll = F.relu(self._modules['bn_end0'](self._modules['conv_last0'](ll
+            )), True)
+        tmp_out = self._modules['l0'](ll)
+        if self.end_relu:
+            tmp_out = F.relu(tmp_out)
+        outputs.append(tmp_out)
+        boundary_channels.append(boundary_channel)
+        return outputs, boundary_channels
+
+    @torch.no_grad()
+    def get_heatmap(self, x, b_preprocess=True):
+        """ outputs 0-1 normalized heatmap """
+        x = F.interpolate(x, size=256, mode='bilinear')
+        x_01 = x * 0.5 + 0.5
+        outputs, _ = self(x_01)
+        heatmaps = outputs[-1][:, :-1, :, :]
+        scale_factor = x.size(2) // heatmaps.size(2)
+        if b_preprocess:
+            heatmaps = F.interpolate(heatmaps, scale_factor=scale_factor,
+                mode='bilinear', align_corners=True)
+            heatmaps = preprocess(heatmaps)
+        return heatmaps
+
+    @torch.no_grad()
+    def get_landmark(self, x):
+        """ outputs landmarks of x.shape """
+        heatmaps = self.get_heatmap(x, b_preprocess=False)
+        landmarks = []
+        for i in range(x.size(0)):
+            pred_landmarks = get_preds_fromhm(heatmaps[i].cpu().unsqueeze(0))
+            landmarks.append(pred_landmarks)
+        scale_factor = x.size(2) // heatmaps.size(2)
+        landmarks = torch.cat(landmarks) * scale_factor
+        return landmarks
+
+
 class InceptionV3(nn.Module):
 
     def __init__(self):
@@ -633,10 +1154,6 @@ class Conv1x1(nn.Module):
         return self.main(x)
 
 
-def normalize(x, eps=1e-10):
-    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
-
-
 class LPIPS(nn.Module):
 
     def __init__(self):
@@ -651,7 +1168,7 @@ class LPIPS(nn.Module):
 
     def _load_lpips_weights(self):
         own_state_dict = self.state_dict()
-        if torch.cuda.is_available():
+        if torch.is_available():
             state_dict = torch.load('metrics/lpips_weights.ckpt')
         else:
             state_dict = torch.load('metrics/lpips_weights.ckpt',
@@ -675,13 +1192,13 @@ class LPIPS(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_clovaai_stargan_v2(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AddCoordsTh(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(Conv1x1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -691,12 +1208,20 @@ class Test_clovaai_stargan_v2(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(CoordConvTh(*[], **{'height': 4, 'width': 4, 'with_r': 4, 'with_boundary': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 6, 4, 4])], {})
+        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_004(self):
-        self._check(HighPass(*[], **{'w_hpf': 4, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HighPass(*[], **{'w_hpf': 4, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(MappingNetwork(*[], **{}), [torch.rand([16, 16]), torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(ResBlk(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {})
 

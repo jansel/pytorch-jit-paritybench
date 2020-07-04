@@ -51,10 +51,13 @@ theme_picker = _module
 tracking_manager = _module
 video_list = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -436,7 +439,148 @@ class DepthCorr(nn.Module):
         return out
 
 
+def center2corner(center):
+    """
+    :param center: Center or np.array 4*N
+    :return: Corner or np.array 4*N
+    """
+    if isinstance(center, Center):
+        x, y, w, h = center
+        return Corner(x - w * 0.5, y - h * 0.5, x + w * 0.5, y + h * 0.5)
+    else:
+        x, y, w, h = center[0], center[1], center[2], center[3]
+        x1 = x - w * 0.5
+        y1 = y - h * 0.5
+        x2 = x + w * 0.5
+        y2 = y + h * 0.5
+        return x1, y1, x2, y2
+
+
+def corner2center(corner):
+    """
+    :param corner: Corner or np.array 4*N
+    :return: Center or 4 np.array N
+    """
+    if isinstance(corner, Corner):
+        x1, y1, x2, y2 = corner
+        return Center((x1 + x2) * 0.5, (y1 + y2) * 0.5, x2 - x1, y2 - y1)
+    else:
+        x1, y1, x2, y2 = corner[0], corner[1], corner[2], corner[3]
+        x = (x1 + x2) * 0.5
+        y = (y1 + y2) * 0.5
+        w = x2 - x1
+        h = y2 - y1
+        return x, y, w, h
+
+
+class Anchors:
+
+    def __init__(self, cfg):
+        self.stride = 8
+        self.ratios = [0.33, 0.5, 1, 2, 3]
+        self.scales = [8]
+        self.round_dight = 0
+        self.image_center = 0
+        self.size = 0
+        self.__dict__.update(cfg)
+        self.anchor_num = len(self.scales) * len(self.ratios)
+        self.anchors = None
+        self.all_anchors = None
+        self.generate_anchors()
+
+    def generate_anchors(self):
+        self.anchors = np.zeros((self.anchor_num, 4), dtype=np.float32)
+        size = self.stride * self.stride
+        count = 0
+        for r in self.ratios:
+            if self.round_dight > 0:
+                ws = round(math.sqrt(size * 1.0 / r), self.round_dight)
+                hs = round(ws * r, self.round_dight)
+            else:
+                ws = int(math.sqrt(size * 1.0 / r))
+                hs = int(ws * r)
+            for s in self.scales:
+                w = ws * s
+                h = hs * s
+                self.anchors[count][:] = [-w * 0.5, -h * 0.5, w * 0.5, h * 0.5
+                    ][:]
+                count += 1
+
+    def generate_all_anchors(self, im_c, size):
+        if self.image_center == im_c and self.size == size:
+            return False
+        self.image_center = im_c
+        self.size = size
+        a0x = im_c - size // 2 * self.stride
+        ori = np.array([a0x] * 4, dtype=np.float32)
+        zero_anchors = self.anchors + ori
+        x1 = zero_anchors[:, (0)]
+        y1 = zero_anchors[:, (1)]
+        x2 = zero_anchors[:, (2)]
+        y2 = zero_anchors[:, (3)]
+        x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [
+            x1, y1, x2, y2])
+        cx, cy, w, h = corner2center([x1, y1, x2, y2])
+        disp_x = np.arange(0, size).reshape(1, 1, -1) * self.stride
+        disp_y = np.arange(0, size).reshape(1, -1, 1) * self.stride
+        cx = cx + disp_x
+        cy = cy + disp_y
+        zero = np.zeros((self.anchor_num, size, size), dtype=np.float32)
+        cx, cy, w, h = map(lambda x: x + zero, [cx, cy, w, h])
+        x1, y1, x2, y2 = center2corner([cx, cy, w, h])
+        self.all_anchors = np.stack([x1, y1, x2, y2]), np.stack([cx, cy, w, h])
+        return True
+
+
+class SiamMask(nn.Module):
+
+    def __init__(self, anchors=None, o_sz=127, g_sz=127):
+        super(SiamMask, self).__init__()
+        self.anchors = anchors
+        self.anchor_num = len(self.anchors['ratios']) * len(self.anchors[
+            'scales'])
+        self.anchor = Anchors(anchors)
+        self.features = None
+        self.rpn_model = None
+        self.mask_model = None
+        self.o_sz = o_sz
+        self.g_sz = g_sz
+        self.all_anchors = None
+
+    def set_all_anchors(self, image_center, size):
+        if not self.anchor.generate_all_anchors(image_center, size):
+            return
+        all_anchors = self.anchor.all_anchors[1]
+        self.all_anchors = torch.from_numpy(all_anchors).float()
+        self.all_anchors = [self.all_anchors[i] for i in range(4)]
+
+    def feature_extractor(self, x):
+        return self.features(x)
+
+    def rpn(self, template, search):
+        pred_cls, pred_loc = self.rpn_model(template, search)
+        return pred_cls, pred_loc
+
+    def mask(self, template, search):
+        pred_mask = self.mask_model(template, search)
+        return pred_mask
+
+    def template(self, z):
+        self.zf = self.feature_extractor(z)
+        cls_kernel, loc_kernel = self.rpn_model.template(self.zf)
+        return cls_kernel, loc_kernel
+
+    def track(self, x, cls_kernel=None, loc_kernel=None, softmax=False):
+        xf = self.feature_extractor(x)
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model.track(xf, cls_kernel,
+            loc_kernel)
+        if softmax:
+            rpn_pred_cls = self.softmax(rpn_pred_cls)
+        return rpn_pred_cls, rpn_pred_loc
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_alexandre01_UltimateLabeling(_paritybench_base):
@@ -447,6 +591,10 @@ class Test_alexandre01_UltimateLabeling(_paritybench_base):
     def test_001(self):
         self._check(DepthCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(ResAdjust(*[], **{}), [torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 2048, 64, 64])], {})
+
+    def test_003(self):
         self._check(ResDownS(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
 

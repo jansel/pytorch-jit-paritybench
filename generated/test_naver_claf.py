@@ -179,10 +179,13 @@ test_token_classification = _module
 test_tokenizers = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -778,7 +781,7 @@ class CondsValuePointer(nn.Module):
             MAX_DECODER_STEP = 50
             decoder_input = torch.zeros(4 * B, 1, self.token_maxlen)
             decoder_input[:, (0), (0)] = 2
-            if torch.cuda.is_available():
+            if torch.is_available():
                 decoder_input = decoder_input
             decoder_hidden = None
             logits = []
@@ -793,7 +796,7 @@ class CondsValuePointer(nn.Module):
                 decoder_input = torch.zeros(B * self.column_maxlen, self.
                     token_maxlen).scatter_(1, decoder_idxs.cpu().unsqueeze(
                     1), 1)
-                if torch.cuda.is_available():
+                if torch.is_available():
                     decoder_input = decoder_input
             logits = torch.stack(logits, 2)
         else:
@@ -807,7 +810,7 @@ class CondsValuePointer(nn.Module):
         B, Q_L, embed_D = list(question_embed.size())
         zero_padding = torch.zeros(B, 1, embed_D)
         mask_with_start_end = torch.zeros(B, Q_L + 2)
-        if torch.cuda.is_available():
+        if torch.is_available():
             zero_padding = zero_padding
             mask_with_start_end = mask_with_start_end
         question_embed_with_start_end = torch.cat([zero_padding,
@@ -1931,6 +1934,51 @@ class ScalarMix(torch.nn.Module):
 logger = logging.getLogger(__name__)
 
 
+class MTLSTM(nn.Module):
+
+    def __init__(self, word_embedding, pretrained_path=None, requires_grad=
+        False, residual_embeddings=False):
+        """Initialize an MTLSTM.
+
+        Arguments:
+            n_vocab (bool): If not None, initialize MTLSTM with an embedding matrix with n_vocab vectors
+            vectors (Float Tensor): If not None, initiapize embedding matrix with specified vectors
+            residual_embedding (bool): If True, concatenate the input embeddings with MTLSTM outputs during forward
+        """
+        super(MTLSTM, self).__init__()
+        self.word_embedding = word_embedding
+        self.rnn = nn.LSTM(300, 300, num_layers=2, bidirectional=True,
+            batch_first=True)
+        data_handler = DataHandler(cache_path=CachePath.PRETRAINED_VECTOR)
+        cove_weight_path = data_handler.read(pretrained_path, return_path=True)
+        if torch.is_available():
+            checkpoint = torch.load(cove_weight_path)
+        else:
+            checkpoint = torch.load(cove_weight_path, map_location='cpu')
+        self.rnn.load_state_dict(checkpoint)
+        self.residual_embeddings = residual_embeddings
+        self.requires_grad = requires_grad
+
+    def forward(self, inputs):
+        """A pretrained MT-LSTM (McCann et. al. 2017).
+        This LSTM was trained with 300d 840B GloVe on the WMT 2017 machine translation dataset.
+
+        Arguments:
+            inputs (Tensor): If MTLSTM handles embedding, a Long Tensor of size (batch_size, timesteps).
+                             Otherwise, a Float Tensor of size (batch_size, timesteps, features).
+            lengths (Long Tensor): (batch_size, lengths) lenghts of each sequence for handling padding
+            hidden (Float Tensor): initial hidden state of the LSTM
+        """
+        embedded_inputs = self.word_embedding(inputs)
+        encoded_inputs, _ = self.rnn(embedded_inputs)
+        if not self.requires_grad:
+            encoded_inputs.detach()
+        outputs = encoded_inputs
+        if self.residual_embeddings:
+            outputs = torch.cat([embedded_inputs, encoded_inputs], 2)
+        return outputs
+
+
 def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.Tensor
     ) ->Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -2536,6 +2584,185 @@ class TokenEmbedding(torch.nn.Module):
         return len(self.vocab)
 
 
+class Vocab:
+    """
+    Vocaburary Class
+
+    Vocab consists of token_to_index and index_to_token.
+
+    * Args:
+        token_name: Token name (Token and Vocab is one-to-one relationship)
+
+    * Kwargs:
+        pad_token: padding token value (eg. <pad>)
+        oov_token: out-of-vocaburary token value (eg. <unk>)
+        start_token: start token value (eg. <s>, <bos>)
+        end_token: end token value (eg. </s>, <eos>)
+        cls_token: CLS token value for BERT (eg. [CLS])
+        sep_token: SEP token value for BERT (eg. [SEP])
+        min_count: token's minimal frequent count.
+            when you define min_count, tokens remain that bigger than min_count.
+        max_vocab_size: vocaburary's maximun size.
+            when you define max_vocab_size, tokens are selected according to frequent count.
+        frequent_count: get frequent_count threshold_index.
+            (eg. frequent_count = 1000, threshold_index is the tokens that frequent_count is 999 index number.)
+        pretrained_path: pretrained vocab file path
+            (format: A
+B
+C
+D
+...)
+    """
+    DEFAULT_PAD_INDEX, DEFAULT_PAD_TOKEN = 0, '[PAD]'
+    DEFAULT_OOV_INDEX, DEFAULT_OOV_TOKEN = 1, '[UNK]'
+    PRETRAINED_ALL = 'all'
+    PRETRAINED_INTERSECT = 'intersect'
+
+    def __init__(self, token_name, pad_token=None, oov_token=None,
+        start_token=None, end_token=None, cls_token=None, sep_token=None,
+        min_count=None, max_vocab_size=None, frequent_count=None,
+        pretrained_path=None, pretrained_token=None):
+        self.token_name = token_name
+        self.pad_index = self.DEFAULT_PAD_INDEX
+        self.pad_token = pad_token
+        if pad_token is None:
+            self.pad_token = self.DEFAULT_PAD_TOKEN
+        self.oov_index = self.DEFAULT_OOV_INDEX
+        self.oov_token = oov_token
+        if oov_token is None:
+            self.oov_token = self.DEFAULT_OOV_TOKEN
+        self.start_token = start_token
+        self.end_token = end_token
+        self.cls_token = cls_token
+        self.sep_token = sep_token
+        self.min_count = min_count
+        self.max_vocab_size = max_vocab_size
+        self.token_counter = None
+        self.frequent_count = frequent_count
+        self.threshold_index = None
+        self.pretrained_path = pretrained_path
+        self.pretrained_token = pretrained_token
+        self.pretrained_token_methods = [self.PRETRAINED_ALL, self.
+            PRETRAINED_INTERSECT]
+
+    def init(self):
+        self.token_to_index = VocabDict(self.oov_index)
+        self.index_to_token = VocabDict(self.oov_token)
+        self.add(self.pad_token)
+        self.add(self.oov_token)
+        special_tokens = [self.start_token, self.end_token, self.cls_token,
+            self.sep_token]
+        for token in special_tokens:
+            if token is not None:
+                self.add(token)
+
+    def build(self, token_counter, predefine_vocab=None):
+        """
+        build token with token_counter
+
+        * Args:
+            token_counter: (collections.Counter) token's frequent_count Counter.
+        """
+        if predefine_vocab is not None:
+            if (self.pretrained_token is None or self.pretrained_token not in
+                self.pretrained_token_methods):
+                raise ValueError(
+                    f"When use 'predefine_vocab', need to set 'pretrained_token' {self.pretrained_token_methods}"
+                    )
+        if predefine_vocab:
+            if self.pretrained_token == self.PRETRAINED_ALL:
+                self.from_texts(predefine_vocab)
+                return
+            else:
+                predefine_vocab = set(predefine_vocab)
+        self.token_counter = token_counter
+        self.init()
+        token_counts = list(token_counter.items())
+        token_counts.sort(key=lambda x: x[1], reverse=True)
+        if self.max_vocab_size is not None:
+            token_counts = token_counts[:self.max_vocab_size]
+        for token, count in token_counts:
+            if self.min_count is not None:
+                if count >= self.min_count:
+                    self.add(token, predefine_vocab=predefine_vocab)
+            else:
+                self.add(token, predefine_vocab=predefine_vocab)
+            if (self.threshold_index is None and self.frequent_count is not
+                None):
+                if count < self.frequent_count:
+                    self.threshold_index = len(self.token_to_index)
+
+    def build_with_pretrained_file(self, token_counter):
+        data_handler = DataHandler(CachePath.VOCAB)
+        vocab_texts = data_handler.read(self.pretrained_path)
+        if self.pretrained_path.endswith('.txt'):
+            predefine_vocab = vocab_texts.split('\n')
+        elif self.pretrained_path.endswith('.json'):
+            vocab_texts = json.loads(vocab_texts)
+            predefine_vocab = [item[0] for item in sorted(vocab_texts.items
+                (), key=lambda x: x[1])]
+        else:
+            raise ValueError(f'support vocab extention. .txt or .json')
+        self.build(token_counter, predefine_vocab=predefine_vocab)
+
+    def __len__(self):
+        return len(self.token_to_index)
+
+    def add(self, token, predefine_vocab=None):
+        if token in self.token_to_index:
+            return
+        if predefine_vocab:
+            if (self.pretrained_token == self.PRETRAINED_INTERSECT and 
+                token not in predefine_vocab):
+                return
+        index = len(self.token_to_index)
+        self.token_to_index[token] = index
+        self.index_to_token[index] = token
+
+    def get_index(self, token):
+        return self.token_to_index[token]
+
+    def get_token(self, index):
+        return self.index_to_token[index]
+
+    def get_all_tokens(self):
+        return list(self.token_to_index.keys())
+
+    def dump(self, path):
+        with open(path, 'w', encoding='utf-8') as out_file:
+            out_file.write(self.to_text())
+
+    def load(self, path):
+        with open(path, 'r', encoding='utf-8') as in_file:
+            texts = in_file.read()
+        self.from_texts(texts)
+
+    def to_text(self):
+        return '\n'.join(self.get_all_tokens())
+
+    def from_texts(self, texts):
+        if type(texts) == list:
+            tokens = texts
+        else:
+            tokens = [token for token in texts.split('\n')]
+        tokens = [token for token in tokens if token]
+        if self.pad_token in tokens:
+            self.pad_index = tokens.index(self.pad_token)
+        else:
+            self.pad_index = len(tokens)
+            tokens.append(self.pad_token)
+        if self.oov_token in tokens:
+            self.oov_index = tokens.index(self.oov_token)
+        else:
+            self.oov_index = len(tokens)
+            tokens.append(self.oov_token)
+        self.token_to_index = VocabDict(self.oov_index)
+        self.index_to_token = VocabDict(self.oov_token)
+        for token in tokens:
+            self.add(token)
+        return self
+
+
 class TokenEmbedder(torch.nn.Module):
     """
     Token Embedder
@@ -2571,6 +2798,7 @@ class TokenEmbedder(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_naver_claf(_paritybench_base):
@@ -2592,29 +2820,25 @@ class Test_naver_claf(_paritybench_base):
     def test_004(self):
         self._check(LayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LstmCellWithProjection(*[], **{'input_size': 4, 'hidden_size': 4, 'cell_size': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
-
-    def test_006(self):
         self._check(NoAnswer(*[], **{'embed_dim': 4, 'bias_hidden_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_006(self):
         self._check(PointwiseConv(*[], **{'input_size': 4, 'num_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_007(self):
         self._check(PositionalEncoding(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_008(self):
         self._check(PositionwiseFeedForward(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_009(self):
         self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_010(self):
         self._check(SeqAttnMatch(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

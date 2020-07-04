@@ -382,10 +382,13 @@ train_pt = _module
 train_tf = _module
 train_tf2 = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -452,6 +455,77 @@ from torch import nn
 from collections import OrderedDict
 
 
+def get_activation_layer(activation):
+    """
+    Create activation layer from string/function.
+
+    Parameters:
+    ----------
+    activation : function, or str, or nn.Module
+        Activation function or name of activation function.
+
+    Returns
+    -------
+    nn.Module
+        Activation layer.
+    """
+    assert activation is not None
+    if isfunction(activation):
+        return activation()
+    elif isinstance(activation, str):
+        if activation == 'relu':
+            return nn.ReLU(inplace=True)
+        elif activation == 'relu6':
+            return nn.ReLU6(inplace=True)
+        elif activation == 'swish':
+            return Swish()
+        elif activation == 'hswish':
+            return HSwish(inplace=True)
+        elif activation == 'sigmoid':
+            return nn.Sigmoid()
+        elif activation == 'hsigmoid':
+            return HSigmoid()
+        elif activation == 'identity':
+            return Identity()
+        else:
+            raise NotImplementedError()
+    else:
+        assert isinstance(activation, nn.Module)
+        return activation
+
+
+def conv1x1_block(in_channels, out_channels, stride=1, padding=0, groups=1,
+    bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(
+    inplace=True)):
+    """
+    1x1 version of the standard convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 0
+        Padding value for convolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=1, stride=stride, padding=padding, groups=groups, bias=
+        bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
+
+
 def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
     1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda :
     nn.ReLU(inplace=True)):
@@ -487,6 +561,124 @@ def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
         activation)
 
 
+class AirBlock(nn.Module):
+    """
+    AirNet attention block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    groups : int, default 1
+        Number of groups.
+    ratio: int, default 2
+        Air compression ratio.
+    """
+
+    def __init__(self, in_channels, out_channels, groups=1, ratio=2):
+        super(AirBlock, self).__init__()
+        assert out_channels % ratio == 0
+        mid_channels = out_channels // ratio
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
+            mid_channels)
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
+            mid_channels, groups=groups)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
+            out_channels, activation=None)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.pool(x)
+        x = self.conv2(x)
+        x = F.interpolate(input=x, scale_factor=2, mode='bilinear',
+            align_corners=True)
+        x = self.conv3(x)
+        x = self.sigmoid(x)
+        return x
+
+
+class AirBottleneck(nn.Module):
+    """
+    AirNet bottleneck block for residual path in AirNet unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    ratio: int
+        Air compression ratio.
+    """
+
+    def __init__(self, in_channels, out_channels, stride, ratio):
+        super(AirBottleneck, self).__init__()
+        mid_channels = out_channels // 4
+        self.use_air_block = stride == 1 and mid_channels < 512
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
+            mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
+            mid_channels, stride=stride)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
+            out_channels, activation=None)
+        if self.use_air_block:
+            self.air = AirBlock(in_channels=in_channels, out_channels=
+                mid_channels, ratio=ratio)
+
+    def forward(self, x):
+        if self.use_air_block:
+            att = self.air(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        if self.use_air_block:
+            x = x * att
+        x = self.conv3(x)
+        return x
+
+
+class AirUnit(nn.Module):
+    """
+    AirNet unit with residual connection.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    ratio: int
+        Air compression ratio.
+    """
+
+    def __init__(self, in_channels, out_channels, stride, ratio):
+        super(AirUnit, self).__init__()
+        self.resize_identity = in_channels != out_channels or stride != 1
+        self.body = AirBottleneck(in_channels=in_channels, out_channels=
+            out_channels, stride=stride, ratio=ratio)
+        if self.resize_identity:
+            self.identity_conv = conv1x1_block(in_channels=in_channels,
+                out_channels=out_channels, stride=stride, activation=None)
+        self.activ = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        if self.resize_identity:
+            identity = self.identity_conv(x)
+        else:
+            identity = x
+        x = self.body(x)
+        x = x + identity
+        x = self.activ(x)
+        return x
+
+
 class AirInitBlock(nn.Module):
     """
     AirNet specific initial block.
@@ -515,6 +707,65 @@ class AirInitBlock(nn.Module):
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.pool(x)
+        return x
+
+
+class AirNet(nn.Module):
+    """
+    AirNet model from 'Attention Inspiring Receptive-Fields Network for Learning Invariant Representations,'
+    https://ieeexplore.ieee.org/document/8510896.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    ratio: int
+        Air compression ratio.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, ratio, in_channels=3,
+        in_size=(224, 224), num_classes=1000):
+        super(AirNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', AirInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), AirUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, ratio=ratio))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
         return x
 
 
@@ -725,6 +976,134 @@ class AlexOutputBlock(nn.Module):
         x = self.fc2(x)
         x = self.fc3(x)
         return x
+
+
+class AlexNet(nn.Module):
+    """
+    AlexNet model from 'One weird trick for parallelizing convolutional neural networks,'
+    https://arxiv.org/abs/1404.5997.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    kernel_sizes : list of list of int
+        Convolution window sizes for each unit.
+    strides : list of list of int or tuple/list of 2 int
+        Strides of the convolution for each unit.
+    paddings : list of list of int or tuple/list of 2 int
+        Padding value for convolution layer for each unit.
+    use_lrn : bool
+        Whether to use LRN layer.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, kernel_sizes, strides, paddings, use_lrn,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(AlexNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        for i, channels_per_stage in enumerate(channels):
+            use_lrn_i = use_lrn and i in [0, 1]
+            stage = nn.Sequential()
+            for j, out_channels in enumerate(channels_per_stage):
+                stage.add_module('unit{}'.format(j + 1), AlexConv(
+                    in_channels=in_channels, out_channels=out_channels,
+                    kernel_size=kernel_sizes[i][j], stride=strides[i][j],
+                    padding=paddings[i][j], use_lrn=use_lrn_i))
+                in_channels = out_channels
+            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
+                kernel_size=3, stride=2, padding=0, ceil_mode=True))
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.output = AlexOutputBlock(in_channels=in_channels * 6 * 6,
+            classes=num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=1, bias=False)
+
+
+class AlphaPose(nn.Module):
+    """
+    AlphaPose model from 'RMPE: Regional Multi-person Pose Estimation,' https://arxiv.org/abs/1612.00137.
+
+    Parameters:
+    ----------
+    backbone : nn.Sequential
+        Feature extractor.
+    backbone_out_channels : int
+        Number of output channels for the backbone.
+    channels : list of int
+        Number of output channels for each decoder unit.
+    return_heatmap : bool, default False
+        Whether to return only heatmap.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (256, 192)
+        Spatial size of the expected input image.
+    keypoints : int, default 17
+        Number of keypoints.
+    """
+
+    def __init__(self, backbone, backbone_out_channels, channels,
+        return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
+        super(AlphaPose, self).__init__()
+        assert in_channels == 3
+        self.in_size = in_size
+        self.keypoints = keypoints
+        self.return_heatmap = return_heatmap
+        self.backbone = backbone
+        self.decoder = nn.Sequential()
+        self.decoder.add_module('init_block', nn.PixelShuffle(upscale_factor=2)
+            )
+        in_channels = backbone_out_channels // 4
+        for i, out_channels in enumerate(channels):
+            self.decoder.add_module('unit{}'.format(i + 1), DucBlock(
+                in_channels=in_channels, out_channels=out_channels,
+                scale_factor=2))
+            in_channels = out_channels
+        self.decoder.add_module('final_block', conv3x3(in_channels=
+            in_channels, out_channels=keypoints, bias=True))
+        self.heatmap_max_det = HeatmapMaxDetBlock()
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.backbone(x)
+        heatmap = self.decoder(x)
+        if self.return_heatmap:
+            return heatmap
+        else:
+            keypoints = self.heatmap_max_det(heatmap)
+            return keypoints
 
 
 class BagNetBottleneck(nn.Module):
@@ -1020,6 +1399,213 @@ class BamBlock(nn.Module):
         return x
 
 
+def pre_conv1x1_block(in_channels, out_channels, stride=1, bias=False,
+    use_bn=True, return_preact=False, activate=True):
+    """
+    1x1 version of the pre-activated convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    return_preact : bool, default False
+        Whether return pre-activation.
+    activate : bool, default True
+        Whether activate the convolution block.
+    """
+    return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=1, stride=stride, padding=0, bias=bias, use_bn=use_bn,
+        return_preact=return_preact, activate=activate)
+
+
+def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
+    dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
+    """
+    3x3 version of the pre-activated convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    return_preact : bool, default False
+        Whether return pre-activation.
+    activate : bool, default True
+        Whether activate the convolution block.
+    """
+    return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
+        bias=bias, use_bn=use_bn, return_preact=return_preact, activate=
+        activate)
+
+
+class BamResUnit(nn.Module):
+    """
+    BAM-ResNet unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    """
+
+    def __init__(self, in_channels, out_channels, stride, bottleneck):
+        super(BamResUnit, self).__init__()
+        self.use_bam = stride != 1
+        if self.use_bam:
+            self.bam = BamBlock(channels=in_channels)
+        self.res_unit = ResUnit(in_channels=in_channels, out_channels=
+            out_channels, stride=stride, bottleneck=bottleneck,
+            conv1_stride=False)
+
+    def forward(self, x):
+        if self.use_bam:
+            x = self.bam(x)
+        x = self.res_unit(x)
+        return x
+
+
+def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=
+    False, use_bn=True, activation=lambda : nn.ReLU(inplace=True)):
+    """
+    7x7 version of the standard convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 3
+        Padding value for convolution layer.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
+        kernel_size=7, stride=stride, padding=padding, bias=bias, use_bn=
+        use_bn, activation=activation)
+
+
+class BamResNet(nn.Module):
+    """
+    BAM-ResNet model from 'BAM: Bottleneck Attention Module,' https://arxiv.org/abs/1807.06514.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(BamResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', ResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), BamResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
+class PyramidPoolingZeroBranch(nn.Module):
+    """
+    Pyramid pooling zero branch.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    in_size : tuple of 2 int
+        Spatial size of output image for the upsampling operation.
+    """
+
+    def __init__(self, in_channels, out_channels, in_size):
+        super(PyramidPoolingZeroBranch, self).__init__()
+        self.in_size = in_size
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
+            out_channels)
+        self.up = InterpolationBlock(scale_factor=None, mode='nearest',
+            align_corners=None)
+
+    def forward(self, x):
+        in_size = self.in_size if self.in_size is not None else x.shape[2:]
+        x = self.pool(x)
+        x = self.conv(x)
+        x = self.up(x, size=in_size)
+        return x
+
+
 class AttentionRefinementBlock(nn.Module):
     """
     Attention refinement block.
@@ -1119,6 +1705,43 @@ class FeatureFusion(nn.Module):
         return x
 
 
+class PyramidPooling(nn.Module):
+    """
+    Pyramid Pooling module.
+
+    Parameters:
+    ----------
+    x16_in_channels : int
+        Number of input channels for x16.
+    x32_in_channels : int
+        Number of input channels for x32.
+    y_out_channels : int
+        Number of output channels for y-outputs.
+    y32_out_size : tuple of 2 int
+        Spatial size of the y32 tensor.
+    """
+
+    def __init__(self, x16_in_channels, x32_in_channels, y_out_channels,
+        y32_out_size):
+        super(PyramidPooling, self).__init__()
+        z_out_channels = 2 * y_out_channels
+        self.pool32 = PyramidPoolingZeroBranch(in_channels=x32_in_channels,
+            out_channels=y_out_channels, in_size=y32_out_size)
+        self.pool16 = PyramidPoolingMainBranch(in_channels=x32_in_channels,
+            out_channels=y_out_channels, scale_factor=2)
+        self.pool8 = PyramidPoolingMainBranch(in_channels=x16_in_channels,
+            out_channels=y_out_channels, scale_factor=2)
+        self.fusion = FeatureFusion(in_channels=z_out_channels,
+            out_channels=z_out_channels)
+
+    def forward(self, x8, x16, x32):
+        y32 = self.pool32(x32)
+        y16 = self.pool16(x32, y32)
+        y8 = self.pool8(x16, y16)
+        z8 = self.fusion(x8, y8)
+        return z8, y8, y16
+
+
 class BiSeHead(nn.Module):
     """
     BiSeNet head (final) block.
@@ -1144,6 +1767,79 @@ class BiSeHead(nn.Module):
         x = self.conv1(x)
         x = self.conv2(x)
         return x
+
+
+class BiSeNet(nn.Module):
+    """
+    BiSeNet model from 'BiSeNet: Bilateral Segmentation Network for Real-time Semantic Segmentation,'
+    https://arxiv.org/abs/1808.00897.
+
+    Parameters:
+    ----------
+    backbone : func -> nn.Sequential
+        Feature extractor.
+    aux : bool, default True
+        Whether to output an auxiliary results.
+    fixed_size : bool, default True
+        Whether to expect fixed spatial size of input image.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (640, 480)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, backbone, aux=True, fixed_size=True, in_channels=3,
+        in_size=(640, 480), num_classes=19):
+        super(BiSeNet, self).__init__()
+        assert in_channels == 3
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.aux = aux
+        self.fixed_size = fixed_size
+        self.backbone, backbone_out_channels = backbone()
+        y_out_channels = backbone_out_channels[0]
+        z_out_channels = 2 * y_out_channels
+        y32_out_size = (self.in_size[0] // 32, self.in_size[1] // 32
+            ) if fixed_size else None
+        self.pool = PyramidPooling(x16_in_channels=backbone_out_channels[1],
+            x32_in_channels=backbone_out_channels[2], y_out_channels=
+            y_out_channels, y32_out_size=y32_out_size)
+        self.head_z8 = BiSeHead(in_channels=z_out_channels, mid_channels=
+            z_out_channels, out_channels=num_classes)
+        self.up8 = InterpolationBlock(scale_factor=8 if fixed_size else None)
+        if self.aux:
+            mid_channels = y_out_channels // 2
+            self.head_y8 = BiSeHead(in_channels=y_out_channels,
+                mid_channels=mid_channels, out_channels=num_classes)
+            self.head_y16 = BiSeHead(in_channels=y_out_channels,
+                mid_channels=mid_channels, out_channels=num_classes)
+            self.up16 = InterpolationBlock(scale_factor=16 if fixed_size else
+                None)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight, a=1)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        assert x.shape[2] % 32 == 0 and x.shape[3] % 32 == 0
+        x8, x16, x32 = self.backbone(x)
+        z8, y8, y16 = self.pool(x8, x16, x32)
+        z8 = self.head_z8(z8)
+        z8 = self.up8(z8)
+        if self.aux:
+            y8 = self.head_y8(y8)
+            y16 = self.head_y16(y16)
+            y8 = self.up8(y8)
+            y16 = self.up16(y16)
+            return z8, y8, y16
+        else:
+            return z8
 
 
 class Inception3x3Branch(nn.Module):
@@ -1252,33 +1948,6 @@ class InceptionPoolBranch(nn.Module):
         return x
 
 
-def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=
-    False, use_bn=True, activation=lambda : nn.ReLU(inplace=True)):
-    """
-    7x7 version of the standard convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 1
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 3
-        Padding value for convolution layer.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    activation : function or str or None, default nn.ReLU(inplace=True)
-        Activation function or name of activation function.
-    """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=stride, padding=padding, bias=bias, use_bn=
-        use_bn, activation=activation)
-
-
 class StemBlock(nn.Module):
     """
     BN-Inception stem block.
@@ -1313,6 +1982,50 @@ class StemBlock(nn.Module):
         x = self.pool1(x)
         x = self.conv2(x)
         x = self.pool2(x)
+        return x
+
+
+class InceptionBlock(nn.Module):
+    """
+    BN-Inception unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    mid1_channels_list : list of int
+        Number of pre-middle channels for branches.
+    mid2_channels_list : list of int
+        Number of middle channels for branches.
+    avg_pool : bool
+        Whether use average pooling or max pooling.
+    bias : bool
+        Whether the convolution layer uses a bias vector.
+    use_bn : bool
+        Whether to use BatchNorm layers.
+    """
+
+    def __init__(self, in_channels, mid1_channels_list, mid2_channels_list,
+        avg_pool, bias, use_bn):
+        super(InceptionBlock, self).__init__()
+        assert len(mid1_channels_list) == 2
+        assert len(mid2_channels_list) == 4
+        self.branches = Concurrent()
+        self.branches.add_module('branch1', conv1x1_block(in_channels=
+            in_channels, out_channels=mid2_channels_list[0], bias=bias,
+            use_bn=use_bn))
+        self.branches.add_module('branch2', Inception3x3Branch(in_channels=
+            in_channels, out_channels=mid2_channels_list[1], mid_channels=
+            mid1_channels_list[0], bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch3', InceptionDouble3x3Branch(
+            in_channels=in_channels, out_channels=mid2_channels_list[2],
+            mid_channels=mid1_channels_list[1], bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch4', InceptionPoolBranch(in_channels
+            =in_channels, out_channels=mid2_channels_list[3], avg_pool=
+            avg_pool, bias=bias, use_bn=use_bn))
+
+    def forward(self, x):
+        x = self.branches(x)
         return x
 
 
@@ -1352,6 +2065,85 @@ class ReductionBlock(nn.Module):
 
     def forward(self, x):
         x = self.branches(x)
+        return x
+
+
+class BNInception(nn.Module):
+    """
+    BN-Inception model from 'Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate
+    Shift,' https://arxiv.org/abs/1502.03167.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels_list : list of int
+        Number of output channels for the initial unit.
+    mid1_channels_list : list of list of list of int
+        Number of pre-middle channels for each unit.
+    mid2_channels_list : list of list of list of int
+        Number of middle channels for each unit.
+    bias : bool, default True
+        Whether the convolution layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layers.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels_list,
+        mid1_channels_list, mid2_channels_list, bias=True, use_bn=True,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(BNInception, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', StemBlock(in_channels=
+            in_channels, out_channels=init_block_channels_list[1],
+            mid_channels=init_block_channels_list[0], bias=bias, use_bn=use_bn)
+            )
+        in_channels = init_block_channels_list[-1]
+        for i, channels_per_stage in enumerate(channels):
+            mid1_channels_list_i = mid1_channels_list[i]
+            mid2_channels_list_i = mid2_channels_list[i]
+            stage = nn.Sequential()
+            for j, out_channels in enumerate(channels_per_stage):
+                if j == 0 and i != 0:
+                    stage.add_module('unit{}'.format(j + 1), ReductionBlock
+                        (in_channels=in_channels, mid1_channels_list=
+                        mid1_channels_list_i[j], mid2_channels_list=
+                        mid2_channels_list_i[j], bias=bias, use_bn=use_bn))
+                else:
+                    avg_pool = i != len(channels) - 1 or j != len(
+                        channels_per_stage) - 1
+                    stage.add_module('unit{}'.format(j + 1), InceptionBlock
+                        (in_channels=in_channels, mid1_channels_list=
+                        mid1_channels_list_i[j], mid2_channels_list=
+                        mid2_channels_list_i[j], avg_pool=avg_pool, bias=
+                        bias, use_bn=use_bn))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
         return x
 
 
@@ -1455,6 +2247,132 @@ class CbamBlock(nn.Module):
     def forward(self, x):
         x = self.ch_gate(x)
         x = self.sp_gate(x)
+        return x
+
+
+class CbamResUnit(nn.Module):
+    """
+    CBAM-ResNet unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    """
+
+    def __init__(self, in_channels, out_channels, stride, bottleneck):
+        super(CbamResUnit, self).__init__()
+        self.resize_identity = in_channels != out_channels or stride != 1
+        if bottleneck:
+            self.body = ResBottleneck(in_channels=in_channels, out_channels
+                =out_channels, stride=stride, conv1_stride=False)
+        else:
+            self.body = ResBlock(in_channels=in_channels, out_channels=
+                out_channels, stride=stride)
+        if self.resize_identity:
+            self.identity_conv = conv1x1_block(in_channels=in_channels,
+                out_channels=out_channels, stride=stride, activation=None)
+        self.cbam = CbamBlock(channels=out_channels)
+        self.activ = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        if self.resize_identity:
+            identity = self.identity_conv(x)
+        else:
+            identity = x
+        x = self.body(x)
+        x = self.cbam(x)
+        x = x + identity
+        x = self.activ(x)
+        return x
+
+
+class CbamResNet(nn.Module):
+    """
+    CBAM-ResNet model from 'CBAM: Convolutional Block Attention Module,' https://arxiv.org/abs/1807.06521.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(CbamResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', ResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), CbamResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
+class CenterNetDecoderUnit(nn.Module):
+    """
+    CenterNet decoder unit.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    """
+
+    def __init__(self, in_channels, out_channels):
+        super(CenterNetDecoderUnit, self).__init__()
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
+            out_channels, bias=True)
+        self.deconv = DeconvBlock(in_channels=out_channels, out_channels=
+            out_channels, kernel_size=4, stride=2, padding=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.deconv(x)
         return x
 
 
@@ -1573,6 +2491,73 @@ class CenterNetHeatmapMaxDet(nn.Module):
         num_flops = 10 * x.size
         num_macs = 0
         return num_flops, num_macs
+
+
+class CenterNet(nn.Module):
+    """
+    CenterNet model from 'Objects as Points,' https://arxiv.org/abs/1904.07850.
+
+    Parameters
+    ----------
+    backbone : nn.Sequential
+        Feature extractor.
+    backbone_out_channels : int
+        Number of output channels for the backbone.
+    channels : list of int
+        Number of output channels for each decoder unit.
+    return_heatmap : bool, default False
+        Whether to return only heatmap.
+    topk : int, default 40
+        Keep only `topk` detections.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (512, 512)
+        Spatial size of the expected input image.
+    num_classes : int, default 80
+        Number of classification classes.
+    """
+
+    def __init__(self, backbone, backbone_out_channels, channels,
+        return_heatmap=False, topk=40, in_channels=3, in_size=(512, 512),
+        num_classes=80):
+        super(CenterNet, self).__init__()
+        self.in_size = in_size
+        self.in_channels = in_channels
+        self.return_heatmap = return_heatmap
+        self.backbone = backbone
+        self.decoder = nn.Sequential()
+        in_channels = backbone_out_channels
+        for i, out_channels in enumerate(channels):
+            self.decoder.add_module('unit{}'.format(i + 1),
+                CenterNetDecoderUnit(in_channels=in_channels, out_channels=
+                out_channels))
+            in_channels = out_channels
+        heads = Concurrent()
+        heads.add_module('heapmap_block', CenterNetHeatmapBlock(in_channels
+            =in_channels, out_channels=num_classes, do_nms=not self.
+            return_heatmap))
+        heads.add_module('wh_block', CenterNetHeadBlock(in_channels=
+            in_channels, out_channels=2))
+        heads.add_module('reg_block', CenterNetHeadBlock(in_channels=
+            in_channels, out_channels=2))
+        self.decoder.add_module('heads', heads)
+        if not self.return_heatmap:
+            self.heatmap_max_det = CenterNetHeatmapMaxDet(topk=topk, scale=4)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.decoder(x)
+        if not self.return_heatmap:
+            x = self.heatmap_max_det(x)
+        return x
 
 
 class ChannetConv(nn.Module):
@@ -4191,38 +5176,6 @@ class DeepLabv3(nn.Module):
             return x
 
 
-def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
-    """
-    3x3 version of the pre-activated convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    stride : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    return_preact : bool, default False
-        Whether return pre-activation.
-    activate : bool, default True
-        Whether activate the convolution block.
-    """
-    return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        bias=bias, use_bn=use_bn, return_preact=return_preact, activate=
-        activate)
-
-
 class DenseUnit(nn.Module):
     """
     DenseNet unit.
@@ -4285,6 +5238,69 @@ class TransitionBlock(nn.Module):
         return x
 
 
+class DenseNet(nn.Module):
+    """
+    DenseNet model from 'Densely Connected Convolutional Networks,' https://arxiv.org/abs/1608.06993.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    dropout_rate : float, default 0.0
+        Parameter of Dropout layer. Faction of the input units to drop.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(DenseNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', PreResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            if i != 0:
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
+                    in_channels=in_channels, out_channels=in_channels // 2))
+                in_channels = in_channels // 2
+            for j, out_channels in enumerate(channels_per_stage):
+                stage.add_module('unit{}'.format(j + 1), DenseUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    dropout_rate=dropout_rate))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('post_activ', PreResActivation(in_channels
+            =in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
 class DenseSimpleUnit(nn.Module):
     """
     DenseNet simple unit for CIFAR.
@@ -4315,12 +5331,6 @@ class DenseSimpleUnit(nn.Module):
             x = self.dropout(x)
         x = torch.cat((identity, x), dim=1)
         return x
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
 
 
 class CIFARDenseNet(nn.Module):
@@ -4365,6 +5375,180 @@ class CIFARDenseNet(nn.Module):
                 stage.add_module('unit{}'.format(j + 1), unit_class(
                     in_channels=in_channels, out_channels=out_channels,
                     dropout_rate=dropout_rate))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('post_activ', PreResActivation(in_channels
+            =in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
+class DIAPreResUnit(nn.Module):
+    """
+    DIA-PreResNet unit with residual connection.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    conv1_stride : bool
+        Whether to use stride in the first or the second convolution layer of the block.
+    attention : nn.Module, default None
+        Attention module.
+    """
+
+    def __init__(self, in_channels, out_channels, stride, bottleneck,
+        conv1_stride, attention=None):
+        super(DIAPreResUnit, self).__init__()
+        self.resize_identity = in_channels != out_channels or stride != 1
+        if bottleneck:
+            self.body = PreResBottleneck(in_channels=in_channels,
+                out_channels=out_channels, stride=stride, conv1_stride=
+                conv1_stride)
+        else:
+            self.body = PreResBlock(in_channels=in_channels, out_channels=
+                out_channels, stride=stride)
+        if self.resize_identity:
+            self.identity_conv = conv1x1(in_channels=in_channels,
+                out_channels=out_channels, stride=stride)
+        self.attention = attention
+
+    def forward(self, x, hc=None):
+        identity = x
+        x, x_pre_activ = self.body(x)
+        if self.resize_identity:
+            identity = self.identity_conv(x_pre_activ)
+        x, hc = self.attention(x, hc)
+        x = x + identity
+        return x, hc
+
+
+class DIAPreResNet(nn.Module):
+    """
+    DIA-PreResNet model from 'DIANet: Dense-and-Implicit Attention Network,' https://arxiv.org/abs/1905.10671.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    conv1_stride : bool
+        Whether to use stride in the first or the second convolution layer in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(DIAPreResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', PreResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = DualPathSequential(return_two=False)
+            attention = DIAAttention(in_x_features=channels_per_stage[0],
+                in_h_features=channels_per_stage[0])
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 1 if i == 0 or j != 0 else 2
+                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck, conv1_stride=
+                    conv1_stride, attention=attention))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('post_activ', PreResActivation(in_channels
+            =in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
+
+
+class CIFARDIAPreResNet(nn.Module):
+    """
+    DIA-PreResNet model for CIFAR from 'DIANet: Dense-and-Implicit Attention Network,' https://arxiv.org/abs/1905.10671.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (32, 32)
+        Spatial size of the expected input image.
+    num_classes : int, default 10
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        in_channels=3, in_size=(32, 32), num_classes=10):
+        super(CIFARDIAPreResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', conv3x3(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = DualPathSequential(return_two=False)
+            attention = DIAAttention(in_x_features=channels_per_stage[0],
+                in_h_features=channels_per_stage[0])
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck, conv1_stride=
+                    False, attention=attention))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('post_activ', PreResActivation(in_channels
@@ -4555,6 +5739,69 @@ class DIAResUnit(nn.Module):
         x = x + identity
         x = self.activ(x)
         return x, hc
+
+
+class DIAResNet(nn.Module):
+    """
+    DIA-ResNet model from 'DIANet: Dense-and-Implicit Attention Network,' https://arxiv.org/abs/1905.10671.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    bottleneck : bool
+        Whether to use a bottleneck or simple block in units.
+    conv1_stride : bool
+        Whether to use stride in the first or the second convolution layer in units.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, bottleneck,
+        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(DIAResNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', ResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = DualPathSequential(return_two=False)
+            attention = DIAAttention(in_x_features=channels_per_stage[0],
+                in_h_features=channels_per_stage[0])
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and i != 0 else 1
+                stage.add_module('unit{}'.format(j + 1), DIAResUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    stride=stride, bottleneck=bottleneck, conv1_stride=
+                    conv1_stride, attention=attention))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
+        return x
 
 
 class CIFARDIAResNet(nn.Module):
@@ -4779,6 +6026,83 @@ class DLARoot(nn.Module):
         return x
 
 
+class DLATree(nn.Module):
+    """
+    DLA tree unit. It's like iterative stage.
+
+    Parameters:
+    ----------
+    levels : int
+        Number of levels in the stage.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    res_body_class : nn.Module
+        Residual block body class.
+    stride : int or tuple/list of 2 int
+        Strides of the convolution in a residual block.
+    root_residual : bool
+        Whether use residual connection in the root.
+    root_dim : int
+        Number of input channels in the root block.
+    first_tree : bool, default False
+        Is this tree stage the first stage in the net.
+    input_level : bool, default True
+        Is this tree unit the first unit in the stage.
+    return_down : bool, default False
+        Whether return downsample result.
+    """
+
+    def __init__(self, levels, in_channels, out_channels, res_body_class,
+        stride, root_residual, root_dim=0, first_tree=False, input_level=
+        True, return_down=False):
+        super(DLATree, self).__init__()
+        self.return_down = return_down
+        self.add_down = input_level and not first_tree
+        self.root_level = levels == 1
+        if root_dim == 0:
+            root_dim = 2 * out_channels
+        if self.add_down:
+            root_dim += in_channels
+        if self.root_level:
+            self.tree1 = DLAResBlock(in_channels=in_channels, out_channels=
+                out_channels, stride=stride, body_class=res_body_class,
+                return_down=True)
+            self.tree2 = DLAResBlock(in_channels=out_channels, out_channels
+                =out_channels, stride=1, body_class=res_body_class,
+                return_down=False)
+        else:
+            self.tree1 = DLATree(levels=levels - 1, in_channels=in_channels,
+                out_channels=out_channels, res_body_class=res_body_class,
+                stride=stride, root_residual=root_residual, root_dim=0,
+                input_level=False, return_down=True)
+            self.tree2 = DLATree(levels=levels - 1, in_channels=
+                out_channels, out_channels=out_channels, res_body_class=
+                res_body_class, stride=1, root_residual=root_residual,
+                root_dim=root_dim + out_channels, input_level=False,
+                return_down=False)
+        if self.root_level:
+            self.root = DLARoot(in_channels=root_dim, out_channels=
+                out_channels, residual=root_residual)
+
+    def forward(self, x, extra=None):
+        extra = [] if extra is None else extra
+        x1, down = self.tree1(x)
+        if self.add_down:
+            extra.append(down)
+        if self.root_level:
+            x2 = self.tree2(x1)
+            x = self.root(x2, x1, extra)
+        else:
+            extra.append(x1)
+            x = self.tree2(x1, extra)
+        if self.return_down:
+            return x, down
+        else:
+            return x
+
+
 class DLAInitBlock(nn.Module):
     """
     DLA specific initial block.
@@ -4805,6 +6129,69 @@ class DLAInitBlock(nn.Module):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
+        return x
+
+
+class DLA(nn.Module):
+    """
+    DLA model from 'Deep Layer Aggregation,' https://arxiv.org/abs/1707.06484.
+
+    Parameters:
+    ----------
+    levels : int
+        Number of levels in each stage.
+    channels : list of int
+        Number of output channels for each stage.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    res_body_class : nn.Module
+        Residual block body class.
+    residual_root : bool
+        Whether use residual connection in the root blocks.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, levels, channels, init_block_channels,
+        res_body_class, residual_root, in_channels=3, in_size=(224, 224),
+        num_classes=1000):
+        super(DLA, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', DLAInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i in range(len(levels)):
+            levels_i = levels[i]
+            out_channels = channels[i]
+            first_tree = i == 0
+            self.features.add_module('stage{}'.format(i + 1), DLATree(
+                levels=levels_i, in_channels=in_channels, out_channels=
+                out_channels, res_body_class=res_body_class, stride=2,
+                root_residual=residual_root, first_tree=first_tree))
+            in_channels = out_channels
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = conv1x1(in_channels=in_channels, out_channels=
+            num_classes, bias=True)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.output(x)
+        x = x.view(x.size(0), -1)
         return x
 
 
@@ -6872,6 +8259,113 @@ class FishFinalBlock(nn.Module):
         return x
 
 
+class FishNet(nn.Module):
+    """
+    FishNet model from 'FishNet: A Versatile Backbone for Image, Region, and Pixel Level Prediction,'
+    http://papers.nips.cc/paper/7356-fishnet-a-versatile-backbone-for-image-region-and-pixel-level-prediction.pdf.
+
+    Parameters:
+    ----------
+    direct_channels : list of list of list of int
+        Number of output channels for each unit along the straight path.
+    skip_channels : list of list of list of int
+        Number of output channels for each skip connection unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, direct_channels, skip_channels, init_block_channels,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(FishNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        depth = len(direct_channels[0])
+        down1_channels = direct_channels[0]
+        up_channels = direct_channels[1]
+        down2_channels = direct_channels[2]
+        skip1_channels = skip_channels[0]
+        skip2_channels = skip_channels[1]
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', SEInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        down1_seq = nn.Sequential()
+        skip1_seq = nn.Sequential()
+        for i in range(depth + 1):
+            skip1_channels_list = skip1_channels[i]
+            if i < depth:
+                skip1_seq.add_module('unit{}'.format(i + 1), SkipUnit(
+                    in_channels=in_channels, out_channels_list=
+                    skip1_channels_list))
+                down1_channels_list = down1_channels[i]
+                down1_seq.add_module('unit{}'.format(i + 1), DownUnit(
+                    in_channels=in_channels, out_channels_list=
+                    down1_channels_list))
+                in_channels = down1_channels_list[-1]
+            else:
+                skip1_seq.add_module('unit{}'.format(i + 1), SkipAttUnit(
+                    in_channels=in_channels, out_channels_list=
+                    skip1_channels_list))
+                in_channels = skip1_channels_list[-1]
+        up_seq = nn.Sequential()
+        skip2_seq = nn.Sequential()
+        for i in range(depth + 1):
+            skip2_channels_list = skip2_channels[i]
+            if i > 0:
+                in_channels += skip1_channels[depth - i][-1]
+            if i < depth:
+                skip2_seq.add_module('unit{}'.format(i + 1), SkipUnit(
+                    in_channels=in_channels, out_channels_list=
+                    skip2_channels_list))
+                up_channels_list = up_channels[i]
+                dilation = 2 ** i
+                up_seq.add_module('unit{}'.format(i + 1), UpUnit(
+                    in_channels=in_channels, out_channels_list=
+                    up_channels_list, dilation=dilation))
+                in_channels = up_channels_list[-1]
+            else:
+                skip2_seq.add_module('unit{}'.format(i + 1), Identity())
+        down2_seq = nn.Sequential()
+        for i in range(depth):
+            down2_channels_list = down2_channels[i]
+            down2_seq.add_module('unit{}'.format(i + 1), DownUnit(
+                in_channels=in_channels, out_channels_list=down2_channels_list)
+                )
+            in_channels = down2_channels_list[-1] + skip2_channels[depth - 
+                1 - i][-1]
+        self.features.add_module('hg', SesquialteralHourglass(down1_seq=
+            down1_seq, skip1_seq=skip1_seq, up_seq=up_seq, skip2_seq=
+            skip2_seq, down2_seq=down2_seq))
+        self.features.add_module('final_block', FishFinalBlock(in_channels=
+            in_channels))
+        in_channels = in_channels // 2
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Sequential()
+        self.output.add_module('final_conv', conv1x1(in_channels=
+            in_channels, out_channels=num_classes, bias=True))
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.output(x)
+        x = x.view(x.size(0), -1)
+        return x
+
+
 class DropConvBlock(nn.Module):
     """
     Convolution block with Batch normalization, ReLU activation, and Dropout layer.
@@ -8353,6 +9847,71 @@ class IBNDenseUnit(nn.Module):
         if self.use_dropout:
             x = self.dropout(x)
         x = torch.cat((identity, x), dim=1)
+        return x
+
+
+class IBNDenseNet(nn.Module):
+    """
+    IBN-DenseNet model from 'Two at Once: Enhancing Learning and Generalization Capacities via IBN-Net,'
+    https://arxiv.org/abs/1807.09441.
+
+    Parameters:
+    ----------
+    channels : list of list of int
+        Number of output channels for each unit.
+    init_block_channels : int
+        Number of output channels for the initial unit.
+    dropout_rate : float, default 0.0
+        Parameter of Dropout layer. Faction of the input units to drop.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (224, 224)
+        Spatial size of the expected input image.
+    num_classes : int, default 1000
+        Number of classification classes.
+    """
+
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
+        in_channels=3, in_size=(224, 224), num_classes=1000):
+        super(IBNDenseNet, self).__init__()
+        self.in_size = in_size
+        self.num_classes = num_classes
+        self.features = nn.Sequential()
+        self.features.add_module('init_block', PreResInitBlock(in_channels=
+            in_channels, out_channels=init_block_channels))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            if i != 0:
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
+                    in_channels=in_channels, out_channels=in_channels // 2))
+                in_channels = in_channels // 2
+            for j, out_channels in enumerate(channels_per_stage):
+                conv1_ibn = i < 3 and j % 3 == 0
+                stage.add_module('unit{}'.format(j + 1), IBNDenseUnit(
+                    in_channels=in_channels, out_channels=out_channels,
+                    dropout_rate=dropout_rate, conv1_ibn=conv1_ibn))
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.features.add_module('post_activ', PreResActivation(in_channels
+            =in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
+            stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=
+            num_classes)
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(x)
         return x
 
 
@@ -11377,6 +12936,92 @@ class LffdDetectionBlock(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         x = self.branches(x)
+        return x
+
+
+class LFFD(nn.Module):
+    """
+    LFFD model from 'LFFD: A Light and Fast Face Detector for Edge Devices,' https://arxiv.org/abs/1904.10633.
+
+    Parameters:
+    ----------
+    enc_channels : list of int
+        Number of output channels for each encoder stage.
+    dec_channels : int
+        Number of output channels for each decoder stage.
+    init_block_channels : int
+        Number of output channels for the initial encoder unit.
+    layers : list of int
+        Number of units in each encoder stage.
+    int_bends : list of int
+        Number of internal bends for each encoder stage.
+    use_preresnet : bool
+        Whether to use PreResnet backbone instead of ResNet.
+    in_channels : int, default 3
+        Number of input channels.
+    in_size : tuple of two ints, default (640, 640)
+        Spatial size of the expected input image.
+    """
+
+    def __init__(self, enc_channels, dec_channels, init_block_channels,
+        layers, int_bends, use_preresnet, in_channels=3, in_size=(640, 640)):
+        super(LFFD, self).__init__()
+        self.in_size = in_size
+        unit_class = PreResUnit if use_preresnet else ResUnit
+        bias = True
+        use_bn = False
+        self.encoder = MultiOutputSequential(return_last=False)
+        self.encoder.add_module('init_block', conv3x3_block(in_channels=
+            in_channels, out_channels=init_block_channels, stride=2,
+            padding=0, bias=bias, use_bn=use_bn))
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(enc_channels):
+            layers_per_stage = layers[i]
+            int_bends_per_stage = int_bends[i]
+            stage = MultiOutputSequential(multi_output=False, dual_output=True)
+            stage.add_module('trans{}'.format(i + 1), conv3x3(in_channels=
+                in_channels, out_channels=channels_per_stage, stride=2,
+                padding=0, bias=bias))
+            for j in range(layers_per_stage):
+                unit = unit_class(in_channels=channels_per_stage,
+                    out_channels=channels_per_stage, stride=1, bias=bias,
+                    use_bn=use_bn, bottleneck=False)
+                if layers_per_stage - j <= int_bends_per_stage:
+                    unit.do_output = True
+                stage.add_module('unit{}'.format(j + 1), unit)
+            final_activ = nn.ReLU(inplace=True)
+            final_activ.do_output = True
+            stage.add_module('final_activ', final_activ)
+            stage.do_output2 = True
+            in_channels = channels_per_stage
+            self.encoder.add_module('stage{}'.format(i + 1), stage)
+        self.decoder = ParallelConcurent()
+        k = 0
+        for i, channels_per_stage in enumerate(enc_channels):
+            layers_per_stage = layers[i]
+            int_bends_per_stage = int_bends[i]
+            for j in range(layers_per_stage):
+                if layers_per_stage - j <= int_bends_per_stage:
+                    self.decoder.add_module('unit{}'.format(k + 1),
+                        LffdDetectionBlock(in_channels=channels_per_stage,
+                        mid_channels=dec_channels, bias=bias, use_bn=use_bn))
+                    k += 1
+            self.decoder.add_module('unit{}'.format(k + 1),
+                LffdDetectionBlock(in_channels=channels_per_stage,
+                mid_channels=dec_channels, bias=bias, use_bn=use_bn))
+            k += 1
+        self._init_params()
+
+    def _init_params(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
         return x
 
 
@@ -17760,6 +19405,88 @@ class SBNet_Encoder(nn.Module):
         return classifier
 
 
+class SBNet_aux(nn.Module):
+
+    def __init__(self, config, num_classes=20, p=2, q=3, chnn=1.0,
+        encoderFile=None, in_channels=3, in_size=(480, 480)):
+        """
+        :param num_classes: number of classes in the dataset. Default is 20 for the cityscapes
+        :param p: depth multiplier
+        :param q: depth multiplier
+        :param encoderFile: pretrained encoder weights. Recall that we first trained the ESPNet-C and then attached the
+                            RUM-based light weight decoder. See paper for more details.
+        """
+        super().__init__()
+        self.in_channels = in_channels
+        self.in_size = in_size
+        self.num_classes = num_classes
+        None
+        None
+        dim1 = 24
+        dim2 = 48 + 4 * (chnn - 1)
+        dim3 = 72 + 4 * (chnn - 1)
+        dim4 = 96 + 4 * (chnn - 1)
+        self.encoder = SBNet_Encoder(config, num_classes, p, q, chnn)
+        if encoderFile != None:
+            if torch.device_count() == 0:
+                self.encoder.load_state_dict(torch.load(encoderFile,
+                    map_location='cpu'))
+            else:
+                self.encoder.load_state_dict(torch.load(encoderFile))
+            None
+        self.up = nn.functional.interpolate
+        self.bn_4 = nn.BatchNorm2d(num_classes, eps=0.001)
+        self.level3_C = CBR(dim2, num_classes, 1, 1)
+        self.bn_3 = nn.BatchNorm2d(num_classes, eps=0.001)
+        self.classifier = nn.ConvTranspose2d(num_classes, num_classes, 2,
+            stride=2, padding=0, output_padding=0, bias=False)
+
+    def forward(self, input, train=False):
+        """
+        :param input: RGB image
+        :return: transformed feature map
+        """
+        output1 = self.encoder.level1(input)
+        output2_0 = self.encoder.level2_0(output1)
+        output3_0 = self.encoder.level3_0(output2_0)
+        for i, layer in enumerate(self.encoder.level3):
+            if i == 0:
+                output3 = layer(output3_0)
+            else:
+                output3 = layer(output3)
+        output4_0 = self.encoder.level4_0(self.encoder.BR3(torch.cat([
+            output3_0, output3], 1)))
+        for i, layer in enumerate(self.encoder.level4):
+            if i == 0:
+                output4 = layer(output4_0)
+            else:
+                output4 = layer(output4)
+        output4_cat = self.encoder.BR4(torch.cat([output4_0, output4], 1))
+        Enc_final = self.encoder.classifier(output4_cat)
+        Dnc_stage1 = self.bn_4(self.up(Enc_final, scale_factor=2, mode=
+            'bilinear'))
+        stage1_confidence = nn.Softmax2d()(Dnc_stage1)
+        b, c, h, w = Dnc_stage1.size()
+        stage1_blocking = torch.max(stage1_confidence, dim=1)[0].unsqueeze(1
+            ).expand(b, c, h, w)
+        Dnc_stage2_0 = self.level3_C(output3)
+        Dnc_stage2 = self.bn_3(self.up(Dnc_stage2_0 * (1 - stage1_blocking) +
+            Dnc_stage1, scale_factor=2, mode='bilinear'))
+        stage2_confidence = nn.Softmax2d()(Dnc_stage2)
+        b, c, h, w = Dnc_stage2.size()
+        stage2_blocking = torch.max(stage2_confidence, dim=1)[0].unsqueeze(1
+            ).expand(b, c, h, w)
+        Dnc_stage3 = output2_0 * (1 - stage2_blocking) + Dnc_stage2
+        classifier = self.classifier(Dnc_stage3)
+        import torch.nn.functional as F
+        classifier = F.interpolate(classifier, scale_factor=2, mode=
+            'bilinear', align_corners=True)
+        if train:
+            return Enc_final, classifier
+        else:
+            return classifier
+
+
 class PeleeBranch1(nn.Module):
     """
     PeleeNet branch type 1 block.
@@ -21327,6 +23054,98 @@ class CIFARResNeXt(nn.Module):
 
 use_context_mans = int(torch.__version__[0]) * 100 + int(torch.__version__[2]
     ) - (1 if 'a' in torch.__version__ else 0) > 3
+
+
+class ReversibleBlockFunction(torch.autograd.Function):
+    """
+    RevNet reversible block function.
+    """
+
+    @staticmethod
+    def forward(ctx, x, fm, gm, *params):
+        with torch.no_grad():
+            x1, x2 = torch.chunk(x, chunks=2, dim=1)
+            x1 = x1.contiguous()
+            x2 = x2.contiguous()
+            y1 = x1 + fm(x2)
+            y2 = x2 + gm(y1)
+            y = torch.cat((y1, y2), dim=1)
+            x1.set_()
+            x2.set_()
+            y1.set_()
+            y2.set_()
+            del x1, x2, y1, y2
+        ctx.save_for_backward(x, y)
+        ctx.fm = fm
+        ctx.gm = gm
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_y):
+        fm = ctx.fm
+        gm = ctx.gm
+        x, y = ctx.saved_variables
+        y1, y2 = torch.chunk(y, chunks=2, dim=1)
+        y1 = y1.contiguous()
+        y2 = y2.contiguous()
+        with torch.no_grad():
+            y1_z = Variable(y1.data, requires_grad=True)
+            x2 = y2 - gm(y1_z)
+            x1 = y1 - fm(x2)
+        with set_grad_enabled(True):
+            x1_ = Variable(x1.data, requires_grad=True)
+            x2_ = Variable(x2.data, requires_grad=True)
+            y1_ = x1_ + fm.forward(x2_)
+            y2_ = x2_ + gm(y1_)
+            y = torch.cat((y1_, y2_), dim=1)
+            dd = torch.autograd.grad(y, (x1_, x2_) + tuple(gm.parameters()) +
+                tuple(fm.parameters()), grad_y)
+            gm_params_len = len([p for p in gm.parameters()])
+            gm_params_grads = dd[2:2 + gm_params_len]
+            fm_params_grads = dd[2 + gm_params_len:]
+            grad_x = torch.cat((dd[0], dd[1]), dim=1)
+            y1_.detach_()
+            y2_.detach_()
+            del y1_, y2_
+        x.data.set_(torch.cat((x1, x2), dim=1).data.contiguous())
+        return (grad_x, None, None) + fm_params_grads + gm_params_grads
+
+
+class ReversibleBlock(nn.Module):
+    """
+    RevNet reversible block.
+
+    Parameters:
+    ----------
+    fm : nn.Module
+        Fm-function.
+    gm : nn.Module
+        Gm-function.
+    """
+
+    def __init__(self, fm, gm):
+        super(ReversibleBlock, self).__init__()
+        self.gm = gm
+        self.fm = fm
+        self.rev_funct = ReversibleBlockFunction.apply
+
+    def forward(self, x):
+        assert x.shape[1] % 2 == 0
+        params = [w for w in self.fm.parameters()] + [w for w in self.gm.
+            parameters()]
+        y = self.rev_funct(x, self.fm, self.gm, *params)
+        x.data.set_()
+        return y
+
+    def inverse(self, y):
+        assert y.shape[1] % 2 == 0
+        y1, y2 = torch.chunk(y, chunks=2, dim=1)
+        y1 = y1.contiguous()
+        y2 = y2.contiguous()
+        x2 = y2 - self.gm(y1)
+        x1 = y1 - self.fm(x2)
+        x = torch.cat((x1, x2), dim=1)
+        return x
 
 
 class RevResBlock(nn.Module):
@@ -27215,4 +29034,1021 @@ class PytorchModel(torch.nn.Module):
     def forward(self, x):
         x = self.dense(x)
         return x
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_osmr_imgclsmob(_paritybench_base):
+    pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(AirBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(AirBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(AirInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(AirNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(AirNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(AirUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_006(self):
+        self._check(AlexDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(AlexOutputBlock(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(AttentionRefinementBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(AvgPoolBranch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(Backbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(BagNetBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(BagNetInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(BagNetUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(BamResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(BiSeHead(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(BiSeNetOutput(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_020(self):
+        self._check(BranchBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(BranchNet(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(BranchUnit(*[], **{'in_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_023(self):
+        self._check(C(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
+        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_025(self):
+        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(CFFBlock(*[], **{'in_channels_low': 4, 'in_channels_high': 4, 'out_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+
+    @_fails_compile()
+    def test_027(self):
+        self._check(CIFAR10MSDInitLayer(*[], **{'in_channels': 4, 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_028(self):
+        self._check(CenterNetDecoderUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_029(self):
+        self._check(ChannelShuffle(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_030(self):
+        self._check(ChannelShuffle2(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_031(self):
+        self._check(ChannelSqueeze(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_032(self):
+        self._check(ChannetConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_033(self):
+        self._check(ChannetDwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_034(self):
+        self._check(CondenseComplexConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_035(self):
+        self._check(CondenseInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_036(self):
+        self._check(CondenseLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 2])], {})
+
+    def test_037(self):
+        self._check(CondenseSimpleConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_038(self):
+        self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_039(self):
+        self._check(Conv1x1Branch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_040(self):
+        self._check(Conv2d1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_041(self):
+        self._check(Conv3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_042(self):
+        self._check(ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_043(self):
+        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_044(self):
+        self._check(ConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_045(self):
+        self._check(ConvSeqBranch(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_046(self):
+        self._check(Cpm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_047(self):
+        self._check(DIAAttention(*[], **{'in_x_features': 4, 'in_h_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_048(self):
+        self._check(DIALSTMCell(*[], **{'in_x_features': 4, 'in_h_features': 4, 'num_layers': 1}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_049(self):
+        self._check(DLAInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_050(self):
+        self._check(DPNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_051(self):
+        self._check(DPNInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_052(self):
+        self._check(DPNUnit(*[], **{'in_channels': 4, 'mid_channels': 4, 'bw': 4, 'inc': 4, 'groups': 1, 'has_proj': 4, 'key_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_053(self):
+        self._check(DRNBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_054(self):
+        self._check(DRNBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_055(self):
+        self._check(DRNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_056(self):
+        self._check(DarkUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_057(self):
+        self._check(DartsConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_058(self):
+        self._check(DeconvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_059(self):
+        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_060(self):
+        self._check(DiracConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_061(self):
+        self._check(DiracInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_062(self):
+        self._check(DownUnit(*[], **{'in_channels': 4, 'out_channels_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_063(self):
+        self._check(DropConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_064(self):
+        self._check(DualPathSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_065(self):
+        self._check(DucBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'scale_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_066(self):
+        self._check(DwsConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_067(self):
+        self._check(DwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_068(self):
+        self._check(ESPFinalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'final_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_069(self):
+        self._check(ESPInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_070(self):
+        self._check(FeatureFusion(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_071(self):
+        self._check(FeatureFusionModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_072(self):
+        self._check(FireConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_073(self):
+        self._check(FirstLSTMAmp(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_074(self):
+        self._check(FishBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_075(self):
+        self._check(FishBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_076(self):
+        self._check(FishFinalBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_077(self):
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_078(self):
+        self._check(FractalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_079(self):
+        self._check(FractalUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_080(self):
+        self._check(GhostHSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_081(self):
+        self._check(GlobalAvgMaxPool2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_082(self):
+        self._check(HRInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'num_subblocks': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_083(self):
+        self._check(HSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_084(self):
+        self._check(HSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_085(self):
+        self._check(HeatmapMaxDetBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_086(self):
+        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_087(self):
+        self._check(IBN(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_088(self):
+        self._check(IBNConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_089(self):
+        self._check(IBNPreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_090(self):
+        self._check(IBNResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_091(self):
+        self._check(IBNResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_092(self):
+        self._check(IBNbConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_093(self):
+        self._check(IBNbResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_094(self):
+        self._check(IBNbResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_inst_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_095(self):
+        self._check(ICInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_096(self):
+        self._check(IRevBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_097(self):
+        self._check(IRevDualPathSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_098(self):
+        self._check(IRevInjectivePad(*[], **{'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_099(self):
+        self._check(IRevMergeBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_100(self):
+        self._check(IRevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_101(self):
+        self._check(IRevSplitBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_102(self):
+        self._check(IRevUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_103(self):
+        self._check(IbpResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_104(self):
+        self._check(IbpResUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_105(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_106(self):
+        self._check(InceptBlock3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_107(self):
+        self._check(InceptBlock4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    @_fails_compile()
+    def test_108(self):
+        self._check(InceptBlock5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_109(self):
+        self._check(InceptBlock5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_110(self):
+        self._check(InceptConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_111(self):
+        self._check(InceptInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_112(self):
+        self._check(Inception3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_113(self):
+        self._check(InceptionAUnit(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_114(self):
+        self._check(InceptionBUnit(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    @_fails_compile()
+    def test_115(self):
+        self._check(InceptionCUnit(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    @_fails_compile()
+    def test_116(self):
+        self._check(InceptionDouble3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_117(self):
+        self._check(InceptionPoolBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'avg_pool': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_118(self):
+        self._check(InitialStage(*[], **{'num_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_119(self):
+        self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_120(self):
+        self._check(InterpolationBlock(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_121(self):
+        self._check(InvDwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_122(self):
+        self._check(LffdDetectionBlock(*[], **{'in_channels': 4, 'mid_channels': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_123(self):
+        self._check(LffdDetectionBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_124(self):
+        self._check(LwopRefinementBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_125(self):
+        self._check(LwopResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_126(self):
+        self._check(LwopResUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_127(self):
+        self._check(MEInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_128(self):
+        self._check(MSDBaseBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_bottleneck': 4, 'bottleneck_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_129(self):
+        self._check(MSDInitLayer(*[], **{'in_channels': 4, 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_130(self):
+        self._check(MSDTransitionLayer(*[], **{'in_channels': [4, 4], 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    def test_131(self):
+        self._check(MaxPoolBranch(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_132(self):
+        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_133(self):
+        self._check(MergeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_134(self):
+        self._check(MiddleAttBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_135(self):
+        self._check(MixConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_136(self):
+        self._check(MixConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_137(self):
+        self._check(MobileNetV3FinalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'use_se': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_138(self):
+        self._check(MultiBlockSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_139(self):
+        self._check(MultiOutputSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_140(self):
+        self._check(MultiResidual(*[], **{'scale': 1.0, 'res_block': _mock_layer, 'num_blocks': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_141(self):
+        self._check(NASNetInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_142(self):
+        self._check(NINConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_143(self):
+        self._check(NasAvgPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_144(self):
+        self._check(NasConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_145(self):
+        self._check(NasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_146(self):
+        self._check(NasPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_147(self):
+        self._check(NasPathBranch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_148(self):
+        self._check(NormActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_149(self):
+        self._check(OctConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_150(self):
+        self._check(OctConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_151(self):
+        self._check(OctResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_152(self):
+        self._check(OctResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_153(self):
+        self._check(OctResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_154(self):
+        self._check(PROutputBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_155(self):
+        self._check(PRResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'padding': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_156(self):
+        self._check(ParallelConcurent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_157(self):
+        self._check(ParametricSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_158(self):
+        self._check(PeleeBranch1(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_159(self):
+        self._check(PeleeBranch2(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_160(self):
+        self._check(PnasMaxPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_161(self):
+        self._check(PnasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_162(self):
+        self._check(PolyAUnit(*[], **{'two_way_scale': 1.0}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_163(self):
+        self._check(PolyBUnit(*[], **{'two_way_scale': 1.0, 'poly_scale': 1.0}), [torch.rand([4, 1152, 64, 64])], {})
+
+    def test_164(self):
+        self._check(PolyBaseUnit(*[], **{'two_way_scale': 1.0, 'two_way_block': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_165(self):
+        self._check(PolyBlock3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_166(self):
+        self._check(PolyBlock4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    @_fails_compile()
+    def test_167(self):
+        self._check(PolyBlock5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_168(self):
+        self._check(PolyCUnit(*[], **{'two_way_scale': 1.0, 'poly_scale': 1.0}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_169(self):
+        self._check(PolyConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'num_blocks': 4}), [torch.rand([4, 4, 4, 4]), 0], {})
+
+    @_fails_compile()
+    def test_170(self):
+        self._check(PolyConvSeqBranch(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4], 'num_blocks': 4}), [torch.rand([4, 4, 4, 4]), 0], {})
+
+    @_fails_compile()
+    def test_171(self):
+        self._check(PolyInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_172(self):
+        self._check(PolyPreBBlock(*[], **{'num_blocks': 4}), [torch.rand([4, 1152, 64, 64]), 0], {})
+
+    @_fails_compile()
+    def test_173(self):
+        self._check(PolyPreCBlock(*[], **{'num_blocks': 4}), [torch.rand([4, 2048, 64, 64]), 0], {})
+
+    def test_174(self):
+        self._check(PoseEstimationWithMobileNet2d(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_175(self):
+        self._check(PostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_176(self):
+        self._check(PreActivation(*[], **{'in_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_177(self):
+        self._check(PreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_178(self):
+        self._check(PreConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_179(self):
+        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_180(self):
+        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_181(self):
+        self._check(PreResBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_182(self):
+        self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_183(self):
+        self._check(PreResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_184(self):
+        self._check(PreResUnit1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_185(self):
+        self._check(PreXConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_186(self):
+        self._check(ProxylessBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_187(self):
+        self._check(ProxylessUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4, 'residual': 4, 'shortcut': 4}), [torch.rand([4, 4, 2, 2])], {})
+
+    @_fails_compile()
+    def test_188(self):
+        self._check(PyrBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_189(self):
+        self._check(PyrBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_190(self):
+        self._check(PyrInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_191(self):
+        self._check(PyrUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_192(self):
+        self._check(PytorchModel(*[], **{}), [torch.rand([1024, 1024])], {})
+
+    @_fails_compile()
+    def test_193(self):
+        self._check(ReductionAUnit(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_194(self):
+        self._check(ReductionBUnit(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+
+    def test_195(self):
+        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_196(self):
+        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_197(self):
+        self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_198(self):
+        self._check(ResADownBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_199(self):
+        self._check(ResAUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_200(self):
+        self._check(ResAttInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_201(self):
+        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_202(self):
+        self._check(ResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_203(self):
+        self._check(ResDropResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_204(self):
+        self._check(ResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_205(self):
+        self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_206(self):
+        self._check(ResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_207(self):
+        self._check(ResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_208(self):
+        self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_209(self):
+        self._check(Resv1Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_210(self):
+        self._check(Resv2Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_211(self):
+        self._check(RevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_212(self):
+        self._check(RevResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_213(self):
+        self._check(RevResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_214(self):
+        self._check(RevUnit(*[], **{'in_channels': 64, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'preactivate': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_215(self):
+        self._check(RiRFinalBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_216(self):
+        self._check(RiRInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_217(self):
+        self._check(RoRBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_218(self):
+        self._check(RoRResStage(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_219(self):
+        self._check(RoRResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_220(self):
+        self._check(SBmodule(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_221(self):
+        self._check(SEInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_222(self):
+        self._check(SENetBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_223(self):
+        self._check(SENetUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64, 'identity_conv3x3': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_224(self):
+        self._check(SEResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_225(self):
+        self._check(SEseparableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_226(self):
+        self._check(SKConvBlock(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_227(self):
+        self._check(SKNetBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_228(self):
+        self._check(SKNetUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_229(self):
+        self._check(SelecSLSBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_230(self):
+        self._check(SelecSLSUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'skip_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_231(self):
+        self._check(SequentialConcurrent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_232(self):
+        self._check(ShaConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_233(self):
+        self._check(ShaResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_234(self):
+        self._check(ShaResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_235(self):
+        self._check(ShaResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_236(self):
+        self._check(ShakeDropResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_237(self):
+        self._check(ShakeShakeResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_238(self):
+        self._check(ShakeShakeShortcut(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_239(self):
+        self._check(ShortcutBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_240(self):
+        self._check(ShuffleInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_241(self):
+        self._check(SimpleGroupBlock(*[], **{'channels': 4, 'multi_blocks': 4, 'groups': 1, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_242(self):
+        self._check(SimplePoseMobile(*[], **{'backbone': _mock_layer(), 'backbone_out_channels': 4, 'channels': [4, 4], 'decoder_init_block_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_243(self):
+        self._check(SkipUnit(*[], **{'in_channels': 4, 'out_channels_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_244(self):
+        self._check(SparseBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_245(self):
+        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_246(self):
+        self._check(SqnxtInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_247(self):
+        self._check(SqnxtUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_248(self):
+        self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_249(self):
+        self._check(SqueezeInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_250(self):
+        self._check(StemBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_251(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_252(self):
+        self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_253(self):
+        self._check(TwoWayABlock(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_254(self):
+        self._check(TwoWayBBlock(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+
+    @_fails_compile()
+    def test_255(self):
+        self._check(TwoWayCBlock(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_256(self):
+        self._check(UpSamplingBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_257(self):
+        self._check(VGGDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_258(self):
+        self._check(VGGOutputBlock(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_259(self):
+        self._check(VoVInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_260(self):
+        self._check(VoVUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'branch_channels': 4, 'num_branches': 4, 'resize': 4, 'use_residual': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_261(self):
+        self._check(WRNBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_262(self):
+        self._check(WRNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_263(self):
+        self._check(WRNInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_264(self):
+        self._check(WRNUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_265(self):
+        self._check(XConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_266(self):
+        self._check(XceptionFinalBlock(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    @_fails_compile()
+    def test_267(self):
+        self._check(XceptionInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_268(self):
+        self._check(XceptionUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_269(self):
+        self._check(iSQRTCOVPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_270(self):
+        self._check(separableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_271(self):
+        self._check(upBlock(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
 

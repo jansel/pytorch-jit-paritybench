@@ -45,10 +45,13 @@ init_func = _module
 pyt_utils = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -422,6 +425,177 @@ class Xception(nn.Module):
         return x
 
 
+def load_model(model, model_file, is_restore=False):
+    t_start = time.time()
+    if isinstance(model_file, str):
+        state_dict = torch.load(model_file)
+        if 'model' in state_dict.keys():
+            state_dict = state_dict['model']
+    else:
+        state_dict = model_file
+    t_ioend = time.time()
+    if is_restore:
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            name = 'module.' + k
+            new_state_dict[name] = v
+        state_dict = new_state_dict
+    model.load_state_dict(state_dict, strict=False)
+    ckpt_keys = set(state_dict.keys())
+    own_keys = set(model.state_dict().keys())
+    missing_keys = own_keys - ckpt_keys
+    unexpected_keys = ckpt_keys - own_keys
+    if len(missing_keys) > 0:
+        logger.warning('Missing key(s) in state_dict: {}'.format(', '.join(
+            '{}'.format(k) for k in missing_keys)))
+    if len(unexpected_keys) > 0:
+        logger.warning('Unexpected key(s) in state_dict: {}'.format(', '.
+            join('{}'.format(k) for k in unexpected_keys)))
+    del state_dict
+    t_end = time.time()
+    logger.info('Load model, Time usage:\n\tIO: {}, initialize parameters: {}'
+        .format(t_ioend - t_start, t_end - t_ioend))
+    return model
+
+
+def resnet101(pretrained_model=None, **kwargs):
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained_model is not None:
+        model = load_model(model, pretrained_model)
+    return model
+
+
+_global_config['bn_eps'] = 4
+
+
+_global_config['bn_momentum'] = 4
+
+
+class DFN(nn.Module):
+
+    def __init__(self, out_planes, criterion, aux_criterion, alpha,
+        pretrained_model=None, norm_layer=nn.BatchNorm2d):
+        super(DFN, self).__init__()
+        self.backbone = resnet101(pretrained_model, norm_layer=norm_layer,
+            bn_eps=config.bn_eps, bn_momentum=config.bn_momentum, deep_stem
+            =False, stem_width=64)
+        self.business_layer = []
+        smooth_inner_channel = 512
+        self.global_context = nn.Sequential(nn.AdaptiveAvgPool2d(1),
+            ConvBnRelu(2048, smooth_inner_channel, 1, 1, 0, has_bn=True,
+            has_relu=True, has_bias=False, norm_layer=norm_layer))
+        self.business_layer.append(self.global_context)
+        stage = [2048, 1024, 512, 256]
+        self.smooth_pre_rrbs = []
+        self.cabs = []
+        self.smooth_aft_rrbs = []
+        self.smooth_heads = []
+        for i, channel in enumerate(stage):
+            self.smooth_pre_rrbs.append(RefineResidual(channel,
+                smooth_inner_channel, 3, has_bias=False, has_relu=True,
+                norm_layer=norm_layer))
+            self.cabs.append(ChannelAttention(smooth_inner_channel * 2,
+                smooth_inner_channel, 1))
+            self.smooth_aft_rrbs.append(RefineResidual(smooth_inner_channel,
+                smooth_inner_channel, 3, has_bias=False, has_relu=True,
+                norm_layer=norm_layer))
+            self.smooth_heads.append(DFNHead(smooth_inner_channel,
+                out_planes, scale=2 ** (5 - i), norm_layer=norm_layer))
+        stage.reverse()
+        border_inner_channel = 21
+        self.border_pre_rrbs = []
+        self.border_aft_rrbs = []
+        self.border_heads = []
+        for i, channel in enumerate(stage):
+            self.border_pre_rrbs.append(RefineResidual(channel,
+                border_inner_channel, 3, has_bias=False, has_relu=True,
+                norm_layer=norm_layer))
+            self.border_aft_rrbs.append(RefineResidual(border_inner_channel,
+                border_inner_channel, 3, has_bias=False, has_relu=True,
+                norm_layer=norm_layer))
+            self.border_heads.append(DFNHead(border_inner_channel, 1, 4,
+                norm_layer=norm_layer))
+        self.smooth_pre_rrbs = nn.ModuleList(self.smooth_pre_rrbs)
+        self.cabs = nn.ModuleList(self.cabs)
+        self.smooth_aft_rrbs = nn.ModuleList(self.smooth_aft_rrbs)
+        self.smooth_heads = nn.ModuleList(self.smooth_heads)
+        self.border_pre_rrbs = nn.ModuleList(self.border_pre_rrbs)
+        self.border_aft_rrbs = nn.ModuleList(self.border_aft_rrbs)
+        self.border_heads = nn.ModuleList(self.border_heads)
+        self.business_layer.append(self.smooth_pre_rrbs)
+        self.business_layer.append(self.cabs)
+        self.business_layer.append(self.smooth_aft_rrbs)
+        self.business_layer.append(self.smooth_heads)
+        self.business_layer.append(self.border_pre_rrbs)
+        self.business_layer.append(self.border_aft_rrbs)
+        self.business_layer.append(self.border_heads)
+        self.criterion = criterion
+        self.aux_criterion = aux_criterion
+        self.alpha = alpha
+
+    def forward(self, data, label=None, aux_label=None):
+        blocks = self.backbone(data)
+        """
+        >> Block we have 4 conv1 conv2 conv3 conv4
+        conv1 -> 256 1/4
+        conv2 -> 512 1/8
+        conv3 ->1024 1/16
+        conv4 ->2048 1/32
+        """
+        blocks.reverse()
+        global_context = self.global_context(blocks[0])
+        global_context = F.interpolate(global_context, size=blocks[0].size(
+            )[2:], mode='bilinear', align_corners=True)
+        last_fm = global_context
+        pred_out = []
+        for i, (fm, pre_rrb, cab, aft_rrb, head) in enumerate(zip(blocks,
+            self.smooth_pre_rrbs, self.cabs, self.smooth_aft_rrbs, self.
+            smooth_heads)):
+            fm = pre_rrb(fm)
+            fm = cab(fm, last_fm)
+            fm = aft_rrb(fm)
+            pred_out.append(head(fm))
+            if i != 3:
+                last_fm = F.interpolate(fm, scale_factor=2, mode='bilinear',
+                    align_corners=True)
+        blocks.reverse()
+        last_fm = None
+        boder_out = []
+        """
+        conv1 ---RRB------------>head
+                       |
+        conv2 ---RRB---+--RRB--->head
+                            |
+        conv3 ---RRB---+--RRB--->head
+                            |
+        conv4 ---RRB---+--RRB--->head
+        """
+        for i, (fm, pre_rrb, aft_rrb, head) in enumerate(zip(blocks, self.
+            border_pre_rrbs, self.border_aft_rrbs, self.border_heads)):
+            fm = pre_rrb(fm)
+            if last_fm is not None:
+                fm = F.interpolate(fm, scale_factor=2 ** i, mode='bilinear',
+                    align_corners=True)
+                last_fm = last_fm + fm
+                last_fm = aft_rrb(last_fm)
+            else:
+                last_fm = fm
+            boder_out.append(head(last_fm))
+        if label is not None and aux_label is not None:
+            loss0 = self.criterion(pred_out[0], label)
+            loss1 = self.criterion(pred_out[1], label)
+            loss2 = self.criterion(pred_out[2], label)
+            loss3 = self.criterion(pred_out[3], label)
+            aux_loss0 = self.aux_criterion(boder_out[0], aux_label)
+            aux_loss1 = self.aux_criterion(boder_out[1], aux_label)
+            aux_loss2 = self.aux_criterion(boder_out[2], aux_label)
+            aux_loss3 = self.aux_criterion(boder_out[3], aux_label)
+            loss = loss0 + loss1 + loss2 + loss3
+            aux_loss = aux_loss0 + aux_loss1 + aux_loss2 + aux_loss3
+            return loss + self.alpha * aux_loss
+        return F.log_softmax(pred_out[-1], dim=1)
+
+
 class DFNHead(nn.Module):
 
     def __init__(self, in_planes, out_planes, scale, norm_layer=nn.BatchNorm2d
@@ -537,12 +711,6 @@ class dense_to_space(nn.Module):
 
     def forward(self, input):
         return self.ps(input)
-
-
-_global_config['bn_momentum'] = 4
-
-
-_global_config['bn_eps'] = 4
 
 
 class deeperlab(nn.Module):
@@ -1023,7 +1191,140 @@ _ChildMessage = collections.namedtuple('Message', ['sum', 'ssum', 'sum_size'])
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
+class _batchnormtrain(Function):
+
+    @staticmethod
+    def forward(ctx, input, mean, std, gamma, beta):
+        ctx.save_for_backward(input, mean, std, gamma, beta)
+        if input.is_cuda:
+            output = gpu.batchnorm_forward(input, mean, std, gamma, beta)
+        else:
+            output = cpu.batchnorm_forward(input, mean, std, gamma, beta)
+        return output
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        input, mean, std, gamma, beta = ctx.saved_variables
+        if gradOutput.is_cuda:
+            gradInput, gradMean, gradStd, gradGamma, gradBeta = (gpu.
+                batchnorm_backward(gradOutput, input, mean, std, gamma,
+                beta, True))
+        else:
+            raise NotImplemented
+        return gradInput, gradMean, gradStd, gradGamma, gradBeta
+
+
+def batchnormtrain(input, mean, std, gamma, beta):
+    """Applies Batch Normalization over a 3d input that is seen as a
+    mini-batch.
+
+    .. _encoding.batchnormtrain:
+
+    .. math::
+
+        y = \\frac{x - \\mu[x]}{ \\sqrt{var[x] + \\epsilon}} * \\gamma + \\beta
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    """
+    return _batchnormtrain.apply(input, mean, std, gamma, beta)
+
+
+class _sum_square(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        if input.is_cuda:
+            xsum, xsqusum = gpu.sumsquare_forward(input)
+        else:
+            xsum, xsqusum = cpu.sumsquare_forward(input)
+        return xsum, xsqusum
+
+    @staticmethod
+    def backward(ctx, gradSum, gradSquare):
+        input, = ctx.saved_variables
+        if input.is_cuda:
+            gradInput = gpu.sumsquare_backward(input, gradSum, gradSquare)
+        else:
+            raise NotImplemented
+        return gradInput
+
+
+def sum_square(input):
+    """Calculate sum of elements and sum of squares for Batch Normalization"""
+    return _sum_square.apply(input)
+
+
+class _SyncBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(_SyncBatchNorm, self).__init__(num_features, eps=eps,
+            momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not self.training:
+            return batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input_shape[0], self.num_features, -1)
+        N = input.size(0) * input.size(2)
+        xsum, xsqsum = sum_square(input)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(xsum,
+                xsqsum, N))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(xsum,
+                xsqsum, N))
+        return batchnormtrain(input, mean, 1.0 / inv_std, self.weight, self
+            .bias).view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
+            get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
+                2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        self.running_mean = (1 - self.momentum
+            ) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum
+            ) * self.running_var + self.momentum * unbias_var.data
+        return mean, (bias_var + self.eps) ** -0.5
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lingtengqiu_Deeperlab_pytorch(_paritybench_base):
@@ -1036,30 +1337,38 @@ class Test_lingtengqiu_Deeperlab_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(DFN(*[], **{'out_planes': 4, 'criterion': _mock_layer(), 'aux_criterion': _mock_layer(), 'alpha': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(DFNHead(*[], **{'in_planes': 4, 'out_planes': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
+    @_fails_compile()
     def test_004(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_005(self):
-        self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(SigmoidFocalLoss(*[], **{'ignore_label': 4}), [torch.rand([4, 16]), torch.rand([4, 4, 4])], {})
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(SeparableConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(SigmoidFocalLoss(*[], **{'ignore_label': 4}), [torch.rand([4, 16]), torch.rand([4, 4, 4])], {})
+
+    def test_009(self):
         self._check(Xception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(deeperlab_seg_head(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_011(self):
         self._check(dense_to_space(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(space_to_dense(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

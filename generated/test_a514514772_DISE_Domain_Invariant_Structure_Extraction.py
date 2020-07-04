@@ -21,10 +21,13 @@ loss = _module
 metrics = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -49,6 +52,15 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
+import torchvision
+
+
+import torchvision.utils as vutils
+
+
+import torchvision.models as models
+
+
 import torch.utils.data as torch_data
 
 
@@ -65,6 +77,9 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+from torchvision import models
 
 
 RESTORE_FROM = (
@@ -847,45 +862,61 @@ class Vgg19(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_a514514772_DISE_Domain_Invariant_Structure_Extraction(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(ASPPModule(*[], **{'in_channels': 4, 'out_channels': 4, 'pyramids': [4, 4]}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(Classifier_Module(*[], **{'inplanes': 4, 'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(GaussianNoiseLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_006(self):
-        self._check(PrivateEncoder(*[], **{'input_channels': 4, 'code_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(PyramidPooling(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(PrivateDecoder(*[], **{'shared_code_channel': 4, 'private_code_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), 0], {})
 
-    @_fails_compile()
     def test_008(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PrivateEncoder(*[], **{'input_channels': 4, 'code_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PyramidPooling(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(ResBlocks(*[], **{'num_blocks': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(VGGLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_013(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

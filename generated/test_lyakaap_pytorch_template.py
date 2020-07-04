@@ -12,10 +12,13 @@ models = _module
 utils = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -40,6 +43,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 
+from torchvision import transforms
+
+
 import torch.nn.functional as F
 
 
@@ -62,6 +68,9 @@ from collections import OrderedDict
 
 
 from collections import deque
+
+
+import torchvision
 
 
 class MixLoss(nn.Module):
@@ -485,6 +494,112 @@ class CriterionOhemDSN_single(nn.Module):
         return self.dsn_weight * loss1 + loss2
 
 
+class MLSNet(nn.Module):
+
+    def __init__(self, n_classes: int=19, encoder_depth: int=18, pretrained:
+        bool=True, up_mode: str='bilinear', bn_module=nn.BatchNorm2d,
+        dilations: tuple=None, stop_level: int=3, multiple_oc_size: int=4,
+        n_oc: int=3):
+        """
+        :param stop_level: level for pruning calc.
+            1: first level,
+            2: second level,
+            3: third level (return all level preds),
+        """
+        super(MLSNet, self).__init__()
+        encoder = ResNetEncoder(encoder_depth=encoder_depth, pretrained=
+            pretrained, bn_module=bn_module, relu_inplace=True)
+        activation = nn.ReLU(inplace=True)
+        self.encoder = encoder.encoder
+        self.channels_list = encoder.channels_list
+        self.depth = len(self.channels_list)
+        self.up_mode = up_mode
+        self.align_corners = False if self.up_mode == 'bilinear' else None
+        self.stop_level = stop_level
+        if dilations is None:
+            dilations = [1] * self.depth
+        self.decoder = nn.ModuleList([nn.ModuleList([None for _ in range(i)
+            ]) for i in reversed(range(1, self.depth))])
+        for i in reversed(range(self.depth - 1)):
+            for j in range(0, self.depth - i - 1):
+                in_ch = self.channels_list[i] + self.channels_list[i + 1]
+                out_ch = self.channels_list[i]
+                self.decoder[i][j] = ConvLayer(in_ch, out_ch, kernel_size=3,
+                    padding=dilations[j], dilation=dilations[j], activation
+                    =activation, bn_module=bn_module)
+        if n_oc > 0:
+            dilation_rates = [(6, 12, 24), (4, 8, 12), (2, 4, 6)]
+            for i in range(n_oc):
+                self.decoder[i][0].add_module(f'oc_{i}', ASP_OC_Module(self
+                    .channels_list[i], self.channels_list[i], size=2 ** (
+                    multiple_oc_size - i), dilations=dilation_rates[i],
+                    bn_module=bn_module))
+        self.cls = nn.ModuleList(nn.Conv2d(self.channels_list[0], n_classes,
+            kernel_size=1) for _ in range(self.depth - 1))
+        self._init_weight()
+
+    def _init_weight(self):
+        for m in self.decoder.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+        for m in self.cls.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+
+    def forward(self, x, return_all_preds=True):
+        """
+        :param x: input tensor (shape: B, C, H, W)
+        :param return_all_preds:
+            True:
+                All level predictions are returned. It is necessary when training.
+            False:
+                Only one prediction are returned according to self.stop_level.
+                This enables to avoid redundant calculation and thus saves inference time.
+        :return: list of predictions from each level classifiers
+        """
+        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
+        preds = []
+        for i in range(self.depth):
+            if i == 0:
+                X[0][0] = self.encoder[0](x)
+            else:
+                X[i][0] = self.encoder[i](X[i - 1][0])
+            for j in range(i):
+                if i - (j + 1) == 0:
+                    cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(
+                        X[i - j][j], scale_factor=2, mode=self.up_mode,
+                        align_corners=self.align_corners)], dim=1)
+                    X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](
+                        cat_feat)
+            if i > 0:
+                if return_all_preds or i == self.stop_level:
+                    preds.append(self.cls[i - 1](X[0][i]))
+                if i == self.stop_level:
+                    break
+        return preds
+
+    def adaptive_inference(self, x, threshold=0.93):
+        """adaptive inference which enables to save computation time
+        by pruning depending on the hardness of input."""
+        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
+        for i in range(self.depth):
+            if i == 0:
+                X[0][0] = self.encoder[0](x)
+            else:
+                X[i][0] = self.encoder[i](X[i - 1][0])
+            for j in range(i):
+                cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i -
+                    j][j], scale_factor=2, mode=self.up_mode, align_corners
+                    =self.align_corners)], dim=1)
+                X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
+            if i > 0:
+                logits = self.cls[i - 1](X[0][i])
+                avg_conf = F.softmax(logits, dim=1).max(dim=1)[0].mean()
+                if avg_conf > threshold:
+                    break
+        return logits, i
+
+
 class NoOperation(nn.Module):
 
     def __init__(self, *args, **kwargs):
@@ -492,6 +607,25 @@ class NoOperation(nn.Module):
 
     def forward(self, x):
         return x
+
+
+class ConvLayer(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
+        padding=1, dilation=1, bn_module=nn.BatchNorm2d, activation=nn.ReLU
+        (inplace=True), use_cbam=False):
+        super(ConvLayer, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels,
+            kernel_size, stride, padding, dilation))
+        if bn_module is not None:
+            self.add_module('bn', bn_module(out_channels))
+        if activation is not None:
+            self.add_module('act', activation)
+        if use_cbam:
+            self.add_module('cbam', attention.CBAM(out_channels, bn_module=
+                bn_module))
 
 
 class EncoderBase(nn.Module):
@@ -853,43 +987,55 @@ class MultiModalNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lyakaap_pytorch_template(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(ASP_OC_Module(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(BaseOC_Context_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_001(self):
+    def test_002(self):
+        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_005(self):
         self._check(LovaszHinge(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(LovaszSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_007(self):
         self._check(MixLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_008(self):
         self._check(NoOperation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_009(self):
         self._check(SelfAttentionBlock(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(SoftIoULoss(*[], **{}), [torch.rand([4, 19, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
-    def test_009(self):
+    @_fails_compile()
+    def test_011(self):
+        self._check(UNet(*[], **{}), [torch.rand([4, 1, 256, 256])], {})
+
+    def test_012(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4, 'padding': 4, 'batch_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -17,10 +17,13 @@ erfnet_imagenet = _module
 main = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -51,6 +54,24 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import CenterCrop
+
+
+from torchvision.transforms import Normalize
+
+
+from torchvision.transforms import Resize
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import ToPILImage
+
+
 import time
 
 
@@ -66,6 +87,15 @@ import torch.optim
 import torch.utils.data
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
+
+
 from torch.optim import lr_scheduler
 
 
@@ -79,6 +109,9 @@ from torch.optim import SGD
 
 
 from torch.optim import Adam
+
+
+from torchvision.transforms import Pad
 
 
 class DownsamplerBlock(nn.Module):
@@ -686,20 +719,27 @@ class CrossEntropyLoss2d(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Eromera_erfnet_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([4, 128])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
 
-    def test_001(self):
+    def test_002(self):
         self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_002(self):
+    def test_003(self):
+        self._check(Features(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_004(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_005(self):
         self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

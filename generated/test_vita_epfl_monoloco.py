@@ -40,10 +40,13 @@ test_package = _module
 test_utils = _module
 test_visuals = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -63,6 +66,12 @@ from torch import nn
 
 
 import torch.nn.functional as F
+
+
+import torchvision
+
+
+import torchvision.transforms as T
 
 
 import torch.nn as nn
@@ -304,13 +313,14 @@ class GaussianLoss(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_vita_epfl_monoloco(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(GaussianLoss(*[], **{'device': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GaussianLoss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -322,4 +332,8 @@ class Test_vita_epfl_monoloco(_paritybench_base):
     @_fails_compile()
     def test_003(self):
         self._check(LinearModel(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(ResNet50(*[], **{'num_classes': 4, 'loss': MSELoss()}), [torch.rand([4, 3, 64, 64])], {})
 

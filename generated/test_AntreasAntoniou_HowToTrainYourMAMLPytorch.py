@@ -14,10 +14,13 @@ dataset_tools = _module
 parser_utils = _module
 storage = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -46,6 +49,9 @@ import logging
 
 
 from collections import OrderedDict
+
+
+import numbers
 
 
 from copy import copy
@@ -109,13 +115,13 @@ class MAMLFewShotClassifier(nn.Module):
             self.optimizer, T_max=self.args.total_epochs, eta_min=self.args
             .min_learning_rate)
         self.device = torch.device('cpu')
-        if torch.cuda.is_available():
-            if torch.cuda.device_count() > 1:
+        if torch.is_available():
+            if torch.device_count() > 1:
                 self
                 self.classifier = nn.DataParallel(module=self.classifier)
             else:
                 self
-            self.device = torch.cuda.current_device()
+            self.device = torch.current_device()
 
     def get_per_step_loss_importance_vector(self):
         """
@@ -169,7 +175,7 @@ class MAMLFewShotClassifier(nn.Module):
         :param current_step_idx: Current step's index.
         :return: A dictionary with the updated weights (name, param)
         """
-        num_gpus = torch.cuda.device_count()
+        num_gpus = torch.device_count()
         if num_gpus > 1:
             self.classifier.module.zero_grad(params=names_weights_copy)
         else:
@@ -187,8 +193,7 @@ class MAMLFewShotClassifier(nn.Module):
             names_weights_dict=names_weights_copy,
             names_grads_wrt_params_dict=names_grads_copy, num_step=
             current_step_idx)
-        num_devices = torch.cuda.device_count() if torch.cuda.is_available(
-            ) else 1
+        num_devices = torch.device_count() if torch.is_available() else 1
         names_weights_copy = {name.replace('module.', ''): value.unsqueeze(
             0).repeat([num_devices] + [(1) for i in range(len(value.shape))
             ]) for name, value in names_weights_copy.items()}
@@ -229,8 +234,7 @@ class MAMLFewShotClassifier(nn.Module):
                 get_per_step_loss_importance_vector())
             names_weights_copy = self.get_inner_loop_parameter_dict(self.
                 classifier.named_parameters())
-            num_devices = torch.cuda.device_count() if torch.cuda.is_available(
-                ) else 1
+            num_devices = torch.device_count() if torch.is_available() else 1
             names_weights_copy = {name.replace('module.', ''): value.
                 unsqueeze(0).repeat([num_devices] + [(1) for i in range(len
                 (value.shape))]) for name, value in names_weights_copy.items()}
@@ -1171,6 +1175,7 @@ class VGGReLUNormNetwork(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_AntreasAntoniou_HowToTrainYourMAMLPytorch(_paritybench_base):
@@ -1181,5 +1186,9 @@ class Test_AntreasAntoniou_HowToTrainYourMAMLPytorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(MetaLayerNormLayer(*[], **{'input_feature_shape': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(MetaLinearLayer(*[], **{'input_shape': [4, 4], 'num_filters': 4, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
 

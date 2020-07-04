@@ -5,6 +5,32 @@ import logging
 log = logging.getLogger(__name__)
 
 CONFIG_NAMES = {"argv", "args", "config", "cfg", "params", "_global_config"}
+IMPORT_WHITELIST = {
+    "abc",
+    "collections",
+    "copy",
+    "enum",
+    "functools",
+    "inspect",
+    "itertools",
+    "logging",
+    "math",
+    "numbers",
+    "numpy",
+    "random",
+    "re",
+    "scipy",
+    "string",
+    "time",
+    "torch",
+    "torchaudio",
+    "torchtext",
+    "torchvision",
+    "types",
+    "typing",
+    "uuid",
+    "warnings",
+}
 
 
 class ASTCleanup(ast.NodeTransformer):
@@ -13,17 +39,29 @@ class ASTCleanup(ast.NodeTransformer):
     """
 
     def visit_Import(self, node):
-        return ast.Constant(value=None, kind=None)
+        result = []
+        for module_name, new_node in split_import(node):
+            if module_name in IMPORT_WHITELIST:
+                result.append(new_node)
+        return result
 
     visit_ImportFrom = visit_Import
 
     def visit_Call(self, node: ast.Call):
         if getattr(node.func, 'id', '') == 'print':
             # Strip print() calls
-            return ast.Constant(value=None, kind=None)
+            return ast.Expr(ast.Constant(value=None, kind=None))
         if getattr(node.func, 'attr', '') in ('cuda', 'to'):
             # foo.cuda() => foo
             return node.func.value
+        if getattr(node.func, 'id', '') == 'cuda_' and len(node.args) == 1:
+            return node.args[0]
+        return self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute):
+        if getattr(node.value, 'id', '') == "torch" and node.attr == "cuda":
+            # torch.cuda.FloatTensor => torch.FloatTensor
+            return node.value
         return self.generic_visit(node)
 
 
@@ -84,6 +122,7 @@ class ExtractReadsWrites(ast.NodeVisitor):
     def visit_arg(self, node):
         reads, writes = self.context[-1]
         writes.add(node.arg)
+        self.generic_visit(node)
 
 
 class ExtractConfigUsage(ast.NodeVisitor):
@@ -145,3 +184,26 @@ class CheckCallableMembers(ast.NodeVisitor):
             if getattr(attr.value, 'id', '') == 'self':
                 self.callable_members.add(attr.attr)
         return self.generic_visit(node)
+
+
+def split_import(node):
+    """
+    Replace `import a,b` with `import a; import b`
+    """
+    if isinstance(node, ast.Import):
+        for name in node.names:
+            tmp = ast.Import([name])
+            ast.copy_location(tmp, node)
+            module_name = re.sub(r"[.].*$", "", name.name)
+            yield module_name, tmp
+    else:
+        assert isinstance(node, ast.ImportFrom)
+        if node.level != 0:
+            return  # not supported
+        module_name = re.sub(r"[.].*$", "", node.module)
+        for name in node.names:
+            tmp = ast.ImportFrom(re.sub(r"^torch.legacy\b", "torch", node.module),
+                                 [name],
+                                 level=0)
+            ast.copy_location(tmp, node)
+            yield module_name, tmp

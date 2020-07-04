@@ -15,10 +15,13 @@ mlp = _module
 pytorch_util = _module
 s2v_lib = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,73 @@ import scipy.sparse as sp
 
 
 cmd_opt = argparse.ArgumentParser(description='Argparser for harvard cep')
+
+
+class Classifier(nn.Module):
+
+    def __init__(self):
+        super(Classifier, self).__init__()
+        model = GUNet
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
+            cmd_args.out_dim, num_node_feats=cmd_args.feat_dim + cmd_args.
+            attr_dim, num_edge_feats=0, k=cmd_args.sortpooling_k)
+        out_dim = cmd_args.out_dim
+        if out_dim == 0:
+            out_dim = self.s2v.dense_dim
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
+            hidden, num_class=cmd_args.num_class, with_dropout=cmd_args.dropout
+            )
+
+    def PrepareFeatureLabel(self, batch_graph):
+        labels = torch.LongTensor(len(batch_graph))
+        n_nodes = 0
+        if batch_graph[0].node_tags is not None:
+            node_tag_flag = True
+            concat_tag = []
+        else:
+            node_tag_flag = False
+        if batch_graph[0].node_features is not None:
+            node_feat_flag = True
+            concat_feat = []
+        else:
+            node_feat_flag = False
+        for i in range(len(batch_graph)):
+            labels[i] = batch_graph[i].label
+            n_nodes += batch_graph[i].num_nodes
+            if node_tag_flag:
+                concat_tag += batch_graph[i].node_tags
+            if node_feat_flag:
+                tmp = torch.from_numpy(batch_graph[i].node_features).type(
+                    'torch.FloatTensor')
+                concat_feat.append(tmp)
+        if node_tag_flag:
+            concat_tag = torch.LongTensor(concat_tag).view(-1, 1)
+            node_tag = torch.zeros(n_nodes, cmd_args.feat_dim)
+            node_tag.scatter_(1, concat_tag, 1)
+        if node_feat_flag:
+            node_feat = torch.cat(concat_feat, 0)
+        if node_feat_flag and node_tag_flag:
+            node_feat = torch.cat([node_tag.type_as(node_feat), node_feat], 1)
+        elif node_feat_flag is False and node_tag_flag:
+            node_feat = node_tag
+        elif node_feat_flag and node_tag_flag is False:
+            pass
+        else:
+            node_feat = torch.ones(n_nodes, 1)
+        if cmd_args.mode == 'gpu':
+            node_feat = node_feat
+            labels = labels
+        return node_feat, labels
+
+    def forward(self, batch_graph):
+        node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        embed = self.s2v(batch_graph, node_feat, None)
+        return self.mlp(embed, labels)
+
+    def output_features(self, batch_graph):
+        node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        embed = self.s2v(batch_graph, node_feat, None)
+        return embed, labels
 
 
 def glorot_uniform(t):
@@ -204,7 +274,7 @@ class GUNet(nn.Module):
             len(graph_list))]
         node_degs = torch.cat(node_degs).unsqueeze(1)
         n2n_sp, e2n_sp, subg_sp = S2VLIB.PrepareMeanField(graph_list)
-        if isinstance(node_feat, torch.cuda.FloatTensor):
+        if isinstance(node_feat, torch.FloatTensor):
             n2n_sp = n2n_sp
             e2n_sp = e2n_sp
             subg_sp = subg_sp
@@ -249,7 +319,7 @@ class GUNet(nn.Module):
         sort_channel = cur_message_layer[:, (-1)]
         batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k,
             self.total_latent_dim)
-        if isinstance(node_feat.data, torch.cuda.FloatTensor):
+        if isinstance(node_feat.data, torch.FloatTensor):
             batch_sortpooling_graphs = batch_sortpooling_graphs
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
         accum_count = 0
@@ -261,7 +331,7 @@ class GUNet(nn.Module):
             sortpooling_graph = cur_message_layer.index_select(0, topk_indices)
             if k < self.k:
                 to_pad = torch.zeros(self.k - k, self.total_latent_dim)
-                if isinstance(node_feat.data, torch.cuda.FloatTensor):
+                if isinstance(node_feat.data, torch.FloatTensor):
                     to_pad = to_pad
                 to_pad = Variable(to_pad)
                 sortpooling_graph = torch.cat((sortpooling_graph, to_pad), 0)
@@ -463,7 +533,7 @@ class EmbedMeanField(nn.Module):
 
     def forward(self, graph_list, node_feat, edge_feat):
         n2n_sp, e2n_sp, subg_sp = S2VLIB.PrepareMeanField(graph_list)
-        if type(node_feat) is torch.cuda.FloatTensor:
+        if type(node_feat) is torch.FloatTensor:
             n2n_sp = n2n_sp
             e2n_sp = e2n_sp
             subg_sp = subg_sp
@@ -516,7 +586,7 @@ class EmbedLoopyBP(nn.Module):
 
     def forward(self, graph_list, node_feat, edge_feat):
         n2e_sp, e2e_sp, e2n_sp, subg_sp = S2VLIB.PrepareLoopyBP(graph_list)
-        if type(node_feat) is torch.cuda.FloatTensor:
+        if type(node_feat) is torch.FloatTensor:
             n2e_sp = n2e_sp
             e2e_sp = e2e_sp
             e2n_sp = e2n_sp
@@ -599,6 +669,7 @@ class MLPClassifier(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_HongyangGao_Graph_U_Nets(_paritybench_base):

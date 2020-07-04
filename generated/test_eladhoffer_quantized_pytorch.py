@@ -20,10 +20,13 @@ resnet_quantized_float_bn = _module
 resnext = _module
 preprocess = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -58,6 +61,9 @@ import torch.utils.data
 
 
 from collections import OrderedDict
+
+
+import torchvision.transforms as transforms
 
 
 import math
@@ -1447,6 +1453,7 @@ class ResNeXt(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_eladhoffer_quantized_pytorch(_paritybench_base):
@@ -1467,37 +1474,41 @@ class Test_eladhoffer_quantized_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(PlainDownSample(*[], **{'input_dims': 4, 'output_dims': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(QConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PlainDownSample(*[], **{'input_dims': 4, 'output_dims': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(QLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(QConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(QLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(RangeBN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
+        self._check(RangeBN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(RnLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(block35(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(mnist_model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

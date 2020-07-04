@@ -23,10 +23,13 @@ py_util = _module
 torch_util = _module
 train_test_fn = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +64,9 @@ from torch.autograd import Variable
 
 
 from torch.nn.modules.module import Module
+
+
+import torchvision.models as models
 
 
 import numpy.matlib
@@ -782,11 +788,30 @@ class TransformedGridLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ignacio_rocco_cnngeometric_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
+        self._check(AffineGridGen(*[], **{}), [torch.rand([4, 2, 3])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(AffineGridGenV2(*[], **{}), [torch.rand([4, 6])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(FeatureCorrelation(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(FeatureExtraction(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(HomographyGridGen(*[], **{}), [torch.rand([4, 8])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(TransformedGridLoss(*[], **{}), [torch.rand([4, 2, 3]), torch.rand([4, 2, 3])], {})
 

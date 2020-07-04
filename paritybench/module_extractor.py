@@ -12,45 +12,28 @@ from typing import TextIO, List
 
 import torch
 from astor import to_source
+from torch.nn.parallel import DistributedDataParallel
 
 from .deduce_parameters import DeduceParameters, DeduceParameter
 from .reporting import Stats, ErrorAggregatorDict
-from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES, CheckCallableMembers
+from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES, CheckCallableMembers, \
+    split_import
+from .static_analysis import IMPORT_WHITELIST
 from .utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
 RUN_SCRIPT = False  # some scripts hang when run, so this causes many timeouts
 NN_MODULE_RE = re.compile(r"(\btorch[.]nn\b)|(\bnn[.]Module\b)", re.MULTILINE)
-IMPORT_WHITELIST = {
-    # TODO: torchvision/torchaudio/etc is used by many
-    "abc",
-    "collections",
-    "copy",
-    "enum",
-    "functools",
-    "inspect",
-    "itertools",
-    "logging",
-    "math",
-    "numpy",
-    "random",
-    "re",
-    "time",
-    "scipy",
-    "string",
-    "torch",
-    "types",
-    "typing",
-    "uuid",
-    "warnings",
-}
 PREFIX = f'''
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import {', '.join(IMPORT_WHITELIST)}
+import numpy as np
 
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +44,7 @@ __version__ = "1.0.0"
 '''
 SUFFIX = '''
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_{basename}(_paritybench_base):
@@ -79,7 +63,7 @@ class PyTorchModuleExtractor(object):
     then test if they function correctly with the JIT.
     """
 
-    def __init__(self, tempdir: str, errors: ErrorAggregatorDict, stats: Stats, output_py: TextIO):
+    def __init__(self, tempdir: str, errors: ErrorAggregatorDict, stats: Stats, output_py: TextIO, name_filter=None):
         super(PyTorchModuleExtractor, self).__init__()
         self.errors = errors
         self.stats = stats
@@ -94,6 +78,8 @@ class PyTorchModuleExtractor(object):
         self.global_config = None
 
         self.testcases = []
+
+        self.name_filter = name_filter
 
     def search_file(self, filename: str, open_fn=open):
         if not filename.endswith(".py") or '.#' in filename:
@@ -126,7 +112,9 @@ class PyTorchModuleExtractor(object):
         except SyntaxError:
             # perhaps python2?
             with tempfile.NamedTemporaryFile(mode="wb", suffix=".py") as tmp:
-                tmp.write(re.sub(r"\basync *=", "non_blocking=", source).encode('utf-8'))
+                tmp.write(re.sub(r"\basync *=", "non_blocking=", source)
+                            .replace("\t", "    ")
+                            .encode('utf-8'))
                 tmp.flush()
                 with open("/dev/null", "w") as null:
                     subprocess.check_call(["2to3", "-w", tmp.name], stderr=null, stdout=null)
@@ -143,7 +131,7 @@ class PyTorchModuleExtractor(object):
                     self.add_available_symbol(node, overwrite)
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 if overwrite:
-                    for module_name, import_node in self.split_import(node):
+                    for module_name, import_node in split_import(node):
                         if module_name == "torch":
                             # Run torch imports so we can run issubclass(.., torch.nn.Module)
                             try:
@@ -179,29 +167,6 @@ class PyTorchModuleExtractor(object):
         with zipfile.ZipFile(filename) as archive:
             for name in sorted(archive.namelist()):
                 self.search_file(name, archive.open)
-
-    @staticmethod
-    def split_import(node):
-        """
-        Replace `import a,b` with `import a; import b`
-        """
-        if isinstance(node, ast.Import):
-            for name in node.names:
-                tmp = ast.Import([name])
-                ast.copy_location(tmp, node)
-                module_name = re.sub(r"[.].*$", "", name.name)
-                yield module_name, tmp
-        else:
-            assert isinstance(node, ast.ImportFrom)
-            if node.level != 0:
-                return  # not supported
-            module_name = re.sub(r"[.].*$", "", node.module)
-            for name in node.names:
-                tmp = ast.ImportFrom(re.sub(r"^torch.legacy\b", "torch", node.module),
-                                     [name],
-                                     level=0)
-                ast.copy_location(tmp, node)
-                yield module_name, tmp
 
     def add_available_symbol(self, node, overwrite=False):
         try:
@@ -253,7 +218,10 @@ class PyTorchModuleExtractor(object):
             if name in self.available_symbols and name not in self.output:
                 requirement = self.available_symbols.pop(name)
                 self.add_requirements(requirement)
-                self.output.run_statement(requirement, source_required=True)
+                try:
+                    self.output.run_statement(requirement, source_required=True)
+                except:
+                    log.warning("Error adding requirement", exc_info=True)
             elif name in CONFIG_NAMES:
                 need_config = True
 
@@ -270,19 +238,29 @@ class PyTorchModuleExtractor(object):
 
     def test_modules(self):
         for name, value in list(sorted(self.output.items())):
-            if (isinstance(value, type) and
-                    issubclass(value, torch.nn.Module) and
-                    self.output.same_module(value)):
+            if self.should_test_cls(value):
                 self.test_nn_module(name, value)
 
+    def should_test_cls(self, cls):
+        if not isinstance(cls, type):
+            return False
+        if not issubclass(cls, torch.nn.Module):
+            return False
+        if issubclass(cls, DistributedDataParallel):
+            return False
+        return self.output.same_module(cls)
+
     def test_nn_module(self, name: str, nn_cls: type):
+        if self.name_filter and self.name_filter not in name:
+            return
+
         self.stats["total"] += 1
         checker = CheckCallableMembers.run(self.name_to_ast.get(name))
         try:
             stats, errors, testcases = call_with_timeout(
                 extract_nn_module,
                 args=(name, nn_cls, checker, self.errors.context),
-                timeout=10)
+                timeout=300)
             self.errors.update(errors)
             self.stats.update(stats)
             self.testcases.extend(testcases)

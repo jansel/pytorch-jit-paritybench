@@ -252,10 +252,13 @@ test_affine_transforms = _module
 test_image_transforms = _module
 test_tensor_transforms = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -272,6 +275,9 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torchvision import datasets
 
 
 from torch.utils.data import DataLoader
@@ -346,6 +352,18 @@ import torch.utils.checkpoint as cp
 from enum import Enum
 
 
+from torchvision import models as torch_models
+
+
+from torchvision.models.inception import InceptionAux
+
+
+import torchvision.models as models
+
+
+from torchvision import models
+
+
 from math import ceil
 
 
@@ -353,6 +371,12 @@ import torch.nn.init as init
 
 
 from math import floor
+
+
+from torchvision.models.densenet import DenseNet as Orig_DenseNet
+
+
+from torchvision.models.squeezenet import squeezenet1_1
 
 
 from torch.nn import init
@@ -625,6 +649,42 @@ class SwishJit(nn.Module):
 
     def forward(self, x):
         return SwishJitAutoFn.apply(x)
+
+
+@torch.jit.script
+def mish_jit_bwd(x, grad_output):
+    x_sigmoid = torch.sigmoid(x)
+    x_tanh_sp = F.softplus(x).tanh()
+    return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
+        x_tanh_sp))
+
+
+@torch.jit.script
+def mish_jit_fwd(x):
+    return x.mul(torch.tanh(F.softplus(x)))
+
+
+class MishJitAutoFn(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return mish_jit_fwd(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.saved_tensors[0]
+        return mish_jit_bwd(x, grad_output)
+
+
+class MishJit(nn.Module):
+
+    def __init__(self, inplace: bool=False):
+        super(MishJit, self).__init__()
+        self.inplace = inplace
+
+    def forward(self, x):
+        return MishJitAutoFn.apply(x)
 
 
 class BatchReNorm1d(Module):
@@ -6083,6 +6143,69 @@ class ResNet_swish(nn.Module):
         return x
 
 
+class ResNeXt50_32x4d(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(ResNeXt50_32x4d, self).__init__()
+        self.num_classes = num_classes
+        self.features = resnext50_32x4d_features
+        self.avg_pool = nn.AvgPool2d((7, 7), (1, 1))
+        self.last_linear = nn.Linear(2048, num_classes)
+
+    def logits(self, input):
+        x = self.avg_pool(input)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+
+
+class ResNeXt101_32x4d(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(ResNeXt101_32x4d, self).__init__()
+        self.num_classes = num_classes
+        self.features = resnext101_32x4d_features
+        self.avg_pool = nn.AvgPool2d((7, 7), (1, 1))
+        self.last_linear = nn.Linear(2048, num_classes)
+
+    def logits(self, input):
+        x = self.avg_pool(input)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+
+
+class ResNeXt101_64x4d(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(ResNeXt101_64x4d, self).__init__()
+        self.num_classes = num_classes
+        self.features = resnext101_64x4d_features
+        self.avg_pool = nn.AvgPool2d((7, 7), (1, 1))
+        self.last_linear = nn.Linear(2048, num_classes)
+
+    def logits(self, input):
+        x = self.avg_pool(input)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+
+
 class LambdaBase(nn.Sequential):
 
     def __init__(self, *args):
@@ -9822,6 +9945,45 @@ class _DenseUpsamplingConvModule(nn.Module):
 root = '/models/pytorch'
 
 
+class ResNetDUC(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, **kwargs):
+        super(ResNetDUC, self).__init__()
+        resnet = models.resnet152()
+        if pretrained:
+            resnet.load_state_dict(torch.load(res152_path))
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+            resnet.maxpool)
+        self.layer1 = resnet.layer1
+        self.layer2 = resnet.layer2
+        self.layer3 = resnet.layer3
+        self.layer4 = resnet.layer4
+        for n, m in self.layer3.named_modules():
+            if 'conv2' in n:
+                m.dilation = 2, 2
+                m.padding = 2, 2
+                m.stride = 1, 1
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        for n, m in self.layer4.named_modules():
+            if 'conv2' in n:
+                m.dilation = 4, 4
+                m.padding = 4, 4
+                m.stride = 1, 1
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        self.duc = _DenseUpsamplingConvModule(8, 2048, num_classes)
+
+    def forward(self, x):
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.duc(x)
+        return x
+
+
 class ResNetDUCHDC(nn.Module):
 
     def __init__(self, num_classes, pretrained=True, **kwargs):
@@ -10338,6 +10500,59 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
     return torch.from_numpy(weight).float()
 
 
+class FCN16VGG(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, **kwargs):
+        super(FCN16VGG, self).__init__()
+        vgg = models.vgg16()
+        if pretrained:
+            vgg.load_state_dict(torch.load(vgg16_caffe_path))
+        features, classifier = list(vgg.features.children()), list(vgg.
+            classifier.children())
+        features[0].padding = 100, 100
+        for f in features:
+            if 'MaxPool' in f.__class__.__name__:
+                f.ceil_mode = True
+            elif 'ReLU' in f.__class__.__name__:
+                f.inplace = True
+        self.features4 = nn.Sequential(*features[:24])
+        self.features5 = nn.Sequential(*features[24:])
+        self.score_pool4 = nn.Conv2d(512, num_classes, kernel_size=1)
+        self.score_pool4.weight.data.zero_()
+        self.score_pool4.bias.data.zero_()
+        fc6 = nn.Conv2d(512, 4096, kernel_size=7)
+        fc6.weight.data.copy_(classifier[0].weight.data.view(4096, 512, 7, 7))
+        fc6.bias.data.copy_(classifier[0].bias.data)
+        fc7 = nn.Conv2d(4096, 4096, kernel_size=1)
+        fc7.weight.data.copy_(classifier[3].weight.data.view(4096, 4096, 1, 1))
+        fc7.bias.data.copy_(classifier[3].bias.data)
+        score_fr = nn.Conv2d(4096, num_classes, kernel_size=1)
+        score_fr.weight.data.zero_()
+        score_fr.bias.data.zero_()
+        self.score_fr = nn.Sequential(fc6, nn.ReLU(inplace=True), nn.
+            Dropout(), fc7, nn.ReLU(inplace=True), nn.Dropout(), score_fr)
+        self.upscore2 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore16 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=32, stride=16, bias=False)
+        self.upscore2.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 4))
+        self.upscore16.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 32))
+
+    def forward(self, x):
+        x_size = x.size()
+        pool4 = self.features4(x)
+        pool5 = self.features5(pool4)
+        score_fr = self.score_fr(pool5)
+        upscore2 = self.upscore2(score_fr)
+        score_pool4 = self.score_pool4(0.01 * pool4)
+        upscore16 = self.upscore16(score_pool4[:, :, 5:5 + upscore2.size()[
+            2], 5:5 + upscore2.size()[3]] + upscore2)
+        return upscore16[:, :, 27:27 + x_size[2], 27:27 + x_size[3]
+            ].contiguous()
+
+
 class FCN32VGG(nn.Module):
 
     def __init__(self, num_classes, pretrained=True, **kwargs):
@@ -10376,6 +10591,81 @@ class FCN32VGG(nn.Module):
         score_fr = self.score_fr(pool5)
         upscore = self.upscore(score_fr)
         return upscore[:, :, 19:19 + x_size[2], 19:19 + x_size[3]].contiguous()
+
+
+class FCN8s(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, caffe=False, **kwargs):
+        super(FCN8s, self).__init__()
+        vgg = models.vgg16()
+        if pretrained:
+            if caffe:
+                vgg.load_state_dict(torch.load(vgg16_caffe_path))
+            else:
+                vgg.load_state_dict(torch.load(vgg16_path))
+        features, classifier = list(vgg.features.children()), list(vgg.
+            classifier.children())
+        """
+        100 padding for 2 reasons:
+            1) support very small input size
+            2) allow cropping in order to match size of different layers' feature maps
+        Note that the cropped part corresponds to a part of the 100 padding
+        Spatial information of different layers' feature maps cannot be align exactly because of cropping, which is bad
+        """
+        features[0].padding = 100, 100
+        for f in features:
+            if 'MaxPool' in f.__class__.__name__:
+                f.ceil_mode = True
+            elif 'ReLU' in f.__class__.__name__:
+                f.inplace = True
+        self.features3 = nn.Sequential(*features[:17])
+        self.features4 = nn.Sequential(*features[17:24])
+        self.features5 = nn.Sequential(*features[24:])
+        self.score_pool3 = nn.Conv2d(256, num_classes, kernel_size=1)
+        self.score_pool4 = nn.Conv2d(512, num_classes, kernel_size=1)
+        self.score_pool3.weight.data.zero_()
+        self.score_pool3.bias.data.zero_()
+        self.score_pool4.weight.data.zero_()
+        self.score_pool4.bias.data.zero_()
+        fc6 = nn.Conv2d(512, 4096, kernel_size=7)
+        fc6.weight.data.copy_(classifier[0].weight.data.view(4096, 512, 7, 7))
+        fc6.bias.data.copy_(classifier[0].bias.data)
+        fc7 = nn.Conv2d(4096, 4096, kernel_size=1)
+        fc7.weight.data.copy_(classifier[3].weight.data.view(4096, 4096, 1, 1))
+        fc7.bias.data.copy_(classifier[3].bias.data)
+        score_fr = nn.Conv2d(4096, num_classes, kernel_size=1)
+        score_fr.weight.data.zero_()
+        score_fr.bias.data.zero_()
+        self.score_fr = nn.Sequential(fc6, nn.ReLU(inplace=True), nn.
+            Dropout(), fc7, nn.ReLU(inplace=True), nn.Dropout(), score_fr)
+        self.upscore2 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore_pool4 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore8 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=16, stride=8, bias=False)
+        self.upscore2.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 4))
+        self.upscore_pool4.weight.data.copy_(get_upsampling_weight(
+            num_classes, num_classes, 4))
+        self.upscore8.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 16))
+
+    def forward(self, x):
+        x_size = x.size()
+        pool3 = self.features3(x)
+        pool4 = self.features4(pool3)
+        pool5 = self.features5(pool4)
+        score_fr = self.score_fr(pool5)
+        upscore2 = self.upscore2(score_fr)
+        score_pool4 = self.score_pool4(0.01 * pool4)
+        upscore_pool4 = self.upscore_pool4(score_pool4[:, :, 5:5 + upscore2
+            .size()[2], 5:5 + upscore2.size()[3]] + upscore2)
+        score_pool3 = self.score_pool3(0.0001 * pool3)
+        upscore8 = self.upscore8(score_pool3[:, :, 9:9 + upscore_pool4.size
+            ()[2], 9:9 + upscore_pool4.size()[3]] + upscore_pool4)
+        return upscore8[:, :, 31:31 + x_size[2], 31:31 + x_size[3]].contiguous(
+            )
 
 
 class CrossEntropyLoss2d(nn.Module):
@@ -14951,6 +15241,43 @@ class _DecoderBlock(nn.Module):
         return self.decode(x)
 
 
+class SegNet(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, **kwargs):
+        super(SegNet, self).__init__()
+        vgg = models.vgg19_bn()
+        if pretrained:
+            vgg.load_state_dict(torch.load(vgg19_bn_path))
+        features = list(vgg.features.children())
+        self.enc1 = nn.Sequential(*features[0:7])
+        self.enc2 = nn.Sequential(*features[7:14])
+        self.enc3 = nn.Sequential(*features[14:27])
+        self.enc4 = nn.Sequential(*features[27:40])
+        self.enc5 = nn.Sequential(*features[40:])
+        self.dec5 = nn.Sequential(*([nn.ConvTranspose2d(512, 512,
+            kernel_size=2, stride=2)] + [nn.Conv2d(512, 512, kernel_size=3,
+            padding=1), nn.BatchNorm2d(512), nn.ReLU(inplace=True)] * 4))
+        self.dec4 = _DecoderBlock(1024, 256, 4)
+        self.dec3 = _DecoderBlock(512, 128, 4)
+        self.dec2 = _DecoderBlock(256, 64, 2)
+        self.dec1 = _DecoderBlock(128, num_classes, 2)
+        initialize_weights(self.dec5, self.dec4, self.dec3, self.dec2, self
+            .dec1)
+
+    def forward(self, x):
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
+        enc5 = self.enc5(enc4)
+        dec5 = self.dec5(enc5)
+        dec4 = self.dec4(torch.cat([enc4, dec5], 1))
+        dec3 = self.dec3(torch.cat([enc3, dec4], 1))
+        dec2 = self.dec2(torch.cat([enc2, dec3], 1))
+        dec1 = self.dec1(torch.cat([enc1, dec2], 1))
+        return dec1
+
+
 def init_weights(model):
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
@@ -18496,6 +18823,62 @@ class Resnet(nn.Module):
         self.layer2 = orig_resnet.layer2
         self.layer3 = orig_resnet.layer3
         self.layer4 = orig_resnet.layer4
+
+    def forward(self, x, return_feature_maps=False):
+        conv_out = []
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        conv_out.append(x)
+        x = self.layer2(x)
+        conv_out.append(x)
+        x = self.layer3(x)
+        conv_out.append(x)
+        x = self.layer4(x)
+        conv_out.append(x)
+        if return_feature_maps:
+            return conv_out
+        return x
+
+
+class ResnetDilated(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8, **kwargs):
+        super(ResnetDilated, self).__init__()
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=4))
+        elif dilate_scale == 16:
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=2))
+        self.conv1 = orig_resnet.conv1
+        self.bn1 = orig_resnet.bn1
+        self.relu1 = orig_resnet.relu1
+        self.conv2 = orig_resnet.conv2
+        self.bn2 = orig_resnet.bn2
+        self.relu2 = orig_resnet.relu2
+        self.conv3 = orig_resnet.conv3
+        self.bn3 = orig_resnet.bn3
+        self.relu3 = orig_resnet.relu3
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
 
     def forward(self, x, return_feature_maps=False):
         conv_out = []

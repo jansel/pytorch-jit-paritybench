@@ -32,10 +32,13 @@ train = _module
 train_dist = _module
 master = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -913,9 +916,9 @@ class BasicBlock(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.cuda.FloatTensor(
-                batch_size, residual_channel - shortcut_channel,
-                featuremap_size[0], featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
+                residual_channel - shortcut_channel, featuremap_size[0],
+                featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -963,9 +966,9 @@ class Bottleneck(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.cuda.FloatTensor(
-                batch_size, residual_channel - shortcut_channel,
-                featuremap_size[0], featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
+                residual_channel - shortcut_channel, featuremap_size[0],
+                featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -1579,6 +1582,7 @@ class TpuBatchNormalization(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kakaobrain_fast_autoaugment(_paritybench_base):

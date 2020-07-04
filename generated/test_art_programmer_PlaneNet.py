@@ -6,6 +6,7 @@ layers = _module
 modules = _module
 planenet = _module
 train_planenet = _module
+utils = _module
 RecordReaderAll = _module
 CopyTexture = _module
 LayeredSceneDecomposition = _module
@@ -86,12 +87,14 @@ planenet = _module
 options = _module
 data_converter = _module
 train_planenet = _module
-utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -464,6 +467,7 @@ class PlaneNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_art_programmer_PlaneNet(_paritybench_base):

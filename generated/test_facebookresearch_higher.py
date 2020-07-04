@@ -13,10 +13,13 @@ test_higher = _module
 test_optim = _module
 test_patch = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,6 +45,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import time
@@ -348,6 +357,7 @@ class _PartiallyUsed(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_facebookresearch_higher(_paritybench_base):
@@ -359,15 +369,15 @@ class Test_facebookresearch_higher(_paritybench_base):
         self._check(_Enc(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(_NestedEnc(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_NestedEnc(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(_PartiallyUsed(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(_ReferenceNet(*[], **{'features': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_ReferenceNet(*[], **{'features': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(_TargetNet(*[], **{'features': ReLU(), 'fc': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_TargetNet(*[], **{'features': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

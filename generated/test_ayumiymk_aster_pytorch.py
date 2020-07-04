@@ -30,10 +30,13 @@ serialization = _module
 visualization_utils = _module
 main = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,9 @@ from collections import OrderedDict
 import torch.nn as nn
 
 
+import torchvision
+
+
 import itertools
 
 
@@ -86,6 +92,9 @@ from time import gmtime
 
 
 from time import strftime
+
+
+from torchvision import transforms
 
 
 from torch.nn import Parameter
@@ -519,6 +528,69 @@ def get_args(sys_args):
     return global_args
 
 
+class ModelBuilder(nn.Module):
+    """
+  This is the integrated model.
+  """
+
+    def __init__(self, arch, rec_num_classes, sDim, attDim, max_len_labels,
+        eos, STN_ON=False):
+        super(ModelBuilder, self).__init__()
+        self.arch = arch
+        self.rec_num_classes = rec_num_classes
+        self.sDim = sDim
+        self.attDim = attDim
+        self.max_len_labels = max_len_labels
+        self.eos = eos
+        self.STN_ON = STN_ON
+        self.tps_inputsize = global_args.tps_inputsize
+        self.encoder = create(self.arch, with_lstm=global_args.with_lstm,
+            n_group=global_args.n_group)
+        encoder_out_planes = self.encoder.out_planes
+        self.decoder = AttentionRecognitionHead(num_classes=rec_num_classes,
+            in_planes=encoder_out_planes, sDim=sDim, attDim=attDim,
+            max_len_labels=max_len_labels)
+        self.rec_crit = SequenceCrossEntropyLoss()
+        if self.STN_ON:
+            self.tps = TPSSpatialTransformer(output_image_size=tuple(
+                global_args.tps_outputsize), num_control_points=global_args
+                .num_control_points, margins=tuple(global_args.tps_margins))
+            self.stn_head = STNHead(in_planes=3, num_ctrlpoints=global_args
+                .num_control_points, activation=global_args.stn_activation)
+
+    def forward(self, input_dict):
+        return_dict = {}
+        return_dict['losses'] = {}
+        return_dict['output'] = {}
+        x, rec_targets, rec_lengths = input_dict['images'], input_dict[
+            'rec_targets'], input_dict['rec_lengths']
+        if self.STN_ON:
+            stn_input = F.interpolate(x, self.tps_inputsize, mode=
+                'bilinear', align_corners=True)
+            stn_img_feat, ctrl_points = self.stn_head(stn_input)
+            x, _ = self.tps(x, ctrl_points)
+            if not self.training:
+                return_dict['output']['ctrl_points'] = ctrl_points
+                return_dict['output']['rectified_images'] = x
+        encoder_feats = self.encoder(x)
+        encoder_feats = encoder_feats.contiguous()
+        if self.training:
+            rec_pred = self.decoder([encoder_feats, rec_targets, rec_lengths])
+            loss_rec = self.rec_crit(rec_pred, rec_targets, rec_lengths)
+            return_dict['losses']['loss_rec'] = loss_rec
+        else:
+            rec_pred, rec_pred_scores = self.decoder.beam_search(encoder_feats,
+                global_args.beam_width, self.eos)
+            rec_pred_ = self.decoder([encoder_feats, rec_targets, rec_lengths])
+            loss_rec = self.rec_crit(rec_pred_, rec_targets, rec_lengths)
+            return_dict['losses']['loss_rec'] = loss_rec
+            return_dict['output']['pred_rec'] = rec_pred
+            return_dict['output']['pred_rec_score'] = rec_pred_scores
+        for k, v in return_dict['losses'].items():
+            return_dict['losses'][k] = v.unsqueeze(0)
+        return return_dict
+
+
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
@@ -783,6 +855,7 @@ class TPSSpatialTransformer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ayumiymk_aster_pytorch(_paritybench_base):

@@ -103,10 +103,13 @@ watch_classic = _module
 watch_continuous = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -457,6 +460,7 @@ class TanhActionBound(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cpnota_autonomous_learning_library(_paritybench_base):
@@ -465,10 +469,10 @@ class Test_cpnota_autonomous_learning_library(_paritybench_base):
         self._check(Aggregation(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(CategoricalDueling(*[], **{'value_model': ReLU(), 'advantage_model': ReLU()}), [torch.rand([4, 4])], {})
+        self._check(CategoricalDueling(*[], **{'value_model': _mock_layer(), 'advantage_model': _mock_layer()}), [torch.rand([4, 1, 1])], {})
 
     def test_002(self):
-        self._check(Dueling(*[], **{'value_model': ReLU(), 'advantage_model': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Dueling(*[], **{'value_model': _mock_layer(), 'advantage_model': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})

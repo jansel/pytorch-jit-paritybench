@@ -17,10 +17,13 @@ train = _module
 utils = _module
 export_for_isaac = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -39,7 +42,13 @@ import torch.utils.data
 import torch.nn
 
 
+import torchvision.transforms.functional as FT
+
+
 import numpy as np
+
+
+import torchvision
 
 
 import torch.optim
@@ -224,6 +233,7 @@ class HeatmapMaxpoolAndPermute(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVIDIA_AI_IOT_trt_pose(_paritybench_base):
@@ -238,5 +248,8 @@ class Test_NVIDIA_AI_IOT_trt_pose(_paritybench_base):
         self._check(InputReNormalization(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
 
     def test_003(self):
+        self._check(SelectInput(*[], **{'index': 4}), [torch.rand([5, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(UpsampleCBR(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -34,10 +34,13 @@ test = _module
 train = _module
 optim = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -180,17 +183,15 @@ class GraphAttentionLayer(nn.Module):
         self.alpha = alpha
         self.concat = concat
         self.W = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            in_features, out_features).type(torch.cuda.FloatTensor if torch
-            .cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)
-            ), requires_grad=True)
+            in_features, out_features).type(torch.FloatTensor if torch.
+            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
+            requires_grad=True)
         self.a1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            out_features, 1).type(torch.cuda.FloatTensor if torch.cuda.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
+            out_features, 1).type(torch.FloatTensor if torch.is_available()
+             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.a2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            out_features, 1).type(torch.cuda.FloatTensor if torch.cuda.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
+            out_features, 1).type(torch.FloatTensor if torch.is_available()
+             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, input, adj):
@@ -314,6 +315,7 @@ class MemoryComponent(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_EagleW_PaperRobot(_paritybench_base):
@@ -323,5 +325,8 @@ class Test_EagleW_PaperRobot(_paritybench_base):
         self._check(MemoryComponent(*[], **{'hop': 4, 'h': 4, 'd_model': 4, 'dropout_p': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
-        self._check(TermEncoder(*[], **{'embedding': ReLU(), 'input_dropout_p': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TAT(*[], **{'embedding_dim': 4, 'voc_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+
+    def test_002(self):
+        self._check(TermEncoder(*[], **{'embedding': _mock_layer(), 'input_dropout_p': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 

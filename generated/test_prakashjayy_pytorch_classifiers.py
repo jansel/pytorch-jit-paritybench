@@ -21,10 +21,13 @@ tars_mixup_train = _module
 tars_predict = _module
 tars_train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +64,18 @@ from torch.optim import lr_scheduler
 import numpy as np
 
 
+import torchvision
+
+
+from torchvision import datasets
+
+
+from torchvision import models
+
+
+from torchvision import transforms
+
+
 import time
 
 
@@ -68,6 +83,9 @@ import torch.nn.init as init
 
 
 from torch.nn import functional as Func
+
+
+import torchvision.transforms as transforms
 
 
 class BNInception(nn.Module):
@@ -1932,6 +1950,48 @@ class NASNetALarge(nn.Module):
         return x
 
 
+class ResNeXt101_32x4d(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(ResNeXt101_32x4d, self).__init__()
+        self.num_classes = num_classes
+        self.features = resnext101_32x4d_features
+        self.avg_pool = nn.AvgPool2d((7, 7), (1, 1))
+        self.last_linear = nn.Linear(2048, num_classes)
+
+    def logits(self, input):
+        x = self.avg_pool(input)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+
+
+class ResNeXt101_64x4d(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(ResNeXt101_64x4d, self).__init__()
+        self.num_classes = num_classes
+        self.features = resnext101_64x4d_features
+        self.avg_pool = nn.AvgPool2d((7, 7), (1, 1))
+        self.last_linear = nn.Linear(2048, num_classes)
+
+    def logits(self, input):
+        x = self.avg_pool(input)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, input):
+        x = self.features(input)
+        x = self.logits(x)
+        return x
+
+
 class LambdaBase(nn.Sequential):
 
     def __init__(self, fn, *args):
@@ -2026,6 +2086,7 @@ class VGGM(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_prakashjayy_pytorch_classifiers(_paritybench_base):

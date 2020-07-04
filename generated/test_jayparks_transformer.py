@@ -16,10 +16,13 @@ sublayers = _module
 translator = _module
 translate = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -335,8 +338,7 @@ class PosEncoding(nn.Module):
 
     def forward(self, input_len):
         max_len = torch.max(input_len)
-        tensor = (torch.cuda.LongTensor if input_len.is_cuda else torch.
-            LongTensor)
+        tensor = torch.LongTensor if input_len.is_cuda else torch.LongTensor
         input_pos = tensor([(list(range(1, len + 1)) + [0] * (max_len - len
             )) for len in input_len])
         return self.pos_enc(input_pos)
@@ -448,6 +450,7 @@ class PoswiseFeedForwardNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jayparks_transformer(_paritybench_base):

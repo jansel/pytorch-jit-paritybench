@@ -12,10 +12,13 @@ train = _module
 transform = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -47,6 +50,12 @@ import torch.optim as optim
 
 
 import torch.backends.cudnn as cudnn
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
 
 
 import time
@@ -291,10 +300,14 @@ class RetinaNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kuangliu_pytorch_retinanet(_paritybench_base):
     pass
     def test_000(self):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(RetinaNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -34,10 +34,13 @@ test_save_obj = _module
 test_vertices_to_faces = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -397,15 +400,15 @@ class Renderer(nn.Module):
             self.R = R
             self.t = t
             if isinstance(self.K, numpy.ndarray):
-                self.K = torch.cuda.FloatTensor(self.K)
+                self.K = torch.FloatTensor(self.K)
             if isinstance(self.R, numpy.ndarray):
-                self.R = torch.cuda.FloatTensor(self.R)
+                self.R = torch.FloatTensor(self.R)
             if isinstance(self.t, numpy.ndarray):
-                self.t = torch.cuda.FloatTensor(self.t)
+                self.t = torch.FloatTensor(self.t)
             self.dist_coeffs = dist_coeffs
             if dist_coeffs is None:
-                self.dist_coeffs = torch.cuda.FloatTensor([[0.0, 0.0, 0.0, 
-                    0.0, 0.0]])
+                self.dist_coeffs = torch.FloatTensor([[0.0, 0.0, 0.0, 0.0, 
+                    0.0]])
             self.orig_size = orig_size
         elif self.camera_mode in ['look', 'look_at']:
             self.perspective = perspective
@@ -584,6 +587,7 @@ class Renderer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_daniilidis_group_neural_renderer(_paritybench_base):

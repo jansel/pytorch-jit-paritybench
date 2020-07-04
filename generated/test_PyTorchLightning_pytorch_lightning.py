@@ -132,10 +132,13 @@ test_trainer_cli = _module
 test_trainer_tricks = _module
 test_apply_func = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -184,7 +187,28 @@ from torch.optim.lr_scheduler import MultiStepLR
 from torch.optim.optimizer import Optimizer
 
 
+from torchvision import models
+
+
+from torchvision import transforms
+
+
+from torchvision.datasets import ImageFolder
+
+
+from torchvision.datasets.utils import download_and_extract_archive
+
+
 import numpy as np
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+from torchvision.datasets import MNIST
 
 
 import random
@@ -206,6 +230,12 @@ import torch.utils.data
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
 
 
 from typing import Tuple
@@ -741,6 +771,502 @@ class AttributeDict(dict):
         return out
 
 
+class MisconfigurationException(Exception):
+    pass
+
+
+def convert(val: str) ->Union[int, float, bool, str]:
+    try:
+        return ast.literal_eval(val)
+    except (ValueError, SyntaxError) as err:
+        log.debug(err)
+        return val
+
+
+def _warn(*args, **kwargs):
+    warnings.warn(*args, **kwargs)
+
+
+def rank_zero_only(fn):
+
+    @wraps(fn)
+    def wrapped_fn(*args, **kwargs):
+        if rank_zero_only.rank == 0:
+            return fn(*args, **kwargs)
+    return wrapped_fn
+
+
+def load_hparams_from_tags_csv(tags_csv: str) ->Dict[str, Any]:
+    """Load hparams from a file.
+
+    >>> hparams = Namespace(batch_size=32, learning_rate=0.001, data_root='./any/path/here')
+    >>> path_csv = './testing-hparams.csv'
+    >>> save_hparams_to_tags_csv(path_csv, hparams)
+    >>> hparams_new = load_hparams_from_tags_csv(path_csv)
+    >>> vars(hparams) == hparams_new
+    True
+    >>> os.remove(path_csv)
+    """
+    if not os.path.isfile(tags_csv):
+        rank_zero_warn(f'Missing Tags: {tags_csv}.', RuntimeWarning)
+        return {}
+    with open(tags_csv) as fp:
+        csv_reader = csv.reader(fp, delimiter=',')
+        tags = {row[0]: convert(row[1]) for row in list(csv_reader)[1:]}
+    return tags
+
+
+def load_hparams_from_yaml(config_yaml: str) ->Dict[str, Any]:
+    """Load hparams from a file.
+
+    >>> hparams = Namespace(batch_size=32, learning_rate=0.001, data_root='./any/path/here')
+    >>> path_yaml = './testing-hparams.yaml'
+    >>> save_hparams_to_yaml(path_yaml, hparams)
+    >>> hparams_new = load_hparams_from_yaml(path_yaml)
+    >>> vars(hparams) == hparams_new
+    True
+    >>> os.remove(path_yaml)
+    """
+    if not os.path.isfile(config_yaml):
+        rank_zero_warn(f'Missing Tags: {config_yaml}.', RuntimeWarning)
+        return {}
+    with open(config_yaml) as fp:
+        tags = yaml.load(fp, Loader=yaml.SafeLoader)
+    return tags
+
+
+class ModelIO(object):
+    CHECKPOINT_KEY_HYPER_PARAMS = 'hyper_parameters'
+    CHECKPOINT_NAME_HYPER_PARAMS = 'hparams_name'
+
+    @classmethod
+    def load_from_metrics(cls, weights_path, tags_csv, map_location=None):
+        """
+        Warning:
+            Deprecated in version 0.7.0. You should use :meth:`load_from_checkpoint` instead.
+            Will be removed in v0.9.0.
+        """
+        rank_zero_warn(
+            '`load_from_metrics` method has been unified with `load_from_checkpoint` in v0.7.0. The deprecated method will be removed in v0.9.0.'
+            , DeprecationWarning)
+        return cls.load_from_checkpoint(weights_path, tags_csv=tags_csv,
+            map_location=map_location)
+
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path: str, *args, map_location:
+        Optional[Union[Dict[str, str], str, torch.device, int, Callable]]=
+        None, hparams_file: Optional[str]=None, tags_csv: Optional[str]=
+        None, **kwargs):
+        """
+        Primary way of loading a model from a checkpoint. When Lightning saves a checkpoint
+        it stores the arguments passed to `__init__`  in the checkpoint under `module_arguments`
+
+        Any arguments specified through \\*args and \\*\\*kwargs will override args stored in `hparams`.
+
+        Args:
+            checkpoint_path: Path to checkpoint. This can also be a URL.
+            args: Any positional args needed to init the model.
+            map_location:
+                If your checkpoint saved a GPU model and you now load on CPUs
+                or a different number of GPUs, use this to map to the new setup.
+                The behaviour is the same as in :func:`torch.load`.
+            hparams_file: Optional path to a .yaml file with hierarchical structure
+                as in this example::
+
+                    drop_prob: 0.2
+                    dataloader:
+                        batch_size: 32
+
+                You most likely won't need this since Lightning will always save the hyperparameters
+                to the checkpoint.
+                However, if your checkpoint weights don't have the hyperparameters saved,
+                use this method to pass in a .yaml file with the hparams you'd like to use.
+                These will be converted into a :class:`~dict` and passed into your
+                :class:`LightningModule` for use.
+
+                If your model's `hparams` argument is :class:`~argparse.Namespace`
+                and .yaml file has hierarchical structure, you need to refactor your model to treat
+                `hparams` as :class:`~dict`.
+
+                .csv files are acceptable here till v0.9.0, see tags_csv argument for detailed usage.
+            tags_csv:
+                .. warning:: .. deprecated:: 0.7.6
+
+                    `tags_csv` argument is deprecated in v0.7.6. Will be removed v0.9.0.
+
+                Optional path to a .csv file with two columns (key, value)
+                as in this example::
+
+                    key,value
+                    drop_prob,0.2
+                    batch_size,32
+
+                Use this method to pass in a .csv file with the hparams you'd like to use.
+            hparam_overrides: A dictionary with keys to override in the hparams
+            kwargs: Any keyword args needed to init the model.
+
+        Return:
+            :class:`LightningModule` with loaded weights and hyperparameters (if available).
+
+        Example:
+            .. code-block:: python
+
+                # load weights without mapping ...
+                MyLightningModule.load_from_checkpoint('path/to/checkpoint.ckpt')
+
+                # or load weights mapping all weights from GPU 1 to GPU 0 ...
+                map_location = {'cuda:1':'cuda:0'}
+                MyLightningModule.load_from_checkpoint(
+                    'path/to/checkpoint.ckpt',
+                    map_location=map_location
+                )
+
+                # or load weights and hyperparameters from separate files.
+                MyLightningModule.load_from_checkpoint(
+                    'path/to/checkpoint.ckpt',
+                    hparams_file='/path/to/hparams_file.yaml'
+                )
+
+                # override some of the params with new values
+                MyLightningModule.load_from_checkpoint(
+                    PATH,
+                    num_layers=128,
+                    pretrained_ckpt_path: NEW_PATH,
+                )
+
+                # predict
+                pretrained_model.eval()
+                pretrained_model.freeze()
+                y_hat = pretrained_model(x)
+        """
+        if map_location is not None:
+            checkpoint = pl_load(checkpoint_path, map_location=map_location)
+        else:
+            checkpoint = pl_load(checkpoint_path, map_location=lambda
+                storage, loc: storage)
+        if tags_csv is not None:
+            hparams_file = tags_csv
+            rank_zero_warn(
+                '`tags_csv` argument is deprecated in v0.7.6. Will be removed v0.9.0'
+                , DeprecationWarning)
+        if hparams_file is not None:
+            extension = hparams_file.split('.')[-1]
+            if extension.lower() in 'csv':
+                hparams = load_hparams_from_tags_csv(hparams_file)
+            elif extension.lower() in ('yml', 'yaml'):
+                hparams = load_hparams_from_yaml(hparams_file)
+            else:
+                raise ValueError(
+                    '.csv, .yml or .yaml is required for `hparams_file`')
+            hparams['on_gpu'] = False
+            checkpoint[cls.CHECKPOINT_KEY_HYPER_PARAMS] = hparams
+        checkpoint[cls.CHECKPOINT_KEY_HYPER_PARAMS].update(kwargs)
+        model = cls._load_model_state(checkpoint, *args, **kwargs)
+        return model
+
+    @classmethod
+    def _load_model_state(cls, checkpoint: Dict[str, Any], *args, **kwargs):
+        if cls.CHECKPOINT_KEY_HYPER_PARAMS in checkpoint:
+            model_args = checkpoint[cls.CHECKPOINT_KEY_HYPER_PARAMS]
+            args_name = checkpoint.get(cls.CHECKPOINT_NAME_HYPER_PARAMS)
+            init_args_name = inspect.signature(cls).parameters.keys()
+            if args_name == 'kwargs':
+                cls_kwargs = {k: v for k, v in model_args.items() if k in
+                    init_args_name}
+                kwargs.update(**cls_kwargs)
+            elif args_name:
+                if args_name in init_args_name:
+                    kwargs.update({args_name: model_args})
+            else:
+                args = (model_args,) + args
+        model = cls(*args, **kwargs)
+        model.load_state_dict(checkpoint['state_dict'])
+        model.on_load_checkpoint(checkpoint)
+        return model
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) ->None:
+        """
+        Do something with the checkpoint.
+        Gives model a chance to load something before ``state_dict`` is restored.
+
+        Args:
+            checkpoint: A dictionary with variables from the checkpoint.
+        """
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) ->None:
+        """
+        Give the model a chance to add something to the checkpoint.
+        ``state_dict`` is already there.
+
+        Args:
+            checkpoint: A dictionary in which you can save variables to save in a checkpoint.
+                Contents need to be pickleable.
+        """
+
+    def on_hpc_save(self, checkpoint: Dict[str, Any]) ->None:
+        """
+        Hook to do whatever you need right before Slurm manager saves the model.
+
+        Args:
+            checkpoint: A dictionary in which you can save variables to save in a checkpoint.
+                Contents need to be pickleable.
+        """
+
+    def on_hpc_load(self, checkpoint: Dict[str, Any]) ->None:
+        """
+        Hook to do whatever you need right before Slurm manager loads the model.
+
+        Args:
+            checkpoint: A dictionary with variables from the checkpoint.
+        """
+
+
+def _format_summary_table(*cols) ->str:
+    """
+    Takes in a number of arrays, each specifying a column in
+    the summary table, and combines them all into one big
+    string defining the summary table that are nicely formatted.
+    """
+    n_rows = len(cols[0][1])
+    n_cols = 1 + len(cols)
+    counter = list(map(str, list(range(n_rows))))
+    counter_len = max([len(c) for c in counter])
+    length = []
+    for c in cols:
+        str_l = len(c[0])
+        for a in c[1]:
+            if isinstance(a, np.ndarray):
+                array_string = '[' + ', '.join([str(j) for j in a]) + ']'
+                str_l = max(len(array_string), str_l)
+            else:
+                str_l = max(len(a), str_l)
+        length.append(str_l)
+    s = '{:<{}}'
+    full_length = sum(length) + 3 * n_cols
+    header = [s.format(' ', counter_len)] + [s.format(c[0], l) for c, l in
+        zip(cols, length)]
+    summary = ' | '.join(header) + '\n' + '-' * full_length
+    for i in range(n_rows):
+        line = s.format(counter[i], counter_len)
+        for c, l in zip(cols, length):
+            if isinstance(c[1][i], np.ndarray):
+                array_string = '[' + ', '.join([str(j) for j in c[1][i]]) + ']'
+                line += ' | ' + array_string + ' ' * (l - len(array_string))
+            else:
+                line += ' | ' + s.format(c[1][i], l)
+        summary += '\n' + line
+    return summary
+
+
+def get_human_readable_count(number: int) ->str:
+    """
+    Abbreviates an integer number with K, M, B, T for thousands, millions,
+    billions and trillions, respectively.
+
+    Examples:
+        >>> get_human_readable_count(123)
+        '123  '
+        >>> get_human_readable_count(1234)  # (one thousand)
+        '1 K'
+        >>> get_human_readable_count(2e6)   # (two million)
+        '2 M'
+        >>> get_human_readable_count(3e9)   # (three billion)
+        '3 B'
+        >>> get_human_readable_count(4e12)  # (four trillion)
+        '4 T'
+        >>> get_human_readable_count(5e15)  # (more than trillion)
+        '5,000 T'
+
+    Args:
+        number: a positive integer number
+
+    Return:
+        A string formatted according to the pattern described above.
+
+    """
+    assert number >= 0
+    labels = [' ', 'K', 'M', 'B', 'T']
+    num_digits = int(np.floor(np.log10(number)) + 1 if number > 0 else 1)
+    num_groups = int(np.ceil(num_digits / 3))
+    num_groups = min(num_groups, len(labels))
+    shift = -3 * (num_groups - 1)
+    number = number * 10 ** shift
+    index = num_groups - 1
+    return f'{int(number):,d} {labels[index]}'
+
+
+class ModelSummary(object):
+
+    def __init__(self, model: 'pl.LightningModule', mode: str='full'):
+        """ Generates summaries of model layers and dimensions. """
+        self.model = model
+        self.mode = mode
+        self.in_sizes = []
+        self.out_sizes = []
+        self.summarize()
+
+    def __str__(self):
+        return self.summary.__str__()
+
+    def __repr__(self):
+        return self.summary.__str__()
+
+    def named_modules(self) ->List[Tuple[str, Module]]:
+        if self.mode == 'full':
+            mods = self.model.named_modules()
+            mods = list(mods)[1:]
+        elif self.mode == 'top':
+            mods = self.model.named_children()
+        else:
+            mods = []
+        return list(mods)
+
+    def get_variable_sizes(self) ->None:
+        """ Run sample input through each layer to get output sizes. """
+        mods = self.named_modules()
+        in_sizes = []
+        out_sizes = []
+        input_ = self.model.example_input_array
+        if self.model.on_gpu:
+            device = next(self.model.parameters()).get_device()
+            if isinstance(input_, (list, tuple)):
+                input_ = [(input_i.cuda(device) if torch.is_tensor(input_i)
+                     else input_i) for input_i in input_]
+            else:
+                input_ = input_.cuda(device)
+        if self.model.trainer.use_amp:
+            if isinstance(input_, (list, tuple)):
+                input_ = [(input_i.half() if torch.is_tensor(input_i) else
+                    input_i) for input_i in input_]
+            else:
+                input_ = input_.half()
+        with torch.no_grad():
+            for _, m in mods:
+                if isinstance(input_, (list, tuple)):
+                    out = m(*input_)
+                else:
+                    out = m(input_)
+                if isinstance(input_, (list, tuple)):
+                    in_size = []
+                    for x in input_:
+                        if isinstance(x, list):
+                            in_size.append(len(x))
+                        else:
+                            in_size.append(x.size())
+                else:
+                    in_size = np.array(input_.size())
+                in_sizes.append(in_size)
+                if isinstance(out, (list, tuple)):
+                    out_size = np.asarray([x.size() for x in out])
+                else:
+                    out_size = np.array(out.size())
+                out_sizes.append(out_size)
+                input_ = out
+        self.in_sizes = in_sizes
+        self.out_sizes = out_sizes
+        assert len(in_sizes) == len(out_sizes)
+
+    def get_layer_names(self) ->None:
+        """ Collect Layer Names """
+        mods = self.named_modules()
+        names = []
+        layers = []
+        for name, m in mods:
+            names += [name]
+            layers += [str(m.__class__)]
+        layer_types = [x.split('.')[-1][:-2] for x in layers]
+        self.layer_names = names
+        self.layer_types = layer_types
+
+    def get_parameter_sizes(self) ->None:
+        """ Get sizes of all parameters in `model`. """
+        mods = self.named_modules()
+        sizes = []
+        for _, m in mods:
+            p = list(m.parameters())
+            modsz = [np.array(param.size()) for param in p]
+            sizes.append(modsz)
+        self.param_sizes = sizes
+
+    def get_parameter_nums(self) ->None:
+        """ Get number of parameters in each layer. """
+        param_nums = []
+        for mod in self.param_sizes:
+            all_params = 0
+            for p in mod:
+                all_params += np.prod(p)
+            param_nums.append(all_params)
+        self.param_nums = param_nums
+
+    def make_summary(self) ->None:
+        """
+        Makes a summary listing with:
+
+        Layer Name, Layer Type, Input Size, Output Size, Number of Parameters
+        """
+        arrays = [['Name', self.layer_names], ['Type', self.layer_types], [
+            'Params', list(map(get_human_readable_count, self.param_nums))]]
+        if self.model.example_input_array is not None:
+            arrays.append(['In sizes', self.in_sizes])
+            arrays.append(['Out sizes', self.out_sizes])
+        self.summary = _format_summary_table(*arrays)
+
+    def summarize(self) ->None:
+        self.get_layer_names()
+        self.get_parameter_sizes()
+        self.get_parameter_nums()
+        if self.model.example_input_array is not None:
+            self.get_variable_sizes()
+        self.make_summary()
+
+
+PRIMITIVE_TYPES = bool, int, float, str
+
+
+def get_init_args(frame) ->dict:
+    _, _, _, local_vars = inspect.getargvalues(frame)
+    if '__class__' not in local_vars:
+        return
+    cls = local_vars['__class__']
+    spec = inspect.getfullargspec(cls.__init__)
+    init_parameters = inspect.signature(cls.__init__).parameters
+    self_identifier = spec.args[0]
+    varargs_identifier = spec.varargs
+    kwargs_identifier = spec.varkw
+    exclude_argnames = (varargs_identifier, kwargs_identifier,
+        self_identifier, '__class__', 'frame', 'frame_args')
+    local_args = {k: local_vars[k] for k in init_parameters.keys()}
+    local_args.update(local_args.get(kwargs_identifier, {}))
+    local_args = {k: v for k, v in local_args.items() if k not in
+        exclude_argnames}
+    return local_args
+
+
+def collect_init_args(frame, path_args: list, inside: bool=False) ->list:
+    """
+    Recursively collects the arguments passed to the child constructors in the inheritance tree.
+
+    Args:
+        frame: the current stack frame
+        path_args: a list of dictionaries containing the constructor args in all parent classes
+        inside: track if we are inside inheritance path, avoid terminating too soon
+
+    Return:
+          A list of dictionaries where each dictionary contains the arguments passed to the
+          constructor at that level. The last entry corresponds to the constructor call of the
+          most specific class in the hierarchy.
+    """
+    _, _, _, local_vars = inspect.getargvalues(frame)
+    if '__class__' in local_vars:
+        local_args = get_init_args(frame)
+        path_args.append(local_args)
+        return collect_init_args(frame.f_back, path_args, inside=True)
+    elif not inside:
+        return collect_init_args(frame.f_back, path_args, inside)
+    else:
+        return path_args
+
+
 class LightningDataParallel(DataParallel):
     """
     Override the forward call in lightning so it goes to training and validation step respectively
@@ -1010,6 +1536,7 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_PyTorchLightning_pytorch_lightning(_paritybench_base):
@@ -1028,5 +1555,9 @@ class Test_PyTorchLightning_pytorch_lightning(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
+        self._check(LightningDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

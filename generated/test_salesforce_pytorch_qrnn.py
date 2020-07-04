@@ -7,10 +7,13 @@ torchqrnn = _module
 forget_mult = _module
 qrnn = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,6 +45,21 @@ from collections import namedtuple
 
 
 from torch import nn
+
+
+class Model(nn.Module):
+
+    def __init__(self, hidden_size=1024, parallel=True, layers=3, vocab=100):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab, hidden_size)
+        self.rnn = QRNN(hidden_size, hidden_size, num_layers=layers)
+        if parallel:
+            self.rnn = nn.DataParallel(self.rnn, dim=1)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        out, hidden = self.rnn(x)
+        return out[:-1]
 
 
 class CPUForgetMult(torch.nn.Module):
@@ -202,7 +220,7 @@ class ForgetMult(torch.nn.Module):
         super(ForgetMult, self).__init__()
 
     def forward(self, f, x, hidden_init=None, use_cuda=True):
-        use_cuda = use_cuda and torch.cuda.is_available()
+        use_cuda = use_cuda and torch.is_available()
         if use_cuda:
             assert f.is_cuda and x.is_cuda, 'GPU ForgetMult with fast element-wise CUDA kernel requested but tensors not on GPU'
         if hidden_init is None:
@@ -351,6 +369,7 @@ class QRNN(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_salesforce_pytorch_qrnn(_paritybench_base):

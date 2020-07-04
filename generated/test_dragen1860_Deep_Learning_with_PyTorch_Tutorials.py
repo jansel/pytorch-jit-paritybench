@@ -35,10 +35,13 @@ train_scratch = _module
 train_transfer = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -60,6 +63,9 @@ from torch.nn import functional as F
 from torch import optim
 
 
+import torchvision
+
+
 import torch.nn as nn
 
 
@@ -67,6 +73,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from torch.utils.data import DataLoader
@@ -677,36 +689,43 @@ class Flatten(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dragen1860_Deep_Learning_with_PyTorch_Tutorials(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BasicNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AE(*[], **{}), [torch.rand([4, 784])], {})
 
     def test_001(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
+        self._check(BasicNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
+        self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
+
+    def test_003(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(GCN(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(Generator(*[], **{}), [torch.rand([2, 2])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(MLP(*[], **{}), [torch.rand([784, 784])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(MyLinear(*[], **{'inp': 4, 'outp': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(ResBlk(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(VAE(*[], **{}), [torch.rand([4, 784])], {})
 

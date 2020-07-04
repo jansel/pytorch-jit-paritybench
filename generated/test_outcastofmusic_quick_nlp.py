@@ -61,10 +61,13 @@ test_transformer = _module
 test_transformer_modules = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -134,6 +137,9 @@ from typing import Sequence
 from typing import Tuple
 
 
+HParam = Union[List[int], int]
+
+
 Array = Union[np.ndarray, torch.Tensor, int, float]
 
 
@@ -184,6 +190,229 @@ def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
     return value
 
 
+class HRED(nn.Module):
+    """Basic HRED model
+    paper: A Hierarchical Latent Variable Encoder-Decoder Model for Generating Dialogues. Iulian Vlad Serban et al. 2016a.
+    github: https://github.com/julianser/hed-dlg-truncated
+    arxiv: http://arxiv.org/abs/1605.06069
+    """
+    BPTT_MAX_UTTERANCES = 1000
+
+    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers:
+        HParam, pad_token: int, eos_token: int, max_tokens: int=50,
+        share_embedding_layer: bool=False, tie_decoder: bool=True, bidir:
+        bool=False, session_constraint: bool=False, cell_type='gru', **kwargs):
+        """
+
+        Args:
+            ntoken (int): Number of tokens for the encoder and the decoder
+            emb_sz (Union[List[int],int]): Embedding size for the encoder and decoder embeddings
+            nhid (Union[List[int],int]): Number of hidden dims for the encoder (first two values) and the decoder
+            nlayers (Union[List[int],int]): Number of layers for the encoder and the decoder
+            pad_token (int): The  index of the token used for padding
+            eos_token (int): The index of the token used for eos
+            max_tokens (int): The maximum number of steps the decoder iterates before stopping
+            share_embedding_layer (bool): if True the decoder shares its input and output embeddings
+            tie_decoder (bool): if True the encoder and the decoder share their embeddings
+            bidir (bool): if True use a bidirectional encoder
+            session_constraint (bool) If true the session will be concated as a constraint to the decoder input
+            **kwargs: Extra embeddings that will be passed to the encoder and the decoder
+        """
+        super().__init__()
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2
+            ), get_list(nhid, 3), get_list(nlayers, 3)
+        dropoutd = get_kwarg(kwargs, name='dropout_d', default_value=0.5)
+        dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
+        dropoute = get_list(dropoute, 2)
+        dropouti = get_kwarg(kwargs, name='dropout_i', default_value=0.65)
+        dropouti = get_list(dropouti, 2)
+        dropouth = get_kwarg(kwargs, name='dropout_h', default_value=0.3)
+        dropouth = get_list(dropouth, 3)
+        wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
+        wdrop = get_list(wdrop, 3)
+        train_init = kwargs.pop('train_init', False)
+        dropoutinit = get_kwarg(kwargs, name='dropout_init', default_value=0.1)
+        dropoutinit = get_list(dropoutinit, 3)
+        self.cell_type = cell_type
+        self.nt = ntoken[-1]
+        self.pr_force = 1.0
+        self.share_embedding_layer = share_embedding_layer
+        self.tie_decoder = tie_decoder
+        self.encoder = HREDEncoder(ntoken=ntoken[0], emb_sz=emb_sz[0], nhid
+            =nhid[:2], nlayers=nlayers[0], bidir=bidir, cell_type=cell_type,
+            dropout_e=dropoute[:2], dropout_i=dropouti[:2], wdrop=wdrop[:2],
+            train_init=train_init, dropoutinit=dropoutinit[:2])
+        if share_embedding_layer:
+            decoder_embedding_layer = self.encoder.embedding_layer
+        else:
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
+                emb_size=emb_sz[1], dropoute=dropoute[1], dropouti=dropouti[1])
+        input_size_decoder = kwargs.get('input_size_decoder', emb_sz[1])
+        input_size_decoder = (input_size_decoder + self.encoder.output_size if
+            session_constraint else input_size_decoder)
+        decoder_rnn = RNNLayers(input_size=input_size_decoder, output_size=
+            kwargs.get('output_size_decoder', emb_sz[1]), nhid=nhid[2],
+            bidir=False, dropouth=dropouth[2], wdrop=wdrop[2], nlayers=
+            nlayers[2], cell_type=self.cell_type, train_init=train_init,
+            dropoutinit=dropoutinit[2])
+        self.session_constraint = session_constraint
+        input_size = decoder_rnn.output_size
+        nhid = emb_sz[1] if input_size != emb_sz[1] else None
+        projection_layer = Projection(output_size=ntoken[0], input_size=
+            input_size, nhid=nhid, dropout=dropoutd, tie_encoder=
+            decoder_embedding_layer if tie_decoder else None)
+        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=
+            projection_layer, embedding_layer=decoder_embedding_layer,
+            pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
+        self.decoder_state_linear = nn.Linear(in_features=self.encoder.
+            output_size, out_features=self.decoder.layers[0].output_size)
+
+    def forward(self, *inputs, num_beams=0):
+        with torch.set_grad_enabled(self.training):
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
+                None])
+            num_utterances, max_sl, bs = encoder_inputs.size()
+            self.reset_encoders(bs)
+            outputs, last_output = self.encoder(encoder_inputs)
+            state, constraints = self.encoder_hidden_state_projection(
+                last_output)
+            outputs_dec, predictions = self.decoding(decoder_inputs,
+                num_beams, state, constraints=constraints)
+        return predictions, [*outputs, *outputs_dec]
+
+    def encoder_hidden_state_projection(self, last_output):
+        state = self.decoder.hidden
+        if self.cell_type == 'gru':
+            state[0] = self.decoder_state_linear(last_output)
+            constraints = last_output if self.session_constraint else None
+        else:
+            state[0] = self.decoder_state_linear(last_output[0]
+                ), self.decoder_state_linear(last_output[1])
+            constraints = last_output[0] if self.session_constraint else None
+        return state, constraints
+
+    def reset_encoders(self, bs):
+        self.encoder.reset(bs)
+        self.decoder.reset(bs)
+
+    def decoding(self, decoder_inputs, num_beams, state, constraints=None):
+        if self.training:
+            self.decoder.pr_force = self.pr_force
+            nb = 1 if self.pr_force < 1 else 0
+        else:
+            nb = num_beams
+        outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=
+            nb, constraints=constraints)
+        predictions = outputs_dec[:decoder_inputs.size(0)
+            ] if num_beams == 0 else self.decoder.beam_outputs
+        return outputs_dec, predictions
+
+
+class HREDAttention(nn.Module):
+    """Basic HRED model
+    paper: A Hierarchical Latent Variable Encoder-Decoder Model for Generating Dialogues. Iulian Vlad Serban et al. 2016a.
+    github: https://github.com/julianser/hed-dlg-truncated
+    arxiv: http://arxiv.org/abs/1605.06069
+    """
+    BPTT_MAX_UTTERANCES = 1000
+
+    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers:
+        HParam, att_nhid: int, pad_token: int, eos_token: int, max_tokens:
+        int=50, share_embedding_layer: bool=False, tie_decoder: bool=True,
+        bidir: bool=False, **kwargs):
+        """
+
+        Args:
+            ntoken (int): Number of tokens for the encoder and the decoder
+            emb_sz (Union[List[int],int]): Embedding size for the encoder and decoder embeddings
+            nhid (Union[List[int],int]): Number of hidden dims for the encoder (first two values) and the decoder
+            nlayers (Union[List[int],int]): Number of layers for the encoder and the decoder
+            att_nhid (int): Number of hidden dims for the attention Module
+            pad_token (int): The  index of the token used for padding
+            eos_token (int): The index of the token used for eos
+            max_tokens (int): The maximum number of steps the decoder iterates before stopping
+            share_embedding_layer (bool): if True the decoder shares its input and output embeddings
+            tie_decoder (bool): if True the encoder and the decoder share their embeddings
+            bidir (bool): if True use a bidirectional encoder
+            **kwargs: Extra embeddings that will be passed to the encoder and the decoder
+        """
+        super().__init__()
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2
+            ), get_list(nhid, 3), get_list(nlayers, 3)
+        dropoutd = get_kwarg(kwargs, name='dropoutd', default_value=0.5)
+        dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
+        dropoute = get_list(dropoute, 2)
+        dropouti = get_kwarg(kwargs, name='dropout_i', default_value=0.65)
+        dropouti = get_list(dropouti, 2)
+        dropouth = get_kwarg(kwargs, name='dropout_h', default_value=0.3)
+        dropouth = get_list(dropouth, 3)
+        wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
+        wdrop = get_list(wdrop, 3)
+        self.cell_type = 'gru'
+        self.nt = ntoken[-1]
+        self.pr_force = 1.0
+        self.nlayers = nlayers
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
+            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
+            get('output_size_encoder', emb_sz[0]), nhid=nhid[0], bidir=
+            bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0],
+            cell_type=self.cell_type)
+        self.query_encoder = Encoder(embedding_layer=
+            encoder_embedding_layer, encoder_layer=encoder_rnn)
+        self.session_encoder = RNNLayers(input_size=encoder_rnn.output_size,
+            nhid=nhid[1], output_size=kwargs.get('output_size', emb_sz[0]),
+            nlayers=1, bidir=False, cell_type=self.cell_type, wdrop=wdrop[1
+            ], dropouth=dropouth[1])
+        if share_embedding_layer:
+            decoder_embedding_layer = encoder_embedding_layer
+        else:
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
+                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
+                )
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
+            -1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]),
+            nhid=nhid[-1], bidir=False, dropouth=dropouth[2], wdrop=wdrop[2
+            ], nlayers=nlayers[-1], cell_type=self.cell_type)
+        projection_layer = AttentionProjection(output_size=ntoken[-1],
+            input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid,
+            att_type='SDP', tie_encoder=decoder_embedding_layer if
+            tie_decoder else None)
+        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn,
+            projection_layer=projection_layer, embedding_layer=
+            decoder_embedding_layer, pad_token=pad_token, eos_token=
+            eos_token, max_tokens=max_tokens)
+
+    def forward(self, *inputs, num_beams=0):
+        encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None, None])
+        bs = encoder_inputs.size(2)
+        self.session_encoder.reset(bs)
+        self.decoder.reset(bs)
+        query_encoder_outputs = []
+        outputs = []
+        num_utterances, max_sl, *_ = encoder_inputs.size()
+        for index, context in enumerate(encoder_inputs):
+            self.query_encoder.reset(bs)
+            outputs = self.query_encoder(context)
+            out = (repackage_var(outputs[-1][-1]) if max_sl *
+                num_utterances > self.BPTT_MAX_UTTERANCES and index <= 
+                num_utterances // 2 else outputs[-1][-1])
+            query_encoder_outputs.append(out)
+        query_encoder_outputs = torch.stack(query_encoder_outputs, dim=0)
+        session_outputs = self.session_encoder(query_encoder_outputs)
+        self.decoder.projection_layer.reset(keys=session_outputs[-1])
+        if self.training:
+            self.decoder.pr_force = self.pr_force
+            nb = 1 if self.pr_force < 1 else 0
+        else:
+            nb = num_beams
+        state = self.decoder.hidden
+        outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=nb)
+        predictions = outputs_dec[-1][:decoder_inputs.size(0)
+            ] if num_beams == 0 else self.decoder.beam_outputs
+        return predictions, [*outputs, *outputs_dec]
+
+
 States = Union[List[Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]],
     torch.Tensor]
 
@@ -211,6 +440,182 @@ def concat_bidir_state(states: States, bidir: bool, cell_type: str, nlayers:
     return state
 
 
+class Seq2Seq(nn.Module):
+    """Basic Seq2Seq model"""
+
+    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam,
+        nlayers: HParam, pad_token: int, eos_token: int, max_tokens: int=50,
+        share_embedding_layer: bool=False, tie_decoder: bool=True, bidir:
+        bool=False, **kwargs):
+        """
+
+        Args:
+            ntoken (Union[List[int],int]): Number of tokens for the encoder and the decoder
+            emb_sz (Union[List[int],int]): Embedding size for the encoder and decoder embeddings
+            nhid (Union[List[int],int]): Number of hidden dims for the encoder and the decoder
+            nlayers (Union[List[int],int]): Number of layers for the encoder and the decoder
+            pad_token (int): The  index of the token used for padding
+            eos_token (int): The index of the token used for eos
+            max_tokens (int): The maximum number of steps the decoder iterates before stopping
+            share_embedding_layer (bool): if True the decoder shares its input and output embeddings
+            tie_decoder (bool): if True the encoder and the decoder share their embeddings
+            bidir (bool): if True use a bidirectional encoder
+            **kwargs: Extra embeddings that will be passed to the encoder and the decoder
+        """
+        super().__init__()
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2
+            ), get_list(nhid, 2), get_list(nlayers, 2)
+        dropoutd = get_kwarg(kwargs, name='dropout_d', default_value=0.5)
+        dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
+        dropoute = get_list(dropoute, 2)
+        dropouti = get_kwarg(kwargs, name='dropout_i', default_value=0.65)
+        dropouti = get_list(dropouti, 2)
+        dropouth = get_kwarg(kwargs, name='dropout_h', default_value=0.3)
+        dropouth = get_list(dropouth, 2)
+        wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
+        wdrop = get_list(wdrop, 2)
+        self.cell_type = get_kwarg(kwargs, name='cell_type', default_value=
+            'lstm')
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
+            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        self.bidir = bidir
+        self.nlayers = nlayers[0]
+        self.nt = ntoken[-1]
+        self.pr_force = 1.0
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
+            get('out_dim', emb_sz[0]), nhid=nhid[0], bidir=bidir, dropouth=
+            dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0], cell_type=self
+            .cell_type)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
+            encoder_layer=encoder_rnn)
+        if share_embedding_layer:
+            decoder_embedding_layer = encoder_embedding_layer
+        else:
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
+                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
+                )
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
+            -1]), output_size=kwargs.get('output_size', emb_sz[-1]), nhid=
+            nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1],
+            nlayers=nlayers[-1], cell_type=self.cell_type)
+        projection_layer = Projection(output_size=ntoken[-1], input_size=
+            emb_sz[-1], dropout=dropoutd, tie_encoder=
+            decoder_embedding_layer if tie_decoder else None)
+        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=
+            projection_layer, embedding_layer=decoder_embedding_layer,
+            pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
+
+    def forward(self, *inputs, num_beams=0):
+        with torch.set_grad_enabled(self.training):
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
+                None])
+            bs = encoder_inputs.size(1)
+            self.encoder.reset(bs)
+            self.decoder.reset(bs)
+            outputs = self.encoder(encoder_inputs)
+            state = concat_bidir_state(self.encoder.encoder_layer.hidden,
+                cell_type=self.cell_type, nlayers=self.nlayers, bidir=self.
+                bidir)
+            if self.training:
+                self.decoder.pr_force = self.pr_force
+                nb = 1 if self.pr_force < 1 else 0
+            else:
+                nb = num_beams
+            outputs_dec = self.decoder(decoder_inputs, hidden=state,
+                num_beams=nb)
+            predictions = outputs_dec[:decoder_inputs.size(0)
+                ] if num_beams == 0 else self.decoder.beam_outputs
+        return predictions, [*outputs, *outputs_dec]
+
+
+class Seq2SeqAttention(nn.Module):
+
+    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam,
+        nlayers: HParam, att_nhid: int, pad_token: int, eos_token: int,
+        max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder:
+        bool=True, bidir: bool=False, **kwargs):
+        """
+
+        Args:
+            ntoken (Union[List[int],int]): Number of tokens for the encoder and the decoder
+            emb_sz (Union[List[int],int]): Embedding size for the encoder and decoder embeddings
+            nhid (Union[List[int],int]): Number of hidden dims for the encoder and the decoder
+            nlayers (Union[List[int],int]): Number of layers for the encoder and the decoder
+            att_nhid (int): Number of hidden dims for the attention Module
+            pad_token (int): The  index of the token used for padding
+            eos_token (int): The index of the token used for eos
+            max_tokens (int): The maximum number of steps the decoder iterates before stopping
+            share_embedding_layer (bool): if True the decoder shares its input and output embeddings
+            tie_decoder (bool): if True the encoder and the decoder share their embeddings
+            bidir (bool): if True use a bidirectional encoder
+            **kwargs: Extra embeddings that will be passed to the encoder and the decoder
+        """
+        super().__init__()
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2
+            ), get_list(nhid, 2), get_list(nlayers, 2)
+        dropoutd = get_kwarg(kwargs, name='dropoutd', default_value=0.5)
+        dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
+        dropoute = get_list(dropoute, 2)
+        dropouti = get_kwarg(kwargs, name='dropout_i', default_value=0.65)
+        dropouti = get_list(dropouti, 2)
+        dropouth = get_kwarg(kwargs, name='dropout_h', default_value=0.3)
+        dropouth = get_list(dropouth, 2)
+        wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
+        wdrop = get_list(wdrop, 2)
+        cell_type = get_kwarg(kwargs, name='cell_type', default_value='lstm')
+        self.nlayers = nlayers
+        self.nhid = nhid
+        self.emb_sz = emb_sz
+        self.pr_force = 1.0
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
+            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
+            get('output_size', emb_sz[0]), nhid=nhid[0], bidir=bidir,
+            dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0],
+            cell_type=cell_type)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
+            encoder_layer=encoder_rnn)
+        if share_embedding_layer:
+            decoder_embedding_layer = encoder_embedding_layer
+        else:
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
+                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
+                )
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
+            -1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]),
+            nhid=nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1
+            ], nlayers=nlayers[-1], cell_type=cell_type)
+        projection_layer = AttentionProjection(output_size=ntoken[-1],
+            input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid,
+            tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn,
+            projection_layer=projection_layer, embedding_layer=
+            decoder_embedding_layer, pad_token=pad_token, eos_token=
+            eos_token, max_tokens=max_tokens)
+
+    def forward(self, *inputs, num_beams=0):
+        with torch.set_grad_enabled(self.training):
+            encoder_inputs, decoder_inputs = inputs
+            bs = encoder_inputs.size(1)
+            self.encoder.reset(bs)
+            self.decoder.reset(bs)
+            outputs = self.encoder(encoder_inputs)
+            state = self.decoder.hidden
+            assert_dims(outputs, [self.nlayers[0], None, bs, (self.nhid[0],
+                self.emb_sz[0])])
+            self.decoder.projection_layer.reset(keys=outputs[-1])
+            if self.training:
+                self.decoder.pr_force = self.pr_force
+                nb = 1 if self.pr_force < 1 else 0
+            else:
+                nb = num_beams
+            outputs_dec = self.decoder(decoder_inputs, hidden=state,
+                num_beams=nb)
+            predictions = outputs_dec[:decoder_inputs.size(0)
+                ] if num_beams == 0 else self.decoder.beam_outputs
+        return predictions, [*outputs, *outputs_dec]
+
+
 def repeat_cell_state(hidden, num_beams):
     results = []
     for row in hidden:
@@ -227,6 +632,58 @@ def reshape_parent_indices(indices, bs, num_beams):
     parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
         repeat(1, num_beams).view(-1).long())
     return indices + parent_indices
+
+
+class Transformer(nn.Module):
+    """Transformer model based on https://arxiv.org/abs/1706.03762
+        code implementation heavily inspired by http://nlp.seas.harvard.edu/2018/04/03/attention.html
+
+    """
+
+    def __init__(self, ntoken, emb_size=512, nlayers=6, pad_token=None,
+        eos_token=None, max_tokens=200, share_embedding_layer=False,
+        tie_decoder=True, **kwargs):
+        super().__init__()
+        ntoken = get_list(ntoken, 2)
+        self.nlayers = nlayers
+        dropout = get_kwarg(kwargs, name='dropout', default_value=0.1)
+        num_heads = get_kwarg(kwargs, name='num_heads', default_value=8)
+        nhid = get_kwarg(kwargs, name='nhid', default_value=2048)
+        encoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[0],
+            emb_size=emb_size, dropout=dropout, pad_token=pad_token)
+        encoder_layer = TransformerEncoderLayers(num_layers=nlayers,
+            input_size=emb_size, num_heads=num_heads, nhid=nhid)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
+            encoder_layer=encoder_layer)
+        if share_embedding_layer:
+            decoder_embedding_layer = encoder_embedding_layer
+        else:
+            decoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[
+                -1], emb_size=emb_size, dropout=dropout, pad_token=pad_token)
+        decoder_layer = TransformerDecoderLayers(nlayers=nlayers,
+            input_size=emb_size, num_heads=num_heads, nhid=nhid)
+        projection_layer = Projection(output_size=ntoken[-1], input_size=
+            emb_size, dropout=dropout, tie_encoder=decoder_embedding_layer if
+            tie_decoder else None)
+        self.decoder = TransformerDecoder(decoder_layer=decoder_layer,
+            projection_layer=projection_layer, embedding_layer=
+            decoder_embedding_layer, pad_token=pad_token, eos_token=
+            eos_token, max_tokens=max_tokens)
+        self.nt = ntoken[-1]
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, *inputs, num_beams=0):
+        with torch.set_grad_enabled(self.training):
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
+                None])
+            encoder_outputs = self.encoder(encoder_inputs)
+            decoder_outputs = self.decoder(decoder_inputs, encoder_outputs,
+                num_beams=num_beams)
+            predictions = decoder_outputs[:decoder_inputs.size(0)
+                ] if num_beams == 0 else self.decoder.beam_outputs
+        return predictions, decoder_outputs
 
 
 class MLPAttention(nn.Module):
@@ -713,6 +1170,80 @@ class TransformerEmbeddings(nn.Module):
         return self.layers[0].weight
 
 
+class HREDEncoder(nn.Module):
+
+    def __init__(self, ntoken: int, emb_sz: int, nhid: HParam, nlayers: int,
+        bidir: bool=False, cell_type='gru', **kwargs):
+        super().__init__()
+        nhid = get_list(nhid, 2)
+        dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
+        dropoute = get_list(dropoute, 2)
+        dropouti = get_kwarg(kwargs, name='dropout_i', default_value=0.65)
+        dropouti = get_list(dropouti, 2)
+        dropouth = get_kwarg(kwargs, name='dropout_h', default_value=0.3)
+        dropouth = get_list(dropouth, 2)
+        wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
+        wdrop = get_list(wdrop, 2)
+        train_init = get_kwarg(kwargs, name='train_init', default_value=False)
+        dropoutinit = get_kwarg(kwargs, name='dropout_init', default_value=0.1)
+        dropoutinit = get_list(dropoutinit, 2)
+        self.cell_type = cell_type
+        self.nt = ntoken
+        self.bidir = bidir
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken,
+            emb_size=emb_sz, dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz, output_size=kwargs.get(
+            'output_size_encoder', emb_sz), nhid=nhid[0], bidir=bidir,
+            dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers,
+            cell_type=self.cell_type, train_init=train_init, dropoutinit=
+            dropoutinit[0])
+        self.query_encoder = Encoder(embedding_layer=
+            encoder_embedding_layer, encoder_layer=encoder_rnn)
+        self.se_enc = RNNLayers(cell_type=self.cell_type, input_size=
+            encoder_rnn.output_size, output_size=nhid[1], nhid=nhid[1],
+            nlayers=1, dropouth=dropouth[1], wdrop=wdrop[1], train_init=
+            train_init, dropoutinit=dropoutinit[1])
+
+    def forward(self, inputs):
+        query_encoder_outputs = self.query_level_encoding(inputs)
+        outputs = self.se_enc(query_encoder_outputs)
+        last_output = self.se_enc.hidden[-1]
+        return outputs, last_output
+
+    def reset(self, bs):
+        self.query_encoder.reset(bs)
+        self.se_enc.reset(bs)
+
+    def query_level_encoding(self, encoder_inputs):
+        query_encoder_outputs = []
+        for index, context in enumerate(encoder_inputs):
+            self.query_encoder.reset(bs=encoder_inputs.size(2))
+            state = self.query_encoder.hidden
+            outputs = self.query_encoder(context, state)
+            out = concat_bidir_state(self.query_encoder.encoder_layer.
+                get_last_hidden_state(), cell_type=self.cell_type, nlayers=
+                1, bidir=self.query_encoder.encoder_layer.bidir)
+            query_encoder_outputs.append(out)
+        query_encoder_outputs = torch.cat(query_encoder_outputs, dim=0)
+        return query_encoder_outputs
+
+    @property
+    def embedding_layer(self):
+        return self.query_encoder.embedding_layer
+
+    @property
+    def output_size(self):
+        return self.se_enc.output_size
+
+    @property
+    def query_encoder_layer(self):
+        return self.query_encoder.encoder_layer
+
+    @property
+    def session_encoder_layer(self):
+        return self.se_enc
+
+
 class Projection(nn.Module):
     initrange = 0.1
 
@@ -1017,6 +1548,7 @@ class TransformerDecoderLayers(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_outcastofmusic_quick_nlp(_paritybench_base):
@@ -1040,7 +1572,7 @@ class Test_outcastofmusic_quick_nlp(_paritybench_base):
 
     @_fails_compile()
     def test_005(self):
-        self._check(SubLayer(*[], **{'input_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), ReLU()], {})
+        self._check(SubLayer(*[], **{'input_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
 
     @_fails_compile()
     def test_006(self):

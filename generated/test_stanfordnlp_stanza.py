@@ -105,10 +105,13 @@ test_server_start = _module
 test_tagger = _module
 test_tokenizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -158,6 +161,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 
 from torch.nn.utils.rnn import PackedSequence
+
+
+from numbers import Number
 
 
 from torch import nn
@@ -2150,6 +2156,7 @@ class Tokenizer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_stanfordnlp_stanza(_paritybench_base):
@@ -2164,20 +2171,28 @@ class Test_stanfordnlp_stanza(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(LockedDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HighwayLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(PairwiseBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(LockedDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(PairwiseBilinear(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(PackedLSTM(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(PairwiseBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(PairwiseBilinear(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(SequenceUnitDropout(*[], **{'dropprob': 4, 'replacement_id': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_008(self):
         self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
 

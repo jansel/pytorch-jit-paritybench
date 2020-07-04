@@ -18,10 +18,13 @@ pose = _module
 convert_to_onnx = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -244,6 +247,7 @@ class PoseEstimationWithMobileNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Daniil_Osokin_lightweight_human_pose_estimation_3d_demo_pytorch(_paritybench_base):
@@ -258,16 +262,20 @@ class Test_Daniil_Osokin_lightweight_human_pose_estimation_3d_demo_pytorch(_pari
     def test_002(self):
         self._check(Pose3D(*[], **{'in_channels': 4, 'num_2d_heatmaps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PoseEstimationWithMobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_004(self):
-        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
+        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 

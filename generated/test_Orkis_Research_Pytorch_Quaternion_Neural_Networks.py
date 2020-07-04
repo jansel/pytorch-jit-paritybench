@@ -20,10 +20,13 @@ r2h_ae = _module
 r2h_models = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,12 @@ from torch import autograd
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from torch.optim.lr_scheduler import StepLR
@@ -1493,6 +1502,7 @@ class QDNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Orkis_Research_Pytorch_Quaternion_Neural_Networks(_paritybench_base):
@@ -1546,5 +1556,5 @@ class Test_Orkis_Research_Pytorch_Quaternion_Neural_Networks(_paritybench_base):
 
     @_fails_compile()
     def test_012(self):
-        self._check(StackedQLSTM(*[], **{'feat_size': 4, 'hidden_size': 4, 'use_cuda': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(StackedQLSTM(*[], **{'feat_size': 4, 'hidden_size': 4, 'use_cuda': False, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
 

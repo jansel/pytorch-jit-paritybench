@@ -86,10 +86,13 @@ state = _module
 trial = _module
 version = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -115,6 +118,15 @@ import torch.multiprocessing as mp
 
 
 from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torchvision
 
 
 from torch import nn
@@ -320,6 +332,7 @@ class MockModel(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorchbearer_torchbearer(_paritybench_base):
@@ -329,18 +342,21 @@ class Test_pytorchbearer_torchbearer(_paritybench_base):
         self._check(MockModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(TestModel(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(Net(*[], **{'x': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(TestModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TestModel(*[], **{}), [torch.rand([1, 1])], {})
 
     def test_003(self):
-        self._check(TestModule2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TestModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(TestModule2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(ToyModel(*[], **{}), [torch.rand([784, 784])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(_CAMWrapper(*[], **{'input_size': 4, 'base_model': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+    def test_006(self):
+        self._check(_CAMWrapper(*[], **{'input_size': 4, 'base_model': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

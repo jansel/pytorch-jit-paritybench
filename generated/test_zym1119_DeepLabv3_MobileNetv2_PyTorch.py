@@ -10,10 +10,13 @@ progressbar = _module
 transfer_weights = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -418,7 +421,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         Test network on test set
         """
         None
-        torch.cuda.empty_cache()
+        torch.empty_cache()
         self.network.eval()
         test_loader = DataLoader(self.datasets['test'], batch_size=self.
             params.test_batch, shuffle=False, num_workers=self.params.
@@ -561,6 +564,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zym1119_DeepLabv3_MobileNetv2_PyTorch(_paritybench_base):

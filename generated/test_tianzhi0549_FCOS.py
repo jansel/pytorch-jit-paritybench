@@ -138,10 +138,13 @@ remove_solver_states = _module
 test_net = _module
 train_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -205,6 +208,9 @@ from torch.nn import functional as F
 import numpy as np
 
 
+from torchvision.ops.boxes import batched_nms
+
+
 class FrozenBatchNorm2d(nn.Module):
     """
     BatchNorm2d where the batch statistics and the affine parameters
@@ -224,6 +230,141 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+
+class DeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1,
+        groups=1, deformable_groups=1, im2col_step=64):
+        if input is not None and input.dim() != 4:
+            raise ValueError(
+                'Expected 4D tensor as input, got {}D tensor instead.'.
+                format(input.dim()))
+        ctx.stride = _pair(stride)
+        ctx.padding = _pair(padding)
+        ctx.dilation = _pair(dilation)
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.im2col_step = im2col_step
+        ctx.save_for_backward(input, offset, weight)
+        output = input.new_empty(DeformConvFunction._output_size(input,
+            weight, ctx.padding, ctx.dilation, ctx.stride))
+        ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0
+                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            _C.deform_conv_forward(input, weight, offset, output, ctx.bufs_
+                [0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.
+                stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0],
+                ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.
+                deformable_groups, cur_im2col_step)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, offset, weight = ctx.saved_tensors
+        grad_input = grad_offset = grad_weight = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0
+                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+                grad_input = torch.zeros_like(input)
+                grad_offset = torch.zeros_like(offset)
+                _C.deform_conv_backward_input(input, offset, grad_output,
+                    grad_input, grad_offset, weight, ctx.bufs_[0], weight.
+                    size(3), weight.size(2), ctx.stride[1], ctx.stride[0],
+                    ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.
+                    dilation[0], ctx.groups, ctx.deformable_groups,
+                    cur_im2col_step)
+            if ctx.needs_input_grad[2]:
+                grad_weight = torch.zeros_like(weight)
+                _C.deform_conv_backward_parameters(input, offset,
+                    grad_output, grad_weight, ctx.bufs_[0], ctx.bufs_[1],
+                    weight.size(3), weight.size(2), ctx.stride[1], ctx.
+                    stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation
+                    [1], ctx.dilation[0], ctx.groups, ctx.deformable_groups,
+                    1, cur_im2col_step)
+        return (grad_input, grad_offset, grad_weight, None, None, None,
+            None, None)
+
+    @staticmethod
+    def _output_size(input, weight, padding, dilation, stride):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = padding[d]
+            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride_ = stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError(
+                'convolution input is too small (output would be {})'.
+                format('x'.join(map(str, output_size))))
+        return output_size
+
+
+deform_conv = DeformConvFunction.apply
+
+
+class DeformConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+        padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
+        super(DeformConv, self).__init__()
+        self.with_bias = bias
+        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(
+            in_channels, groups)
+        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(
+            out_channels, groups)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.groups = groups
+        self.deformable_groups = deformable_groups
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels //
+            self.groups, *self.kernel_size))
+        if self.with_bias:
+            self.bias = nn.Parameter(torch.Tensor(out_channels))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.with_bias:
+            torch.nn.init.constant_(self.bias, 0.0)
+
+    def forward(self, input, offset):
+        y = deform_conv(input, offset, self.weight, self.stride, self.
+            padding, self.dilation, self.groups, self.deformable_groups)
+        if self.with_bias:
+            assert len(y.size()) == 4
+            y = y + self.bias.reshape(1, -1, 1, 1)
+        return y
+
+    def __repr__(self):
+        return ''.join(['{}('.format(self.__class__.__name__),
+            'in_channels={}, '.format(self.in_channels),
+            'out_channels={}, '.format(self.out_channels),
+            'kernel_size={}, '.format(self.kernel_size), 'stride={}, '.
+            format(self.stride), 'dilation={}, '.format(self.dilation),
+            'padding={}, '.format(self.padding), 'groups={}, '.format(self.
+            groups), 'deformable_groups={}, '.format(self.deformable_groups
+            ), 'bias={})'.format(self.with_bias)])
 
 
 class ModulatedDeformConvFunction(Function):
@@ -501,6 +642,55 @@ class BatchNorm2d(torch.nn.BatchNorm2d):
             return super(BatchNorm2d, self).forward(x)
         output_shape = x.shape
         return _NewEmptyTensorOp.apply(x, output_shape)
+
+
+class DFConv2d(torch.nn.Module):
+    """Deformable convolutional layer"""
+
+    def __init__(self, in_channels, out_channels, with_modulated_dcn=True,
+        kernel_size=3, stride=1, groups=1, padding=1, dilation=1,
+        deformable_groups=1, bias=False):
+        super(DFConv2d, self).__init__()
+        if isinstance(kernel_size, (list, tuple)):
+            assert len(kernel_size) == 2
+            offset_base_channels = kernel_size[0] * kernel_size[1]
+        else:
+            offset_base_channels = kernel_size * kernel_size
+        if with_modulated_dcn:
+            offset_channels = offset_base_channels * 3
+            conv_block = ModulatedDeformConv
+        else:
+            offset_channels = offset_base_channels * 2
+            conv_block = DeformConv
+        self.offset = Conv2d(in_channels, deformable_groups *
+            offset_channels, kernel_size=kernel_size, stride=stride,
+            padding=padding, groups=1, dilation=dilation)
+        for l in [self.offset]:
+            torch.nn.init.kaiming_uniform_(l.weight, a=1)
+            torch.nn.init.constant_(l.bias, 0.0)
+        self.conv = conv_block(in_channels, out_channels, kernel_size=
+            kernel_size, stride=stride, padding=padding, dilation=dilation,
+            groups=groups, deformable_groups=deformable_groups, bias=bias)
+        self.with_modulated_dcn = with_modulated_dcn
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.offset_base_channels = offset_base_channels
+
+    def forward(self, x):
+        assert x.numel() > 0, 'only non-empty tensors are supported'
+        if x.numel() > 0:
+            if not self.with_modulated_dcn:
+                offset = self.offset(x)
+                x = self.conv(x, offset)
+            else:
+                offset_mask = self.offset(x)
+                split_point = self.offset_base_channels * 2
+                offset = offset_mask[:, :split_point, :, :]
+                mask = offset_mask[:, split_point:, :, :].sigmoid()
+                x = self.conv(x, offset, mask)
+            return x
 
 
 class _ROIAlign(Function):
@@ -1318,6 +1508,138 @@ _STAGE_SPECS = Registry({'R-50-C4': ResNet50StagesTo4, 'R-50-C5':
     'R-50-FPN-RETINANET': ResNet50FPNStagesTo5, 'R-101-FPN':
     ResNet101FPNStagesTo5, 'R-101-FPN-RETINANET': ResNet101FPNStagesTo5,
     'R-152-FPN': ResNet152FPNStagesTo5})
+
+
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
+    dilation=1, dcn_config=None):
+    blocks = []
+    stride = first_stride
+    for _ in range(block_count):
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride, dilation=dilation, dcn_config=dcn_config))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            stage_with_dcn = cfg.MODEL.RESNETS.STAGE_WITH_DCN[stage_spec.
+                index - 1]
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1, dcn_config={'stage_with_dcn':
+                stage_with_dcn, 'with_modulated_dcn': cfg.MODEL.RESNETS.
+                WITH_MODULATED_DCN, 'deformable_groups': cfg.MODEL.RESNETS.
+                DEFORMABLE_GROUPS})
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+
+    def _freeze_backbone(self, freeze_at):
+        if freeze_at < 0:
+            return
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
+        dilation=1, dcn_config=None):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride, dilation=
+                dilation, dcn_config=dcn_config)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
 
 
 class Bottleneck(nn.Module):
@@ -2529,32 +2851,6 @@ class PostProcessor(nn.Module):
             keep = torch.nonzero(keep).squeeze(1)
             result = result[keep]
         return result
-
-
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
-
-
-_global_config['MODEL'] = 4
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
 
 
 def make_fc(dim_in, hidden_dim, use_gn=False):
@@ -4926,6 +5222,7 @@ class ONNX_FCOS(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_tianzhi0549_FCOS(_paritybench_base):
@@ -4947,7 +5244,7 @@ class Test_tianzhi0549_FCOS(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': 'relu', 'bn_type': 'bn'}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
     def test_005(self):

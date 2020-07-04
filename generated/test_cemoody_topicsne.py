@@ -7,10 +7,13 @@ tsne = _module
 vtsne = _module
 wrapper = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -63,7 +66,7 @@ class TopicSNE(nn.Module):
         pass
 
     def forward(self, pij, i, j):
-        with torch.cuda.device(pij.get_device()):
+        with torch.device(pij.get_device()):
             alli = torch.from_numpy(np.arange(self.n_points))
             alli = Variable(alli)
         x = self.logits(alli)
@@ -120,7 +123,7 @@ class VTSNE(nn.Module):
 
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
+        eps = torch.FloatTensor(std.size()).normal_()
         eps = Variable(eps)
         z = eps.mul(std).add_(mu)
         kld = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
@@ -151,6 +154,7 @@ class VTSNE(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cemoody_topicsne(_paritybench_base):
@@ -160,5 +164,5 @@ class Test_cemoody_topicsne(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(TopicSNE(*[], **{'n_points': 4, 'n_topics': 4, 'n_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(VTSNE(*[], **{'n_points': 4, 'n_topics': 4, 'n_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

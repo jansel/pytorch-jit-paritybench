@@ -32,10 +32,13 @@ test = _module
 train = _module
 validate = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1721,6 +1724,7 @@ class cascadeFeatureFusion(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_meetshah1995_pytorch_semseg(_paritybench_base):
@@ -1761,29 +1765,35 @@ class Test_meetshah1995_pytorch_semseg(_paritybench_base):
 
     @_fails_compile()
     def test_011(self):
+        self._check(frrn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(pspnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
         self._check(pyramidPooling(*[], **{'in_channels': 4, 'pool_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_014(self):
         self._check(refinenet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(residualBlock(*[], **{'in_channels': 4, 'n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
-        self._check(residualBlockPSP(*[], **{'n_blocks': 1, 'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_015(self):
-        self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    @_fails_compile()
     def test_016(self):
-        self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(residualBlockPSP(*[], **{'n_blocks': 4, 'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_017(self):
-        self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(segnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_018(self):
+        self._check(segnetDown2(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(segnetDown3(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
         self._check(unetConv2(*[], **{'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}), [torch.rand([4, 4, 64, 64])], {})
 

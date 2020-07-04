@@ -30,10 +30,13 @@ training_settings = _module
 settings = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,9 @@ from torch.autograd import Variable
 
 
 from torch.nn import functional as F
+
+
+import torchvision.models as models
 
 
 from torch.nn.modules.loss import _Loss
@@ -1235,6 +1241,7 @@ class DiscriminativeLoss(_Loss):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
@@ -1253,4 +1260,20 @@ class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
     @_fails_compile()
     def test_003(self):
         self._check(ReNet(*[], **{'n_input': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(ReSeg(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(SkipVGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(StackedRecurrentHourglass(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(VGG16(*[], **{'n_layers': 1}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -100,10 +100,13 @@ test_net = _module
 train_net = _module
 train_net_step = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -141,6 +144,9 @@ from torch.autograd import Variable
 
 
 import torch.nn.functional as F
+
+
+import torchvision.models as models
 
 
 import random
@@ -615,8 +621,8 @@ class Depth3DGridGen_with_mask(Module):
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                cuda.FloatTensor) * (y.ge(0).type(torch.cuda.FloatTensor) -
-                y.lt(0).type(torch.cuda.FloatTensor))
+                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
+                type(torch.FloatTensor))
         else:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
                 FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
@@ -639,6 +645,50 @@ sources = []
 
 
 with_cuda = False
+
+
+class RoICropFunction(Function):
+
+    def forward(self, input1, input2):
+        self.input1 = input1
+        self.input2 = input2
+        self.device_c = ffi.new('int *')
+        output = torch.zeros(input2.size()[0], input1.size()[1], input2.
+            size()[1], input2.size()[2])
+        if input1.is_cuda:
+            self.device = torch.cuda.current_device()
+        else:
+            self.device = -1
+        self.device_c[0] = self.device
+        if not input1.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
+        else:
+            output = output.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2,
+                output)
+        return output
+
+    def backward(self, grad_output):
+        grad_input1 = torch.zeros(self.input1.size())
+        grad_input2 = torch.zeros(self.input2.size())
+        if not grad_output.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.
+                input2, grad_input1, grad_input2, grad_output)
+        else:
+            grad_input1 = grad_input1.cuda(self.device)
+            grad_input2 = grad_input2.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1,
+                self.input2, grad_input1, grad_input2, grad_output)
+        return grad_input1, grad_input2
+
+
+class _RoICrop(Module):
+
+    def __init__(self, layout='BHWD'):
+        super(_RoICrop, self).__init__()
+
+    def forward(self, input1, input2):
+        return RoICropFunction()(input1, input2)
 
 
 class RoIPoolFunction(Function):
@@ -957,10 +1007,10 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
         stride, np.array(aspect_ratios, dtype=np.float))
 
 
-_global_config['MODEL'] = 4
-
-
 _global_config['RPN'] = 4
+
+
+_global_config['MODEL'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -2739,12 +2789,12 @@ class DataParallel(Module):
     def __init__(self, module, device_ids=None, output_device=None, dim=0,
         cpu_keywords=[], minibatch=False, batch_outputs=True):
         super(DataParallel, self).__init__()
-        if not torch.cuda.is_available():
+        if not torch.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -2828,6 +2878,7 @@ class DataParallel(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_roytseng_tw_Detectron_pytorch(_paritybench_base):

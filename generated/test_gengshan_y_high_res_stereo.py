@@ -21,10 +21,13 @@ logger = _module
 preprocess = _module
 readpfm = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -96,9 +99,9 @@ class HSMNet(nn.Module):
         diff feature volume
         """
         width = refimg_fea.shape[-1]
-        cost = Variable(torch.cuda.FloatTensor(refimg_fea.size()[0],
-            refimg_fea.size()[1], maxdisp, refimg_fea.size()[2], refimg_fea
-            .size()[3]).fill_(0.0))
+        cost = Variable(torch.FloatTensor(refimg_fea.size()[0], refimg_fea.
+            size()[1], maxdisp, refimg_fea.size()[2], refimg_fea.size()[3])
+            .fill_(0.0))
         for i in range(maxdisp):
             feata = refimg_fea[:, :, :, i:width]
             featb = targetimg_fea[:, :, :, :width - i]
@@ -520,6 +523,7 @@ class pyramidPooling(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_gengshan_y_high_res_stereo(_paritybench_base):

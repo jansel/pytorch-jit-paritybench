@@ -53,6 +53,7 @@ base_model = _module
 networks = _module
 selectiongan_model = _module
 KL_model_data = _module
+compute_accuracies = _module
 compute_topK_KL = _module
 base_model = _module
 networks = _module
@@ -78,10 +79,13 @@ pix2pix_trainer = _module
 coco = _module
 iter_counter = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -103,6 +107,9 @@ import numpy as np
 import torch.nn.functional as F
 
 
+import torchvision.models as models
+
+
 from torch.autograd import Variable
 
 
@@ -113,6 +120,9 @@ from collections import OrderedDict
 
 
 import itertools
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn as nn
@@ -130,6 +140,9 @@ from torch.optim import lr_scheduler
 from torch.autograd import Variable as V
 
 
+from torchvision import transforms as trn
+
+
 from torch.nn import functional as F
 
 
@@ -140,6 +153,9 @@ from torch.nn import Parameter
 
 
 from torch.nn import Softmax
+
+
+import torchvision
 
 
 import torch.nn.utils.spectral_norm as spectral_norm
@@ -272,7 +288,7 @@ class BaseModel(nn.Module):
         self.opt = opt
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
-        self.Tensor = torch.cuda.FloatTensor if self.gpu_ids else torch.Tensor
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
     def set_input(self, input):
@@ -303,7 +319,7 @@ class BaseModel(nn.Module):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         torch.save(network.cpu().state_dict(), save_path)
-        if len(gpu_ids) and torch.cuda.is_available():
+        if len(gpu_ids) and torch.is_available():
             network
 
     def load_network(self, network, network_label, epoch_label):
@@ -559,7 +575,7 @@ class PATNetwork(nn.Module):
             n_downsampling)
 
     def forward(self, input):
-        if self.gpu_ids and isinstance(input[0].data, torch.cuda.FloatTensor):
+        if self.gpu_ids and isinstance(input[0].data, torch.FloatTensor):
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
             return self.model(input)
@@ -577,7 +593,7 @@ class SelectionGANNetwork(nn.Module):
             n_downsampling)
 
     def forward(self, input):
-        if self.gpu_ids and isinstance(input[0].data, torch.cuda.FloatTensor):
+        if self.gpu_ids and isinstance(input[0].data, torch.FloatTensor):
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
             return self.model(input)
@@ -713,7 +729,7 @@ class ResnetDiscriminator(nn.Module):
         self.model = nn.Sequential(*model)
 
     def forward(self, input):
-        if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor):
+        if self.gpu_ids and isinstance(input.data, torch.FloatTensor):
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
             return self.model(input)
@@ -1849,9 +1865,9 @@ class Pix2PixModel(torch.nn.Module):
     def __init__(self, opt):
         super().__init__()
         self.opt = opt
-        self.FloatTensor = torch.cuda.FloatTensor if self.use_gpu(
+        self.FloatTensor = torch.FloatTensor if self.use_gpu(
             ) else torch.FloatTensor
-        self.ByteTensor = torch.cuda.ByteTensor if self.use_gpu(
+        self.ByteTensor = torch.ByteTensor if self.use_gpu(
             ) else torch.ByteTensor
         self.netG, self.netD, self.netE = self.initialize_networks(opt)
         if opt.isTrain:
@@ -2037,6 +2053,7 @@ class Pix2PixModel(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Ha0Tang_SelectionGAN(_paritybench_base):
@@ -2050,17 +2067,27 @@ class Test_Ha0Tang_SelectionGAN(_paritybench_base):
     def test_002(self):
         self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(L1_plus_perceptualLoss(*[], **{'lambda_L1': 4, 'lambda_perceptual': 4, 'perceptual_layers': 1, 'gpu_ids': False, 'percep_is_l1': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
     def test_004(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_005(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_008(self):
+        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_009(self):
+        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
 

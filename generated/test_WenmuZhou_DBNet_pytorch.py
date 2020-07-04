@@ -46,10 +46,13 @@ quad_metric = _module
 schedulers = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -75,6 +78,9 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+from torchvision.models.utils import load_state_dict_from_url
 
 
 class DBLoss(nn.Module):
@@ -253,6 +259,44 @@ backbone_dict = {'resnet18': {'models': resnet18, 'out': [64, 128, 256, 512
     464]}}
 
 
+class DBModel(nn.Module):
+
+    def __init__(self, model_config: dict):
+        """
+        PANnet
+        :param model_config: 模型配置
+        """
+        super().__init__()
+        backbone = model_config['backbone']
+        pretrained = model_config['pretrained']
+        segmentation_body = model_config['segmentation_body']['type']
+        segmentation_head = model_config['segmentation_head']['type']
+        assert backbone in backbone_dict, 'backbone must in: {}'.format(
+            backbone_dict)
+        assert segmentation_body in segmentation_body, 'segmentation_head must in: {}'.format(
+            segmentation_body)
+        assert segmentation_head in segmentation_head_dict, 'segmentation_head must in: {}'.format(
+            segmentation_head_dict)
+        backbone_model, backbone_out = backbone_dict[backbone]['models'
+            ], backbone_dict[backbone]['out']
+        self.backbone = backbone_model(pretrained=pretrained)
+        self.segmentation_body = segmentation_body_dict[segmentation_body](
+            backbone_out, **model_config['segmentation_body']['args'])
+        self.segmentation_head = segmentation_head_dict[segmentation_head](self
+            .segmentation_body.out_channels, **model_config[
+            'segmentation_head']['args'])
+        self.name = '{}_{}_{}'.format(backbone, segmentation_body,
+            segmentation_head)
+
+    def forward(self, x):
+        _, _, H, W = x.size()
+        backbone_out = self.backbone(x)
+        segmentation_body_out = self.segmentation_body(backbone_out)
+        y = self.segmentation_head(segmentation_body_out)
+        y = F.interpolate(y, size=(H, W), mode='bilinear', align_corners=True)
+        return y
+
+
 class ConvBnRelu(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
@@ -375,6 +419,99 @@ def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
         padding=1, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dcn=None):
+        super(BasicBlock, self).__init__()
+        self.with_dcn = dcn is not None
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.with_modulated_dcn = False
+        if not self.with_dcn:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1,
+                bias=False)
+        else:
+            from torchvision.ops import DeformConv2d
+            deformable_groups = dcn.get('deformable_groups', 1)
+            offset_channels = 18
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
+                offset_channels, kernel_size=3, padding=1)
+            self.conv2 = DeformConv2d(planes, planes, kernel_size=3,
+                padding=1, bias=False)
+        self.bn2 = BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        if not self.with_dcn:
+            out = self.conv2(out)
+        else:
+            offset = self.conv2_offset(out)
+            out = self.conv2(out, offset)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dcn=None):
+        super(Bottleneck, self).__init__()
+        self.with_dcn = dcn is not None
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = BatchNorm2d(planes)
+        self.with_modulated_dcn = False
+        if not self.with_dcn:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
+                stride, padding=1, bias=False)
+        else:
+            deformable_groups = dcn.get('deformable_groups', 1)
+            from torchvision.ops import DeformConv2d
+            offset_channels = 18
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
+                offset_channels, stride=stride, kernel_size=3, padding=1)
+            self.conv2 = DeformConv2d(planes, planes, kernel_size=3,
+                padding=1, stride=stride, bias=False)
+        self.bn2 = BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.dcn = dcn
+        self.with_dcn = dcn is not None
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        if not self.with_dcn:
+            out = self.conv2(out)
+        else:
+            offset = self.conv2_offset(out)
+            out = self.conv2(out, offset)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 def constant_init(module, constant, bias=0):
@@ -756,6 +893,7 @@ class ShuffleNetV2(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_WenmuZhou_DBNet_pytorch(_paritybench_base):
@@ -764,37 +902,41 @@ class Test_WenmuZhou_DBNet_pytorch(_paritybench_base):
     def test_000(self):
         self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(ConvHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(ConvHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(DBHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(DiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(FPEM(*[], **{}), [torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 4, 4]), torch.rand([4, 128, 64, 64]), torch.rand([4, 128, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(FPEM_FFM(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(FPN(*[], **{'backbone_out_channels': [4, 4, 4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

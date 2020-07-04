@@ -10,10 +10,13 @@ googlenet = _module
 losses = _module
 netlib = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -47,6 +50,9 @@ import torch.multiprocessing
 from torch.utils.data import Dataset
 
 
+from torchvision import transforms
+
+
 from scipy.spatial.distance import squareform
 
 
@@ -74,8 +80,95 @@ from torch.utils import model_zoo
 import itertools as it
 
 
+import torchvision.models as models
+
+
 _GoogLeNetOuputs = namedtuple('GoogLeNetOuputs', ['logits', 'aux_logits2',
     'aux_logits1'])
+
+
+class GoogLeNet(nn.Module):
+
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=
+        False, init_weights=True):
+        super(GoogLeNet, self).__init__()
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.conv1 = BasicConv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.maxpool1 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.conv2 = BasicConv2d(64, 64, kernel_size=1)
+        self.conv3 = BasicConv2d(64, 192, kernel_size=3, padding=1)
+        self.maxpool2 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.inception3a = Inception(192, 64, 96, 128, 16, 32, 32)
+        self.inception3b = Inception(256, 128, 128, 192, 32, 96, 64)
+        self.maxpool3 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.inception4a = Inception(480, 192, 96, 208, 16, 48, 64)
+        self.inception4b = Inception(512, 160, 112, 224, 24, 64, 64)
+        self.inception4c = Inception(512, 128, 128, 256, 24, 64, 64)
+        self.inception4d = Inception(512, 112, 144, 288, 32, 64, 64)
+        self.inception4e = Inception(528, 256, 160, 320, 32, 128, 128)
+        self.maxpool4 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
+        self.inception5a = Inception(832, 256, 160, 320, 32, 128, 128)
+        self.inception5b = Inception(832, 384, 192, 384, 48, 128, 128)
+        if aux_logits:
+            self.aux1 = InceptionAux(512, num_classes)
+            self.aux2 = InceptionAux(528, num_classes)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(0.2)
+        self.fc = nn.Linear(1024, num_classes)
+        if init_weights:
+            self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                X = stats.truncnorm(-2, 2, scale=0.01)
+                values = torch.as_tensor(X.rvs(m.weight.numel()), dtype=m.
+                    weight.dtype)
+                values = values.view(m.weight.size())
+                with torch.no_grad():
+                    m.weight.copy_(values)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        if self.transform_input:
+            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 -
+                0.5) / 0.5
+            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 -
+                0.5) / 0.5
+            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 -
+                0.5) / 0.5
+            x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
+        x = self.conv1(x)
+        x = self.maxpool1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.maxpool2(x)
+        x = self.inception3a(x)
+        x = self.inception3b(x)
+        x = self.maxpool3(x)
+        x = self.inception4a(x)
+        if self.training and self.aux_logits:
+            aux1 = self.aux1(x)
+        x = self.inception4b(x)
+        x = self.inception4c(x)
+        x = self.inception4d(x)
+        if self.training and self.aux_logits:
+            aux2 = self.aux2(x)
+        x = self.inception4e(x)
+        x = self.maxpool4(x)
+        x = self.inception5a(x)
+        x = self.inception5b(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.dropout(x)
+        x = self.fc(x)
+        if self.training and self.aux_logits:
+            return _GoogLeNetOuputs(x, aux2, aux1)
+        return x
 
 
 class Inception(nn.Module):
@@ -496,16 +589,16 @@ class MarginLoss(torch.nn.Module):
             beta = self.beta
         else:
             beta = torch.stack([self.beta[labels[triplet[0]]] for triplet in
-                sampled_triplets]).type(torch.cuda.FloatTensor)
+                sampled_triplets]).type(torch.FloatTensor)
         pos_loss = torch.nn.functional.relu(d_ap - beta + self.margin)
         neg_loss = torch.nn.functional.relu(beta - d_an + self.margin)
         pair_count = torch.sum((pos_loss > 0.0) + (neg_loss > 0.0)).type(torch
-            .cuda.FloatTensor)
+            .FloatTensor)
         loss = torch.sum(pos_loss + neg_loss
             ) if pair_count == 0.0 else torch.sum(pos_loss + neg_loss
             ) / pair_count
         if self.nu:
-            loss = loss + beta_regularisation_loss.type(torch.cuda.FloatTensor)
+            loss = loss + beta_regularisation_loss.type(torch.FloatTensor)
         return loss
 
 
@@ -578,8 +671,7 @@ class CEClassLoss(torch.nn.Module):
         Returns:
             cross-entropy loss (torch.Tensor(), batch-averaged by default)
         """
-        return self.ce_loss(self.mapper(batch), labels.type(torch.cuda.
-            LongTensor))
+        return self.ce_loss(self.mapper(batch), labels.type(torch.LongTensor))
 
 
 model_urls = {'googlenet':
@@ -715,6 +807,7 @@ class ResNet50(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Confusezius_Deep_Metric_Learning_Baselines(_paritybench_base):

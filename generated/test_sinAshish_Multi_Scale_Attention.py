@@ -12,10 +12,13 @@ my_stacked_danet = _module
 resnext = _module
 resnext101_regular = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -46,7 +49,13 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+import torchvision
+
+
 from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
 
 
 from torch.optim import Adam
@@ -59,6 +68,12 @@ from torch.nn import functional as F
 
 
 from functools import reduce
+
+
+from torchvision.models import resnext50_32x4d
+
+
+from torchvision.models import resnext101_32x8d
 
 
 from torch import nn
@@ -528,6 +543,7 @@ class ResNeXt101(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
@@ -535,21 +551,32 @@ class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
     def test_000(self):
         self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DAF_stack(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
-        self._check(PAM_CAM_Layer(*[], **{'in_ch': 64}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(PAM_CAM_Layer(*[], **{'in_ch': 64}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_004(self):
-        self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_005(self):
-        self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResNeXt101(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_006(self):
+        self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(computeDiceOneHot(*[], **{}), [torch.rand([4, 5, 4, 4]), torch.rand([4, 5, 4, 4])], {})
+
+    def test_009(self):
         self._check(semanticModule(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

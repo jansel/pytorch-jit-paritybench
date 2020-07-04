@@ -22,10 +22,13 @@ test_agent = _module
 TD3 = _module
 plot = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -131,6 +134,69 @@ class Net(nn.Module):
         return action_prob
 
 
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(num_state, 100)
+        self.fc2 = nn.Linear(100, num_action)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        action_value = self.fc2(x)
+        return action_value
+
+
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(num_state, 100)
+        self.fc2 = nn.Linear(100, num_action)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        action_prob = self.fc2(x)
+        return action_prob
+
+
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(NUM_STATES, 30)
+        self.fc1.weight.data.normal_(0, 0.1)
+        self.fc2 = nn.Linear(30, NUM_ACTIONS)
+        self.fc2.weight.data.normal_(0, 0.1)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        return x
+
+
+class Net(nn.Module):
+    """docstring for Net"""
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(NUM_STATES, 50)
+        self.fc1.weight.data.normal_(0, 0.1)
+        self.fc2 = nn.Linear(50, 30)
+        self.fc2.weight.data.normal_(0, 0.1)
+        self.out = nn.Linear(30, NUM_ACTIONS)
+        self.out.weight.data.normal_(0, 0.1)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+        action_prob = self.out(x)
+        return action_prob
+
+
 class Policy(nn.Module):
 
     def __init__(self):
@@ -179,6 +245,38 @@ class Policy(nn.Module):
 
 
 gamma = 0.99
+
+
+class Policy(nn.Module):
+
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.fc1 = nn.Linear(state_space, 20)
+        self.fc3 = nn.Linear(20, action_space)
+        self.gamma = gamma
+        self.saved_log_probs = []
+        self.rewards = []
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.softmax(self.fc3(x), dim=1)
+        return x
+
+
+class Policy(nn.Module):
+
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.state_space = state_space
+        self.action_space = action_space
+        self.fc1 = nn.Linear(self.state_space, 128)
+        self.fc2 = nn.Linear(128, self.action_space)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = F.softmax(self.fc2(x), dim=-1)
+        return x
 
 
 class Policy(nn.Module):
@@ -396,6 +494,28 @@ class CriticNet(nn.Module):
         return state_value
 
 
+class Actor(nn.Module):
+
+    def __init__(self, state_dim, min_log_std=-20, max_log_std=2):
+        super(Actor, self).__init__()
+        self.fc1 = nn.Linear(state_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.mu_head = nn.Linear(256, 1)
+        self.log_std_head = nn.Linear(256, 1)
+        self.max_action = max_action
+        self.min_log_std = min_log_std
+        self.max_log_std = max_log_std
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        mu = self.mu_head(x)
+        log_std_head = F.relu(self.log_std_head(x))
+        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.
+            max_log_std)
+        return mu, log_std_head
+
+
 class Critic(nn.Module):
 
     def __init__(self, state_dim):
@@ -411,6 +531,24 @@ class Critic(nn.Module):
         return x
 
 
+class Q(nn.Module):
+
+    def __init__(self, state_dim, action_dim):
+        super(Q, self).__init__()
+        self.fc1 = nn.Linear(state_dim + action_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 1)
+
+    def forward(self, s, a):
+        s = s.reshape(-1, state_dim)
+        a = a.reshape(-1, action_dim)
+        x = torch.cat((s, a), -1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
 class Critic(nn.Module):
 
     def __init__(self, state_dim):
@@ -420,6 +558,24 @@ class Critic(nn.Module):
         self.fc3 = nn.Linear(256, 1)
 
     def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+class Q(nn.Module):
+
+    def __init__(self, state_dim, action_dim):
+        super(Q, self).__init__()
+        self.fc1 = nn.Linear(state_dim + action_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 1)
+
+    def forward(self, s, a):
+        s = s.reshape(-1, state_dim)
+        a = a.reshape(-1, action_dim)
+        x = torch.cat((s, a), -1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -579,6 +735,7 @@ class Critic(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_sweetice_Deep_reinforcement_learning_with_pytorch(_paritybench_base):

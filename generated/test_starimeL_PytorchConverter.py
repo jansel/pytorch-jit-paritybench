@@ -16,10 +16,13 @@ caffe_pb2 = _module
 run = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -50,6 +53,9 @@ import torch.nn.init as init
 from torch.utils import model_zoo
 
 
+from torchvision import models
+
+
 import time
 
 
@@ -68,10 +74,22 @@ import torch.optim as optim
 import torch.utils.data
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
+
+
 from torch.autograd import Variable
 
 
 import numpy as np
+
+
+from torchvision import transforms
 
 
 class CReLUM(nn.Module):
@@ -470,7 +488,7 @@ class _netD_1(nn.Module):
 
     def forward(self, input):
         gpu_ids = None
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             gpu_ids = range(self.ngpu)
         output = nn.parallel.data_parallel(self.main, input, gpu_ids)
         return output.view(-1, 1)
@@ -495,7 +513,7 @@ class _netD_2(nn.Module):
 
     def forward(self, input):
         gpu_ids = None
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             gpu_ids = range(self.ngpu)
         output = nn.parallel.data_parallel(self.convs, input, gpu_ids)
         output = self.fcs(output.view(-1, 1024))
@@ -525,7 +543,7 @@ class _netG_2(nn.Module):
     def forward(self, input):
         input = self.fcs(input.view(-1, self.nz))
         gpu_ids = None
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             gpu_ids = range(self.ngpu)
         z_prediction = self.decode_fcs(input)
         input = input.view(-1, 1024, 1, 1)
@@ -533,7 +551,34 @@ class _netG_2(nn.Module):
         return output, z_prediction
 
 
+class _netG_3(nn.Module):
+
+    def __init__(self, ngpu, nz, nc, ngf):
+        super(_netG_3, self).__init__()
+        self.ngpu = ngpu
+        self.fcs = nn.Sequential(nn.Linear(nz, 1024), nn.ReLU(inplace=True),
+            nn.Dropout(0.5), nn.Linear(1024, 1024), nn.ReLU(inplace=True),
+            nn.Dropout(0.5))
+        self.convs = nn.Sequential(nn.ConvTranspose2d(1024, ngf * 8, 4, 1, 
+            0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
+            BatchNorm2d(ngf * 4), nn.ReLU(inplace=True), nn.ConvTranspose2d
+            (ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2
+            ), nn.ReLU(inplace=True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2,
+            1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(inplace=True), nn.
+            ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
+
+    def forward(self, input):
+        input = self.fcs(input.view(-1, nz))
+        gpu_ids = None
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
+            gpu_ids = range(self.ngpu)
+        input = input.view(-1, 1024, 1, 1)
+        return nn.parallel.data_parallel(self.convs, input, gpu_ids)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_starimeL_PytorchConverter(_paritybench_base):

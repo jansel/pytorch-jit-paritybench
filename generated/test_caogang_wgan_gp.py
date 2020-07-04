@@ -21,10 +21,13 @@ plot = _module
 save_images = _module
 small_imagenet = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,6 +44,9 @@ import numpy as np
 
 
 import torch
+
+
+import torchvision
 
 
 from torch import nn
@@ -137,6 +143,29 @@ DATA_DIR = './data_language'
 
 
 MAX_N_EXAMPLES = 10000000
+
+
+class Generator(nn.Module):
+
+    def __init__(self):
+        super(Generator, self).__init__()
+        self.fc1 = nn.Linear(128, DIM * SEQ_LEN)
+        self.block = nn.Sequential(ResBlock(), ResBlock(), ResBlock(),
+            ResBlock(), ResBlock())
+        self.conv1 = nn.Conv1d(DIM, len(charmap), 1)
+        self.softmax = nn.Softmax()
+
+    def forward(self, noise):
+        output = self.fc1(noise)
+        output = output.view(-1, DIM, SEQ_LEN)
+        output = self.block(output)
+        output = self.conv1(output)
+        output = output.transpose(1, 2)
+        shape = output.size()
+        output = output.contiguous()
+        output = output.view(BATCH_SIZE * SEQ_LEN, -1)
+        output = self.softmax(output)
+        return output.view(shape)
 
 
 class Discriminator(nn.Module):
@@ -242,6 +271,7 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_caogang_wgan_gp(_paritybench_base):

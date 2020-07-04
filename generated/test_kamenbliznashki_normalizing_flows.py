@@ -20,10 +20,13 @@ maf = _module
 planar_flow = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -60,7 +63,19 @@ import time
 from functools import partial
 
 
+import torchvision.transforms as T
+
+
+from torchvision.utils import save_image
+
+
+from torchvision.utils import make_grid
+
+
 from torch.utils.checkpoint import checkpoint
+
+
+from torchvision.datasets import MNIST
 
 
 import numpy as np
@@ -924,6 +939,7 @@ class AffineTransform(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
@@ -958,11 +974,11 @@ class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
-        self._check(MAF(*[], **{'n_blocks': 1, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(MAF(*[], **{'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(MAFMOG(*[], **{'n_blocks': 1, 'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(MAFMOG(*[], **{'n_blocks': 4, 'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_010(self):
@@ -973,7 +989,7 @@ class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
 
     @_fails_compile()
     def test_012(self):
-        self._check(RealNVP(*[], **{'n_blocks': 1, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RealNVP(*[], **{'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
         self._check(Split(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})

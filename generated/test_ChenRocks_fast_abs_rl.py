@@ -30,10 +30,13 @@ train_word2vec = _module
 training = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -318,6 +321,126 @@ class ExtractSumm(nn.Module):
 
     def set_embedding(self, embedding):
         self._sent_enc.set_embedding(embedding)
+
+
+def len_mask(lens, device):
+    """ users are resposible for shaping
+    Return: tensor_type [B, T]
+    """
+    max_len = max(lens)
+    batch_size = len(lens)
+    mask = torch.ByteTensor(batch_size, max_len).to(device)
+    mask.fill_(0)
+    for i, l in enumerate(lens):
+        mask[(i), :l].fill_(1)
+    return mask
+
+
+def prob_normalize(score, mask):
+    """ [(...), T]
+    user should handle mask shape"""
+    score = score.masked_fill(mask == 0, -1e+18)
+    norm_score = F.softmax(score, dim=-1)
+    return norm_score
+
+
+class LSTMPointerNet(nn.Module):
+    """Pointer network as in Vinyals et al """
+
+    def __init__(self, input_dim, n_hidden, n_layer, dropout, n_hop):
+        super().__init__()
+        self._init_h = nn.Parameter(torch.Tensor(n_layer, n_hidden))
+        self._init_c = nn.Parameter(torch.Tensor(n_layer, n_hidden))
+        self._init_i = nn.Parameter(torch.Tensor(input_dim))
+        init.uniform_(self._init_h, -INI, INI)
+        init.uniform_(self._init_c, -INI, INI)
+        init.uniform_(self._init_i, -0.1, 0.1)
+        self._lstm = nn.LSTM(input_dim, n_hidden, n_layer, bidirectional=
+            False, dropout=dropout)
+        self._lstm_cell = None
+        self._attn_wm = nn.Parameter(torch.Tensor(input_dim, n_hidden))
+        self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+        self._attn_v = nn.Parameter(torch.Tensor(n_hidden))
+        init.xavier_normal_(self._attn_wm)
+        init.xavier_normal_(self._attn_wq)
+        init.uniform_(self._attn_v, -INI, INI)
+        self._hop_wm = nn.Parameter(torch.Tensor(input_dim, n_hidden))
+        self._hop_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+        self._hop_v = nn.Parameter(torch.Tensor(n_hidden))
+        init.xavier_normal_(self._hop_wm)
+        init.xavier_normal_(self._hop_wq)
+        init.uniform_(self._hop_v, -INI, INI)
+        self._n_hop = n_hop
+
+    def forward(self, attn_mem, mem_sizes, lstm_in):
+        """atten_mem: Tensor of size [batch_size, max_sent_num, input_dim]"""
+        attn_feat, hop_feat, lstm_states, init_i = self._prepare(attn_mem)
+        lstm_in = torch.cat([init_i, lstm_in], dim=1).transpose(0, 1)
+        query, final_states = self._lstm(lstm_in, lstm_states)
+        query = query.transpose(0, 1)
+        for _ in range(self._n_hop):
+            query = LSTMPointerNet.attention(hop_feat, query, self._hop_v,
+                self._hop_wq, mem_sizes)
+        output = LSTMPointerNet.attention_score(attn_feat, query, self.
+            _attn_v, self._attn_wq)
+        return output
+
+    def extract(self, attn_mem, mem_sizes, k):
+        """extract k sentences, decode only, batch_size==1"""
+        attn_feat, hop_feat, lstm_states, lstm_in = self._prepare(attn_mem)
+        lstm_in = lstm_in.squeeze(1)
+        if self._lstm_cell is None:
+            self._lstm_cell = MultiLayerLSTMCells.convert(self._lstm)
+        extracts = []
+        for _ in range(k):
+            h, c = self._lstm_cell(lstm_in, lstm_states)
+            query = h[-1]
+            for _ in range(self._n_hop):
+                query = LSTMPointerNet.attention(hop_feat, query, self.
+                    _hop_v, self._hop_wq, mem_sizes)
+            score = LSTMPointerNet.attention_score(attn_feat, query, self.
+                _attn_v, self._attn_wq)
+            score = score.squeeze()
+            for e in extracts:
+                score[e] = -1000000.0
+            ext = score.max(dim=0)[1].item()
+            extracts.append(ext)
+            lstm_states = h, c
+            lstm_in = attn_mem[:, (ext), :]
+        return extracts
+
+    def _prepare(self, attn_mem):
+        attn_feat = torch.matmul(attn_mem, self._attn_wm.unsqueeze(0))
+        hop_feat = torch.matmul(attn_mem, self._hop_wm.unsqueeze(0))
+        bs = attn_mem.size(0)
+        n_l, d = self._init_h.size()
+        size = n_l, bs, d
+        lstm_states = self._init_h.unsqueeze(1).expand(*size).contiguous(
+            ), self._init_c.unsqueeze(1).expand(*size).contiguous()
+        d = self._init_i.size(0)
+        init_i = self._init_i.unsqueeze(0).unsqueeze(1).expand(bs, 1, d)
+        return attn_feat, hop_feat, lstm_states, init_i
+
+    @staticmethod
+    def attention_score(attention, query, v, w):
+        """ unnormalized attention score"""
+        sum_ = attention.unsqueeze(1) + torch.matmul(query, w.unsqueeze(0)
+            ).unsqueeze(2)
+        score = torch.matmul(F.tanh(sum_), v.unsqueeze(0).unsqueeze(1).
+            unsqueeze(3)).squeeze(3)
+        return score
+
+    @staticmethod
+    def attention(attention, query, v, w, mem_sizes):
+        """ attention context vector"""
+        score = LSTMPointerNet.attention_score(attention, query, v, w)
+        if mem_sizes is None:
+            norm_score = F.softmax(score, dim=-1)
+        else:
+            mask = len_mask(mem_sizes, score.device).unsqueeze(-2)
+            norm_score = prob_normalize(score, mask)
+        output = torch.matmul(norm_score, attention)
+        return output
 
 
 class PtrExtractSumm(nn.Module):
@@ -619,14 +742,6 @@ def dot_attention_score(key, query):
     return query.matmul(key.transpose(1, 2))
 
 
-def prob_normalize(score, mask):
-    """ [(...), T]
-    user should handle mask shape"""
-    score = score.masked_fill(mask == 0, -1e+18)
-    norm_score = F.softmax(score, dim=-1)
-    return norm_score
-
-
 def step_attention(query, key, value, mem_mask=None):
     """ query[(Bs), B, D], key[B, T, D], value[B, T, D]"""
     score = dot_attention_score(key, query.unsqueeze(-2))
@@ -675,19 +790,6 @@ class AttentionalLSTMDecoder(object):
         logit, states, score = self._step(tok, states, attention)
         out = torch.max(logit, dim=1, keepdim=True)[1]
         return out, states, score
-
-
-def len_mask(lens, device):
-    """ users are resposible for shaping
-    Return: tensor_type [B, T]
-    """
-    max_len = max(lens)
-    batch_size = len(lens)
-    mask = torch.ByteTensor(batch_size, max_len).to(device)
-    mask.fill_(0)
-    for i, l in enumerate(lens):
-        mask[(i), :l].fill_(1)
-    return mask
 
 
 class Seq2SeqSumm(nn.Module):
@@ -782,6 +884,7 @@ class Seq2SeqSumm(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ChenRocks_fast_abs_rl(_paritybench_base):

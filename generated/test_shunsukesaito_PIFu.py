@@ -44,10 +44,13 @@ sample_util = _module
 sdf = _module
 train_util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,12 @@ from torch.utils.data import DataLoader
 
 
 import torch.nn.functional as F
+
+
+import torchvision.models.resnet as resnet
+
+
+import torchvision.models.vgg as vgg
 
 
 import functools
@@ -659,6 +668,7 @@ class ConvBlock(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_shunsukesaito_PIFu(_paritybench_base):
@@ -670,18 +680,31 @@ class Test_shunsukesaito_PIFu(_paritybench_base):
     def test_001(self):
         self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(DepthNormalizer(*[], **{'opt': _mock_config(loadSize=4, z_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
-        self._check(HourGlass(*[], **{'num_modules': 4, 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_004(self):
-        self._check(MultiConv(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HourGlass(*[], **{'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(MultiConv(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_007(self):
+        self._check(ResnetFilter(*[], **{'opt': _mock_config(use_tanh=4)}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(SurfaceClassifier(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 64])], {})
+
+    def test_009(self):
+        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

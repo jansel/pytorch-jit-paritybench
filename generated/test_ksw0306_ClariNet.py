@@ -7,13 +7,18 @@ modules = _module
 preprocessing = _module
 synthesize = _module
 synthesize_student = _module
+train = _module
+train_student = _module
 wavenet = _module
 wavenet_iaf = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,10 +43,22 @@ import numpy as np
 import math
 
 
-from torch import nn
+from torch import optim
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.distributions.normal import Normal
 
 
 import time
+
+
+from torch import nn
 
 
 class Conv(nn.Module):
@@ -242,10 +259,10 @@ class Wavenet(nn.Module):
         c_upsampled = self.upsample(c)
         local_cond = c_upsampled
         timer = time.perf_counter()
-        torch.cuda.synchronize()
+        torch.synchronize()
         for i in range(num_samples):
             if i % 1000 == 0:
-                torch.cuda.synchronize()
+                torch.synchronize()
                 timer_end = time.perf_counter()
                 None
                 timer = time.perf_counter()
@@ -399,6 +416,7 @@ class Wavenet_Flow(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ksw0306_ClariNet(_paritybench_base):
@@ -409,4 +427,8 @@ class Test_ksw0306_ClariNet(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(KL_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(Wavenet_Student(*[], **{}), [torch.rand([4, 1, 64]), torch.rand([4, 80, 64])], {})
 

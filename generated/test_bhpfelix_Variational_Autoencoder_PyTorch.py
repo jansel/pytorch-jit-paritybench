@@ -4,10 +4,13 @@ del sys
 util = _module
 vanila_vae = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -32,13 +35,22 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 
+import torchvision
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 import time
 
 
 import numpy as np
 
 
-_global_config['cuda'] = 4
+_global_config['cuda'] = False
 
 
 class VAE(nn.Module):
@@ -97,7 +109,7 @@ class VAE(nn.Module):
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
         if args.cuda:
-            eps = torch.cuda.FloatTensor(std.size()).normal_()
+            eps = torch.FloatTensor(std.size()).normal_()
         else:
             eps = torch.FloatTensor(std.size()).normal_()
         eps = Variable(eps)
@@ -125,6 +137,7 @@ class VAE(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bhpfelix_Variational_Autoencoder_PyTorch(_paritybench_base):

@@ -109,10 +109,13 @@ official_tokenization = _module
 pytorch_optimization = _module
 zh_wiki = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1850,6 +1853,697 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
 CONFIG_NAME = 'bert_config.json'
 
 
+def http_get(url, temp_file, proxies=None):
+    req = requests.get(url, stream=True, proxies=proxies)
+    content_length = req.headers.get('Content-Length')
+    total = int(content_length) if content_length is not None else None
+    progress = tqdm(unit='B', total=total)
+    for chunk in req.iter_content(chunk_size=1024):
+        if chunk:
+            progress.update(len(chunk))
+            temp_file.write(chunk)
+    progress.close()
+
+
+logger = logging.getLogger(__name__)
+
+
+def s3_request(func):
+    """
+    Wrapper function for s3 requests in order to create more helpful error
+    messages.
+    """
+
+    @wraps(func)
+    def wrapper(url, *args, **kwargs):
+        try:
+            return func(url, *args, **kwargs)
+        except ClientError as exc:
+            if int(exc.response['Error']['Code']) == 404:
+                raise EnvironmentError('file {} not found'.format(url))
+            else:
+                raise
+    return wrapper
+
+
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
+
+
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    If the url ends with .h5 (Keras HDF5 weights) ands '.h5' to the name
+    so that TF 2.0 can identify it as a HDF5 file
+    (see https://github.com/tensorflow/tensorflow/blob/00fad90125b18b80fe054de1055770cfb8fe4ba3/tensorflow/python/keras/engine/network.py#L1380)
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    if url.endswith('.h5'):
+        filename += '.h5'
+    return filename
+
+
+def get_from_cache(url, cache_dir=None, force_download=False, proxies=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = TRANSFORMERS_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if sys.version_info[0] == 2 and not isinstance(cache_dir, str):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url, proxies=proxies)
+    else:
+        try:
+            response = requests.head(url, allow_redirects=True, proxies=proxies
+                )
+            if response.status_code != 200:
+                etag = None
+            else:
+                etag = response.headers.get('ETag')
+        except EnvironmentError:
+            etag = None
+    if sys.version_info[0] == 2 and etag is not None:
+        etag = etag.decode('utf-8')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path) and etag is None:
+        matching_files = fnmatch.filter(os.listdir(cache_dir), filename + '.*')
+        matching_files = list(filter(lambda s: not s.endswith('.json'),
+            matching_files))
+        if matching_files:
+            cache_path = os.path.join(cache_dir, matching_files[-1])
+    if not os.path.exists(cache_path) or force_download:
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info(
+                '%s not found in cache or force_download set to True, downloading to %s'
+                , url, temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file, proxies=proxies)
+            else:
+                http_get(url, temp_file, proxies=proxies)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path
+                )
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w') as meta_file:
+                output_string = json.dumps(meta)
+                if sys.version_info[0] == 2 and isinstance(output_string, str):
+                    output_string = unicode(output_string, 'utf-8')
+                meta_file.write(output_string)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None, force_download=False,
+    proxies=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    Args:
+        cache_dir: specify a cache directory to save the file to (overwrite the default cache dir).
+        force_download: if True, re-dowload the file even if it's already cached in the cache dir.
+    """
+    if cache_dir is None:
+        cache_dir = TRANSFORMERS_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir=cache_dir,
+            force_download=force_download, proxies=proxies)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.
+            format(url_or_filename))
+
+
+class PretrainedConfig(object):
+    """ Base class for all configuration classes.
+        Handles a few parameters common to all models' configurations as well as methods for loading/downloading/saving configurations.
+
+        Note:
+            A configuration file can be loaded and saved to disk. Loading the configuration file and using this file to initialize a model does **not** load the model weights.
+            It only affects the model's configuration.
+
+        Class attributes (overridden by derived classes):
+            - ``pretrained_config_archive_map``: a python ``dict`` of with `short-cut-names` (string) as keys and `url` (string) of associated pretrained model configurations as values.
+
+        Parameters:
+            ``finetuning_task``: string, default `None`. Name of the task used to fine-tune the model. This can be used when converting from an original (TensorFlow or PyTorch) checkpoint.
+            ``num_labels``: integer, default `2`. Number of classes to use when the model is a classification model (sequences/tokens)
+            ``output_attentions``: boolean, default `False`. Should the model returns attentions weights.
+            ``output_hidden_states``: string, default `False`. Should the model returns all hidden-states.
+            ``torchscript``: string, default `False`. Is the model used with Torchscript.
+    """
+    pretrained_config_archive_map = {}
+
+    def __init__(self, **kwargs):
+        self.finetuning_task = kwargs.pop('finetuning_task', None)
+        self.num_labels = kwargs.pop('num_labels', 2)
+        self.output_attentions = kwargs.pop('output_attentions', False)
+        self.output_hidden_states = kwargs.pop('output_hidden_states', False)
+        self.output_past = kwargs.pop('output_past', True)
+        self.torchscript = kwargs.pop('torchscript', False)
+        self.use_bfloat16 = kwargs.pop('use_bfloat16', False)
+        self.pruned_heads = kwargs.pop('pruned_heads', {})
+
+    def save_pretrained(self, save_directory):
+        """ Save a configuration object to the directory `save_directory`, so that it
+            can be re-loaded using the :func:`~transformers.PretrainedConfig.from_pretrained` class method.
+        """
+        assert os.path.isdir(save_directory
+            ), 'Saving path should be a directory where the model and configuration can be saved'
+        output_config_file = os.path.join(save_directory, CONFIG_NAME)
+        self.to_json_file(output_config_file)
+        logger.info('Configuration saved in {}'.format(output_config_file))
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        """ Instantiate a :class:`~transformers.PretrainedConfig` (or a derived class) from a pre-trained model configuration.
+
+        Parameters:
+            pretrained_model_name_or_path: either:
+
+                - a string with the `shortcut name` of a pre-trained model configuration to load from cache or download, e.g.: ``bert-base-uncased``.
+                - a path to a `directory` containing a configuration file saved using the :func:`~transformers.PretrainedConfig.save_pretrained` method, e.g.: ``./my_model_directory/``.
+                - a path or url to a saved configuration JSON `file`, e.g.: ``./my_model_directory/configuration.json``.
+
+            cache_dir: (`optional`) string:
+                Path to a directory in which a downloaded pre-trained model
+                configuration should be cached if the standard cache should not be used.
+
+            kwargs: (`optional`) dict: key/value pairs with which to update the configuration object after loading.
+
+                - The values in kwargs of any keys which are configuration attributes will be used to override the loaded values.
+                - Behavior concerning key/value pairs whose keys are *not* configuration attributes is controlled by the `return_unused_kwargs` keyword parameter.
+
+            force_download: (`optional`) boolean, default False:
+                Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            proxies: (`optional`) dict, default None:
+                A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
+                The proxies are used on each request.
+
+            return_unused_kwargs: (`optional`) bool:
+
+                - If False, then this function returns just the final configuration object.
+                - If True, then this functions returns a tuple `(config, unused_kwargs)` where `unused_kwargs` is a dictionary consisting of the key/value pairs whose keys are not configuration attributes: ie the part of kwargs which has not been used to update `config` and is otherwise ignored.
+
+        Examples::
+
+            # We can't instantiate directly the base class `PretrainedConfig` so let's show the examples on a
+            # derived class: BertConfig
+            config = BertConfig.from_pretrained('bert-base-uncased')    # Download configuration from S3 and cache.
+            config = BertConfig.from_pretrained('./test/saved_model/')  # E.g. config (or model) was saved using `save_pretrained('./test/saved_model/')`
+            config = BertConfig.from_pretrained('./test/saved_model/my_configuration.json')
+            config = BertConfig.from_pretrained('bert-base-uncased', output_attention=True, foo=False)
+            assert config.output_attention == True
+            config, unused_kwargs = BertConfig.from_pretrained('bert-base-uncased', output_attention=True,
+                                                               foo=False, return_unused_kwargs=True)
+            assert config.output_attention == True
+            assert unused_kwargs == {'foo': False}
+
+        """
+        cache_dir = kwargs.pop('cache_dir', None)
+        force_download = kwargs.pop('force_download', False)
+        proxies = kwargs.pop('proxies', None)
+        return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
+        if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
+            config_file = cls.pretrained_config_archive_map[
+                pretrained_model_name_or_path]
+        elif os.path.isdir(pretrained_model_name_or_path):
+            config_file = os.path.join(pretrained_model_name_or_path,
+                CONFIG_NAME)
+        else:
+            config_file = pretrained_model_name_or_path
+        try:
+            resolved_config_file = cached_path(config_file, cache_dir=
+                cache_dir, force_download=force_download, proxies=proxies)
+        except EnvironmentError:
+            if (pretrained_model_name_or_path in cls.
+                pretrained_config_archive_map):
+                msg = (
+                    "Couldn't reach server at '{}' to download pretrained model configuration file."
+                    .format(config_file))
+            else:
+                msg = (
+                    "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to a configuration file named {} or a directory containing such a file but couldn't find any such file at this path or url."
+                    .format(pretrained_model_name_or_path, ', '.join(cls.
+                    pretrained_config_archive_map.keys()), config_file,
+                    CONFIG_NAME))
+            raise EnvironmentError(msg)
+        if resolved_config_file == config_file:
+            logger.info('loading configuration file {}'.format(config_file))
+        else:
+            logger.info('loading configuration file {} from cache at {}'.
+                format(config_file, resolved_config_file))
+        config = cls.from_json_file(resolved_config_file)
+        if hasattr(config, 'pruned_heads'):
+            config.pruned_heads = dict((int(key), value) for key, value in
+                config.pruned_heads.items())
+        to_remove = []
+        for key, value in kwargs.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+                to_remove.append(key)
+        for key in to_remove:
+            kwargs.pop(key, None)
+        logger.info('Model config %s', str(config))
+        if return_unused_kwargs:
+            return config, kwargs
+        else:
+            return config
+
+    @classmethod
+    def from_dict(cls, json_object):
+        """Constructs a `Config` from a Python dictionary of parameters."""
+        config = cls(vocab_size_or_config_json_file=-1)
+        for key, value in json_object.items():
+            setattr(config, key, value)
+        return config
+
+    @classmethod
+    def from_json_file(cls, json_file):
+        """Constructs a `BertConfig` from a json file of parameters."""
+        with open(json_file, 'r', encoding='utf-8') as reader:
+            text = reader.read()
+        return cls.from_dict(json.loads(text))
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return str(self.to_json_string())
+
+    def to_dict(self):
+        """Serializes this instance to a Python dictionary."""
+        output = copy.deepcopy(self.__dict__)
+        return output
+
+    def to_json_string(self):
+        """Serializes this instance to a JSON string."""
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
+
+    def to_json_file(self, json_file_path):
+        """ Save this instance to a json file."""
+        with open(json_file_path, 'w', encoding='utf-8') as writer:
+            writer.write(self.to_json_string())
+
+
+TF2_WEIGHTS_NAME = 'tf_model.h5'
+
+
+TF_WEIGHTS_NAME = 'model.ckpt'
+
+
+WEIGHTS_NAME = 'pytorch_model.bin'
+
+
+class PreTrainedModel(nn.Module):
+    """ Base class for all models.
+
+        :class:`~transformers.PreTrainedModel` takes care of storing the configuration of the models and handles methods for loading/downloading/saving models
+        as well as a few methods commons to all models to (i) resize the input embeddings and (ii) prune heads in the self-attention heads.
+
+        Class attributes (overridden by derived classes):
+            - ``config_class``: a class derived from :class:`~transformers.PretrainedConfig` to use as configuration class for this model architecture.
+            - ``pretrained_model_archive_map``: a python ``dict`` of with `short-cut-names` (string) as keys and `url` (string) of associated pretrained weights as values.
+            - ``load_tf_weights``: a python ``method`` for loading a TensorFlow checkpoint in a PyTorch model, taking as arguments:
+
+                - ``model``: an instance of the relevant subclass of :class:`~transformers.PreTrainedModel`,
+                - ``config``: an instance of the relevant subclass of :class:`~transformers.PretrainedConfig`,
+                - ``path``: a path (string) to the TensorFlow checkpoint.
+
+            - ``base_model_prefix``: a string indicating the attribute associated to the base model in derived classes of the same architecture adding modules on top of the base model.
+    """
+    config_class = None
+    pretrained_model_archive_map = {}
+    load_tf_weights = lambda model, config, path: None
+    base_model_prefix = ''
+
+    def __init__(self, config, *inputs, **kwargs):
+        super(PreTrainedModel, self).__init__()
+        if not isinstance(config, PretrainedConfig):
+            raise ValueError(
+                'Parameter config in `{}(config)` should be an instance of class `PretrainedConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
+                .format(self.__class__.__name__, self.__class__.__name__))
+        self.config = config
+
+    def _get_resized_embeddings(self, old_embeddings, new_num_tokens=None):
+        """ Build a resized Embedding Module from a provided token Embedding Module.
+            Increasing the size will add newly initialized vectors at the end
+            Reducing the size will remove vectors from the end
+
+        Args:
+            new_num_tokens: (`optional`) int
+                New number of tokens in the embedding matrix.
+                Increasing the size will add newly initialized vectors at the end
+                Reducing the size will remove vectors from the end
+                If not provided or None: return the provided token Embedding Module.
+        Return: ``torch.nn.Embeddings``
+            Pointer to the resized Embedding Module or the old Embedding Module if new_num_tokens is None
+        """
+        if new_num_tokens is None:
+            return old_embeddings
+        old_num_tokens, old_embedding_dim = old_embeddings.weight.size()
+        if old_num_tokens == new_num_tokens:
+            return old_embeddings
+        new_embeddings = nn.Embedding(new_num_tokens, old_embedding_dim)
+        new_embeddings
+        self._init_weights(new_embeddings)
+        num_tokens_to_copy = min(old_num_tokens, new_num_tokens)
+        new_embeddings.weight.data[:num_tokens_to_copy, :
+            ] = old_embeddings.weight.data[:num_tokens_to_copy, :]
+        return new_embeddings
+
+    def _tie_or_clone_weights(self, first_module, second_module):
+        """ Tie or clone module weights depending of weither we are using TorchScript or not
+        """
+        if self.config.torchscript:
+            first_module.weight = nn.Parameter(second_module.weight.clone())
+        else:
+            first_module.weight = second_module.weight
+        if hasattr(first_module, 'bias') and first_module.bias is not None:
+            first_module.bias.data = torch.nn.functional.pad(first_module.
+                bias.data, (0, first_module.weight.shape[0] - first_module.
+                bias.shape[0]), 'constant', 0)
+
+    def _tie_or_clone_data(self, first_module, second_module):
+        """ Tie or clone module weights depending of weither we are using TorchScript or not
+        """
+        if self.config.torchscript:
+            first_module.weight.data = nn.Parameter(second_module.weight.
+                data.t().clone())
+        else:
+            first_module.weight.data = second_module.weight.data.t()
+        if hasattr(first_module, 'bias') and first_module.bias is not None:
+            first_module.bias.data = torch.nn.functional.pad(first_module.
+                bias.data, (0, first_module.weight.shape[0] - first_module.
+                bias.shape[0]), 'constant', 0)
+
+    def resize_token_embeddings(self, new_num_tokens=None):
+        """ Resize input token embeddings matrix of the model if new_num_tokens != config.vocab_size.
+        Take care of tying weights embeddings afterwards if the model class has a `tie_weights()` method.
+
+        Arguments:
+
+            new_num_tokens: (`optional`) int:
+                New number of tokens in the embedding matrix. Increasing the size will add newly initialized vectors at the end. Reducing the size will remove vectors from the end.
+                If not provided or None: does nothing and just returns a pointer to the input tokens ``torch.nn.Embeddings`` Module of the model.
+
+        Return: ``torch.nn.Embeddings``
+            Pointer to the input tokens Embeddings Module of the model
+        """
+        base_model = getattr(self, self.base_model_prefix, self)
+        model_embeds = base_model._resize_token_embeddings(new_num_tokens)
+        if new_num_tokens is None:
+            return model_embeds
+        self.config.vocab_size = new_num_tokens
+        base_model.vocab_size = new_num_tokens
+        if hasattr(self, 'tie_weights'):
+            self.tie_weights()
+        return model_embeds
+
+    def init_weights(self):
+        """ Initialize and prunes weights if needed. """
+        self.apply(self._init_weights)
+        if self.config.pruned_heads:
+            self.prune_heads(self.config.pruned_heads)
+
+    def prune_heads(self, heads_to_prune):
+        """ Prunes heads of the base model.
+
+            Arguments:
+
+                heads_to_prune: dict with keys being selected layer indices (`int`) and associated values being the list of heads to prune in said layer (list of `int`).
+                E.g. {1: [0, 2], 2: [2, 3]} will prune heads 0 and 2 on layer 1 and heads 2 and 3 on layer 2.
+        """
+        base_model = getattr(self, self.base_model_prefix, self)
+        for layer, heads in heads_to_prune.items():
+            union_heads = set(self.config.pruned_heads.get(layer, [])) | set(
+                heads)
+            self.config.pruned_heads[layer] = list(union_heads)
+        base_model._prune_heads(heads_to_prune)
+
+    def save_pretrained(self, save_directory):
+        """ Save a model and its configuration file to a directory, so that it
+            can be re-loaded using the `:func:`~transformers.PreTrainedModel.from_pretrained`` class method.
+        """
+        assert os.path.isdir(save_directory
+            ), 'Saving path should be a directory where the model and configuration can be saved'
+        model_to_save = self.module if hasattr(self, 'module') else self
+        model_to_save.config.save_pretrained(save_directory)
+        output_model_file = os.path.join(save_directory, WEIGHTS_NAME)
+        torch.save(model_to_save.state_dict(), output_model_file)
+        logger.info('Model weights saved in {}'.format(output_model_file))
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **
+        kwargs):
+        """Instantiate a pretrained pytorch model from a pre-trained model configuration.
+
+        The model is set in evaluation mode by default using ``model.eval()`` (Dropout modules are deactivated)
+        To train the model, you should first set it back in training mode with ``model.train()``
+
+        The warning ``Weights from XXX not initialized from pretrained model`` means that the weights of XXX do not come pre-trained with the rest of the model.
+        It is up to you to train those weights with a downstream fine-tuning task.
+
+        The warning ``Weights from XXX not used in YYY`` means that the layer XXX is not used by YYY, therefore those weights are discarded.
+
+        Parameters:
+            pretrained_model_name_or_path: either:
+
+                - a string with the `shortcut name` of a pre-trained model to load from cache or download, e.g.: ``bert-base-uncased``.
+                - a path to a `directory` containing model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`, e.g.: ``./my_model_directory/``.
+                - a path or url to a `tensorflow index checkpoint file` (e.g. `./tf_model/model.ckpt.index`). In this case, ``from_tf`` should be set to True and a configuration object should be provided as ``config`` argument. This loading path is slower than converting the TensorFlow checkpoint in a PyTorch model using the provided conversion scripts and loading the PyTorch model afterwards.
+                - None if you are both providing the configuration and state dictionary (resp. with keyword arguments ``config`` and ``state_dict``)
+
+            model_args: (`optional`) Sequence of positional arguments:
+                All remaning positional arguments will be passed to the underlying model's ``__init__`` method
+
+            config: (`optional`) instance of a class derived from :class:`~transformers.PretrainedConfig`:
+                Configuration for the model to use instead of an automatically loaded configuation. Configuration can be automatically loaded when:
+
+                - the model is a model provided by the library (loaded with the ``shortcut-name`` string of a pretrained model), or
+                - the model was saved using :func:`~transformers.PreTrainedModel.save_pretrained` and is reloaded by suppling the save directory.
+                - the model is loaded by suppling a local directory as ``pretrained_model_name_or_path`` and a configuration JSON file named `config.json` is found in the directory.
+
+            state_dict: (`optional`) dict:
+                an optional state dictionnary for the model to use instead of a state dictionary loaded from saved weights file.
+                This option can be used if you want to create a model from a pretrained configuration but load your own weights.
+                In this case though, you should check if using :func:`~transformers.PreTrainedModel.save_pretrained` and :func:`~transformers.PreTrainedModel.from_pretrained` is not a simpler option.
+
+            cache_dir: (`optional`) string:
+                Path to a directory in which a downloaded pre-trained model
+                configuration should be cached if the standard cache should not be used.
+
+            force_download: (`optional`) boolean, default False:
+                Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            proxies: (`optional`) dict, default None:
+                A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
+                The proxies are used on each request.
+
+            output_loading_info: (`optional`) boolean:
+                Set to ``True`` to also return a dictionnary containing missing keys, unexpected keys and error messages.
+
+            kwargs: (`optional`) Remaining dictionary of keyword arguments:
+                Can be used to update the configuration object (after it being loaded) and initiate the model. (e.g. ``output_attention=True``). Behave differently depending on whether a `config` is provided or automatically loaded:
+
+                - If a configuration is provided with ``config``, ``**kwargs`` will be directly passed to the underlying model's ``__init__`` method (we assume all relevant updates to the configuration have already been done)
+                - If a configuration is not provided, ``kwargs`` will be first passed to the configuration class initialization function (:func:`~transformers.PretrainedConfig.from_pretrained`). Each key of ``kwargs`` that corresponds to a configuration attribute will be used to override said attribute with the supplied ``kwargs`` value. Remaining keys that do not correspond to any configuration attribute will be passed to the underlying model's ``__init__`` function.
+
+        Examples::
+
+            model = BertModel.from_pretrained('bert-base-uncased')    # Download model and configuration from S3 and cache.
+            model = BertModel.from_pretrained('./test/saved_model/')  # E.g. model was saved using `save_pretrained('./test/saved_model/')`
+            model = BertModel.from_pretrained('bert-base-uncased', output_attention=True)  # Update configuration during loading
+            assert model.config.output_attention == True
+            # Loading from a TF checkpoint file instead of a PyTorch model (slower)
+            config = BertConfig.from_json_file('./tf_model/my_tf_model_config.json')
+            model = BertModel.from_pretrained('./tf_model/my_tf_checkpoint.ckpt.index', from_tf=True, config=config)
+
+        """
+        config = kwargs.pop('config', None)
+        state_dict = kwargs.pop('state_dict', None)
+        cache_dir = kwargs.pop('cache_dir', None)
+        from_tf = kwargs.pop('from_tf', False)
+        force_download = kwargs.pop('force_download', False)
+        proxies = kwargs.pop('proxies', None)
+        output_loading_info = kwargs.pop('output_loading_info', False)
+        if config is None:
+            config, model_kwargs = cls.config_class.from_pretrained(
+                pretrained_model_name_or_path, *model_args, cache_dir=
+                cache_dir, return_unused_kwargs=True, force_download=
+                force_download, **kwargs)
+        else:
+            model_kwargs = kwargs
+        if pretrained_model_name_or_path is not None:
+            if (pretrained_model_name_or_path in cls.
+                pretrained_model_archive_map):
+                archive_file = cls.pretrained_model_archive_map[
+                    pretrained_model_name_or_path]
+            elif os.path.isdir(pretrained_model_name_or_path):
+                if from_tf and os.path.isfile(os.path.join(
+                    pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')
+                    ):
+                    archive_file = os.path.join(pretrained_model_name_or_path,
+                        TF_WEIGHTS_NAME + '.index')
+                elif from_tf and os.path.isfile(os.path.join(
+                    pretrained_model_name_or_path, TF2_WEIGHTS_NAME)):
+                    archive_file = os.path.join(pretrained_model_name_or_path,
+                        TF2_WEIGHTS_NAME)
+                elif os.path.isfile(os.path.join(
+                    pretrained_model_name_or_path, WEIGHTS_NAME)):
+                    archive_file = os.path.join(pretrained_model_name_or_path,
+                        WEIGHTS_NAME)
+                else:
+                    raise EnvironmentError(
+                        'Error no file named {} found in directory {} or `from_tf` set to False'
+                        .format([WEIGHTS_NAME, TF2_WEIGHTS_NAME, 
+                        TF_WEIGHTS_NAME + '.index'],
+                        pretrained_model_name_or_path))
+            elif os.path.isfile(pretrained_model_name_or_path):
+                archive_file = pretrained_model_name_or_path
+            else:
+                assert from_tf, 'Error finding file {}, no file or TF 1.X checkpoint found'.format(
+                    pretrained_model_name_or_path)
+                archive_file = pretrained_model_name_or_path + '.index'
+            try:
+                resolved_archive_file = cached_path(archive_file, cache_dir
+                    =cache_dir, force_download=force_download, proxies=proxies)
+            except EnvironmentError:
+                if (pretrained_model_name_or_path in cls.
+                    pretrained_model_archive_map):
+                    msg = (
+                        "Couldn't reach server at '{}' to download pretrained weights."
+                        .format(archive_file))
+                else:
+                    msg = (
+                        "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to model weight files named one of {} but couldn't find any such file at this path or url."
+                        .format(pretrained_model_name_or_path, ', '.join(
+                        cls.pretrained_model_archive_map.keys()),
+                        archive_file, [WEIGHTS_NAME, TF2_WEIGHTS_NAME,
+                        TF_WEIGHTS_NAME]))
+                raise EnvironmentError(msg)
+            if resolved_archive_file == archive_file:
+                logger.info('loading weights file {}'.format(archive_file))
+            else:
+                logger.info('loading weights file {} from cache at {}'.
+                    format(archive_file, resolved_archive_file))
+        else:
+            resolved_archive_file = None
+        model = cls(config, *model_args, **model_kwargs)
+        if state_dict is None and not from_tf:
+            state_dict = torch.load(resolved_archive_file, map_location='cpu')
+        missing_keys = []
+        unexpected_keys = []
+        error_msgs = []
+        if from_tf:
+            if resolved_archive_file.endswith('.index'):
+                model = cls.load_tf_weights(model, config,
+                    resolved_archive_file[:-6])
+            else:
+                try:
+                    model = load_tf2_checkpoint_in_pytorch_model(model,
+                        resolved_archive_file, allow_missing_keys=True)
+                except ImportError as e:
+                    logger.error(
+                        'Loading a TensorFlow model in PyTorch, requires both PyTorch and TensorFlow to be installed. Please see https://pytorch.org/ and https://www.tensorflow.org/install/ for installation instructions.'
+                        )
+                    raise e
+        else:
+            old_keys = []
+            new_keys = []
+            for key in state_dict.keys():
+                new_key = None
+                if 'gamma' in key:
+                    new_key = key.replace('gamma', 'weight')
+                if 'beta' in key:
+                    new_key = key.replace('beta', 'bias')
+                if new_key:
+                    old_keys.append(key)
+                    new_keys.append(new_key)
+            for old_key, new_key in zip(old_keys, new_keys):
+                state_dict[new_key] = state_dict.pop(old_key)
+            metadata = getattr(state_dict, '_metadata', None)
+            state_dict = state_dict.copy()
+            if metadata is not None:
+                state_dict._metadata = metadata
+
+            def load(module, prefix=''):
+                local_metadata = {} if metadata is None else metadata.get(
+                    prefix[:-1], {})
+                module._load_from_state_dict(state_dict, prefix,
+                    local_metadata, True, missing_keys, unexpected_keys,
+                    error_msgs)
+                for name, child in module._modules.items():
+                    if child is not None:
+                        load(child, prefix + name + '.')
+            start_prefix = ''
+            model_to_load = model
+            if not hasattr(model, cls.base_model_prefix) and any(s.
+                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+                start_prefix = cls.base_model_prefix + '.'
+            if hasattr(model, cls.base_model_prefix) and not any(s.
+                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+                model_to_load = getattr(model, cls.base_model_prefix)
+            load(model_to_load, prefix=start_prefix)
+            if len(missing_keys) > 0:
+                logger.info(
+                    'Weights of {} not initialized from pretrained model: {}'
+                    .format(model.__class__.__name__, missing_keys))
+            if len(unexpected_keys) > 0:
+                logger.info('Weights from pretrained model not used in {}: {}'
+                    .format(model.__class__.__name__, unexpected_keys))
+            if len(error_msgs) > 0:
+                raise RuntimeError(
+                    'Error(s) in loading state_dict for {}:\n\t{}'.format(
+                    model.__class__.__name__, '\n\t'.join(error_msgs)))
+        if hasattr(model, 'tie_weights'):
+            model.tie_weights()
+        model.eval()
+        if output_loading_info:
+            loading_info = {'missing_keys': missing_keys, 'unexpected_keys':
+                unexpected_keys, 'error_msgs': error_msgs}
+            return model, loading_info
+        return model
+
+
 class Conv1D(nn.Module):
 
     def __init__(self, nf, nx):
@@ -3303,12 +3997,6 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
     }
 
 
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
-logger = logging.getLogger(__name__)
-
-
 class PreTrainedBertModel(nn.Module):
     """ An abstract class to handle weights initialization and
         a simple interface for dowloading and loading pretrained models.
@@ -3437,6 +4125,7 @@ class PreTrainedBertModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_CLUEbenchmark_CLUE(_paritybench_base):
@@ -3465,7 +4154,7 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_006(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
@@ -3477,7 +4166,7 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_011(self):
@@ -3494,34 +4183,38 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
         self._check(Embeddings(*[], **{'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_015(self):
-        self._check(FFN(*[], **{'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation=relu)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FFN(*[], **{'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation='relu')}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
         self._check(MRC_finetune(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_017(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {})
 
     @_fails_compile()
     def test_018(self):
+        self._check(MultiHeadSelfAttention(*[], **{'config': _mock_config(n_heads=4, dim=4, attention_dropout=0.5, output_attentions=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
         self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_022(self):
         self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_023(self):
         self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
 
-    def test_023(self):
+    def test_024(self):
         self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}), [torch.rand([4, 4, 4, 4])], {})
 

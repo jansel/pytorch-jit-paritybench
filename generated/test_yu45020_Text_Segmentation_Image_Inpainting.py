@@ -15,10 +15,13 @@ partial_convolution = _module
 text_segmentation = _module
 cls = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -52,10 +55,49 @@ from torch.nn.functional import pad
 from torch.utils.data import Dataset
 
 
+from torchvision.transforms import ColorJitter
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import RandomResizedCrop
+
+
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import Normalize
+
+
+from torchvision.transforms import transforms
+
+
+from torchvision.transforms import Grayscale
+
+
+from torchvision.transforms import RandomGrayscale
+
+
+from torchvision.transforms.functional import resized_crop
+
+
+from torchvision.transforms.functional import to_tensor
+
+
 import time
 
 
 from torch.nn import functional as F
+
+
+from torchvision.transforms.functional import to_pil_image
+
+
+from torchvision.utils import save_image
+
+
+import torchvision
 
 
 from torch.nn.parameter import Parameter
@@ -332,6 +374,7 @@ class DoubleUpSample(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yu45020_Text_Segmentation_Image_Inpainting(_paritybench_base):

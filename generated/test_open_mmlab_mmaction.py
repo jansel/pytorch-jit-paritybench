@@ -159,10 +159,13 @@ train_detector = _module
 train_localizer = _module
 train_recognizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -5849,8 +5852,8 @@ class SingleRoIExtractor(nn.Module):
         out_size = self.roi_layers[0].out_size
         num_levels = len(feats)
         target_lvls = self.map_roi_levels(rois, num_levels)
-        roi_feats = torch.cuda.FloatTensor(rois.size()[0], self.
-            out_channels, out_size, out_size).fill_(0)
+        roi_feats = torch.FloatTensor(rois.size()[0], self.out_channels,
+            out_size, out_size).fill_(0)
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
@@ -5939,8 +5942,8 @@ class SingleRoIStraight3DExtractor(nn.Module):
         out_size = self.roi_layers[0].out_size
         num_levels = len(feats)
         target_lvls = self.map_roi_levels(rois, num_levels)
-        roi_feats = torch.cuda.FloatTensor(rois.size()[0], self.
-            out_channels, t_size, out_size, out_size).fill_(0)
+        roi_feats = torch.FloatTensor(rois.size()[0], self.out_channels,
+            t_size, out_size, out_size).fill_(0)
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
@@ -6926,6 +6929,7 @@ class TrajConv(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_open_mmlab_mmaction(_paritybench_base):
@@ -6938,7 +6942,16 @@ class Test_open_mmlab_mmaction(_paritybench_base):
     def test_001(self):
         self._check(BBoxHead(*[], **{}), [torch.rand([12544, 12544])], {})
 
-    @_fails_compile()
     def test_002(self):
+        self._check(BNInception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
+        self._check(InceptionV1_I3D(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(STPPReorganized(*[], **{'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}), [torch.rand([0, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_005(self):
+        self._check(SimpleSpatialModule(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 

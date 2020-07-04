@@ -17,10 +17,13 @@ general_test = _module
 util_test = _module
 wavelet_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -137,7 +140,7 @@ class AdaptiveLossFunction(nn.Module):
         if isinstance(device, int) or isinstance(device, str
             ) and 'cuda' in device or isinstance(device, torch.device
             ) and device.type == 'cuda':
-            torch.cuda.set_device(self.device)
+            torch.set_device(self.device)
         self.distribution = distribution.Distribution()
         if alpha_lo == alpha_hi:
             self.fixed_alpha = torch.tensor(alpha_lo, dtype=self.
@@ -233,7 +236,7 @@ class StudentsTLossFunction(nn.Module):
         if isinstance(device, int) or isinstance(device, str
             ) and 'cuda' in device or isinstance(device, torch.device
             ) and device.type == 'cuda':
-            torch.cuda.set_device(self.device)
+            torch.set_device(self.device)
         self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)),
             requires_grad=True)
         self.register_parameter('log_df', self.log_df)
@@ -369,7 +372,7 @@ class AdaptiveImageLossFunction(nn.Module):
         if isinstance(device, int) or isinstance(device, str
             ) and 'cuda' in device or isinstance(device, torch.device
             ) and device.type == 'cuda':
-            torch.cuda.set_device(self.device)
+            torch.set_device(self.device)
         x_example = torch.zeros([1] + list(self.image_size)).type(self.
             float_dtype)
         x_example_mat = self.transform_to_mat(x_example)
@@ -417,6 +420,7 @@ class AdaptiveImageLossFunction(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jonbarron_robust_loss_pytorch(_paritybench_base):

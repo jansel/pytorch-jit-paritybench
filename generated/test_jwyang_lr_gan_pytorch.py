@@ -10,10 +10,13 @@ gridgen = _module
 stnm = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -51,6 +54,15 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
 
 
 class AffineGridGenFunction(Function):
@@ -506,8 +518,8 @@ class Depth3DGridGen_with_mask(Module):
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                cuda.FloatTensor) * (y.ge(0).type(torch.cuda.FloatTensor) -
-                y.lt(0).type(torch.cuda.FloatTensor))
+                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
+                type(torch.FloatTensor))
         else:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
                 FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
@@ -569,7 +581,211 @@ parser = argparse.ArgumentParser()
 opt = parser.parse_args()
 
 
+class _netG(nn.Module):
+
+    def __init__(self, ngpu, nsize):
+        super(_netG, self).__init__()
+        self.ngpu = ngpu
+        self.nsize_out = 2
+        self.lstmcell = nn.LSTMCell(nz, nz)
+        self.Gbgc, self.depth_in_bg = self.buildNetGbg(nsize)
+        self.Gbgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in_bg, nc, 
+            4, 2, 1, bias=True), nn.Tanh())
+        self.Gfgc, self.depth_in = self.buildNetGfg(nsize)
+        self.Gfgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in, nc, 4, 
+            2, 1, bias=False), nn.Tanh())
+        self.Gfgm = nn.Sequential(nn.ConvTranspose2d(self.depth_in, 1, 4, 2,
+            1, bias=True), nn.Sigmoid())
+        self.Gtransform = nn.Linear(nz, 6)
+        self.Gtransform.weight.data.zero_()
+        self.Gtransform.bias.data.zero_()
+        self.Gtransform.bias.data[0] = opt.maxobjscale
+        self.Gtransform.bias.data[4] = opt.maxobjscale
+        self.Ggrid = AffineGridGen(nsize, nsize, aux_loss=False)
+        self.Compositors = []
+        for t in range(ntimestep - 1):
+            self.Compositors.append(STNM())
+        self.encoderconv = self.buildEncoderConv(self.depth_in, nsize // 2,
+            self.nsize_out)
+        self.encoderfc = self.buildEncoderFC(self.depth_in, self.nsize_out, nz)
+        self.nlnet = nn.Sequential(nn.Linear(nz + nz, nz), nn.BatchNorm1d(
+            nz), nn.Tanh())
+
+    def buildNetGbg(self, nsize):
+        net = nn.Sequential()
+        size_map = 1
+        name = str(size_map)
+        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 4, 4, 4,
+            0, bias=True))
+        net.add_module('bn' + name, nn.BatchNorm2d(ngf * 4))
+        net.add_module('relu' + name, nn.ReLU(True))
+        size_map = 4
+        depth_in = 4 * ngf
+        depth_out = 2 * ngf
+        while size_map < nsize / 2:
+            name = str(size_map)
+            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in,
+                depth_out, 4, 2, 1, bias=True))
+            net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
+            net.add_module('relu' + name, nn.ReLU(True))
+            depth_in = depth_out
+            depth_out = max(depth_in // 2, 64)
+            size_map = size_map * 2
+        return net, depth_in
+
+    def buildNetGfg(self, nsize):
+        net = nn.Sequential()
+        size_map = 1
+        name = str(size_map)
+        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 8, 4, 4,
+            0, bias=False))
+        net.add_module('bn' + name, nn.BatchNorm2d(ngf * 8))
+        net.add_module('relu' + name, nn.ReLU(True))
+        size_map = 4
+        depth_in = 8 * ngf
+        depth_out = 4 * ngf
+        while size_map < nsize / 2:
+            name = str(size_map)
+            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in,
+                depth_out, 4, 2, 1, bias=False))
+            net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
+            net.add_module('relu' + name, nn.ReLU(True))
+            depth_in = depth_out
+            depth_out = max(depth_in // 2, 64)
+            size_map = size_map * 2
+        return net, depth_in
+
+    def buildEncoderConv(self, depth_in, nsize_in, nsize_out):
+        net = nn.Sequential()
+        nsize_i = nsize_in
+        while nsize_i > nsize_out:
+            name = str(nsize_i)
+            net.add_module('avgpool' + name, nn.AvgPool2d(4, 2, 1))
+            net.add_module('bn' + name, nn.BatchNorm2d(depth_in))
+            net.add_module('lrelu' + name, nn.LeakyReLU(0.2, inplace=True))
+            nsize_i = nsize_i // 2
+        return net
+
+    def buildEncoderFC(self, depth_in, nsize_in, out_dim):
+        net = nn.Sequential(nn.Linear(depth_in * nsize_in * nsize_in,
+            out_dim), nn.BatchNorm1d(out_dim), nn.Tanh())
+        return net
+
+    def clampT(self, Tin):
+        x_s = Tin.select(1, 0)
+        x_r = Tin.select(1, 1)
+        x_t = Tin.select(1, 2)
+        y_r = Tin.select(1, 3)
+        y_s = Tin.select(1, 4)
+        y_t = Tin.select(1, 5)
+        x_s_clamp = torch.unsqueeze(x_s.clamp(opt.maxobjscale, 2 * opt.
+            maxobjscale), 1)
+        x_r_clmap = torch.unsqueeze(x_r.clamp(-rot, rot), 1)
+        x_t_clmap = torch.unsqueeze(x_t.clamp(-1.0, 1.0), 1)
+        y_r_clamp = torch.unsqueeze(y_r.clamp(-rot, rot), 1)
+        y_s_clamp = torch.unsqueeze(y_s.clamp(opt.maxobjscale, 2 * opt.
+            maxobjscale), 1)
+        y_t_clamp = torch.unsqueeze(y_t.clamp(-1.0, 1.0), 1)
+        Tout = torch.cat([x_s_clamp, x_r_clmap, x_t_clmap, y_r_clamp,
+            y_s_clamp, y_t_clamp], 1)
+        return Tout
+
+    def forward(self, input):
+        batchSize = input.size()[1]
+        hx = Variable(torch.zeros(batchSize, nz))
+        cx = Variable(torch.zeros(batchSize, nz))
+        outputsT = []
+        fgimgsT = []
+        fgmaskT = []
+        for i in range(ntimestep):
+            hx, cx = self.lstmcell(input[i], (hx, cx))
+            hx_view = hx.contiguous().view(batchSize, nz, 1, 1)
+            if i == 0:
+                input_view = input[i].view(batchSize, nz, 1, 1)
+                bgc = self.Gbgc(input_view)
+                canvas = self.Gbgi(bgc)
+                outputsT.append(canvas)
+            else:
+                if ntimestep > 2 and i == 1:
+                    encConv = self.encoderconv(bgc)
+                    encConv_view = encConv.view(batchSize, self.depth_in *
+                        self.nsize_out * self.nsize_out)
+                    encFC = self.encoderfc(encConv_view)
+                    concat = torch.cat([hx, encFC], 1)
+                    comb = self.nlnet(concat)
+                    input4g = comb
+                    input4g_view = input4g.contiguous().view(batchSize, nz,
+                        1, 1)
+                elif ntimestep > 2 and i > 1:
+                    encConv = self.encoderconv(fgc)
+                    encConv_view = encConv.view(batchSize, self.depth_in *
+                        self.nsize_out * self.nsize_out)
+                    encFC = self.encoderfc(encConv_view)
+                    concat = torch.cat([hx, encFC], 1)
+                    comb = self.nlnet(concat)
+                    input4g = comb
+                    input4g_view = input4g.contiguous().view(batchSize, nz,
+                        1, 1)
+                else:
+                    input4g = hx
+                    input4g_view = hx_view
+                fgc = self.Gfgc(input4g_view)
+                fgi = self.Gfgi(fgc)
+                fgm = self.Gfgm(fgc)
+                fgt = self.Gtransform(input4g)
+                fgt_clamp = self.clampT(fgt)
+                fgt_view = fgt_clamp.contiguous().view(batchSize, 2, 3)
+                fgg = self.Ggrid(fgt_view)
+                canvas4c = canvas.permute(0, 2, 3, 1).contiguous()
+                fgi4c = fgi.permute(0, 2, 3, 1).contiguous()
+                fgm4c = fgm.permute(0, 2, 3, 1).contiguous()
+                temp = self.Compositors[i - 1](canvas4c, fgi4c, fgg, fgm4c)
+                canvas = temp.permute(0, 3, 1, 2).contiguous()
+                outputsT.append(canvas)
+                fgimgsT.append(fgi)
+                fgmaskT.append(fgm)
+        return outputsT[ntimestep - 1], outputsT, fgimgsT, fgmaskT
+
+
+class _netD(nn.Module):
+
+    def __init__(self, ngpu, nsize):
+        super(_netD, self).__init__()
+        self.ngpu = ngpu
+        self.main = self.buildNet(nsize)
+
+    def buildNet(self, nsize):
+        net = nn.Sequential()
+        depth_in = nc
+        depth_out = ndf
+        size_map = nsize
+        while size_map > 4:
+            name = str(size_map)
+            net.add_module('conv' + name, nn.Conv2d(depth_in, depth_out, 4,
+                2, 1, bias=False))
+            if size_map < nsize:
+                net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
+            net.add_module('lrelu' + name, nn.LeakyReLU(0.2, inplace=True))
+            depth_in = depth_out
+            depth_out = 2 * depth_in
+            size_map = size_map // 2
+        name = str(size_map)
+        net.add_module('conv' + name, nn.Conv2d(depth_in, 1, 4, 1, 0, bias=
+            False))
+        net.add_module('sigmoid' + name, nn.Sigmoid())
+        return net
+
+    def forward(self, input):
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output.view(-1, 1)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jwyang_lr_gan_pytorch(_paritybench_base):

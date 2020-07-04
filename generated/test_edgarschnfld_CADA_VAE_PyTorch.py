@@ -7,10 +7,13 @@ models = _module
 single_experiment = _module
 vaemodel = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -191,7 +194,7 @@ class Model(nn.Module):
     def reparameterize(self, mu, logvar):
         if self.reparameterize_with_noise:
             sigma = torch.exp(logvar)
-            eps = torch.cuda.FloatTensor(logvar.size()[0], 1).normal_(0, 1)
+            eps = torch.FloatTensor(logvar.size()[0], 1).normal_(0, 1)
             eps = eps.expand(sigma.size())
             return mu + sigma * eps
         else:
@@ -231,20 +234,20 @@ class Model(nn.Module):
             ['end_epoch'] - self.warmup['cross_reconstruction']['start_epoch'])
             )
         f1 = f1 * (1.0 * self.warmup['cross_reconstruction']['factor'])
-        cross_reconstruction_factor = torch.cuda.FloatTensor([min(max(f1, 0
-            ), self.warmup['cross_reconstruction']['factor'])])
+        cross_reconstruction_factor = torch.FloatTensor([min(max(f1, 0),
+            self.warmup['cross_reconstruction']['factor'])])
         f2 = 1.0 * (self.current_epoch - self.warmup['beta']['start_epoch']
             ) / (1.0 * (self.warmup['beta']['end_epoch'] - self.warmup[
             'beta']['start_epoch']))
         f2 = f2 * (1.0 * self.warmup['beta']['factor'])
-        beta = torch.cuda.FloatTensor([min(max(f2, 0), self.warmup['beta'][
+        beta = torch.FloatTensor([min(max(f2, 0), self.warmup['beta'][
             'factor'])])
         f3 = 1.0 * (self.current_epoch - self.warmup['distance']['start_epoch']
             ) / (1.0 * (self.warmup['distance']['end_epoch'] - self.warmup[
             'distance']['start_epoch']))
         f3 = f3 * (1.0 * self.warmup['distance']['factor'])
-        distance_factor = torch.cuda.FloatTensor([min(max(f3, 0), self.
-            warmup['distance']['factor'])])
+        distance_factor = torch.FloatTensor([min(max(f3, 0), self.warmup[
+            'distance']['factor'])])
         self.optimizer.zero_grad()
         loss = reconstruction_loss - beta * KLD
         if cross_reconstruction_loss > 0:
@@ -342,9 +345,9 @@ class Model(nn.Module):
                     classes = label.unique()
                     for i, s in enumerate(classes):
                         features_of_that_class = features[(label == s), :]
-                        multiplier = torch.ceil(torch.cuda.FloatTensor([max
-                            (1, sample_per_class / features_of_that_class.
-                            size(0))])).long().item()
+                        multiplier = torch.ceil(torch.FloatTensor([max(1, 
+                            sample_per_class / features_of_that_class.size(
+                            0))])).long().item()
                         features_of_that_class = features_of_that_class.repeat(
                             multiplier, 1)
                         if i == 0:
@@ -359,8 +362,7 @@ class Model(nn.Module):
                                 s.repeat(sample_per_class)), dim=0)
                     return features_to_return, labels_to_return
                 else:
-                    return torch.cuda.FloatTensor([]), torch.cuda.LongTensor([]
-                        )
+                    return torch.FloatTensor([]), torch.LongTensor([])
             img_seen_feat, img_seen_label = (
                 sample_train_data_on_sample_per_class_basis(train_seen_feat,
                 train_seen_label, self.img_seen_samples))
@@ -383,7 +385,7 @@ class Model(nn.Module):
                     z = self.reparameterize(mu_, logvar_)
                     return z
                 else:
-                    return torch.cuda.FloatTensor([])
+                    return torch.FloatTensor([])
             z_seen_img = convert_datapoints_to_z(img_seen_feat, self.
                 encoder['resnet_features'])
             z_unseen_img = convert_datapoints_to_z(img_unseen_feat, self.
@@ -426,6 +428,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_edgarschnfld_CADA_VAE_PyTorch(_paritybench_base):
@@ -434,5 +437,5 @@ class Test_edgarschnfld_CADA_VAE_PyTorch(_paritybench_base):
         self._check(LINEAR_LOGSOFTMAX(*[], **{'input_dim': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(encoder_template(*[], **{'input_dim': 4, 'latent_size': 4, 'hidden_size_rule': [4, 4], 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(encoder_template(*[], **{'input_dim': 4, 'latent_size': 4, 'hidden_size_rule': [4, 4], 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
 

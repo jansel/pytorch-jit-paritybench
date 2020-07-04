@@ -10,10 +10,13 @@ train_paper_field = _module
 train_paper_venue = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +64,30 @@ class RelTemporalEncoding(nn.Module):
 
     def forward(self, x, t):
         return x + self.lin(self.drop(self.emb(t)))
+
+
+class GeneralConv(nn.Module):
+
+    def __init__(self, conv_name, in_hid, out_hid, num_types, num_relations,
+        n_heads, dropout):
+        super(GeneralConv, self).__init__()
+        self.conv_name = conv_name
+        if self.conv_name == 'hgt':
+            self.base_conv = HGTConv(in_hid, out_hid, num_types,
+                num_relations, n_heads, dropout)
+        elif self.conv_name == 'gcn':
+            self.base_conv = GCNConv(in_hid, out_hid)
+        elif self.conv_name == 'gat':
+            self.base_conv = GATConv(in_hid, out_hid // n_heads, heads=n_heads)
+
+    def forward(self, meta_xs, node_type, edge_index, edge_type, edge_time):
+        if self.conv_name == 'hgt':
+            return self.base_conv(meta_xs, node_type, edge_index, edge_type,
+                edge_time)
+        elif self.conv_name == 'gcn':
+            return self.base_conv(meta_xs, edge_index)
+        elif self.conv_name == 'gat':
+            return self.base_conv(meta_xs, edge_index)
 
 
 class Classifier(nn.Module):
@@ -151,6 +178,7 @@ class GNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_acbull_pyHGT(_paritybench_base):
@@ -160,8 +188,12 @@ class Test_acbull_pyHGT(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(GeneralConv(*[], **{'conv_name': 4, 'in_hid': 4, 'out_hid': 4, 'num_types': 4, 'num_relations': 4, 'n_heads': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(Matcher(*[], **{'n_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(RelTemporalEncoding(*[], **{'n_hid': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

@@ -122,10 +122,13 @@ module = _module
 setup = _module
 test_flask = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -139,6 +142,9 @@ import torch
 
 
 import torch.nn as nn
+
+
+from torchtext.vocab import Vectors
 
 
 from torch.nn.utils.rnn import pack_padded_sequence
@@ -263,7 +269,7 @@ class BaseModel(nn.Module):
 
     def load(self, path=None):
         path = path if path else self.save_path
-        map_location = None if torch.cuda.is_available() else 'cpu'
+        map_location = None if torch.is_available() else 'cpu'
         model_path = os.path.join(path, 'model.pkl')
         self.load_state_dict(torch.load(model_path, map_location=map_location))
         logger.info('loadding model from {}'.format(model_path))
@@ -755,6 +761,265 @@ def light_tokenize(sequence: str):
     return [sequence]
 
 
+class POS(Module):
+    """
+    """
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+        self._tag_vocab = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = pos_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = pos_tool.get_dataset(dev_path)
+            word_vocab, tag_vocab = pos_tool.get_vocab(train_dataset,
+                dev_dataset)
+        else:
+            word_vocab, tag_vocab = pos_tool.get_vocab(train_dataset)
+        self._word_vocab = word_vocab
+        self._tag_vocab = tag_vocab
+        train_iter = pos_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        config = Config(word_vocab, tag_vocab, save_path=save_path,
+            vector_path=vectors_path, **kwargs)
+        bilstmcrf = BiLstmCrf(config)
+        self._model = bilstmcrf
+        optim = torch.optim.Adam(bilstmcrf.parameters(), lr=config.lr)
+        for epoch in range(config.epoch):
+            bilstmcrf.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                bilstmcrf.zero_grad()
+                item_text_sentences = item.text[0]
+                item_text_lengths = item.text[1]
+                item_loss = -bilstmcrf.loss(item_text_sentences,
+                    item_text_lengths, item.tag) / item.tag.size(1)
+                acc_loss += item_loss.view(-1).cpu().data.tolist()[0]
+                item_loss.backward()
+                optim.step()
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('pos_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                writer.add_scalar('pos_train/dev_score', dev_score, epoch)
+            writer.flush()
+            adjust_learning_rate(optim, config.lr / (1 + (epoch + 1) *
+                config.lr_decay))
+        writer.close()
+        config.save()
+        bilstmcrf.save()
+
+    def predict(self, text):
+        self._model.eval()
+        vec_text = torch.tensor([self._word_vocab.stoi[x] for x in text])
+        len_text = torch.tensor([len(vec_text)]).to(DEVICE)
+        vec_predict = self._model(vec_text.view(-1, 1).to(DEVICE), len_text)[0]
+        tag_predict = [self._tag_vocab.itos[i] for i in vec_predict]
+        return bis_pos([x for x in text], tag_predict)
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = Config.load(save_path)
+        bilstmcrf = BiLstmCrf(config)
+        bilstmcrf.load()
+        self._model = bilstmcrf
+        self._word_vocab = config.word_vocab
+        self._tag_vocab = config.tag_vocab
+
+    def test(self, test_path):
+        test_dataset = pos_tool.get_dataset(test_path)
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        dev_score_list = []
+        for dev_item in tqdm(dev_dataset):
+            item_score = pos_tool.get_score(self._model, dev_item.text,
+                dev_item.tag, self._word_vocab, self._tag_vocab)
+            dev_score_list.append(item_score)
+        return sum(dev_score_list) / len(dev_score_list)
+
+    def deploy(self, route_path='/pos', host='localhost', port=None, debug=
+        False):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/predict', methods=['POST', 'GET'])
+        def predict():
+            text = request.args.get('text', '')
+            result = self.predict(text)
+            return flask.jsonify({'state': 'OK', 'result': {'result': result}})
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
+
+
+ROOT = '<ROOT>'
+
+
+def post_process(arr, _):
+    return [[int(item) for item in arr_item] for arr_item in arr]
+
+
+class GDP(Module):
+    """
+    """
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+        self._pos_vocab = None
+        self._ref_vocab = None
+        self._pad_index = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = gdp_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = gdp_tool.get_dataset(dev_path)
+            word_vocab, pos_vocab, head_vocab, ref_vocab = gdp_tool.get_vocab(
+                train_dataset, dev_dataset)
+        else:
+            word_vocab, pos_vocab, head_vocab, ref_vocab = gdp_tool.get_vocab(
+                train_dataset)
+        self._word_vocab = word_vocab
+        self._pos_vocab = pos_vocab
+        self._ref_vocab = ref_vocab
+        train_iter = gdp_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        config = Config(word_vocab, pos_vocab, ref_vocab, save_path=
+            save_path, vector_path=vectors_path, **kwargs)
+        biaffine_parser = BiaffineParser(config)
+        self._model = biaffine_parser
+        self._pad_index = config.pad_index
+        optim = torch.optim.Adam(biaffine_parser.parameters(), lr=config.lr,
+            betas=(config.beta_1, config.beta_2), eps=config.epsilon)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optim,
+            lr_lambda=lambda x: config.decay ** (x / config.decay_steps))
+        for epoch in range(config.epoch):
+            biaffine_parser.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                biaffine_parser.zero_grad()
+                words = item.word
+                tags = item.pos
+                refs = item.ref
+                arcs = item.head
+                mask = words.ne(config.pad_index)
+                mask[:, (0)] = 0
+                s_arc, s_rel = self._model(words, tags)
+                s_arc, s_rel = s_arc[mask], s_rel[mask]
+                gold_arcs, gold_rels = arcs[mask], refs[mask]
+                item_loss = self._get_loss(s_arc, s_rel, gold_arcs, gold_rels)
+                acc_loss += item_loss.cpu().item()
+                item_loss.backward()
+                nn.utils.clip_grad_norm_(self._model.parameters(), 5.0)
+                optim.step()
+                scheduler.step()
+            acc_loss /= len(train_iter)
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('gdp_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score, dev_metric = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                logger.info('metric:{}'.format(dev_metric))
+                writer.add_scalar('gdp_train/dev_score', dev_score, epoch)
+            writer.flush()
+        writer.close()
+        config.save()
+        biaffine_parser.save()
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = Config.load(save_path)
+        biaffine_parser = BiaffineParser(config)
+        biaffine_parser.load()
+        self._model = biaffine_parser
+        self._word_vocab = config.word_vocab
+        self._pos_vocab = config.pos_vocab
+        self._ref_vocab = config.ref_vocab
+        self._pad_index = config.pad_index
+        self._check_vocab()
+
+    def test(self, test_path):
+        test_dataset = gdp_tool.get_dataset(test_path)
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _check_vocab(self):
+        if not hasattr(WORD, 'vocab'):
+            WORD.vocab = self._word_vocab
+        if not hasattr(POS, 'vocab'):
+            POS.vocab = self._pos_vocab
+        if not hasattr(REF, 'vocab'):
+            REF.vocab = self._ref_vocab
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        loss, metric = 0, AttachmentMethod()
+        dev_iter = gdp_tool.get_iterator(dev_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        for dev_item in tqdm(dev_iter):
+            mask = dev_item.word.ne(self._pad_index)
+            mask[:, (0)] = 0
+            s_arc, s_rel = self._model(dev_item.word, dev_item.pos)
+            s_arc, s_rel = s_arc[mask], s_rel[mask]
+            gold_arcs, gold_rels = dev_item.head[mask], dev_item.ref[mask]
+            pred_arcs, pred_rels = self._decode(s_arc, s_rel)
+            loss += self._get_loss(s_arc, s_rel, gold_arcs, gold_rels)
+            metric(pred_arcs, pred_rels, gold_arcs, gold_rels)
+        loss /= len(dev_iter)
+        return loss, metric
+
+    def predict(self, word_list: list, pos_list: list):
+        self._model.eval()
+        assert len(word_list) == len(pos_list)
+        word_list.insert(0, ROOT)
+        pos_list.insert(0, ROOT)
+        vec_word = WORD.numericalize([word_list])
+        vec_pos = POS.numericalize([pos_list])
+        mask = vec_word.ne(self._pad_index)
+        s_arc, s_rel = self._model(vec_word, vec_pos)
+        s_arc, s_rel = s_arc[mask], s_rel[mask]
+        pred_arcs, pred_rels = self._decode(s_arc, s_rel)
+        pred_arcs = pred_arcs.cpu().tolist()
+        pred_arcs[0] = 0
+        pred_rels = [self._ref_vocab.itos[rel] for rel in pred_rels]
+        pred_rels[0] = ROOT
+        return pred_arcs, pred_rels
+
+    def _get_loss(self, s_arc, s_rel, gold_arcs, gold_rels):
+        s_rel = s_rel[torch.arange(len(s_rel)), gold_arcs]
+        arc_loss = F.cross_entropy(s_arc, gold_arcs)
+        rel_loss = F.cross_entropy(s_rel, gold_rels)
+        loss = arc_loss + rel_loss
+        return loss
+
+    def _decode(self, s_arc, s_rel):
+        pred_arcs = s_arc.argmax(dim=-1)
+        pred_rels = s_rel[torch.arange(len(s_rel)), pred_arcs].argmax(dim=-1)
+        return pred_arcs, pred_rels
+
+    def deploy(self, route_path='/cb', host='localhost', port=None, debug=False
+        ):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/predict', methods=['POST', 'GET'])
+        def predict():
+            words = request.args.get('words', '')
+            pos = request.args.get('pos', '')
+            result = self.predict(words, pos)
+            return flask.jsonify({'state': 'OK', 'result': {'arcs': result[
+                0], 'rels': result[1]}})
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
+
+
 class Actions:
     """Simple Enum for each possible parser action"""
     SHIFT = 0
@@ -887,6 +1152,502 @@ def action_tokenize(sequence: str):
     return [sequence]
 
 
+NULL_STACK_TOK = '<NULL-STACK>'
+
+
+class ParserState:
+
+    def __init__(self, sentence, sentence_embs, combiner,
+        null_stack_tok_embed=None):
+        self.combiner = combiner
+        self.curr_input_buff_idx = 0
+        self.input_buffer = [StackEntry(we[0], pos, we[1]) for pos, we in
+            enumerate(zip(sentence, sentence_embs))]
+        self.stack = []
+        self.null_stack_tok_embed = null_stack_tok_embed
+
+    def shift(self):
+        next_item = self.input_buffer[self.curr_input_buff_idx]
+        self.stack.append(next_item)
+        self.curr_input_buff_idx += 1
+
+    def reduce_left(self):
+        return self._reduce(Actions.REDUCE_L)
+
+    def reduce_right(self):
+        return self._reduce(Actions.REDUCE_R)
+
+    def done_parsing(self):
+        if len(self.stack) == 1 and self.curr_input_buff_idx == len(self.
+            input_buffer) - 1:
+            return True
+        else:
+            return False
+
+    def stack_len(self):
+        return len(self.stack)
+
+    def input_buffer_len(self):
+        return len(self.input_buffer) - self.curr_input_buff_idx
+
+    def stack_peek_n(self, n):
+        if len(self.stack) - n < 0:
+            return [StackEntry(NULL_STACK_TOK, -1, self.null_stack_tok_embed)
+                ] * (n - len(self.stack)) + self.stack[:]
+        return self.stack[-n:]
+
+    def input_buffer_peek_n(self, n):
+        assert self.curr_input_buff_idx + n - 1 <= len(self.input_buffer)
+        return self.input_buffer[self.curr_input_buff_idx:self.
+            curr_input_buff_idx + n]
+
+    def _reduce(self, action):
+        assert len(self.stack
+            ) >= 2, 'ERROR: Cannot reduce with stack length less than 2'
+        if action == Actions.REDUCE_L:
+            head = self.stack.pop()
+            modifier = self.stack.pop()
+        elif action == Actions.REDUCE_R:
+            modifier = self.stack.pop()
+            head = self.stack.pop()
+        head_embedding = self.combiner(head.embedding, modifier.embedding)
+        self.stack.append(StackEntry(head.headword, head.headword_pos,
+            head_embedding))
+        return DepGraphEdge((head.headword, head.headword_pos), (modifier.
+            headword, modifier.headword_pos))
+
+    def __str__(self):
+        return 'Stack: {}\nInput Buffer: {}\n'.format([entry.headword for
+            entry in self.stack], [entry.headword for entry in self.
+            input_buffer[self.curr_input_buff_idx:]])
+
+
+ROOT_TOK = '<ROOT>'
+
+
+class SimpleFeatureExtractor:
+
+    def get_features(self, parser_state, **kwargs):
+        stack_len = 2
+        input_buffer_len = 1
+        stack_items = parser_state.stack_peek_n(stack_len)
+        input_buffer_items = parser_state.input_buffer_peek_n(input_buffer_len)
+        features = []
+        assert len(stack_items) == stack_len
+        assert len(input_buffer_items) == input_buffer_len
+        features.extend([x.embedding for x in stack_items])
+        features.extend([x.embedding for x in input_buffer_items])
+        return features
+
+
+class TransitionParser(BaseModel):
+
+    def __init__(self, args):
+        super(TransitionParser, self).__init__(args)
+        self.args = args
+        self.action_num = args.action_num
+        self.batch_size = args.batch_size
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        self.feature_extractor = SimpleFeatureExtractor(
+            ) if args.feature_extractor == 'default' else None
+        if args.embedding_type == 'lstm':
+            self.word_embedding_component = BiLSTMWordEmbeddingLookup(
+                vocabulary_size, args.word_embedding_dim, args.
+                stack_embedding_dim, args.embedding_lstm_layers, args.
+                embedding_lstm_dropout, args.vector_path, args.non_static)
+        elif args.embedding_type == 'vanilla':
+            self.word_embedding_component = VanillaWordEmbeddingLookup(
+                vocabulary_size, args.word_embedding_dim)
+        else:
+            self.word_embedding_component = None
+        self.action_chooser = ActionChooserNetwork(args.stack_embedding_dim *
+            args.num_features) if args.action_chooser == 'default' else None
+        if args.combiner == 'lstm':
+            self.combiner = LSTMCombinerNetwork(args.stack_embedding_dim,
+                args.combiner_lstm_layers, args.combiner_lstm_dropout)
+        elif args.combiner == 'mlp':
+            self.combiner = MLPCombinerNetwork(args.stack_embedding_dim)
+        else:
+            self.combiner = None
+        self.null_stack_tok_embed = torch.randn(1, self.
+            word_embedding_component.output_dim).to(DEVICE)
+
+    def forward(self, sentence, actions=None):
+        self.refresh()
+        sentence_embs = self.word_embedding_component(sentence)
+        parser_state = ParserState(sentence, sentence_embs, self.combiner,
+            null_stack_tok_embed=self.null_stack_tok_embed)
+        outputs = []
+        actions_done = []
+        dep_graph = set()
+        if actions is not None:
+            action_queue = deque()
+            action_queue.extend([Actions.action_to_ix[a] for a in actions])
+            have_gold_actions = True
+        else:
+            have_gold_actions = False
+        while True:
+            if parser_state.done_parsing():
+                break
+            features = self.feature_extractor.get_features(parser_state)
+            log_probs = self.action_chooser(features)
+            if have_gold_actions:
+                temp_action = action_queue.popleft()
+            else:
+                temp_action = vectors.argmax(log_probs)
+            if parser_state.input_buffer_len() == 1:
+                temp_action = Actions.REDUCE_R
+            elif parser_state.stack_len() < 2:
+                temp_action = Actions.SHIFT
+            if temp_action == Actions.SHIFT:
+                parser_state.shift()
+                reduction = None
+            elif temp_action == Actions.REDUCE_L:
+                reduction = parser_state.reduce_left()
+            elif temp_action == Actions.REDUCE_R:
+                reduction = parser_state.reduce_right()
+            else:
+                raise Exception('unvalid action!: {}'.format(temp_action))
+            outputs.append(log_probs)
+            if reduction:
+                dep_graph.add(reduction)
+            actions_done.append(temp_action)
+        dep_graph.add(DepGraphEdge((TEXT.vocab.stoi[ROOT_TOK], -1), (
+            parser_state.stack[-1].headword, parser_state.stack[-1].
+            headword_pos)))
+        return outputs, dep_graph, actions_done
+
+    def refresh(self):
+        if isinstance(self.combiner, LSTMCombinerNetwork):
+            self.combiner.clear_hidden_state()
+        if isinstance(self.word_embedding_component, BiLSTMWordEmbeddingLookup
+            ):
+            self.word_embedding_component.clear_hidden_state()
+
+    def predict(self, sentence):
+        _, dep_graph, _ = self.forward(sentence)
+        return dep_graph
+
+    def predict_actions(self, sentence):
+        _, _, actions_done = self.forward(sentence)
+        return actions_done
+
+    def to_cuda(self):
+        self.word_embedding_component.use_cuda = True
+        self.combiner.use_cuda = True
+        self.cuda()
+
+    def to_cpu(self):
+        self.word_embedding_component.use_cuda = False
+        self.combiner.use_cuda = False
+        self.cpu()
+
+
+class TransitionDataset(Dataset):
+    """Defines a Dataset of transition-based denpendency parsing format.
+    eg:
+    The bill intends ||| SHIFT SHIFT REDUCE_L SHIFT REDUCE_L
+    The bill intends ||| SHIFT SHIFT REDUCE_L SHIFT REDUCE_L
+    """
+
+    def __init__(self, path, fields, encoding='utf-8', separator=' ||| ',
+        **kwargs):
+        examples = []
+        with open(path, 'r', encoding=encoding) as f:
+            for inst in f:
+                sentence, actions = inst.split(separator)
+                sentence = sentence.strip().split()
+                actions = actions.strip().split()
+                examples.append(Example.fromlist((sentence, actions), fields))
+        super(TransitionDataset, self).__init__(examples, fields, **kwargs)
+
+
+class TDP(Module):
+    """
+    """
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+        self._action_vocab = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = tdp_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = tdp_tool.get_dataset(dev_path)
+            word_vocab, action_vocab = tdp_tool.get_vocab(train_dataset,
+                dev_dataset)
+        else:
+            word_vocab, action_vocab = tdp_tool.get_vocab(train_dataset)
+        self._word_vocab = word_vocab
+        self._action_vocab = action_vocab
+        train_iter = tdp_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        config = Config(word_vocab, action_vocab, save_path=save_path,
+            vector_path=vectors_path, **kwargs)
+        trainsition_parser = TransitionParser(config)
+        self._model = trainsition_parser
+        optim = torch.optim.Adam(trainsition_parser.parameters(), lr=config.lr)
+        for epoch in range(config.epoch):
+            trainsition_parser.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                self._model.refresh()
+                optim.zero_grad()
+                outputs, dep_graph, actions_done = self._model(item.text)
+                item_loss = 0
+                for step_output, step_action in zip(outputs, item.action):
+                    item_loss += F.cross_entropy(step_output, step_action)
+                acc_loss += item_loss.item()
+                item_loss.backward()
+                optim.step()
+            acc_loss /= len(train_iter)
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('tdp_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                writer.add_scalar('tdp_train/dev_score', dev_score, epoch)
+            writer.flush()
+            adjust_learning_rate(optim, config.lr / (1 + (epoch + 1) *
+                config.lr_decay))
+        writer.close()
+        config.save()
+        trainsition_parser.save()
+
+    def predict(self, text):
+        self._model.eval()
+        sentences = light_tokenize(text)
+        vec_text = torch.tensor([self._word_vocab.stoi[x] for x in sentences])
+        outputs, dep_graph, actions_done = self._model(vec_text.view(-1, 1))
+        results = set()
+        for edge in dep_graph:
+            results.add(DepGraphEdge((self._word_vocab.itos[edge.head[0]],
+                edge.head[1]), (self._word_vocab.itos[edge.modifier[0]],
+                edge.modifier[1])))
+        return results
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = Config.load(save_path)
+        trainsition_parser = TransitionParser(config)
+        trainsition_parser.load()
+        self._model = trainsition_parser
+        self._word_vocab = config.word_vocab
+        self._action_vocab = config.action_vocab
+        self._check_vocab()
+
+    def test(self, test_path):
+        test_dataset = tdp_tool.get_dataset(test_path)
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        dev_score_list = []
+        dev_iter = tdp_tool.get_iterator(dev_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        for dev_item in tqdm(dev_iter):
+            self._model.refresh()
+            item_score = tdp_tool.get_score(self._model, dev_item.text,
+                dev_item.action)
+            dev_score_list.append(item_score)
+        return sum(dev_score_list) / len(dev_score_list)
+
+    def _check_vocab(self):
+        if not hasattr(TEXT, 'vocab'):
+            TEXT.vocab = self._word_vocab
+        if not hasattr(ACTION, 'vocab'):
+            ACTION.vocab = self._action_vocab
+
+    def deploy(self, route_path='/tdp', host='localhost', port=None, debug=
+        False):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/predict', methods=['POST', 'GET'])
+        def predict():
+            text = request.args.get('text', '')
+            result = self.predict(text)
+            return flask.jsonify({'state': 'OK', 'result': {'results': result}}
+                )
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
+
+
+class MaLSTM(BaseModel):
+
+    def __init__(self, args):
+        super(MaLSTM, self).__init__(args)
+        self.args = args
+        self.hidden_dim = 300
+        self.tag_num = args.tag_num
+        self.batch_size = args.batch_size
+        self.bidirectional = True
+        self.num_layers = args.num_layers
+        self.pad_index = args.pad_index
+        self.dropout = args.dropout
+        self.save_path = args.save_path
+        vocabulary_size = args.vocabulary_size
+        embedding_dimension = args.embedding_dim
+        self.pwd = torch.nn.PairwiseDistance(p=1)
+        self.embedding = nn.Embedding(vocabulary_size, embedding_dimension).to(
+            DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.embedding = self.embedding.from_pretrained(vectors, freeze
+                =not args.non_static).to(DEVICE)
+        self.lstm = nn.LSTM(embedding_dimension, self.hidden_dim // 2,
+            bidirectional=self.bidirectional, num_layers=self.num_layers,
+            dropout=self.dropout).to(DEVICE)
+        self.hidden2label = nn.Linear(self.hidden_dim, self.tag_num).to(DEVICE)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        h0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        c0 = torch.zeros(self.num_layers * 2, batch_size, self.hidden_dim // 2
+            ).to(DEVICE)
+        return h0, c0
+
+    def forward(self, left, right):
+        left_vec = self.embedding(left.to(DEVICE)).to(DEVICE)
+        right_vec = self.embedding(right.to(DEVICE)).to(DEVICE)
+        self.hidden = self.init_hidden(batch_size=left.size(1))
+        left_lstm_out, (left_lstm_hidden, _) = self.lstm(left_vec, self.hidden)
+        right_lstm_out, (right_lstm_hidden, _) = self.lstm(right_vec, self.
+            hidden)
+        return self.manhattan_distance(left_lstm_hidden[0],
+            right_lstm_hidden[0])
+
+    def manhattan_distance(self, left, right):
+        return torch.exp(-self.pwd(left, right))
+
+
+def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
+    padded_seq = sequence[:]
+    if len(padded_seq) < seq_length:
+        padded_seq.extend([pad_token for _ in range(len(padded_seq),
+            seq_length)])
+    return padded_seq[:seq_length]
+
+
+class SS(Module):
+    """
+    """
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+        self._label_vocab = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = ss_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = ss_tool.get_dataset(dev_path)
+            word_vocab, tag_vocab = ss_tool.get_vocab(train_dataset,
+                dev_dataset)
+        else:
+            word_vocab, tag_vocab = ss_tool.get_vocab(train_dataset)
+        self._word_vocab = word_vocab
+        self._label_vocab = tag_vocab
+        train_iter = ss_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        config = Config(word_vocab, tag_vocab, save_path=save_path,
+            vector_path=vectors_path, **kwargs)
+        malstm = MaLSTM(config)
+        self._model = malstm
+        optim = torch.optim.Adam(self._model.parameters(), lr=config.lr)
+        loss_func = torch.nn.MSELoss()
+        for epoch in range(config.epoch):
+            self._model.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                self._model.zero_grad()
+                left_text = item.texta
+                right_text = item.textb
+                predict_dis = self._model(left_text, right_text)
+                item_loss = loss_func(predict_dis, item.label.type(torch.
+                    float32))
+                acc_loss += item_loss.view(-1).cpu().item()
+                item_loss.backward()
+                optim.step()
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('ss_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                writer.add_scalar('ss_train/dev_score', dev_score, epoch)
+            writer.flush()
+            adjust_learning_rate(optim, config.lr / (1 + (epoch + 1) *
+                config.lr_decay))
+        writer.close()
+        config.save()
+        self._model.save()
+
+    def predict(self, texta: str, textb: str):
+        self._model.eval()
+        pad_texta = pad_sequnce([x for x in texta], DEFAULT_CONFIG[
+            'fix_length'])
+        vec_texta = torch.tensor([self._word_vocab.stoi[x] for x in pad_texta])
+        pad_textb = pad_sequnce([x for x in textb], DEFAULT_CONFIG[
+            'fix_length'])
+        vec_textb = torch.tensor([self._word_vocab.stoi[x] for x in pad_textb])
+        vec_predict = self._model(vec_texta.view(-1, 1), vec_textb.view(-1, 1)
+            )[0]
+        return vec_predict.cpu().item()
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = Config.load(save_path)
+        malstm = MaLSTM(config)
+        malstm.load()
+        self._model = malstm
+        self._word_vocab = config.word_vocab
+        self._label_vocab = config.label_vocab
+
+    def test(self, test_path):
+        test_dataset = ss_tool.get_dataset(test_path)
+        if not hasattr(TEXT, 'vocab'):
+            TEXT.vocab = self._word_vocab
+        if not hasattr(LABEL, 'vocab'):
+            LABEL.vocab = self._label_vocab
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        dev_score_list = []
+        dev_iter = ss_tool.get_iterator(dev_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        for dev_item in tqdm(dev_iter):
+            item_score = ss_tool.get_score(self._model, dev_item.texta,
+                dev_item.textb, dev_item.label)
+            dev_score_list.append(item_score)
+        return sum(dev_score_list) / len(dev_score_list)
+
+    def deploy(self, route_path='/ss', host='localhost', port=None, debug=False
+        ):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/predict', methods=['POST', 'GET'])
+        def predict():
+            texta = request.args.get('texta', '')
+            textb = request.args.get('textb', '')
+            result = self.predict(texta, textb)
+            return flask.jsonify({'state': 'OK', 'result': {'prob': result}})
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
+
+
 class SharedLSTM(BaseModel):
 
     def __init__(self, args):
@@ -939,6 +1700,119 @@ class SharedLSTM(BaseModel):
         merged = self.batch_norm(merged)
         predict = self.hidden2label(merged)
         return predict
+
+
+class TE(Module):
+    """
+    """
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+        self._label_vocab = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = te_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = te_tool.get_dataset(dev_path)
+            word_vocab, label_vocab = te_tool.get_vocab(train_dataset,
+                dev_dataset)
+        else:
+            word_vocab, label_vocab = te_tool.get_vocab(train_dataset)
+        self._word_vocab = word_vocab
+        self._label_vocab = label_vocab
+        train_iter = te_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        config = Config(word_vocab, label_vocab, save_path=save_path,
+            vector_path=vectors_path, **kwargs)
+        shared_lstm = SharedLSTM(config)
+        self._model = shared_lstm
+        optim = torch.optim.Adam(self._model.parameters(), lr=config.lr)
+        for epoch in range(config.epoch):
+            self._model.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                self._model.zero_grad()
+                left_text = item.texta
+                right_text = item.textb
+                predict_dis = self._model(left_text, right_text)
+                item_loss = F.cross_entropy(predict_dis, item.label)
+                acc_loss += item_loss.item()
+                item_loss.backward()
+                optim.step()
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('te_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                writer.add_scalar('te_train/dev_score', dev_score, epoch)
+            writer.flush()
+            adjust_learning_rate(optim, config.lr / (1 + (epoch + 1) *
+                config.lr_decay))
+        writer.close()
+        config.save()
+        self._model.save()
+
+    def predict(self, texta: str, textb: str):
+        self._model.eval()
+        pad_texta = pad_sequnce([x for x in texta], DEFAULT_CONFIG[
+            'fix_length'])
+        vec_texta = torch.tensor([self._word_vocab.stoi[x] for x in pad_texta])
+        pad_textb = pad_sequnce([x for x in textb], DEFAULT_CONFIG[
+            'fix_length'])
+        vec_textb = torch.tensor([self._word_vocab.stoi[x] for x in pad_textb])
+        vec_predict = self._model(vec_texta.view(-1, 1), vec_textb.view(-1, 1)
+            )[0]
+        soft_predict = torch.softmax(vec_predict, dim=0)
+        predict_prob, predict_index = torch.max(soft_predict.cpu().data, dim=0)
+        predict_class = self._label_vocab.itos[predict_index]
+        predict_prob = predict_prob.item()
+        return predict_prob, predict_class
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = Config.load(save_path)
+        shared_lstm = SharedLSTM(config)
+        shared_lstm.load()
+        self._model = shared_lstm
+        self._word_vocab = config.word_vocab
+        self._label_vocab = config.label_vocab
+
+    def test(self, test_path):
+        test_dataset = te_tool.get_dataset(test_path)
+        if not hasattr(TEXT, 'vocab'):
+            TEXT.vocab = self._word_vocab
+        if not hasattr(LABEL, 'vocab'):
+            LABEL.vocab = self._label_vocab
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        dev_score_list = []
+        dev_iter = te_tool.get_iterator(dev_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'])
+        for dev_item in tqdm(dev_iter):
+            item_score = te_tool.get_score(self._model, dev_item.texta,
+                dev_item.textb, dev_item.label)
+            dev_score_list.append(item_score)
+        return sum(dev_score_list) / len(dev_score_list)
+
+    def deploy(self, route_path='/te', host='localhost', port=None, debug=False
+        ):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/predict', methods=['POST', 'GET'])
+        def predict():
+            texta = request.args.get('texta', '')
+            textb = request.args.get('textb', '')
+            result = self.predict(texta, textb)
+            return flask.jsonify({'state': 'OK', 'result': {'prob': result[
+                0], 'class': result[1]}})
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
 
 
 class TextCNN(BaseModel):
@@ -1020,14 +1894,6 @@ class REDataset(Dataset):
                 examples.append(Example.fromlist((sentence_list, relation),
                     fields))
         super(REDataset, self).__init__(examples, fields, **kwargs)
-
-
-def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
-    padded_seq = sequence[:]
-    if len(padded_seq) < seq_length:
-        padded_seq.extend([pad_token for _ in range(len(padded_seq),
-            seq_length)])
-    return padded_seq[:seq_length]
 
 
 class Attention(nn.Module):
@@ -1281,6 +2147,188 @@ class RNNLM(BaseModel):
         lstm_out = self.bath_norm(lstm_out)
         y = self.hidden2label(lstm_out.to(DEVICE))
         return y.to(DEVICE)
+
+
+class LM(Module):
+
+    def __init__(self):
+        self._model = None
+        self._word_vocab = None
+
+    def train(self, train_path, save_path=DEFAULT_CONFIG['save_path'],
+        dev_path=None, vectors_path=None, log_dir=None, **kwargs):
+        writer = SummaryWriter(log_dir=log_dir)
+        train_dataset = lm_tool.get_dataset(train_path)
+        if dev_path:
+            dev_dataset = lm_tool.get_dataset(dev_path)
+            word_vocab = lm_tool.get_vocab(train_dataset, dev_dataset)
+        else:
+            word_vocab = lm_tool.get_vocab(train_dataset)
+        self._word_vocab = word_vocab
+        train_iter = lm_tool.get_iterator(train_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'], bptt_len=DEFAULT_CONFIG['bptt_len'])
+        config = LMConfig(word_vocab, save_path=save_path, vector_path=
+            vectors_path, **kwargs)
+        rnnlm = RNNLM(config)
+        self._model = rnnlm
+        optim = torch.optim.Adam(rnnlm.parameters(), lr=config.lr)
+        for epoch in range(config.epoch):
+            rnnlm.train()
+            acc_loss = 0
+            for item in tqdm(train_iter):
+                optim.zero_grad()
+                logits = rnnlm(item.text)
+                item_loss = F.cross_entropy(logits, item.target.view(-1))
+                acc_loss += item_loss.item()
+                item_loss.backward()
+                optim.step()
+            logger.info('epoch: {}, acc_loss: {}'.format(epoch, acc_loss))
+            writer.add_scalar('lm_train/acc_loss', acc_loss, epoch)
+            if dev_path:
+                dev_score = self._validate(dev_dataset)
+                logger.info('dev score:{}'.format(dev_score))
+                writer.add_scalar('lm_train/dev_score', dev_score, epoch)
+            writer.flush()
+            adjust_learning_rate(optim, config.lr / (1 + (epoch + 1) *
+                config.lr_decay))
+        writer.close()
+        config.save()
+        rnnlm.save()
+
+    def load(self, save_path=DEFAULT_CONFIG['save_path']):
+        config = LMConfig.load(save_path)
+        rnnlm = RNNLM(config)
+        rnnlm.load()
+        self._model = rnnlm
+        self._word_vocab = config.word_vocab
+
+    def test(self, test_path):
+        test_dataset = lm_tool.get_dataset(test_path)
+        if not hasattr(TEXT, 'vocab'):
+            TEXT.vocab = self._word_vocab
+        test_score = self._validate(test_dataset)
+        logger.info('test score:{}'.format(test_score))
+
+    def _validate(self, dev_dataset):
+        self._model.eval()
+        dev_score_list = []
+        dev_iter = lm_tool.get_iterator(dev_dataset, batch_size=
+            DEFAULT_CONFIG['batch_size'], bptt_len=DEFAULT_CONFIG['bptt_len'])
+        for dev_item in tqdm(dev_iter):
+            item_score = lm_tool.get_score(self._model, dev_item.text,
+                dev_item.target)
+            dev_score_list.append(item_score)
+        return sum(dev_score_list) / len(dev_score_list)
+
+    def _predict_next_word_max(self, sentence_list: list):
+        test_item = torch.tensor([[self._word_vocab.stoi[x]] for x in
+            sentence_list], device=DEVICE)
+        pred_prob, pred_index = torch.max(torch.softmax(self._model(
+            test_item)[-1], dim=0).cpu().data, dim=0)
+        pred_word = TEXT.vocab.itos[pred_index]
+        pred_prob = pred_prob.item()
+        return pred_word, pred_prob
+
+    def _predict_next_word_sample(self, sentence_list: list):
+        test_item = torch.tensor([[self._word_vocab.stoi[x]] for x in
+            sentence_list], device=DEVICE)
+        pred_index = torch.multinomial(torch.softmax(self._model(test_item)
+            [-1], dim=0).cpu().data, 1)
+        pred_word = self._word_vocab.itos[pred_index]
+        return pred_word
+
+    def _predict_next_word_topk(self, sentence_list: list, topK=5):
+        test_item = torch.tensor([[self._word_vocab.stoi[x]] for x in
+            sentence_list], device=DEVICE)
+        predict_softmax = torch.softmax(self._model(test_item)[-1], dim=0).cpu(
+            ).data
+        topK_prob, topK_index = torch.topk(predict_softmax, topK)
+        topK_prob = topK_prob.tolist()
+        topK_vocab = [self._word_vocab.itos[x] for x in topK_index]
+        return list(zip(topK_vocab, topK_prob))
+
+    def _predict_next_word_prob(self, sentence_list: list, next_word: str):
+        test_item = torch.tensor([[self._word_vocab.stoi[x]] for x in
+            sentence_list], device=DEVICE)
+        predict_prob = torch.softmax(self._model(test_item)[-1], dim=0).cpu(
+            ).data
+        next_word_index = self._word_vocab.stoi[next_word]
+        return predict_prob[next_word_index]
+
+    def next_word(self, sentence: str, next_word: str):
+        self._model.eval()
+        temp_str = [x for x in light_tokenize(sentence)]
+        predict_prob = self._predict_next_word_prob(temp_str, next_word)
+        return predict_prob.item()
+
+    def _next_word_score(self, sentence: str, next_word: str):
+        self._model.eval()
+        temp_str = [x for x in light_tokenize(sentence)]
+        predict_prob = self._predict_next_word_prob(temp_str, next_word)
+        return torch.log10(predict_prob).item()
+
+    def next_word_topk(self, sentence: str, topK=5):
+        self._model.eval()
+        return self._predict_next_word_topk(sentence, topK)
+
+    def sentence_score(self, sentence: str):
+        self._model.eval()
+        total_score = 0
+        assert len(sentence) > 1
+        for i in range(1, len(sentence)):
+            temp_score = self._next_word_score(sentence[:i], sentence[i])
+            total_score += temp_score
+        return total_score
+
+    def _predict_sentence(self, sentence: str, gen_len=30):
+        results = []
+        temp_str = [x for x in light_tokenize(sentence)]
+        for i in range(gen_len):
+            temp_result = self._predict_next_word_sample(temp_str)
+            results.append(temp_result)
+            temp_str.append(temp_result)
+        return results
+
+    def generate_sentence(self, sentence: str, gen_len=30):
+        self._model.eval()
+        results = self._predict_sentence(sentence, gen_len)
+        predict_sen = ''.join([x for x in results])
+        return sentence + predict_sen
+
+    def deploy(self, route_path='/lm', host='localhost', port=None, debug=False
+        ):
+        app = Flask(__name__)
+
+        @app.route(route_path + '/next_word', methods=['POST', 'GET'])
+        def next_word():
+            sentence = request.args.get('sentence', '')
+            word = request.args.get('word', '')
+            result = self.next_word(sentence, word)
+            return flask.jsonify({'state': 'OK', 'result': {'prob': result}})
+
+        @app.route(route_path + '/generate_sentence', methods=['POST', 'GET'])
+        def generate_sentence():
+            sentence = request.args.get('sentence', '')
+            gen_len = int(request.args.get('gen_len', 30))
+            result = self.generate_sentence(sentence, gen_len)
+            return flask.jsonify({'state': 'OK', 'result': {'sentence':
+                result}})
+
+        @app.route(route_path + '/next_word_topk', methods=['POST', 'GET'])
+        def next_word_topk():
+            sentence = request.args.get('sentence', '')
+            topk = int(request.args.get('topk', 5))
+            result = self.next_word_topk(sentence, topK=topk)
+            return flask.jsonify({'state': 'OK', 'result': {'words': result}})
+
+        @app.route(route_path + '/sentence_score', methods=['POST', 'GET'])
+        def sentence_score():
+            sentence = request.args.get('sentence', '')
+            result = self.sentence_score(sentence)
+            return flask.jsonify({'state': 'OK', 'result': {'score': result}})
+        if not port:
+            port = get_free_tcp_port()
+        app.run(host=host, port=port, debug=debug)
 
 
 class Attention(nn.Module):
@@ -1691,7 +2739,26 @@ class CBOWBase(BaseModel):
         return F.cross_entropy(target_embedding, target.view(-1))
 
 
-ROOT = '<ROOT>'
+def default_tokenize(sentence):
+    return list(jieba.cut(sentence))
+
+
+class CBOWDataset(Dataset):
+
+    def __init__(self, path, fields, window_size=3, tokenize=
+        default_tokenize, encoding='utf-8', **kwargs):
+        examples = []
+        with open(path, 'r', encoding=encoding) as f:
+            for line in f:
+                words = tokenize(line.strip())
+                if len(words) < window_size + 1:
+                    continue
+                for i in range(len(words)):
+                    example = words[max(0, i - window_size):i] + words[min(
+                        i + 1, len(words)):min(len(words), i + window_size) + 1
+                        ], words[i]
+                    examples.append(Example.fromlist(example, fields))
+        super(CBOWDataset, self).__init__(examples, fields, **kwargs)
 
 
 class SkipGramBase(BaseModel):
@@ -1717,10 +2784,6 @@ class SkipGramBase(BaseModel):
         return F.cross_entropy(context_embedding, context.view(-1))
 
 
-def default_tokenize(sentence):
-    return list(jieba.cut(sentence))
-
-
 class SkipGramDataset(Dataset):
 
     def __init__(self, path, fields, window_size=3, tokenize=
@@ -1741,7 +2804,132 @@ class SkipGramDataset(Dataset):
         super(SkipGramDataset, self).__init__(examples, fields, **kwargs)
 
 
+regex = re.compile('[^\\u4e00-\\u9fa5aA-Za-z0-9，。？：！；“”]')
+
+
+class Vocab(object):
+    PAD = '<PAD>'
+    UNK = '<UNK>'
+
+    def __init__(self, words, tags, rels):
+        self.pad_index = 0
+        self.unk_index = 1
+        self.words = [self.PAD, self.UNK] + sorted(words)
+        self.tags = [self.PAD, self.UNK] + sorted(tags)
+        self.rels = sorted(rels)
+        self.word_dict = {word: i for i, word in enumerate(self.words)}
+        self.tag_dict = {tag: i for i, tag in enumerate(self.tags)}
+        self.rel_dict = {rel: i for i, rel in enumerate(self.rels)}
+        self.puncts = sorted(i for word, i in self.word_dict.items() if
+            regex.match('\\p{P}+$', word))
+        self.n_words = len(self.words)
+        self.n_tags = len(self.tags)
+        self.n_rels = len(self.rels)
+        self.n_train_words = self.n_words
+
+    def __repr__(self):
+        info = f'{self.__class__.__name__}(\n'
+        info += f'  num of words: {self.n_words}\n'
+        info += f'  num of tags: {self.n_tags}\n'
+        info += f'  num of rels: {self.n_rels}\n'
+        info += f')'
+        return info
+
+    def word2id(self, sequence):
+        return torch.tensor([self.word_dict.get(word.lower(), self.
+            unk_index) for word in sequence])
+
+    def tag2id(self, sequence):
+        return torch.tensor([self.tag_dict.get(tag, self.unk_index) for tag in
+            sequence])
+
+    def rel2id(self, sequence):
+        return torch.tensor([self.rel_dict.get(rel, 0) for rel in sequence])
+
+    def id2rel(self, ids):
+        return [self.rels[i] for i in ids]
+
+    def read_embeddings(self, embed, unk=None):
+        words = embed.words
+        if unk in embed:
+            words[words.index(unk)] = self.UNK
+        self.extend(words)
+        self.embeddings = torch.zeros(self.n_words, embed.dim)
+        for i, word in enumerate(self.words):
+            if word in embed:
+                self.embeddings[i] = embed[word]
+        self.embeddings /= torch.std(self.embeddings)
+
+    def extend(self, words):
+        self.words.extend(sorted(set(words).difference(self.word_dict)))
+        self.word_dict = {word: i for i, word in enumerate(self.words)}
+        self.puncts = sorted(i for word, i in self.word_dict.items() if
+            regex.match('\\p{P}+$', word))
+        self.n_words = len(self.words)
+
+    def numericalize(self, corpus):
+        words = [self.word2id(seq) for seq in corpus.words]
+        tags = [self.tag2id(seq) for seq in corpus.tags]
+        arcs = [torch.tensor(seq) for seq in corpus.heads]
+        rels = [self.rel2id(seq) for seq in corpus.rels]
+        return words, tags, arcs, rels
+
+    @classmethod
+    def from_corpus(cls, corpus, min_freq=1):
+        words = Counter(word.lower() for seq in corpus.words for word in seq)
+        words = list(word for word, freq in words.items() if freq >= min_freq)
+        tags = list({tag for seq in corpus.tags for tag in seq})
+        rels = list({rel for seq in corpus.rels for rel in seq})
+        vocab = cls(words, tags, rels)
+        return vocab
+
+
+class Sampling(object):
+
+    def __init__(self, vocab: Vocab, weight=0.75):
+        self.vocab = vocab
+        self.weight = weight
+        self.weighted_list = [(self.vocab.freqs[s] ** self.weight) for s in
+            self.vocab.itos]
+
+    def sampling(self, num):
+        return torch.multinomial(torch.tensor(self.weighted_list), num).tolist(
+            )
+
+
+class SkipGramNegativeSampling(BaseModel):
+
+    def __init__(self, args):
+        super(SkipGramNegativeSampling, self).__init__(args)
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.word_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        self.context_embeddings = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+
+    def forward(self, target, context):
+        target_embedding = self.word_embeddings(target)
+        context_embedding = self.context_embeddings(context)
+        target_score = torch.matmul(target_embedding, context_embedding.
+            transpose(2, 1)).squeeze()
+        return torch.sigmoid(target_score)
+
+    def loss(self, target, pos, neg):
+        target_embedding = self.word_embeddings(target)
+        pos_embedding = self.context_embeddings(pos)
+        neg_embedding = self.context_embeddings(neg).squeeze()
+        pos_score = torch.matmul(target_embedding, pos_embedding.transpose(
+            2, 1)).squeeze()
+        neg_score = torch.matmul(target_embedding, neg_embedding.transpose(
+            1, 2)).squeeze()
+        pos_score = torch.sum(F.logsigmoid(pos_score), dim=0)
+        neg_score = torch.sum(F.logsigmoid(-1 * neg_score), dim=0)
+        return -1 * (torch.sum(pos_score) + torch.sum(neg_score))
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_smilelight_lightNLP(_paritybench_base):
@@ -1754,19 +2942,36 @@ class Test_smilelight_lightNLP(_paritybench_base):
     def test_001(self):
         self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{'embed_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(CBOWBase(*[], **{'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(IndependentDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'embed_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{'input_size': 4, 'embed_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(IndependentDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(SkipGramBase(*[], **{'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_009(self):
+        self._check(SkipGramNegativeSampling(*[], **{'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}), [torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(VanillaWordEmbeddingLookup(*[], **{'vocabulary_size': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 

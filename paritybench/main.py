@@ -18,57 +18,16 @@ from paritybench.utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
-PARITYBENCH_HELPERS = '''
-import torch, unittest, copy, os
-from torch.testing._internal.jit_utils import JitTestCase
-
-
-def _mock_layer(in_features=None, out_features=None, bias=True):
-    if in_features and out_features:
-        return torch.nn.Linear(in_features, out_features, bias)
-    return torch.nn.ReLU()
-
-
-class _mock_config(dict):
-    __getattr__ = dict.__getitem__
-
-
-def _fails_compile():
-    if os.environ.get('TEST_ALL'):
-        return lambda x: x
-    return unittest.skip("jit compile fails")
-
-
-class _paritybench_base(JitTestCase):
-    def _check(self, script, args, kwargs):
-        try:
-            script.eval()
-        except:
-            pass
-        result1 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-        result2 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-        if os.environ.get('TEST_PY_ONLY'):
-            return
-        jit_script = torch.jit.script(script)
-        if os.environ.get('TEST_COMPILE_ONLY'):
-            return
-        result3 = jit_script(*args, **kwargs)
-        if os.environ.get('TEST_RUN_ONLY'):
-            return
-        try:
-            self.assertEqual(result1, result2)
-        except AssertionError:
-            return  # output is not deterministic
-        self.assertEqual(result2, result3)
-'''
-
 
 def write_helpers():
-    with open("generated/_paritybench_helpers.py", "w") as fd, patch('sys.argv', sys.argv[:1]):
-        fd.write(PARITYBENCH_HELPERS)
-        fd.flush()
+    src = "paritybench/_paritybench_helpers.py"
+    dst = "generated/_paritybench_helpers.py"
+    os.unlink(dst)
+    os.symlink(os.path.join("..", src), dst)
+    helpers_code = open(dst).read()
+    with patch('sys.argv', sys.argv[:1]):  # testcase import does annoying stuff
         helpers = types.ModuleType("_paritybench_helpers")
-        exec(compile(PARITYBENCH_HELPERS, "generated/_paritybench_helpers.py", "exec"),
+        exec(compile(helpers_code, "generated/_paritybench_helpers.py", "exec"),
              helpers.__dict__, helpers.__dict__)
         sys.modules["_paritybench_helpers"] = helpers
 
@@ -84,7 +43,7 @@ def test_all(download_dir, limit=None):
 
     if limit:
         zipfiles = zipfiles[:limit]
-    pool = ThreadPool(8)
+    pool = ThreadPool(4)
     for errors_part, stats_part in pool.imap_unordered(test_zipfile, zipfiles):
         errors.update(errors_part)
         stats.update(stats_part)
@@ -93,11 +52,11 @@ def test_all(download_dir, limit=None):
     log.info(f"TOTAL: {stats}, took {time.time() - start:.1f} seconds")
 
 
-def test_zipfile(path):
+def test_zipfile(path, name_filter=None):
     log.info(f"Running {path}")
     with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
         try:
-            return call_with_timeout(test_zipfile_subproc, (tempdir, path), {}, timeout=120)
+            return call_with_timeout(test_zipfile_subproc, (tempdir, path, name_filter), {}, timeout=900)
         except TimeoutError:
             return ErrorAggregatorDict.single(
                 "meta",
@@ -112,7 +71,7 @@ def test_zipfile(path):
             ), Stats({"crash": 1})
 
 
-def test_zipfile_subproc(tempdir: str, path: str):
+def test_zipfile_subproc(tempdir: str, path: str, name_filter=None):
     altpath = re.sub(r"\.[a-z]{1,3}$", ".zip", path)
     if os.path.exists(altpath):
         path = altpath
@@ -120,7 +79,7 @@ def test_zipfile_subproc(tempdir: str, path: str):
     errors = ErrorAggregatorDict(path)
     stats = Stats()
     with open("generated/test_{}.py".format(re.sub(r"([.]zip|/)$", "", os.path.basename(path))), "w") as output_py:
-        extractor = PyTorchModuleExtractor(tempdir, errors, stats, output_py=output_py)
+        extractor = PyTorchModuleExtractor(tempdir, errors, stats, output_py=output_py, name_filter=name_filter)
 
         with patch.object(torch.Tensor, "cuda", lambda x: x):
             extractor.main(path)
@@ -134,10 +93,11 @@ def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--download", action="store_true")
-    group.add_argument("--run", help="Process a .zip file from a github download")
+    group.add_argument("--run", "-r", help="Process a .zip file from a github download")
     group.add_argument("--run-direct")
     parser.add_argument("--download-dir", "-d", default="./paritybench_download")
     parser.add_argument("--limit", "-l", type=int)
+    parser.add_argument("--filter", "-f")
     args = parser.parse_args()
 
     if args.download:
@@ -148,7 +108,7 @@ def main():
 
     if args.run:
         assert os.path.isfile(args.run)
-        errors, stats = test_zipfile(args.run)
+        errors, stats = test_zipfile(args.run, args.filter)
         errors.print_report()
         log.info(f"Stats: {stats}")
         return
@@ -156,7 +116,7 @@ def main():
     if args.run_direct:
         assert os.path.isfile(args.run_direct)
         with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
-            test_zipfile_subproc(tempdir, args.run_direct)
+            test_zipfile_subproc(tempdir, args.run_direct, name_filter=args.filter)
         return
 
     test_all(args.download_dir, args.limit)

@@ -18,10 +18,13 @@ video = _module
 voc_annotation = _module
 yolo = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -428,9 +431,8 @@ class YOLOLoss(nn.Module):
         y = torch.sigmoid(prediction[..., 1])
         w = prediction[..., 2]
         h = prediction[..., 3]
-        FloatTensor = (torch.cuda.FloatTensor if x.is_cuda else torch.
-            FloatTensor)
-        LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
+        FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
+        LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
         grid_x = torch.linspace(0, in_w - 1, in_w).repeat(in_w, 1).repeat(int
             (bs * self.num_anchors / 3), 1, 1).view(x.shape).type(FloatTensor)
         grid_y = torch.linspace(0, in_h - 1, in_h).repeat(in_h, 1).t().repeat(
@@ -491,9 +493,8 @@ class DecodeBox(nn.Module):
         h = prediction[..., 3]
         conf = torch.sigmoid(prediction[..., 4])
         pred_cls = torch.sigmoid(prediction[(...), 5:])
-        FloatTensor = (torch.cuda.FloatTensor if x.is_cuda else torch.
-            FloatTensor)
-        LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
+        FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
+        LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
         grid_x = torch.linspace(0, input_width - 1, input_width).repeat(
             input_width, 1).repeat(batch_size * self.num_anchors, 1, 1).view(x
             .shape).type(FloatTensor)
@@ -519,6 +520,7 @@ class DecodeBox(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bubbliiiing_yolo3_pytorch(_paritybench_base):

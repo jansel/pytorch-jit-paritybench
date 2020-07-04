@@ -9,10 +9,13 @@ ploting = _module
 pytorch_run = _module
 pytorch_run_old = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,6 +44,9 @@ from torch import optim
 
 
 import torch.nn
+
+
+import torchvision
 
 
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -580,6 +586,7 @@ class Unet_dict(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bigmb_Unet_Segmentation_Pytorch_Nest_of_Unets(_paritybench_base):
@@ -608,24 +615,28 @@ class Test_bigmb_Unet_Segmentation_Pytorch_Nest_of_Unets(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
-        self._check(RRCNN_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(RRCNN_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(Recurrent_block(*[], **{'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(Unet_dict(*[], **{'n_labels': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(conv_block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(conv_block_nested(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(up_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

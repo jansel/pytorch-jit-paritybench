@@ -96,10 +96,13 @@ project_features = _module
 prosodic_eval = _module
 vadproc = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -160,10 +163,16 @@ from torch.utils.data import Dataset
 from torch.utils.data import ConcatDataset
 
 
+import torchaudio
+
+
 from collections import defaultdict
 
 
 import torch.optim.lr_scheduler as lr_scheduler
+
+
+import torchvision.models as models
 
 
 from torch.distributions import Binomial
@@ -191,6 +200,9 @@ from scipy.signal import resample
 
 
 from scipy.interpolate import interp1d
+
+
+from torchvision.transforms import Compose
 
 
 from torch.autograd import Function
@@ -5977,6 +5989,7 @@ class SRU(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_santi_pdp_pase(_paritybench_base):
@@ -5995,7 +6008,7 @@ class Test_santi_pdp_pase(_paritybench_base):
         self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(MelResNet(*[], **{'res_blocks': 1, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(MelResNet(*[], **{'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
 
     def test_005(self):
         self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})

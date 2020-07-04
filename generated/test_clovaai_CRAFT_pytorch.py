@@ -10,10 +10,13 @@ imgproc = _module
 refinenet = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -33,6 +36,12 @@ import torch.nn as nn
 
 
 import torch.nn.init as init
+
+
+from torchvision import models
+
+
+from torchvision.models.vgg import model_urls
 
 
 import torch.nn.functional as F
@@ -221,10 +230,19 @@ class RefineNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_clovaai_CRAFT_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(CRAFT(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_001(self):
         self._check(double_conv(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 8, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(vgg16_bn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

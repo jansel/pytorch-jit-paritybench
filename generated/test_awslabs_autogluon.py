@@ -183,10 +183,13 @@ test_skoptsearcher = _module
 test_tabular = _module
 test_text_classification = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -344,7 +347,122 @@ class Categorical(NestedSpace):
         return reprstr
 
 
+_blocks = []
+
+
+def enas_net(**kwvars):
+
+    def registered_class(Cls):
+
+
+        class ENAS_Net(Cls):
+
+            def __init__(self, *args, **kwargs):
+                kwvars.update(kwargs)
+                super().__init__(*args, **kwvars)
+                self._modules = {}
+                self._kwspaces = collections.OrderedDict()
+                for k, module in kwvars.items():
+                    if isinstance(module, (ENAS_Unit, ENAS_Sequential)):
+                        self._modules[k] = module
+                        if isinstance(module, ENAS_Unit):
+                            self._kwspaces[k] = module.kwspaces
+                        else:
+                            assert isinstance(module, ENAS_Sequential)
+                            for key, v in module.kwspaces.items():
+                                new_key = '{}.{}'.format(k, key)
+                                self._kwspaces[new_key] = v
+                self.latency_evaluated = False
+                self._avg_latency = 1
+
+            @property
+            def nparams(self):
+                nparams = 0
+                for k, op in self._modules.items():
+                    if isinstance(op, (ENAS_Unit, ENAS_Sequential)):
+                        nparams += op.nparams
+                    else:
+                        for _, v in op.collect_params().items():
+                            nparams += v.data().size
+                return nparams
+
+            @property
+            def nodeend(self):
+                return list(self._modules.keys())[-1]
+
+            @property
+            def nodehead(self):
+                return list(self._modules.keys())[0]
+
+            @property
+            def graph(self):
+                from graphviz import Digraph
+                e = Digraph(node_attr={'color': 'lightblue2', 'style':
+                    'filled', 'shape': 'box'})
+                pre_node = 'input'
+                e.node(pre_node)
+                for k, op in self._modules.items():
+                    if hasattr(op, 'graph'):
+                        e.subgraph(op.graph)
+                        e.edge(pre_node, op.nodehead)
+                        pre_node = op.nodeend
+                    else:
+                        if hasattr(op, 'node'):
+                            if op.node is None:
+                                continue
+                            node_info = op.node
+                        else:
+                            node_info = {'label': op.__class__.__name__}
+                        e.node(k, **node_info)
+                        e.edge(pre_node, k)
+                        pre_node = k
+                return e
+
+            @property
+            def kwspaces(self):
+                return self._kwspaces
+
+            def sample(self, **configs):
+                striped_keys = [k.split('.')[0] for k in configs.keys()]
+                for k in striped_keys:
+                    if isinstance(self._modules[k], ENAS_Unit):
+                        self._modules[k].sample(configs[k])
+                    else:
+                        sub_configs = _strip_config_space(configs, prefix=k)
+                        self._modules[k].sample(**sub_configs)
+
+            @property
+            def latency(self):
+                if not self.latency_evaluated:
+                    raise Exception('Latency is not evaluated yet.')
+                return self._avg_latency
+
+            @property
+            def avg_latency(self):
+                if not self.latency_evaluated:
+                    raise Exception('Latency is not evaluated yet.')
+                return self._avg_latency
+
+            def evaluate_latency(self, x):
+                import time
+                for k, op in self._modules.items():
+                    if hasattr(op, 'evaluate_latency'):
+                        x = op.evaluate_latency(x)
+                avg_latency = 0.0
+                for k, op in self._modules.items():
+                    if hasattr(op, 'avg_latency'):
+                        avg_latency += op.avg_latency
+                self._avg_latency = avg_latency
+                self.latency_evaluated = True
+        return ENAS_Net
+    return registered_class
+
+
+input_size = 112
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_awslabs_autogluon(_paritybench_base):

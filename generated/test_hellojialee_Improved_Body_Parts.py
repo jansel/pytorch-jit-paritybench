@@ -39,10 +39,13 @@ config_reader = _module
 util = _module
 draw_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -94,6 +97,9 @@ from torch.autograd import Function
 from torch.autograd import Variable
 
 
+from torchvision.models import densenet
+
+
 import functools
 
 
@@ -131,6 +137,12 @@ import torch.distributed as dist
 
 
 from torch.utils.data.dataloader import DataLoader
+
+
+import numbers
+
+
+import torchvision
 
 
 from torch.nn import functional as F
@@ -2155,6 +2167,7 @@ class GaussianSmoothing(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hellojialee_Improved_Body_Parts(_paritybench_base):
@@ -2169,20 +2182,34 @@ class Test_hellojialee_Improved_Body_Parts(_paritybench_base):
     def test_002(self):
         self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Full(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(DataParallelCriterion(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_004(self):
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
     def test_005(self):
-        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
+        self._check(Full(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4])], {})
+
+    def test_007(self):
+        self._check(GaussianSmoothing(*[], **{'channels': 4, 'kernel_size': 4, 'sigma': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
         self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_010(self):
         self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(SELayer(*[], **{'inp_dim': 32}), [torch.rand([4, 32, 4, 32])], {})
 

@@ -7,12 +7,16 @@ dataloader = _module
 generate_interpolated = _module
 network = _module
 tf_recorder = _module
+trainer = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -37,6 +41,12 @@ import numpy as np
 from torch.autograd import Variable
 
 
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
+
+
 import copy
 
 
@@ -44,6 +54,15 @@ from torch.nn.init import kaiming_normal
 
 
 from torch.nn.init import calculate_gain
+
+
+from math import floor
+
+
+from math import ceil
+
+
+from torch.optim import Adam
 
 
 class ConcatTable(nn.Module):
@@ -552,12 +571,13 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_nashory_pggan_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConcatTable(*[], **{'layer1': ReLU(), 'layer2': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatTable(*[], **{'layer1': _mock_layer(), 'layer2': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})

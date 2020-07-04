@@ -35,10 +35,13 @@ ucf101_json = _module
 utils = _module
 validation = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -82,6 +85,9 @@ import torch.distributed as dist
 
 
 from torch.backends import cudnn
+
+
+import torchvision
 
 
 import math
@@ -370,7 +376,7 @@ class ResNet(nn.Module):
         out = F.avg_pool3d(x, kernel_size=1, stride=stride)
         zero_pads = torch.zeros(out.size(0), planes - out.size(1), out.size
             (2), out.size(3), out.size(4))
-        if isinstance(out.data, torch.cuda.FloatTensor):
+        if isinstance(out.data, torch.FloatTensor):
             zero_pads = zero_pads
         out = torch.cat([out.data, zero_pads], dim=1)
         return out
@@ -545,7 +551,7 @@ class ResNet(nn.Module):
         out = F.avg_pool3d(x, kernel_size=1, stride=stride)
         zero_pads = torch.zeros(out.size(0), planes - out.size(1), out.size
             (2), out.size(3), out.size(4))
-        if isinstance(out.data, torch.cuda.FloatTensor):
+        if isinstance(out.data, torch.FloatTensor):
             zero_pads = zero_pads
         out = torch.cat([out.data, zero_pads], dim=1)
         return out
@@ -588,6 +594,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kenshohara_3D_ResNets_PyTorch(_paritybench_base):

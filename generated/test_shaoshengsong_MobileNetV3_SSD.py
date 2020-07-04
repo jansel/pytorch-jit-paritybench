@@ -50,10 +50,13 @@ misc = _module
 model_book = _module
 visual_tf_models = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -73,6 +76,12 @@ import torch.optim as optim
 
 
 from torch.optim import lr_scheduler
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import logging
@@ -751,8 +760,8 @@ class SSD(nn.Module):
         if device:
             self.device = device
         else:
-            self.device = torch.device('cuda:0' if torch.cuda.is_available(
-                ) else 'cpu')
+            self.device = torch.device('cuda:0' if torch.is_available() else
+                'cpu')
         if is_test:
             self.config = config
             self.priors = config.priors
@@ -850,6 +859,7 @@ class SSD(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_shaoshengsong_MobileNetV3_SSD(_paritybench_base):
@@ -863,20 +873,26 @@ class Test_shaoshengsong_MobileNetV3_SSD(_paritybench_base):
     def test_002(self):
         self._check(MobileBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernal_size': 4, 'stride': 1, 'nonLinear': 4, 'SE': 4, 'exp_size': 4}), [torch.rand([4, 4, 2, 2])], {})
 
-    @_fails_compile()
     def test_003(self):
+        self._check(MobileNetV1(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_004(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_008(self):
         self._check(h_sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(h_swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

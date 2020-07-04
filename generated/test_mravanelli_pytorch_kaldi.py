@@ -21,10 +21,13 @@ save_raw_fea = _module
 tune_hyperparameters = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -556,6 +559,48 @@ class GRU(nn.Module):
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
+
+
+class logMelFb(nn.Module):
+
+    def __init__(self, options, inp_dim):
+        super(logMelFb, self).__init__()
+        import torchaudio
+        self._sample_rate = int(options['logmelfb_nr_sample_rate'])
+        self._nr_of_filters = int(options['logmelfb_nr_filt'])
+        self._stft_window_size = int(options['logmelfb_stft_window_size'])
+        self._stft_window_shift = int(options['logmelfb_stft_window_shift'])
+        self._use_cuda = strtobool(options['use_cuda'])
+        self.out_dim = self._nr_of_filters
+        self._mspec = torchaudio.transforms.MelSpectrogram(sr=self.
+            _sample_rate, n_fft=self._stft_window_size, ws=self.
+            _stft_window_size, hop=self._stft_window_shift, n_mels=self.
+            _nr_of_filters)
+
+    def forward(self, x):
+
+        def _safe_log(inp, epsilon=1e-20):
+            eps = torch.FloatTensor([epsilon])
+            if self._use_cuda:
+                eps = eps
+            log_inp = torch.log10(torch.max(inp, eps.expand_as(inp)))
+            return log_inp
+        assert x.shape[-1
+            ] == 1, 'Multi channel time signal processing not suppored yet'
+        x_reshape_for_stft = torch.squeeze(x, -1).transpose(0, 1)
+        if self._use_cuda:
+            window = self._mspec.window(self._stft_window_size)
+        else:
+            window = self._mspec.window(self._stft_window_size)
+        x_stft = torch.stft(x_reshape_for_stft, self._stft_window_size,
+            hop_length=self._stft_window_shift, center=False, window=window)
+        x_power_stft = x_stft.pow(2).sum(-1)
+        x_power_stft_reshape_for_filterbank_mult = x_power_stft.transpose(1, 2)
+        mel_spec = self._mspec.fm(x_power_stft_reshape_for_filterbank_mult
+            ).transpose(0, 1)
+        log_mel_spec = _safe_log(mel_spec)
+        out = log_mel_spec
+        return out
 
 
 class channel_averaging(nn.Module):
@@ -1461,6 +1506,26 @@ class SRU(nn.Module):
         return output
 
 
+class PASE(nn.Module):
+
+    def __init__(self, options, inp_dim):
+        super(PASE, self).__init__()
+        self.input_dim = inp_dim
+        self.pase_cfg = options['pase_cfg']
+        self.pase_model = options['pase_model']
+        self.pase = wf_builder(self.pase_cfg)
+        self.pase.load_pretrained(self.pase_model, load_last=True, verbose=True
+            )
+        with open(self.pase_cfg) as json_file:
+            config = json.load(json_file)
+        self.out_dim = int(config['emb_dim'])
+
+    def forward(self, x):
+        x = x.unsqueeze(0).unsqueeze(0)
+        output = self.pase(x)
+        return output
+
+
 class FusionLinearConv(Module):
     """Applies a FusionLayer as described in:
         'FusionRNN: Shared Neural Parameters for
@@ -2030,6 +2095,7 @@ class QuaternionLinear(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mravanelli_pytorch_kaldi(_paritybench_base):

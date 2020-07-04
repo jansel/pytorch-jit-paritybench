@@ -38,10 +38,13 @@ train_SH = _module
 train_ShuffleNetV2 = _module
 train_VGG19 = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -102,6 +105,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.optim.lr_scheduler as lr_scheduler
 
 
+import torchvision
+
+
 import torch.utils.data as data
 
 
@@ -109,6 +115,9 @@ import torch.utils.model_zoo as model_zoo
 
 
 from torch.nn import init
+
+
+import torchvision.models as models
 
 
 class BasicConv2d(nn.Module):
@@ -1234,6 +1243,7 @@ class Network(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_tensorboy_pytorch_Realtime_Multi_Person_Pose_Estimation(_paritybench_base):
@@ -1243,31 +1253,39 @@ class Test_tensorboy_pytorch_Realtime_Multi_Person_Pose_Estimation(_paritybench_
 
     @_fails_compile()
     def test_001(self):
+        self._check(AtrousPose(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'bn': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4, 'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_006(self):
-        self._check(StageBlock(*[], **{'in_channels': 4, 'inner_channels': 4, 'innerout_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_007(self):
-        self._check(dilation_layer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StageBlock(*[], **{'in_channels': 4, 'inner_channels': 4, 'innerout_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(feature_extractor(*[], **{'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Ying_model(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_009(self):
+        self._check(dilation_layer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(feature_extractor(*[], **{'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_011(self):
         self._check(stage_block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

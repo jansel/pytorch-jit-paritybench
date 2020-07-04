@@ -28,10 +28,13 @@ vqa_data = _module
 vqa_model = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -344,6 +347,334 @@ def split_s3_path(url):
     return bucket_name, s3_path
 
 
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def get_from_cache(url, cache_dir=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url)
+    else:
+        response = requests.head(url, allow_redirects=True)
+        if response.status_code != 200:
+            raise IOError('HEAD request failed for url {} with status code {}'
+                .format(url, response.status_code))
+        etag = response.headers.get('ETag')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path):
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info('%s not found in cache, downloading to %s', url,
+                temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file)
+            else:
+                http_get(url, temp_file)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path
+                )
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w', encoding='utf-8') as meta_file:
+                json.dump(meta, meta_file)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.
+            format(url_or_filename))
+
+
+def load_vocab(vocab_file):
+    """Loads a vocabulary file into a dictionary."""
+    vocab = collections.OrderedDict()
+    index = 0
+    with open(vocab_file, 'r', encoding='utf-8') as reader:
+        while True:
+            token = reader.readline()
+            if not token:
+                break
+            token = token.strip()
+            vocab[token] = index
+            index += 1
+    return vocab
+
+
+class BertTokenizer(object):
+    """Runs end-to-end tokenization: punctuation splitting + wordpiece"""
+
+    def __init__(self, vocab_file, do_lower_case=True, max_len=None,
+        do_basic_tokenize=True, never_split=('[UNK]', '[SEP]', '[PAD]',
+        '[CLS]', '[MASK]')):
+        """Constructs a BertTokenizer.
+
+        Args:
+          vocab_file: Path to a one-wordpiece-per-line vocabulary file
+          do_lower_case: Whether to lower case the input
+                         Only has an effect when do_wordpiece_only=False
+          do_basic_tokenize: Whether to do basic tokenization before wordpiece.
+          max_len: An artificial maximum length to truncate tokenized sequences to;
+                         Effective maximum length is always the minimum of this
+                         value (if specified) and the underlying BERT model's
+                         sequence length.
+          never_split: List of tokens which will never be split during tokenization.
+                         Only has an effect when do_wordpiece_only=False
+        """
+        if not os.path.isfile(vocab_file):
+            raise ValueError(
+                "Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`"
+                .format(vocab_file))
+        self.vocab = load_vocab(vocab_file)
+        self.ids_to_tokens = collections.OrderedDict([(ids, tok) for tok,
+            ids in self.vocab.items()])
+        self.do_basic_tokenize = do_basic_tokenize
+        if do_basic_tokenize:
+            self.basic_tokenizer = BasicTokenizer(do_lower_case=
+                do_lower_case, never_split=never_split)
+        self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
+        self.max_len = max_len if max_len is not None else int(1000000000000.0)
+
+    def tokenize(self, text):
+        if self.do_basic_tokenize:
+            split_tokens = []
+            for token in self.basic_tokenizer.tokenize(text):
+                for sub_token in self.wordpiece_tokenizer.tokenize(token):
+                    split_tokens.append(sub_token)
+        else:
+            split_tokens = self.wordpiece_tokenizer.tokenize(text)
+        return split_tokens
+
+    def convert_tokens_to_ids(self, tokens):
+        """Converts a sequence of tokens into ids using the vocab."""
+        ids = []
+        for token in tokens:
+            ids.append(self.vocab[token])
+        if len(ids) > self.max_len:
+            logger.warning(
+                'Token indices sequence length is longer than the specified maximum  sequence length for this BERT model ({} > {}). Running this sequence through BERT will result in indexing errors'
+                .format(len(ids), self.max_len))
+        return ids
+
+    def convert_ids_to_tokens(self, ids):
+        """Converts a sequence of ids in wordpiece tokens using the vocab."""
+        tokens = []
+        for i in ids:
+            tokens.append(self.ids_to_tokens[i])
+        return tokens
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None,
+        *inputs, **kwargs):
+        """
+        Instantiate a PreTrainedBertModel from a pre-trained model file.
+        Download and cache the pre-trained model file if needed.
+        """
+        if pretrained_model_name_or_path in PRETRAINED_VOCAB_ARCHIVE_MAP:
+            vocab_file = PRETRAINED_VOCAB_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+        else:
+            vocab_file = pretrained_model_name_or_path
+        if os.path.isdir(vocab_file):
+            vocab_file = os.path.join(vocab_file, VOCAB_NAME)
+        try:
+            resolved_vocab_file = cached_path(vocab_file, cache_dir=cache_dir)
+        except EnvironmentError:
+            logger.error(
+                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
+                .format(pretrained_model_name_or_path, ', '.join(
+                PRETRAINED_VOCAB_ARCHIVE_MAP.keys()), vocab_file))
+            return None
+        if resolved_vocab_file == vocab_file:
+            logger.info('loading vocabulary file {}'.format(vocab_file))
+        else:
+            logger.info('loading vocabulary file {} from cache at {}'.
+                format(vocab_file, resolved_vocab_file))
+        if (pretrained_model_name_or_path in
+            PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP):
+            max_len = PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP[
+                pretrained_model_name_or_path]
+            kwargs['max_len'] = min(kwargs.get('max_len', int(
+                1000000000000.0)), max_len)
+        tokenizer = cls(resolved_vocab_file, *inputs, **kwargs)
+        return tokenizer
+
+
+class InputFeatures(object):
+    """A single set of features of data."""
+
+    def __init__(self, input_ids, input_mask, segment_ids, lm_label_ids,
+        visual_feats, obj_labels, is_matched, ans):
+        self.input_ids = input_ids
+        self.input_mask = input_mask
+        self.segment_ids = segment_ids
+        self.lm_label_ids = lm_label_ids
+        self.visual_feats = visual_feats
+        self.obj_labels = obj_labels
+        self.is_matched = is_matched
+        self.ans = ans
+
+
+def convert_sents_to_features(sents, max_seq_length, tokenizer):
+    """Loads a data file into a list of `InputBatch`s."""
+    features = []
+    for i, sent in enumerate(sents):
+        tokens_a = tokenizer.tokenize(sent.strip())
+        if len(tokens_a) > max_seq_length - 2:
+            tokens_a = tokens_a[:max_seq_length - 2]
+        tokens = ['[CLS]'] + tokens_a + ['[SEP]']
+        segment_ids = [0] * len(tokens)
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+        input_mask = [1] * len(input_ids)
+        padding = [0] * (max_seq_length - len(input_ids))
+        input_ids += padding
+        input_mask += padding
+        segment_ids += padding
+        assert len(input_ids) == max_seq_length
+        assert len(input_mask) == max_seq_length
+        assert len(segment_ids) == max_seq_length
+        features.append(InputFeatures(input_ids=input_ids, input_mask=
+            input_mask, segment_ids=segment_ids))
+    return features
+
+
+class VisualConfig(object):
+    VISUAL_LOSSES = ['obj', 'attr', 'feat']
+
+    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
+        self.l_layers = l_layers
+        self.x_layers = x_layers
+        self.r_layers = r_layers
+        self.visual_feat_dim = 2048
+        self.visual_pos_dim = 4
+        self.obj_id_num = 1600
+        self.attr_id_num = 400
+        self.visual_losses = self.VISUAL_LOSSES
+        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 /
+            0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15),
+            'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
+
+    def set_visual_dims(self, feat_dim, pos_dim):
+        self.visual_feat_dim = feat_dim
+        self.visual_pos_dim = pos_dim
+
+
+VISUAL_CONFIG = VisualConfig()
+
+
+def set_visual_config(args):
+    VISUAL_CONFIG.l_layers = args.llayers
+    VISUAL_CONFIG.x_layers = args.xlayers
+    VISUAL_CONFIG.r_layers = args.rlayers
+
+
+class LXRTEncoder(nn.Module):
+
+    def __init__(self, args, max_seq_length, mode='x'):
+        super().__init__()
+        self.max_seq_length = max_seq_length
+        set_visual_config(args)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased',
+            do_lower_case=True)
+        self.model = VisualBertForLXRFeature.from_pretrained(
+            'bert-base-uncased', mode=mode)
+        if args.from_scratch:
+            None
+            self.model.apply(self.model.init_bert_weights)
+
+    def multi_gpu(self):
+        self.model = nn.DataParallel(self.model)
+
+    @property
+    def dim(self):
+        return 768
+
+    def forward(self, sents, feats, visual_attention_mask=None):
+        train_features = convert_sents_to_features(sents, self.
+            max_seq_length, self.tokenizer)
+        input_ids = torch.tensor([f.input_ids for f in train_features],
+            dtype=torch.long)
+        input_mask = torch.tensor([f.input_mask for f in train_features],
+            dtype=torch.long)
+        segment_ids = torch.tensor([f.segment_ids for f in train_features],
+            dtype=torch.long)
+        output = self.model(input_ids, segment_ids, input_mask,
+            visual_feats=feats, visual_attention_mask=visual_attention_mask)
+        return output
+
+    def save(self, path):
+        torch.save(self.model.state_dict(), os.path.join('%s_LXRT.pth' % path))
+
+    def load(self, path):
+        None
+        state_dict = torch.load('%s_LXRT.pth' % path)
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith('module.'):
+                new_state_dict[key[len('module.'):]] = value
+            else:
+                new_state_dict[key] = value
+        state_dict = new_state_dict
+        load_keys = set(state_dict.keys())
+        model_keys = set(self.model.state_dict().keys())
+        None
+        None
+        for key in sorted(load_keys.difference(model_keys)):
+            None
+        None
+        None
+        for key in sorted(model_keys.difference(load_keys)):
+            None
+        None
+        self.model.load_state_dict(state_dict, strict=False)
+
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -590,30 +921,6 @@ class LXRTXLayer(nn.Module):
         lang_output, visn_output = self.output_fc(lang_att_output,
             visn_att_output)
         return lang_output, visn_output
-
-
-class VisualConfig(object):
-    VISUAL_LOSSES = ['obj', 'attr', 'feat']
-
-    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
-        self.l_layers = l_layers
-        self.x_layers = x_layers
-        self.r_layers = r_layers
-        self.visual_feat_dim = 2048
-        self.visual_pos_dim = 4
-        self.obj_id_num = 1600
-        self.attr_id_num = 400
-        self.visual_losses = self.VISUAL_LOSSES
-        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 /
-            0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15),
-            'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
-
-    def set_visual_dims(self, feat_dim, pos_dim):
-        self.visual_feat_dim = feat_dim
-        self.visual_pos_dim = pos_dim
-
-
-VISUAL_CONFIG = VisualConfig()
 
 
 class VisualFeatEncoder(nn.Module):
@@ -1036,7 +1343,7 @@ class BertPreTrainedModel(nn.Module):
         if state_dict is None and not from_tf:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
             state_dict = torch.load(weights_path, map_location='cpu' if not
-                torch.cuda.is_available() else None)
+                torch.is_available() else None)
         if tempdir:
             shutil.rmtree(tempdir)
         if from_tf:
@@ -1171,6 +1478,7 @@ class VQAModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_airsplay_lxmert(_paritybench_base):
@@ -1191,7 +1499,7 @@ class Test_airsplay_lxmert(_paritybench_base):
         self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_004(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
@@ -1200,7 +1508,7 @@ class Test_airsplay_lxmert(_paritybench_base):
         self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):

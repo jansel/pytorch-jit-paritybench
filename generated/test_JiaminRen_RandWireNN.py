@@ -6,10 +6,13 @@ model = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,6 +41,9 @@ import torch.backends.cudnn as cudnn
 
 
 from torch.utils.data.distributed import DistributedSampler
+
+
+import torchvision.transforms as transforms
 
 
 from torch.utils.data import DataLoader
@@ -95,6 +101,52 @@ class Node_OP(nn.Module):
             out = input[0]
         out = self.conv(out)
         return out
+
+
+Node = collections.namedtuple('Node', ['id', 'inputs', 'type'])
+
+
+def get_graph_info(graph):
+    input_nodes = []
+    output_nodes = []
+    Nodes = []
+    for node in range(graph.number_of_nodes()):
+        tmp = list(graph.neighbors(node))
+        tmp.sort()
+        type = -1
+        if node < tmp[0]:
+            input_nodes.append(node)
+            type = 0
+        if node > tmp[-1]:
+            output_nodes.append(node)
+            type = 1
+        Nodes.append(Node(node, [n for n in tmp if n < node], type))
+    return Nodes, input_nodes, output_nodes
+
+
+class StageBlock(nn.Module):
+
+    def __init__(self, graph, inplanes, outplanes):
+        super(StageBlock, self).__init__()
+        self.nodes, self.input_nodes, self.output_nodes = get_graph_info(graph)
+        self.nodeop = nn.ModuleList()
+        for node in self.nodes:
+            self.nodeop.append(Node_OP(node, inplanes, outplanes))
+
+    def forward(self, x):
+        results = {}
+        for id in self.input_nodes:
+            results[id] = self.nodeop[id](x)
+        for id, node in enumerate(self.nodes):
+            if id not in self.input_nodes:
+                results[id] = self.nodeop[id](*[results[_id] for _id in
+                    node.inputs])
+        result = results[self.output_nodes[0]]
+        for idx, id in enumerate(self.output_nodes):
+            if idx > 0:
+                result = result + results[id]
+        result = result / len(self.output_nodes)
+        return result
 
 
 def build_graph(Nodes, args):
@@ -200,6 +252,7 @@ class CNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_JiaminRen_RandWireNN(_paritybench_base):

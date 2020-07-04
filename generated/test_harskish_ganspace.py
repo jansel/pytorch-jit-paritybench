@@ -69,10 +69,13 @@ layerwise_z_test = _module
 partial_forward_test = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -142,7 +145,16 @@ from scipy.ndimage.morphology import binary_dilation
 import types
 
 
+import torchvision
+
+
 from collections import defaultdict
+
+
+import numbers
+
+
+from torchvision import transforms
 
 
 import itertools
@@ -462,6 +474,152 @@ def split_s3_path(url):
     if s3_path.startswith('/'):
         s3_path = s3_path[1:]
     return bucket_name, s3_path
+
+
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def get_from_cache(url, cache_dir=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url)
+    else:
+        response = requests.head(url, allow_redirects=True)
+        if response.status_code != 200:
+            raise IOError('HEAD request failed for url {} with status code {}'
+                .format(url, response.status_code))
+        etag = response.headers.get('ETag')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path):
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info('%s not found in cache, downloading to %s', url,
+                temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file)
+            else:
+                http_get(url, temp_file)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path
+                )
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w', encoding='utf-8') as meta_file:
+                json.dump(meta, meta_file)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.
+            format(url_or_filename))
+
+
+class BigGAN(nn.Module):
+    """BigGAN Generator."""
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None,
+        *inputs, **kwargs):
+        if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
+            model_file = PRETRAINED_MODEL_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+        else:
+            model_file = os.path.join(pretrained_model_name_or_path,
+                WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path,
+                CONFIG_NAME)
+        try:
+            resolved_model_file = cached_path(model_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
+                )
+        except EnvironmentError:
+            logger.error(
+                'Wrong model name, should be a valid path to a folder containing a {} file and a {} file or a model name in {}'
+                .format(WEIGHTS_NAME, CONFIG_NAME,
+                PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
+            raise
+        logger.info('loading model {} from cache at {}'.format(
+            pretrained_model_name_or_path, resolved_model_file))
+        config = BigGANConfig.from_json_file(resolved_config_file)
+        logger.info('Model config {}'.format(config))
+        model = cls(config, *inputs, **kwargs)
+        state_dict = torch.load(resolved_model_file, map_location='cpu' if 
+            not torch.is_available() else None)
+        model.load_state_dict(state_dict, strict=False)
+        return model
+
+    def __init__(self, config):
+        super(BigGAN, self).__init__()
+        self.config = config
+        self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=
+            False)
+        self.generator = Generator(config)
+        self.n_latents = len(config.layers) + 1
+
+    def forward(self, z, class_label, truncation):
+        assert 0 < truncation <= 1
+        if not isinstance(z, list):
+            z = self.n_latents * [z]
+        if isinstance(class_label, list):
+            embed = [self.embeddings(l) for l in class_label]
+        else:
+            embed = self.n_latents * [self.embeddings(class_label)]
+        assert len(z
+            ) == self.n_latents, f'Expected {self.n_latents} latents, got {len(z)}'
+        assert len(embed
+            ) == self.n_latents, f'Expected {self.n_latents} class vectors, got {len(class_label)}'
+        cond_vectors = [torch.cat((z, e), dim=1) for z, e in zip(z, embed)]
+        z = self.generator(cond_vectors, truncation)
+        return z
 
 
 class MyLinear(nn.Module):
@@ -819,6 +977,90 @@ class G_synthesis(nn.Module):
                 x = m(x, dlatents_in[:, 2 * i:2 * i + 2])
         rgb = self.torgb(x)
         return rgb
+
+
+class StyleGAN_G(nn.Sequential):
+
+    def __init__(self, resolution, truncation=1.0):
+        self.resolution = resolution
+        self.layers = OrderedDict([('g_mapping', G_mapping()), (
+            'g_synthesis', G_synthesis(resolution=resolution))])
+        super().__init__(self.layers)
+
+    def forward(self, x, latent_is_w=False):
+        if isinstance(x, list):
+            assert len(x) == 18, 'Must provide 1 or 18 latents'
+            if not latent_is_w:
+                x = [self.layers['g_mapping'].forward(l) for l in x]
+            x = torch.stack(x, dim=1)
+        else:
+            if not latent_is_w:
+                x = self.layers['g_mapping'].forward(x)
+            x = x.unsqueeze(1).expand(-1, 18, -1)
+        x = self.layers['g_synthesis'].forward(x)
+        return x
+
+    def load_weights(self, checkpoint):
+        self.load_state_dict(torch.load(checkpoint))
+
+    def export_from_tf(self, pickle_path):
+        module_path = Path(__file__).parent / 'stylegan_tf'
+        sys.path.append(str(module_path.resolve()))
+        import torch
+        import collections
+        dnnlib.tflib.init_tf()
+        weights = pickle.load(open(pickle_path, 'rb'))
+        weights_pt = [collections.OrderedDict([(k, torch.from_numpy(v.value
+            ().eval())) for k, v in w.trainables.items()]) for w in weights]
+        state_G, state_D, state_Gs = weights_pt
+
+        def key_translate(k):
+            k = k.lower().split('/')
+            if k[0] == 'g_synthesis':
+                if not k[1].startswith('torgb'):
+                    k.insert(1, 'blocks')
+                k = '.'.join(k)
+                k = k.replace('const.const', 'const').replace('const.bias',
+                    'bias').replace('const.stylemod', 'epi1.style_mod.lin'
+                    ).replace('const.noise.weight', 'epi1.top_epi.noise.weight'
+                    ).replace('conv.noise.weight', 'epi2.top_epi.noise.weight'
+                    ).replace('conv.stylemod', 'epi2.style_mod.lin').replace(
+                    'conv0_up.noise.weight', 'epi1.top_epi.noise.weight'
+                    ).replace('conv0_up.stylemod', 'epi1.style_mod.lin'
+                    ).replace('conv1.noise.weight', 'epi2.top_epi.noise.weight'
+                    ).replace('conv1.stylemod', 'epi2.style_mod.lin').replace(
+                    'torgb_lod0', 'torgb')
+            else:
+                k = '.'.join(k)
+            return k
+
+        def weight_translate(k, w):
+            k = key_translate(k)
+            if k.endswith('.weight'):
+                if w.dim() == 2:
+                    w = w.t()
+                elif w.dim() == 1:
+                    pass
+                else:
+                    assert w.dim() == 4
+                    w = w.permute(3, 2, 0, 1)
+            return w
+        param_dict = {key_translate(k): weight_translate(k, v) for k, v in
+            state_Gs.items() if 'torgb_lod' not in key_translate(k)}
+        if 1:
+            sd_shapes = {k: v.shape for k, v in self.state_dict().items()}
+            param_shapes = {k: v.shape for k, v in param_dict.items()}
+            for k in (list(sd_shapes) + list(param_shapes)):
+                pds = param_shapes.get(k)
+                sds = sd_shapes.get(k)
+                if pds is None:
+                    None
+                elif sds is None:
+                    None
+                elif sds != pds:
+                    None
+        self.load_state_dict(param_dict, strict=False)
+        torch.save(self.state_dict(), Path(pickle_path).with_suffix('.pt'))
 
 
 class BaseModel(AbstractBaseClass, torch.nn.Module):
@@ -1294,6 +1536,62 @@ class Resnet(nn.Module):
         self.layer2 = orig_resnet.layer2
         self.layer3 = orig_resnet.layer3
         self.layer4 = orig_resnet.layer4
+
+    def forward(self, x, return_feature_maps=False):
+        conv_out = []
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        conv_out.append(x)
+        x = self.layer2(x)
+        conv_out.append(x)
+        x = self.layer3(x)
+        conv_out.append(x)
+        x = self.layer4(x)
+        conv_out.append(x)
+        if return_feature_maps:
+            return conv_out
+        return [x]
+
+
+class ResnetDilated(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8):
+        super(ResnetDilated, self).__init__()
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=4))
+        elif dilate_scale == 16:
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=2))
+        self.conv1 = orig_resnet.conv1
+        self.bn1 = orig_resnet.bn1
+        self.relu1 = orig_resnet.relu1
+        self.conv2 = orig_resnet.conv2
+        self.bn2 = orig_resnet.bn2
+        self.relu2 = orig_resnet.relu2
+        self.conv3 = orig_resnet.conv3
+        self.bn3 = orig_resnet.bn3
+        self.relu3 = orig_resnet.relu3
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
 
     def forward(self, x, return_feature_maps=False):
         conv_out = []
@@ -1820,6 +2118,154 @@ class Resnet(nn.Module):
         return [x]
 
 
+class UPerNet(nn.Module):
+
+    def __init__(self, nr_classes, fc_dim=4096, use_softmax=False,
+        pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048),
+        fpn_dim=256):
+        super(UPerNet, self).__init__()
+        self.use_softmax = use_softmax
+        self.ppm_pooling = []
+        self.ppm_conv = []
+        for scale in pool_scales:
+            self.ppm_pooling.append(PrRoIPool2D(scale, scale, 1.0))
+            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512,
+                kernel_size=1, bias=False), SynchronizedBatchNorm2d(512),
+                nn.ReLU(inplace=True)))
+        self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
+        self.ppm_conv = nn.ModuleList(self.ppm_conv)
+        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 
+            512, fpn_dim, 1)
+        self.fpn_in = []
+        for fpn_inplane in fpn_inplanes[:-1]:
+            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim,
+                kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim
+                ), nn.ReLU(inplace=True)))
+        self.fpn_in = nn.ModuleList(self.fpn_in)
+        self.fpn_out = []
+        for i in range(len(fpn_inplanes) - 1):
+            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim,
+                fpn_dim, 1)))
+        self.fpn_out = nn.ModuleList(self.fpn_out)
+        self.conv_fusion = conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim,
+            fpn_dim, 1)
+        (self.nr_scene_class, self.nr_object_class, self.nr_part_class,
+            self.nr_material_class) = (nr_classes['scene'], nr_classes[
+            'object'], nr_classes['part'], nr_classes['material'])
+        self.scene_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1
+            ), nn.AdaptiveAvgPool2d(1), nn.Conv2d(fpn_dim, self.
+            nr_scene_class, kernel_size=1, bias=True))
+        self.object_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 
+            1), nn.Conv2d(fpn_dim, self.nr_object_class, kernel_size=1,
+            bias=True))
+        self.part_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1),
+            nn.Conv2d(fpn_dim, self.nr_part_class, kernel_size=1, bias=True))
+        self.material_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim,
+            1), nn.Conv2d(fpn_dim, self.nr_material_class, kernel_size=1,
+            bias=True))
+
+    def forward(self, conv_out, output_switch=None, seg_size=None):
+        output_dict = {k: None for k in output_switch.keys()}
+        conv5 = conv_out[-1]
+        input_size = conv5.size()
+        ppm_out = [conv5]
+        roi = []
+        for i in range(input_size[0]):
+            roi.append(torch.Tensor([i, 0, 0, input_size[3], input_size[2]]
+                ).view(1, -1))
+        roi = torch.cat(roi, dim=0).type_as(conv5)
+        ppm_out = [conv5]
+        for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
+            ppm_out.append(pool_conv(F.interpolate(pool_scale(conv5, roi.
+                detach()), (input_size[2], input_size[3]), mode='bilinear',
+                align_corners=False)))
+        ppm_out = torch.cat(ppm_out, 1)
+        f = self.ppm_last_conv(ppm_out)
+        if output_switch['scene']:
+            output_dict['scene'] = self.scene_head(f)
+        if output_switch['object'] or output_switch['part'] or output_switch[
+            'material']:
+            fpn_feature_list = [f]
+            for i in reversed(range(len(conv_out) - 1)):
+                conv_x = conv_out[i]
+                conv_x = self.fpn_in[i](conv_x)
+                f = F.interpolate(f, size=conv_x.size()[2:], mode=
+                    'bilinear', align_corners=False)
+                f = conv_x + f
+                fpn_feature_list.append(self.fpn_out[i](f))
+            fpn_feature_list.reverse()
+            if output_switch['material']:
+                output_dict['material'] = self.material_head(fpn_feature_list
+                    [0])
+            if output_switch['object'] or output_switch['part']:
+                output_size = fpn_feature_list[0].size()[2:]
+                fusion_list = [fpn_feature_list[0]]
+                for i in range(1, len(fpn_feature_list)):
+                    fusion_list.append(F.interpolate(fpn_feature_list[i],
+                        output_size, mode='bilinear', align_corners=False))
+                fusion_out = torch.cat(fusion_list, 1)
+                x = self.conv_fusion(fusion_out)
+                if output_switch['object']:
+                    output_dict['object'] = self.object_head(x)
+                if output_switch['part']:
+                    output_dict['part'] = self.part_head(x)
+        if self.use_softmax:
+            x = output_dict['scene']
+            x = x.squeeze(3).squeeze(2)
+            x = F.softmax(x, dim=1)
+            output_dict['scene'] = x
+            for k in ['object', 'material']:
+                x = output_dict[k]
+                x = F.interpolate(x, size=seg_size, mode='bilinear',
+                    align_corners=False)
+                x = F.softmax(x, dim=1)
+                output_dict[k] = x
+            x = output_dict['part']
+            x = F.interpolate(x, size=seg_size, mode='bilinear',
+                align_corners=False)
+            part_pred_list, head = [], 0
+            for idx_part, object_label in enumerate(self.object_with_part):
+                n_part = len(self.object_part[object_label])
+                _x = F.interpolate(x[:, head:head + n_part], size=seg_size,
+                    mode='bilinear', align_corners=False)
+                _x = F.softmax(_x, dim=1)
+                part_pred_list.append(_x)
+                head += n_part
+            output_dict['part'] = part_pred_list
+        else:
+            for k in ['object', 'scene', 'material']:
+                if output_dict[k] is None:
+                    continue
+                x = output_dict[k]
+                x = F.log_softmax(x, dim=1)
+                if k == 'scene':
+                    x = x.squeeze(3).squeeze(2)
+                output_dict[k] = x
+            if output_dict['part'] is not None:
+                part_pred_list, head = [], 0
+                for idx_part, object_label in enumerate(self.object_with_part):
+                    n_part = len(self.object_part[object_label])
+                    x = output_dict['part'][:, head:head + n_part]
+                    x = F.log_softmax(x, dim=1)
+                    part_pred_list.append(x)
+                    head += n_part
+                output_dict['part'] = part_pred_list
+        return output_dict
+
+
+class PrRoIPool2D(nn.Module):
+
+    def __init__(self, pooled_height, pooled_width, spatial_scale):
+        super().__init__()
+        self.pooled_height = int(pooled_height)
+        self.pooled_width = int(pooled_width)
+        self.spatial_scale = float(spatial_scale)
+
+    def forward(self, features, rois):
+        return prroi_pool2d(features, rois, self.pooled_height, self.
+            pooled_width, self.spatial_scale)
+
+
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -2032,6 +2478,7 @@ class ResNeXt(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_harskish_ganspace(_paritybench_base):
@@ -2047,40 +2494,48 @@ class Test_harskish_ganspace(_paritybench_base):
     def test_002(self):
         self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(MyConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InstrumentedModel(*[], **{'model': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_004(self):
+        self._check(MyConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(MyLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(NoiseLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(NormConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(NormUpscaleConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(OutputConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
-        self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
-
     def test_011(self):
-        self._check(StyleMod(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
     def test_012(self):
-        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StyleGAN_G(*[], **{'resolution': 4}), [torch.rand([512, 512])], {})
 
     def test_013(self):
+        self._check(StyleMod(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
         self._check(WScaleLayer(*[], **{'size': 4, 'fan_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 

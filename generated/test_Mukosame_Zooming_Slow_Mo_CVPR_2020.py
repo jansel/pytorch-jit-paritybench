@@ -29,10 +29,13 @@ make_video = _module
 util = _module
 video_to_zsm = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -106,6 +109,9 @@ import torch.nn.init as init
 
 
 import random
+
+
+from torchvision.utils import make_grid
 
 
 import re
@@ -410,6 +416,32 @@ class Easy_PCD(nn.Module):
         aligned_fea = self.pcd_align(fea1, fea2)
         fusion_fea = self.fusion(aligned_fea)
         return fusion_fea
+
+
+class BiDeformableConvLSTM(nn.Module):
+
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size,
+        num_layers, front_RBs, groups, batch_first=False, bias=True,
+        return_all_layers=False):
+        super(BiDeformableConvLSTM, self).__init__()
+        self.forward_net = DeformableConvLSTM(input_size=input_size,
+            input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=
+            kernel_size, num_layers=num_layers, front_RBs=front_RBs, groups
+            =groups, batch_first=batch_first, bias=bias, return_all_layers=
+            return_all_layers)
+        self.conv_1x1 = nn.Conv2d(2 * input_dim, input_dim, 1, 1, bias=True)
+
+    def forward(self, x):
+        reversed_idx = list(reversed(range(x.shape[1])))
+        x_rev = x[:, (reversed_idx), (...)]
+        out_fwd, _ = self.forward_net(x)
+        out_rev, _ = self.forward_net(x_rev)
+        rev_rev = out_rev[0][:, (reversed_idx), (...)]
+        B, N, C, H, W = out_fwd[0].size()
+        result = torch.cat((out_fwd[0], rev_rev), dim=2)
+        result = result.view(B * N, -1, H, W)
+        result = self.conv_1x1(result)
+        return result.view(B, -1, C, H, W)
 
 
 class LunaTokis(nn.Module):
@@ -767,6 +799,7 @@ class ResidualBlock_noBN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
@@ -774,6 +807,10 @@ class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
     def test_000(self):
         self._check(CharbonnierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
+        self._check(LapLoss(*[], **{}), [torch.rand([4, 4, 256, 256]), torch.rand([4, 4, 256, 256])], {})
+
+    def test_002(self):
         self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 

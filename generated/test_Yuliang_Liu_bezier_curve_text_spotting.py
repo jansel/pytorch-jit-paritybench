@@ -144,10 +144,13 @@ test_net = _module
 single_demo_bezier = _module
 train_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -161,6 +164,9 @@ import numpy as np
 
 
 import torch
+
+
+import torchvision
 
 
 from torch.nn import functional as F
@@ -290,6 +296,37 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+
+class _BezierAlign(Function):
+
+    @staticmethod
+    def forward(ctx, input, bezier, output_size, spatial_scale, sampling_ratio
+        ):
+        ctx.save_for_backward(bezier)
+        ctx.output_size = _pair(output_size)
+        ctx.spatial_scale = spatial_scale
+        ctx.sampling_ratio = sampling_ratio
+        ctx.input_shape = input.size()
+        output = _C.bezier_align_forward(input, bezier, spatial_scale,
+            output_size[0], output_size[1], sampling_ratio)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        beziers, = ctx.saved_tensors
+        output_size = ctx.output_size
+        spatial_scale = ctx.spatial_scale
+        sampling_ratio = ctx.sampling_ratio
+        bs, ch, h, w = ctx.input_shape
+        grad_input = _C.bezier_align_backward(grad_output, beziers,
+            spatial_scale, output_size[0], output_size[1], bs, ch, h, w,
+            sampling_ratio)
+        return grad_input, None, None, None, None
+
+
+bezier_align = _BezierAlign.apply
 
 
 def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
@@ -800,6 +837,67 @@ class BatchNorm2d(torch.nn.BatchNorm2d):
         if x.numel() > 0:
             return super(BatchNorm2d, self).forward(x)
         output_shape = x.shape
+        return _NewEmptyTensorOp.apply(x, output_shape)
+
+
+class DFConv2d(nn.Module):
+    """Deformable convolutional layer"""
+
+    def __init__(self, in_channels, out_channels, with_modulated_dcn=True,
+        kernel_size=3, stride=1, groups=1, dilation=1, deformable_groups=1,
+        bias=False, padding=None):
+        super(DFConv2d, self).__init__()
+        if isinstance(kernel_size, (list, tuple)):
+            assert isinstance(stride, (list, tuple))
+            assert isinstance(dilation, (list, tuple))
+            assert len(kernel_size) == 2
+            assert len(stride) == 2
+            assert len(dilation) == 2
+            padding = dilation[0] * (kernel_size[0] - 1) // 2, dilation[1] * (
+                kernel_size[1] - 1) // 2
+            offset_base_channels = kernel_size[0] * kernel_size[1]
+        else:
+            padding = dilation * (kernel_size - 1) // 2
+            offset_base_channels = kernel_size * kernel_size
+        if with_modulated_dcn:
+            offset_channels = offset_base_channels * 3
+            conv_block = ModulatedDeformConv
+        else:
+            offset_channels = offset_base_channels * 2
+            conv_block = DeformConv
+        self.offset = Conv2d(in_channels, deformable_groups *
+            offset_channels, kernel_size=kernel_size, stride=stride,
+            padding=padding, groups=1, dilation=dilation)
+        for l in [self.offset]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+            torch.nn.init.constant_(l.bias, 0.0)
+        self.conv = conv_block(in_channels, out_channels, kernel_size=
+            kernel_size, stride=stride, padding=padding, dilation=dilation,
+            groups=groups, deformable_groups=deformable_groups, bias=bias)
+        self.with_modulated_dcn = with_modulated_dcn
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.offset_split = offset_base_channels * deformable_groups * 2
+
+    def forward(self, x, return_offset=False):
+        if x.numel() > 0:
+            if not self.with_modulated_dcn:
+                offset_mask = self.offset(x)
+                x = self.conv(x, offset_mask)
+            else:
+                offset_mask = self.offset(x)
+                offset = offset_mask[:, :self.offset_split, :, :]
+                mask = offset_mask[:, self.offset_split:, :, :].sigmoid()
+                x = self.conv(x, offset, mask)
+            if return_offset:
+                return x, offset_mask
+            return x
+        output_shape = [((i + 2 * p - (di * (k - 1) + 1)) // d + 1) for i,
+            p, di, k, d in zip(x.shape[-2:], self.padding, self.dilation,
+            self.kernel_size, self.stride)]
+        output_shape = [x.shape[0], self.conv.weight.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
 
 
@@ -2197,6 +2295,120 @@ _STAGE_SPECS = Registry({'R-14': ResNet14FPNStagesTo5, 'R-50':
     ResNet101FPNStagesTo5, 'R-101-PAN': ResNet101FPNStagesTo5,
     'R-101-FPN-RETINANET': ResNet101FPNStagesTo5, 'R-152-FPN':
     ResNet152FPNStagesTo5, 'R-152-PAN': ResNet152FPNStagesTo5})
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
+    dilation=1, dcn_config={}):
+    blocks = []
+    stride = first_stride
+    max_dcn_layer = dcn_config.get('max_dcn_layer', 0)
+    for i in range(block_count):
+        if i < block_count - max_dcn_layer:
+            block_dcn_config = {}
+        else:
+            block_dcn_config = dcn_config
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride, dilation=dilation, dcn_config=block_dcn_config))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            stage_with_dcn = cfg.MODEL.RESNETS.STAGE_WITH_DCN[stage_spec.
+                index - 1]
+            stage_with_context = cfg.MODEL.RESNETS.STAGE_WITH_CONTEXT[
+                stage_spec.index - 1]
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1, dcn_config={'stage_with_dcn':
+                stage_with_dcn, 'stage_with_context': stage_with_context,
+                'max_dcn_layer': cfg.MODEL.RESNETS.MAX_DCN_LAYER,
+                'with_modulated_dcn': cfg.MODEL.RESNETS.WITH_MODULATED_DCN,
+                'deformable_groups': cfg.MODEL.RESNETS.DEFORMABLE_GROUPS})
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+
+    def _freeze_backbone(self, freeze_at):
+        if freeze_at < 0:
+            return
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
+        dilation=1, dcn_config={}):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride, dilation=
+                dilation, dcn_config=dcn_config)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
 
 
 class Bottleneck(nn.Module):
@@ -6065,6 +6277,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Yuliang_Liu_bezier_curve_text_spotting(_paritybench_base):
@@ -6104,60 +6317,68 @@ class Test_Yuliang_Liu_bezier_curve_text_spotting(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
-        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': 'relu', 'bn_type': 'bn'}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
     def test_010(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
+        self._check(FPA(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    def test_012(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(GAU(*[], **{'channels_high': 4, 'channels_low': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(IOULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(Identity(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_017(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(LastLevelP6(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(NonLocal2D(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_022(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_026(self):
+        self._check(ShuffleV2Block(*[], **{'input_depth': 64, 'output_depth': 64, 'expansion': 4, 'stride': 1}), [torch.rand([4, 32, 64, 64])], {})
 

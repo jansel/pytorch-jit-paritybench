@@ -17,10 +17,13 @@ test_fps = _module
 test_images = _module
 training = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -135,6 +138,143 @@ class DarkNet(nn.Module):
         return out3, out4, out5
 
 
+class ModelMain(nn.Module):
+
+    def __init__(self, config, is_training=True):
+        super(ModelMain, self).__init__()
+        self.config = config
+        self.training = is_training
+        self.model_params = config['model_params']
+        _backbone_fn = backbone_fn[self.model_params['backbone_name']]
+        self.backbone = _backbone_fn(self.model_params['backbone_pretrained'])
+        _out_filters = self.backbone.layers_out_filters
+        final_out_filter0 = len(config['yolo']['anchors'][0]) * (5 + config
+            ['yolo']['classes'])
+        self.embedding0 = self._make_embedding([512, 1024], _out_filters[-1
+            ], final_out_filter0)
+        final_out_filter1 = len(config['yolo']['anchors'][1]) * (5 + config
+            ['yolo']['classes'])
+        self.embedding1_cbl = self._make_cbl(512, 256, 1)
+        self.embedding1_upsample = nn.Upsample(scale_factor=2, mode='nearest')
+        self.embedding1 = self._make_embedding([256, 512], _out_filters[-2] +
+            256, final_out_filter1)
+        final_out_filter2 = len(config['yolo']['anchors'][2]) * (5 + config
+            ['yolo']['classes'])
+        self.embedding2_cbl = self._make_cbl(256, 128, 1)
+        self.embedding2_upsample = nn.Upsample(scale_factor=2, mode='nearest')
+        self.embedding2 = self._make_embedding([128, 256], _out_filters[-3] +
+            128, final_out_filter2)
+
+    def _make_cbl(self, _in, _out, ks):
+        """ cbl = conv + batch_norm + leaky_relu
+        """
+        pad = (ks - 1) // 2 if ks else 0
+        return nn.Sequential(OrderedDict([('conv', nn.Conv2d(_in, _out,
+            kernel_size=ks, stride=1, padding=pad, bias=False)), ('bn', nn.
+            BatchNorm2d(_out)), ('relu', nn.LeakyReLU(0.1))]))
+
+    def _make_embedding(self, filters_list, in_filters, out_filter):
+        m = nn.ModuleList([self._make_cbl(in_filters, filters_list[0], 1),
+            self._make_cbl(filters_list[0], filters_list[1], 3), self.
+            _make_cbl(filters_list[1], filters_list[0], 1), self._make_cbl(
+            filters_list[0], filters_list[1], 3), self._make_cbl(
+            filters_list[1], filters_list[0], 1), self._make_cbl(
+            filters_list[0], filters_list[1], 3)])
+        m.add_module('conv_out', nn.Conv2d(filters_list[1], out_filter,
+            kernel_size=1, stride=1, padding=0, bias=True))
+        return m
+
+    def forward(self, x):
+
+        def _branch(_embedding, _in):
+            for i, e in enumerate(_embedding):
+                _in = e(_in)
+                if i == 4:
+                    out_branch = _in
+            return _in, out_branch
+        x2, x1, x0 = self.backbone(x)
+        out0, out0_branch = _branch(self.embedding0, x0)
+        x1_in = self.embedding1_cbl(out0_branch)
+        x1_in = self.embedding1_upsample(x1_in)
+        x1_in = torch.cat([x1_in, x1], 1)
+        out1, out1_branch = _branch(self.embedding1, x1_in)
+        x2_in = self.embedding2_cbl(out1_branch)
+        x2_in = self.embedding2_upsample(x2_in)
+        x2_in = torch.cat([x2_in, x2], 1)
+        out2, out2_branch = _branch(self.embedding2, x2_in)
+        return out0, out1, out2
+
+    def load_darknet_weights(self, weights_path):
+        import numpy as np
+        fp = open(weights_path, 'rb')
+        header = np.fromfile(fp, dtype=np.int32, count=5)
+        weights = np.fromfile(fp, dtype=np.float32)
+        None
+        fp.close()
+        ptr = 0
+        all_dict = self.state_dict()
+        all_keys = self.state_dict().keys()
+        None
+        last_bn_weight = None
+        last_conv = None
+        for i, (k, v) in enumerate(all_dict.items()):
+            if 'bn' in k:
+                if 'weight' in k:
+                    last_bn_weight = v
+                elif 'bias' in k:
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    v = last_bn_weight
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    last_bn_weight = None
+                elif 'running_mean' in k:
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                elif 'running_var' in k:
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    v = last_conv
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    last_conv = None
+                else:
+                    raise Exception('Error for bn')
+            elif 'conv' in k:
+                if 'weight' in k:
+                    last_conv = v
+                else:
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    v = last_conv
+                    num_b = v.numel()
+                    vv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(v)
+                    v.copy_(vv)
+                    None
+                    ptr += num_b
+                    last_conv = None
+        None
+        None
+
+
 def bbox_iou(box1, box2, x1y1x2y2=True):
     """
     Returns the IoU of two bounding boxes
@@ -217,10 +357,8 @@ class YOLOLoss(nn.Module):
             return loss, loss_x.item(), loss_y.item(), loss_w.item(
                 ), loss_h.item(), loss_conf.item(), loss_cls.item()
         else:
-            FloatTensor = (torch.cuda.FloatTensor if x.is_cuda else torch.
-                FloatTensor)
-            LongTensor = (torch.cuda.LongTensor if x.is_cuda else torch.
-                LongTensor)
+            FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
+            LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
             grid_x = torch.linspace(0, in_w - 1, in_w).repeat(in_w, 1).repeat(
                 bs * self.num_anchors, 1, 1).view(x.shape).type(FloatTensor)
             grid_y = torch.linspace(0, in_h - 1, in_h).repeat(in_h, 1).t(
@@ -288,7 +426,11 @@ class YOLOLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_BobLiu20_YOLOv3_PyTorch(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(DarkNet(*[], **{'layers': [4, 4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+

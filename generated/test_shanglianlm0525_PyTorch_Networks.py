@@ -51,10 +51,13 @@ FCN = _module
 FisheyeMODNet = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import math, functools, torchtext, typing, torchvision, warnings, logging, string, numpy, torchaudio, itertools, collections, re, random, scipy, copy, numbers, uuid, time, enum, types, inspect, torch, abc
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -68,6 +71,9 @@ import torch
 
 
 import torch.nn as nn
+
+
+import torchvision
 
 
 from torch import nn
@@ -4243,4 +4249,123 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
         out = self.bottleneck(x)
         return out + self.shortcut(x)
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_shanglianlm0525_PyTorch_Networks(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(CBAM(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ChannelAttentionModule(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ContextBlock(*[], **{'inplanes': 4, 'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(Conv2dCReLU(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(DenseBlock(*[], **{'num_layers': 1, 'inplances': 4, 'growth_rate': 4, 'bn_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(FCA(*[], **{'channel': 8}), [torch.rand([4, 8, 4, 8])], {})
+
+    def test_007(self):
+        self._check(FCN8s(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
+        self._check(FPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(FaceBoxes(*[], **{'num_classes': 4, 'phase': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_010(self):
+        self._check(FireModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(GhostModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(GlobalContextBlock(*[], **{'inplanes': 4, 'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(HalfSplit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
+        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
+        self._check(InceptionModules(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(LBwithGCBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_017(self):
+        self._check(LFFD(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_018(self):
+        self._check(LFFDBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(LPN(*[], **{'nJoints': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_020(self):
+        self._check(LossBranch(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(MDConv(*[], **{'nchannels': 4, 'kernel_sizes': [4, 4], 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
+        self._check(MiddleBottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_023(self):
+        self._check(NonLocalBlock(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
+        self._check(SE_Module(*[], **{'channel': 16}), [torch.rand([4, 16, 4, 16])], {})
+
+    def test_025(self):
+        self._check(SimpleBaseline(*[], **{'nJoints': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_026(self):
+        self._check(SpatialAttentionModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_027(self):
+        self._check(SqueezeAndExcite(*[], **{'in_channels': 4, 'out_channels': 4, 'se_kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_028(self):
+        self._check(SqueezeNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    @_fails_compile()
+    def test_029(self):
+        self._check(_DenseLayer(*[], **{'inplace': 4, 'growth_rate': 4, 'bn_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_030(self):
+        self._check(_TransitionLayer(*[], **{'inplace': 4, 'plance': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_031(self):
+        self._check(cSE_Module(*[], **{'channel': 16}), [torch.rand([4, 16, 4, 16])], {})
+
+    def test_032(self):
+        self._check(sSE_Module(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_033(self):
+        self._check(scSE_Module(*[], **{'channel': 16}), [torch.rand([4, 16, 4, 16])], {})
 

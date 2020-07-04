@@ -96,10 +96,13 @@ train = _module
 validate = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -146,6 +149,9 @@ from abc import abstractmethod
 
 
 import collections
+
+
+from torchvision.ops.boxes import batched_nms
 
 
 import logging
@@ -227,6 +233,254 @@ class Registry(object):
 
 
 SPPE = Registry('sppe')
+
+
+@SPPE.register_module
+class FastPose(nn.Module):
+    conv_dim = 128
+
+    def __init__(self, norm_layer=nn.BatchNorm2d, **cfg):
+        super(FastPose, self).__init__()
+        self._preset_cfg = cfg['PRESET']
+        if 'DCN' in cfg.keys():
+            stage_with_dcn = cfg['STAGE_WITH_DCN']
+            dcn = cfg['DCN']
+            self.preact = SEResnet(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
+                stage_with_dcn=stage_with_dcn)
+        else:
+            self.preact = SEResnet(f"resnet{cfg['NUM_LAYERS']}")
+        import torchvision.models as tm
+        assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
+        x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
+        model_state = self.preact.state_dict()
+        state = {k: v for k, v in x.state_dict().items() if k in self.
+            preact.state_dict() and v.size() == self.preact.state_dict()[k]
+            .size()}
+        model_state.update(state)
+        self.preact.load_state_dict(model_state)
+        self.suffle1 = nn.PixelShuffle(2)
+        self.duc1 = DUC(512, 1024, upscale_factor=2, norm_layer=norm_layer)
+        self.duc2 = DUC(256, 512, upscale_factor=2, norm_layer=norm_layer)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
+            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+
+    def forward(self, x):
+        out = self.preact(x)
+        out = self.suffle1(out)
+        out = self.duc1(out)
+        out = self.duc2(out)
+        out = self.conv_out(out)
+        return out
+
+    def _initialize(self):
+        for m in self.conv_out.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
+
+
+@SPPE.register_module
+class FastPose_DUC(nn.Module):
+    conv_dim = 256
+
+    def __init__(self, norm_layer=nn.BatchNorm2d, **cfg):
+        super(FastPose_DUC, self).__init__()
+        self._preset_cfg = cfg['PRESET']
+        if cfg['BACKBONE'] == 'shuffle':
+            None
+            backbone = ShuffleResnet
+        elif cfg['BACKBONE'] == 'se-resnet':
+            None
+            backbone = SEResnet
+        else:
+            None
+            backbone = ResNet
+        if 'DCN' in cfg.keys():
+            stage_with_dcn = cfg['STAGE_WITH_DCN']
+            dcn = cfg['DCN']
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
+                stage_with_dcn=stage_with_dcn)
+        else:
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}")
+        import torchvision.models as tm
+        assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
+        x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
+        model_state = self.preact.state_dict()
+        state = {k: v for k, v in x.state_dict().items() if k in self.
+            preact.state_dict() and v.size() == self.preact.state_dict()[k]
+            .size()}
+        model_state.update(state)
+        self.preact.load_state_dict(model_state)
+        self.norm_layer = norm_layer
+        stage1_cfg = cfg['STAGE1']
+        stage2_cfg = cfg['STAGE2']
+        stage3_cfg = cfg['STAGE3']
+        self.duc1 = self._make_duc_stage(stage1_cfg, 2048, 1024)
+        self.duc2 = self._make_duc_stage(stage2_cfg, 1024, 512)
+        self.duc3 = self._make_duc_stage(stage3_cfg, 512, self.conv_dim)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
+            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+
+    def forward(self, x):
+        out = self.preact(x)
+        out = self.duc1(out)
+        out = self.duc2(out)
+        out = self.duc3(out)
+        out = self.conv_out(out)
+        return out
+
+    def _make_duc_stage(self, layer_config, inplanes, outplanes):
+        layers = []
+        shuffle = nn.PixelShuffle(2)
+        inplanes //= 4
+        layers.append(shuffle)
+        for i in range(layer_config.NUM_CONV - 1):
+            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1,
+                bias=False)
+            norm_layer = self.norm_layer(inplanes, momentum=0.1)
+            relu = nn.ReLU(inplace=True)
+            layers += [conv, norm_layer, relu]
+        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1,
+            bias=False)
+        norm_layer = self.norm_layer(outplanes, momentum=0.1)
+        relu = nn.ReLU(inplace=True)
+        layers += [conv, norm_layer, relu]
+        return nn.Sequential(*layers)
+
+    def _initialize(self):
+        for m in self.conv_out.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
+
+
+@SPPE.register_module
+class FastPose_DUC_Dense(nn.Module):
+    conv_dim = 256
+
+    def __init__(self, norm_layer=nn.BatchNorm2d, **cfg):
+        super(FastPose_DUC_Dense, self).__init__()
+        self._preset_cfg = cfg['PRESET']
+        if cfg['BACKBONE'] == 'shuffle':
+            None
+            backbone = ShuffleResnet
+        elif cfg['BACKBONE'] == 'se-resnet':
+            None
+            backbone = SEResnet
+        else:
+            None
+            backbone = ResNet
+        if 'DCN' in cfg.keys():
+            stage_with_dcn = cfg['STAGE_WITH_DCN']
+            dcn = cfg['DCN']
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
+                stage_with_dcn=stage_with_dcn)
+        else:
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}")
+        for m in self.preact.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                for name, _ in m.named_parameters():
+                    if name in ['bias']:
+                        nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.uniform_(m.weight, 0, 1)
+                nn.init.constant_(m.bias, 0)
+        import torchvision.models as tm
+        if cfg['NUM_LAYERS'] == 152:
+            """ Load pretrained model """
+            x = tm.resnet152(pretrained=True)
+        elif cfg['NUM_LAYERS'] == 101:
+            """ Load pretrained model """
+            x = tm.resnet101(pretrained=True)
+        elif cfg['NUM_LAYERS'] == 50:
+            x = tm.resnet50(pretrained=True)
+        elif cfg['NUM_LAYERS'] == 18:
+            x = tm.resnet18(pretrained=True)
+        else:
+            raise NotImplementedError
+        model_state = self.preact.state_dict()
+        state = {k: v for k, v in x.state_dict().items() if k in self.
+            preact.state_dict() and v.size() == self.preact.state_dict()[k]
+            .size()}
+        model_state.update(state)
+        self.preact.load_state_dict(model_state)
+        self.norm_layer = norm_layer
+        stage1_cfg = cfg['STAGE1']
+        stage2_cfg = cfg['STAGE2']
+        stage3_cfg = cfg['STAGE3']
+        duc1 = self._make_duc_stage(stage1_cfg, 2048, 1024)
+        duc2 = self._make_duc_stage(stage2_cfg, 1024, 512)
+        duc3 = self._make_duc_stage(stage3_cfg, 512, self.conv_dim)
+        self.duc = nn.Sequential(duc1, duc2, duc3)
+        duc1_dense = self._make_duc_stage(stage1_cfg, 2048, 1024)
+        duc2_dense = self._make_duc_stage(stage2_cfg, 1024, 512)
+        duc3_dense = self._make_duc_stage(stage3_cfg, 512, self.conv_dim)
+        self.duc_dense = nn.Sequential(duc1_dense, duc2_dense, duc3_dense)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
+            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+        self.conv_out_dense = nn.Conv2d(self.conv_dim, self._preset_cfg[
+            'NUM_JOINTS_DENSE'] - self._preset_cfg['NUM_JOINTS'],
+            kernel_size=3, stride=1, padding=1)
+        for params in self.preact.parameters():
+            params.requires_grad = False
+        for params in self.duc.parameters():
+            params.requires_grad = False
+
+    def forward(self, x):
+        bk_out = self.preact(x)
+        out = self.duc(bk_out)
+        out_dense = self.duc_dense(bk_out)
+        out = self.conv_out(out)
+        out_dense = self.conv_out_dense(out_dense)
+        out = torch.cat((out, out_dense), 1)
+        return out
+
+    def _make_duc_stage(self, layer_config, inplanes, outplanes):
+        layers = []
+        shuffle = nn.PixelShuffle(2)
+        inplanes //= 4
+        layers.append(shuffle)
+        for i in range(layer_config.NUM_CONV - 1):
+            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1,
+                bias=False)
+            norm_layer = self.norm_layer(inplanes, momentum=0.1)
+            relu = nn.ReLU(inplace=True)
+            layers += [conv, norm_layer, relu]
+        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1,
+            bias=False)
+        norm_layer = self.norm_layer(outplanes, momentum=0.1)
+        relu = nn.ReLU(inplace=True)
+        layers += [conv, norm_layer, relu]
+        return nn.Sequential(*layers)
+
+    def _initialize(self):
+        for m in self.duc.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                for name, _ in m.named_parameters():
+                    if name in ['bias']:
+                        nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.uniform_(m.weight, 0, 1)
+                nn.init.constant_(m.bias, 0)
+        for m in self.conv_out.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
+        for m in self.duc_dense.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                for name, _ in m.named_parameters():
+                    if name in ['bias']:
+                        nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.uniform_(m.weight, 0, 1)
+                nn.init.constant_(m.bias, 0)
+        for m in self.conv_out_dense.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
 
 
 BN_MOMENTUM = 0.1
@@ -1447,6 +1701,69 @@ class DeformRoIPooling(nn.Module):
             group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
+@SPPE.register_module
+class SimplePose(nn.Module):
+
+    def __init__(self, norm_layer=nn.BatchNorm2d, **cfg):
+        super(SimplePose, self).__init__()
+        self._preset_cfg = cfg['PRESET']
+        self.deconv_dim = cfg['NUM_DECONV_FILTERS']
+        self._norm_layer = norm_layer
+        self.preact = ResNet(f"resnet{cfg['NUM_LAYERS']}")
+        import torchvision.models as tm
+        assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
+        x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
+        model_state = self.preact.state_dict()
+        state = {k: v for k, v in x.state_dict().items() if k in self.
+            preact.state_dict() and v.size() == self.preact.state_dict()[k]
+            .size()}
+        model_state.update(state)
+        self.preact.load_state_dict(model_state)
+        self.deconv_layers = self._make_deconv_layer()
+        self.final_layer = nn.Conv2d(self.deconv_dim[2], self._preset_cfg[
+            'NUM_JOINTS'], kernel_size=1, stride=1, padding=0)
+
+    def _make_deconv_layer(self):
+        deconv_layers = []
+        deconv1 = nn.ConvTranspose2d(2048, self.deconv_dim[0], kernel_size=
+            4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        bn1 = self._norm_layer(self.deconv_dim[0])
+        deconv2 = nn.ConvTranspose2d(self.deconv_dim[0], self.deconv_dim[1],
+            kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        bn2 = self._norm_layer(self.deconv_dim[1])
+        deconv3 = nn.ConvTranspose2d(self.deconv_dim[1], self.deconv_dim[2],
+            kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        bn3 = self._norm_layer(self.deconv_dim[2])
+        deconv_layers.append(deconv1)
+        deconv_layers.append(bn1)
+        deconv_layers.append(nn.ReLU(inplace=True))
+        deconv_layers.append(deconv2)
+        deconv_layers.append(bn2)
+        deconv_layers.append(nn.ReLU(inplace=True))
+        deconv_layers.append(deconv3)
+        deconv_layers.append(bn3)
+        deconv_layers.append(nn.ReLU(inplace=True))
+        return nn.Sequential(*deconv_layers)
+
+    def _initialize(self):
+        for name, m in self.deconv_layers.named_modules():
+            if isinstance(m, nn.ConvTranspose2d):
+                nn.init.normal_(m.weight, std=0.001)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        for m in self.final_layer.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        out = self.preact(x)
+        out = self.deconv_layers(out)
+        out = self.final_layer(out)
+        return out
+
+
 class RoIAlignFunction(Function):
 
     @staticmethod
@@ -1488,6 +1805,33 @@ class RoIAlignFunction(Function):
 
 
 roi_align = RoIAlignFunction.apply
+
+
+class RoIAlign(nn.Module):
+
+    def __init__(self, out_size, spatial_scale=1, sample_num=0,
+        use_torchvision=False):
+        super(RoIAlign, self).__init__()
+        self.out_size = out_size
+        self.spatial_scale = float(spatial_scale)
+        self.sample_num = int(sample_num)
+        self.use_torchvision = use_torchvision
+
+    def forward(self, features, rois):
+        if self.use_torchvision:
+            from torchvision.ops import roi_align as tv_roi_align
+            return tv_roi_align(features, rois, _pair(self.out_size), self.
+                spatial_scale, self.sample_num)
+        else:
+            return roi_align(features, rois, self.out_size, self.
+                spatial_scale, self.sample_num)
+
+    def __repr__(self):
+        format_str = self.__class__.__name__
+        format_str += '(out_size={}, spatial_scale={}, sample_num={}'.format(
+            self.out_size, self.spatial_scale, self.sample_num)
+        format_str += ', use_torchvision={})'.format(self.use_torchvision)
+        return format_str
 
 
 def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
@@ -2318,8 +2662,7 @@ class YOLOLayer(nn.Module):
             if nM > 0:
                 lbox = self.SmoothL1Loss(p_box[mask], tbox[mask])
             else:
-                FT = (torch.cuda.FloatTensor if p_conf.is_cuda else torch.
-                    FloatTensor)
+                FT = torch.FloatTensor if p_conf.is_cuda else torch.FloatTensor
                 lbox, lconf = FT([0]), FT([0])
             lconf = self.SoftmaxLoss(p_conf, tconf)
             lid = torch.Tensor(1).fill_(0).squeeze()
@@ -2855,6 +3198,7 @@ class Darknet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MVIG_SJTU_AlphaPose(_paritybench_base):

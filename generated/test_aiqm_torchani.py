@@ -44,10 +44,13 @@ nn = _module
 units = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -529,6 +532,225 @@ class SpeciesEnergies(NamedTuple):
     energies: Tensor
 
 
+def calc():
+    calc = ase_interface.ANI(False)
+    calc.setnc(nc)
+    return calc
+
+
+conv_au_ev = 27.21138505
+
+
+radial_length = 64
+
+
+all_species = ['H', 'C', 'N', 'O']
+
+
+species_indices = {all_species[i]: i for i in range(len(all_species))}
+
+
+class NeuroChem:
+
+    def _get_radial_part(self, fullaev):
+        if len(fullaev.shape) == 3:
+            return fullaev[:, :, :radial_length]
+        assert len(fullaev.shape) == 2
+        return fullaev[:, :radial_length]
+
+    def _get_angular_part(self, fullaev):
+        if len(fullaev.shape) == 3:
+            return fullaev[:, :, radial_length:]
+        assert len(fullaev.shape) == 2
+        return fullaev[:, radial_length:]
+
+    def _per_conformation(self, coordinates, species):
+        atoms = coordinates.shape[0]
+        mol = ase.Atoms(''.join(species), positions=coordinates)
+        mol.set_calculator(calc())
+        energy = mol.get_potential_energy() / conv_au_ev
+        aevs = [mol.calc.nc.atomicenvironments(j) for j in range(atoms)]
+        force = mol.get_forces() / conv_au_ev
+        aevs = numpy.stack(aevs)
+        return aevs, energy, force
+
+    def __call__(self, args):
+        if len(args) == 2:
+            return self.from_coordinates_and_species(*args)
+        return self.from_atoms_obj(args)
+
+    def from_atoms_obj(self, mol):
+        natoms = len(mol)
+        mol = mol.copy()
+        mol.set_calculator(calc())
+        energy = mol.get_potential_energy() / conv_au_ev
+        aevs = [mol.calc.nc.atomicenvironments(j) for j in range(natoms)]
+        aevs = numpy.stack(aevs)
+        force = mol.get_forces() / conv_au_ev
+        cell = mol.get_cell(complete=True)
+        pbc = mol.get_pbc().astype(numpy.uint8)
+        coordinates = mol.get_positions()
+        species = numpy.array([species_indices[i] for i in mol.
+            get_chemical_symbols()])
+        return coordinates, species, self._get_radial_part(aevs
+            ), self._get_angular_part(aevs), energy, force, cell, pbc
+
+    def from_coordinates_and_species(self, coordinates, species):
+        if len(coordinates.shape) == 2:
+            coordinates = coordinates.reshape(1, -1, 3)
+        conformations = coordinates.shape[0]
+        results = [self._per_conformation(coordinates[i], species) for i in
+            range(conformations)]
+        aevs, energies, forces = zip(*results)
+        aevs = numpy.stack(aevs)
+        energies = numpy.stack(energies)
+        forces = numpy.stack(forces)
+        species = numpy.array([species_indices[i] for i in species])
+        species = species.reshape(1, -1)
+        species = numpy.broadcast_to(species, (coordinates.shape[0],
+            species.shape[1]))
+        return coordinates, species, self._get_radial_part(aevs
+            ), self._get_angular_part(aevs), energies, forces
+
+
+neurochem = NeuroChem()
+
+
+class BuiltinModel(torch.nn.Module):
+    """Private template for the builtin ANI models """
+
+    def __init__(self, species_converter, aev_computer, neural_networks,
+        energy_shifter, species_to_tensor, consts, sae_dict,
+        periodic_table_index):
+        super(BuiltinModel, self).__init__()
+        self.species_converter = species_converter
+        self.aev_computer = aev_computer
+        self.neural_networks = neural_networks
+        self.energy_shifter = energy_shifter
+        self._species_to_tensor = species_to_tensor
+        self.species = consts.species
+        self.periodic_table_index = periodic_table_index
+        self.consts = consts
+        self.sae_dict = sae_dict
+
+    @classmethod
+    def _from_neurochem_resources(cls, info_file_path, periodic_table_index
+        =False, model_index=0):
+        consts, sae_file, ensemble_prefix, ensemble_size = (cls.
+            _parse_neurochem_resources(info_file_path))
+        if model_index >= ensemble_size:
+            raise ValueError(
+                "The ensemble size is only {}, model {} can't be loaded".
+                format(ensemble_size, model_index))
+        species_converter = SpeciesConverter(consts.species)
+        aev_computer = AEVComputer(**consts)
+        energy_shifter, sae_dict = neurochem.load_sae(sae_file, return_dict
+            =True)
+        species_to_tensor = consts.species_to_tensor
+        network_dir = os.path.join('{}{}'.format(ensemble_prefix,
+            model_index), 'networks')
+        neural_networks = neurochem.load_model(consts.species, network_dir)
+        return cls(species_converter, aev_computer, neural_networks,
+            energy_shifter, species_to_tensor, consts, sae_dict,
+            periodic_table_index)
+
+    @staticmethod
+    def _parse_neurochem_resources(info_file_path):
+
+        def get_resource(resource_path, file_path):
+            return os.path.join(resource_path, file_path)
+        resource_path = os.path.join(os.path.dirname(__file__), 'resources/')
+        local_dir = os.path.expanduser('~/.local/torchani/')
+        repo_name = 'ani-model-zoo'
+        tag_name = 'ani-2x'
+        extracted_name = '{}-{}'.format(repo_name, tag_name)
+        url = 'https://github.com/aiqm/{}/archive/{}.zip'.format(repo_name,
+            tag_name)
+        if not os.path.isfile(get_resource(resource_path, info_file_path)):
+            if not os.path.isfile(get_resource(local_dir, info_file_path)):
+                None
+                resource_res = requests.get(url)
+                resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content)
+                    )
+                try:
+                    resource_zip.extractall(resource_path)
+                except PermissionError:
+                    resource_zip.extractall(local_dir)
+                    resource_path = local_dir
+            else:
+                resource_path = local_dir
+            files = glob.glob(os.path.join(resource_path, extracted_name,
+                'resources', '*'))
+            for f in files:
+                try:
+                    shutil.move(f, resource_path)
+                except shutil.Error:
+                    pass
+            shutil.rmtree(os.path.join(resource_path, extracted_name))
+        info_file = get_resource(resource_path, info_file_path)
+        with open(info_file) as f:
+            lines = [x.strip() for x in f.readlines()][:4]
+            (const_file_path, sae_file_path, ensemble_prefix_path,
+                ensemble_size) = lines
+            const_file = get_resource(resource_path, const_file_path)
+            sae_file = get_resource(resource_path, sae_file_path)
+            ensemble_prefix = get_resource(resource_path, ensemble_prefix_path)
+            ensemble_size = int(ensemble_size)
+            consts = neurochem.Constants(const_file)
+        return consts, sae_file, ensemble_prefix, ensemble_size
+
+    def forward(self, species_coordinates: Tuple[Tensor, Tensor], cell:
+        Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
+        """Calculates predicted properties for minibatch of configurations
+
+        Args:
+            species_coordinates: minibatch of configurations
+            cell: the cell used in PBC computation, set to None if PBC is not enabled
+            pbc: the bool tensor indicating which direction PBC is enabled, set to None if PBC is not enabled
+
+        Returns:
+            species_energies: energies for the given configurations
+
+        .. note:: The coordinates, and cell are in Angstrom, and the energies
+            will be in Hartree.
+        """
+        if self.periodic_table_index:
+            species_coordinates = self.species_converter(species_coordinates)
+        species_aevs = self.aev_computer(species_coordinates, cell=cell,
+            pbc=pbc)
+        species_energies = self.neural_networks(species_aevs)
+        return self.energy_shifter(species_energies)
+
+    @torch.jit.export
+    def _recast_long_buffers(self):
+        self.species_converter.conv_tensor = self.species_converter.conv_tensor
+        self.aev_computer.triu_index = self.aev_computer.triu_index
+
+    def species_to_tensor(self, *args, **kwargs):
+        """Convert species from strings to tensor.
+
+        See also :method:`torchani.neurochem.Constant.species_to_tensor`
+
+        Arguments:
+            species (:class:`str`): A string of chemical symbols
+
+        Returns:
+            tensor (:class:`torch.Tensor`): A 1D tensor of integers
+        """
+        return self._species_to_tensor(*args, **kwargs)
+
+    def ase(self, **kwargs):
+        """Get an ASE Calculator using this ANI model
+
+        Arguments:
+            kwargs: ase.Calculator kwargs
+
+        Returns:
+            calculator (:class:`int`): A calculator to be used with ASE
+        """
+        return ase.Calculator(self.species, self, **kwargs)
+
+
 class ANIModel(torch.nn.ModuleDict):
     """ANI model that compute energies from species and AEVs.
 
@@ -703,6 +925,7 @@ class EnergyShifter(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_aiqm_torchani(_paritybench_base):

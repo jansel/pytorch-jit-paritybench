@@ -40,10 +40,13 @@ generate = _module
 main = _module
 model = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -54,6 +57,9 @@ __version__ = '1.0.0'
 
 
 import torch
+
+
+from torchvision import models
 
 
 import random
@@ -72,6 +78,15 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
 
 
 import torch.distributed as dist
@@ -101,10 +116,19 @@ from torch import optim
 from torch.distributed.optim import DistributedOptimizer
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 from functools import wraps
 
 
 from torch.distributed.rpc import RRef
+
+
+from torchvision.models.resnet import Bottleneck
 
 
 import numpy as np
@@ -149,10 +173,22 @@ import torch.optim
 import torch.utils.data.distributed
 
 
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
+
+
 from torch.optim.lr_scheduler import StepLR
 
 
 import torch.optim as O
+
+
+from torchtext import data
+
+
+from torchtext import datasets
 
 
 from math import log10
@@ -167,6 +203,9 @@ from torch import nn
 from torch.nn import functional as F
 
 
+from torchvision.utils import save_image
+
+
 import math
 
 
@@ -175,6 +214,52 @@ parser = argparse.ArgumentParser(description=
 
 
 opt = parser.parse_args()
+
+
+class Generator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Generator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
+            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
+            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
+            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
+            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
+            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
+            4, 2, 1, bias=False), nn.Tanh())
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Discriminator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
+            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
+            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
+            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
+            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
+            4, 1, 0, bias=False), nn.Sigmoid())
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output.view(-1, 1).squeeze(1)
 
 
 class ToyModel(nn.Module):
@@ -224,8 +309,8 @@ class Net(nn.Module):
         super(Net, self).__init__()
         None
         self.num_gpus = num_gpus
-        device = torch.device('cuda:0' if torch.cuda.is_available() and 
-            self.num_gpus > 0 else 'cpu')
+        device = torch.device('cuda:0' if torch.is_available() and self.
+            num_gpus > 0 else 'cpu')
         None
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
@@ -260,8 +345,8 @@ class ParameterServer(nn.Module):
         super().__init__()
         model = Net(num_gpus=num_gpus)
         self.model = model
-        self.input_device = torch.device('cuda:0' if torch.cuda.
-            is_available() and num_gpus > 0 else 'cpu')
+        self.input_device = torch.device('cuda:0' if torch.is_available() and
+            num_gpus > 0 else 'cpu')
 
     def forward(self, inp):
         inp = inp
@@ -280,6 +365,42 @@ class ParameterServer(nn.Module):
     def get_param_rrefs(self):
         param_rrefs = [rpc.RRef(param) for param in self.model.parameters()]
         return param_rrefs
+
+
+def get_parameter_server(num_gpus=0):
+    global param_server
+    with global_lock:
+        if not param_server:
+            param_server = ParameterServer(num_gpus=num_gpus)
+        return param_server
+
+
+def call_method(method, rref, *args, **kwargs):
+    return method(rref.local_value(), *args, **kwargs)
+
+
+def remote_method(method, rref, *args, **kwargs):
+    args = [method, rref] + list(args)
+    return rpc.rpc_sync(rref.owner(), call_method, args=args, kwargs=kwargs)
+
+
+class TrainerNet(nn.Module):
+
+    def __init__(self, num_gpus=0):
+        super().__init__()
+        self.num_gpus = num_gpus
+        self.param_server_rref = rpc.remote('parameter_server',
+            get_parameter_server, args=(num_gpus,))
+
+    def get_global_param_rrefs(self):
+        remote_params = remote_method(ParameterServer.get_param_rrefs, self
+            .param_server_rref)
+        return remote_params
+
+    def forward(self, x):
+        model_output = remote_method(ParameterServer.forward, self.
+            param_server_rref, x)
+        return model_output
 
 
 def conv1x1(in_planes, out_planes, stride=1):
@@ -1021,7 +1142,9 @@ class TransformerModel(nn.Module):
 
     def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.5):
         super(TransformerModel, self).__init__()
-        try:None
+        try:
+            from torch.nn import TransformerEncoder
+            from torch.nn import TransformerEncoderLayer
         except:
             raise ImportError(
                 'TransformerEncoder module does not exist in PyTorch 1.1 or lower.'
@@ -1064,6 +1187,7 @@ class TransformerModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorch_examples(_paritybench_base):
@@ -1082,21 +1206,35 @@ class Test_pytorch_examples(_paritybench_base):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
 
     def test_004(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Net(*[], **{'upscale_factor': 4}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_005(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
+
+    def test_009(self):
         self._check(ToyMpModel(*[], **{'dev0': 4, 'dev1': 4}), [torch.rand([10, 10])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
+        self._check(TransformerNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(VAE(*[], **{}), [torch.rand([4, 784])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

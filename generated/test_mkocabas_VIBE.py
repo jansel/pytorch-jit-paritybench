@@ -50,10 +50,13 @@ test_2d_datasets = _module
 test_3d_datasets = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -78,10 +81,16 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 
 
+from torchvision.models.utils import load_state_dict_from_url
+
+
 import math
 
 
 import numpy as np
+
+
+import torchvision.models.resnet as resnet
 
 
 import time
@@ -607,6 +616,327 @@ JOINT_NAMES = ['OP Nose', 'OP Neck', 'OP RShoulder', 'OP RElbow',
 VIBE_DATA_DIR = 'data/vibe_data'
 
 
+SMPL_MODEL_DIR = VIBE_DATA_DIR
+
+
+def perspective_projection(points, rotation, translation, focal_length,
+    camera_center):
+    """
+    This function computes the perspective projection of a set of points.
+    Input:
+        points (bs, N, 3): 3D points
+        rotation (bs, 3, 3): Camera rotation
+        translation (bs, 3): Camera translation
+        focal_length (bs,) or scalar: Focal length
+        camera_center (bs, 2): Camera center
+    """
+    batch_size = points.shape[0]
+    K = torch.zeros([batch_size, 3, 3], device=points.device)
+    K[:, (0), (0)] = focal_length
+    K[:, (1), (1)] = focal_length
+    K[:, (2), (2)] = 1.0
+    K[:, :-1, (-1)] = camera_center
+    points = torch.einsum('bij,bkj->bki', rotation, points)
+    points = points + translation.unsqueeze(1)
+    projected_points = points / points[:, :, (-1)].unsqueeze(-1)
+    projected_points = torch.einsum('bij,bkj->bki', K, projected_points)
+    return projected_points[:, :, :-1]
+
+
+def projection(pred_joints, pred_camera):
+    pred_cam_t = torch.stack([pred_camera[:, (1)], pred_camera[:, (2)], 2 *
+        5000.0 / (224.0 * pred_camera[:, (0)] + 1e-09)], dim=-1)
+    batch_size = pred_joints.shape[0]
+    camera_center = torch.zeros(batch_size, 2)
+    pred_keypoints_2d = perspective_projection(pred_joints, rotation=torch.
+        eye(3).unsqueeze(0).expand(batch_size, -1, -1).to(pred_joints.
+        device), translation=pred_cam_t, focal_length=5000.0, camera_center
+        =camera_center)
+    pred_keypoints_2d = pred_keypoints_2d / (224.0 / 2.0)
+    return pred_keypoints_2d
+
+
+def rot6d_to_rotmat(x):
+    x = x.view(-1, 3, 2)
+    b1 = F.normalize(x[:, :, (0)], dim=1, eps=1e-06)
+    dot_prod = torch.sum(b1 * x[:, :, (1)], dim=1, keepdim=True)
+    b2 = F.normalize(x[:, :, (1)] - dot_prod * b1, dim=-1, eps=1e-06)
+    b3 = torch.cross(b1, b2, dim=1)
+    rot_mats = torch.stack([b1, b2, b3], dim=-1)
+    return rot_mats
+
+
+def quaternion_to_angle_axis(quaternion: torch.Tensor) ->torch.Tensor:
+    """
+    This function is borrowed from https://github.com/kornia/kornia
+
+    Convert quaternion vector to angle axis of rotation.
+
+    Adapted from ceres C++ library: ceres-solver/include/ceres/rotation.h
+
+    Args:
+        quaternion (torch.Tensor): tensor with quaternions.
+
+    Return:
+        torch.Tensor: tensor with angle axis of rotation.
+
+    Shape:
+        - Input: :math:`(*, 4)` where `*` means, any number of dimensions
+        - Output: :math:`(*, 3)`
+
+    Example:
+        >>> quaternion = torch.rand(2, 4)  # Nx4
+        >>> angle_axis = tgm.quaternion_to_angle_axis(quaternion)  # Nx3
+    """
+    if not torch.is_tensor(quaternion):
+        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
+            type(quaternion)))
+    if not quaternion.shape[-1] == 4:
+        raise ValueError('Input must be a tensor of shape Nx4 or 4. Got {}'
+            .format(quaternion.shape))
+    q1: torch.Tensor = quaternion[..., 1]
+    q2: torch.Tensor = quaternion[..., 2]
+    q3: torch.Tensor = quaternion[..., 3]
+    sin_squared_theta: torch.Tensor = q1 * q1 + q2 * q2 + q3 * q3
+    sin_theta: torch.Tensor = torch.sqrt(sin_squared_theta)
+    cos_theta: torch.Tensor = quaternion[..., 0]
+    two_theta: torch.Tensor = 2.0 * torch.where(cos_theta < 0.0, torch.
+        atan2(-sin_theta, -cos_theta), torch.atan2(sin_theta, cos_theta))
+    k_pos: torch.Tensor = two_theta / sin_theta
+    k_neg: torch.Tensor = 2.0 * torch.ones_like(sin_theta)
+    k: torch.Tensor = torch.where(sin_squared_theta > 0.0, k_pos, k_neg)
+    angle_axis: torch.Tensor = torch.zeros_like(quaternion)[(...), :3]
+    angle_axis[..., 0] += q1 * k
+    angle_axis[..., 1] += q2 * k
+    angle_axis[..., 2] += q3 * k
+    return angle_axis
+
+
+def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
+    """
+    This function is borrowed from https://github.com/kornia/kornia
+
+    Convert 3x4 rotation matrix to 4d quaternion vector
+
+    This algorithm is based on algorithm described in
+    https://github.com/KieranWynn/pyquaternion/blob/master/pyquaternion/quaternion.py#L201
+
+    Args:
+        rotation_matrix (Tensor): the rotation matrix to convert.
+
+    Return:
+        Tensor: the rotation in quaternion
+
+    Shape:
+        - Input: :math:`(N, 3, 4)`
+        - Output: :math:`(N, 4)`
+
+    Example:
+        >>> input = torch.rand(4, 3, 4)  # Nx3x4
+        >>> output = tgm.rotation_matrix_to_quaternion(input)  # Nx4
+    """
+    if not torch.is_tensor(rotation_matrix):
+        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
+            type(rotation_matrix)))
+    if len(rotation_matrix.shape) > 3:
+        raise ValueError(
+            'Input size must be a three dimensional tensor. Got {}'.format(
+            rotation_matrix.shape))
+    if not rotation_matrix.shape[-2:] == (3, 4):
+        raise ValueError('Input size must be a N x 3 x 4  tensor. Got {}'.
+            format(rotation_matrix.shape))
+    rmat_t = torch.transpose(rotation_matrix, 1, 2)
+    mask_d2 = rmat_t[:, (2), (2)] < eps
+    mask_d0_d1 = rmat_t[:, (0), (0)] > rmat_t[:, (1), (1)]
+    mask_d0_nd1 = rmat_t[:, (0), (0)] < -rmat_t[:, (1), (1)]
+    t0 = 1 + rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
+    q0 = torch.stack([rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], t0, rmat_t
+        [:, (0), (1)] + rmat_t[:, (1), (0)], rmat_t[:, (2), (0)] + rmat_t[:,
+        (0), (2)]], -1)
+    t0_rep = t0.repeat(4, 1).t()
+    t1 = 1 - rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
+    q1 = torch.stack([rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[:,
+        (0), (1)] + rmat_t[:, (1), (0)], t1, rmat_t[:, (1), (2)] + rmat_t[:,
+        (2), (1)]], -1)
+    t1_rep = t1.repeat(4, 1).t()
+    t2 = 1 - rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
+    q2 = torch.stack([rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)], rmat_t[:,
+        (2), (0)] + rmat_t[:, (0), (2)], rmat_t[:, (1), (2)] + rmat_t[:, (2
+        ), (1)], t2], -1)
+    t2_rep = t2.repeat(4, 1).t()
+    t3 = 1 + rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
+    q3 = torch.stack([t3, rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], rmat_t
+        [:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[:, (0), (1)] - rmat_t[:,
+        (1), (0)]], -1)
+    t3_rep = t3.repeat(4, 1).t()
+    mask_c0 = mask_d2 * mask_d0_d1
+    mask_c1 = mask_d2 * ~mask_d0_d1
+    mask_c2 = ~mask_d2 * mask_d0_nd1
+    mask_c3 = ~mask_d2 * ~mask_d0_nd1
+    mask_c0 = mask_c0.view(-1, 1).type_as(q0)
+    mask_c1 = mask_c1.view(-1, 1).type_as(q1)
+    mask_c2 = mask_c2.view(-1, 1).type_as(q2)
+    mask_c3 = mask_c3.view(-1, 1).type_as(q3)
+    q = q0 * mask_c0 + q1 * mask_c1 + q2 * mask_c2 + q3 * mask_c3
+    q /= torch.sqrt(t0_rep * mask_c0 + t1_rep * mask_c1 + t2_rep * mask_c2 +
+        t3_rep * mask_c3)
+    q *= 0.5
+    return q
+
+
+def rotation_matrix_to_angle_axis(rotation_matrix):
+    """
+    This function is borrowed from https://github.com/kornia/kornia
+
+    Convert 3x4 rotation matrix to Rodrigues vector
+
+    Args:
+        rotation_matrix (Tensor): rotation matrix.
+
+    Returns:
+        Tensor: Rodrigues vector transformation.
+
+    Shape:
+        - Input: :math:`(N, 3, 4)`
+        - Output: :math:`(N, 3)`
+
+    Example:
+        >>> input = torch.rand(2, 3, 4)  # Nx4x4
+        >>> output = tgm.rotation_matrix_to_angle_axis(input)  # Nx3
+    """
+    if rotation_matrix.shape[1:] == (3, 3):
+        rot_mat = rotation_matrix.reshape(-1, 3, 3)
+        hom = torch.tensor([0, 0, 1], dtype=torch.float32, device=
+            rotation_matrix.device).reshape(1, 3, 1).expand(rot_mat.shape[0
+            ], -1, -1)
+        rotation_matrix = torch.cat([rot_mat, hom], dim=-1)
+    quaternion = rotation_matrix_to_quaternion(rotation_matrix)
+    aa = quaternion_to_angle_axis(quaternion)
+    aa[torch.isnan(aa)] = 0.0
+    return aa
+
+
+class HMR(nn.Module):
+    """
+    SMPL Iterative Regressor with ResNet50 backbone
+    """
+
+    def __init__(self, block, layers, smpl_mean_params):
+        self.inplanes = 64
+        super(HMR, self).__init__()
+        npose = 24 * 6
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+            bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.fc1 = nn.Linear(512 * block.expansion + npose + 13, 1024)
+        self.drop1 = nn.Dropout()
+        self.fc2 = nn.Linear(1024, 1024)
+        self.drop2 = nn.Dropout()
+        self.decpose = nn.Linear(1024, npose)
+        self.decshape = nn.Linear(1024, 10)
+        self.deccam = nn.Linear(1024, 3)
+        nn.init.xavier_uniform_(self.decpose.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.decshape.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.deccam.weight, gain=0.01)
+        self.smpl = SMPL(SMPL_MODEL_DIR, batch_size=64, create_transl=False)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        mean_params = np.load(smpl_mean_params)
+        init_pose = torch.from_numpy(mean_params['pose'][:]).unsqueeze(0)
+        init_shape = torch.from_numpy(mean_params['shape'][:].astype('float32')
+            ).unsqueeze(0)
+        init_cam = torch.from_numpy(mean_params['cam']).unsqueeze(0)
+        self.register_buffer('init_pose', init_pose)
+        self.register_buffer('init_shape', init_shape)
+        self.register_buffer('init_cam', init_cam)
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
+                block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def feature_extractor(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+        xf = self.avgpool(x4)
+        xf = xf.view(xf.size(0), -1)
+        return xf
+
+    def forward(self, x, init_pose=None, init_shape=None, init_cam=None,
+        n_iter=3, return_features=False):
+        batch_size = x.shape[0]
+        if init_pose is None:
+            init_pose = self.init_pose.expand(batch_size, -1)
+        if init_shape is None:
+            init_shape = self.init_shape.expand(batch_size, -1)
+        if init_cam is None:
+            init_cam = self.init_cam.expand(batch_size, -1)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+        xf = self.avgpool(x4)
+        xf = xf.view(xf.size(0), -1)
+        pred_pose = init_pose
+        pred_shape = init_shape
+        pred_cam = init_cam
+        for i in range(n_iter):
+            xc = torch.cat([xf, pred_pose, pred_shape, pred_cam], 1)
+            xc = self.fc1(xc)
+            xc = self.drop1(xc)
+            xc = self.fc2(xc)
+            xc = self.drop2(xc)
+            pred_pose = self.decpose(xc) + pred_pose
+            pred_shape = self.decshape(xc) + pred_shape
+            pred_cam = self.deccam(xc) + pred_cam
+        pred_rotmat = rot6d_to_rotmat(pred_pose).view(batch_size, 24, 3, 3)
+        pred_output = self.smpl(betas=pred_shape, body_pose=pred_rotmat[:, 
+            1:], global_orient=pred_rotmat[:, (0)].unsqueeze(1), pose2rot=False
+            )
+        pred_vertices = pred_output.vertices
+        pred_joints = pred_output.joints
+        pred_keypoints_2d = projection(pred_joints, pred_cam)
+        pose = rotation_matrix_to_angle_axis(pred_rotmat.reshape(-1, 3, 3)
+            ).reshape(-1, 72)
+        output = [{'theta': torch.cat([pred_cam, pose, pred_shape], dim=1),
+            'verts': pred_vertices, 'kp_2d': pred_keypoints_2d, 'kp_3d':
+            pred_joints}]
+        if return_features:
+            return xf, output
+        else:
+            return output
+
+
 H36M_TO_J17 = [6, 5, 4, 1, 2, 3, 16, 15, 14, 11, 12, 13, 8, 10, 0, 7, 9]
 
 
@@ -784,6 +1114,7 @@ class MaxMixturePrior(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mkocabas_VIBE(_paritybench_base):
@@ -801,4 +1132,8 @@ class Test_mkocabas_VIBE(_paritybench_base):
 
     def test_003(self):
         self._check(SelfAttention(*[], **{'attention_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(TemporalEncoder(*[], **{}), [torch.rand([4, 4, 2048])], {})
 

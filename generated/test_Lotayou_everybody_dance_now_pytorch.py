@@ -40,10 +40,13 @@ html = _module
 image_pool = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -71,6 +74,9 @@ import torch.utils.data
 import numpy as np
 
 
+from torchvision.models import vgg
+
+
 from torch import nn
 
 
@@ -84,6 +90,9 @@ import functools
 
 
 from torch.autograd import Variable
+
+
+from torchvision import models
 
 
 import math
@@ -308,6 +317,90 @@ class VGG_perceptual_loss(nn.Module):
             if name in self.layer_name_mapping:
                 loss += self.loss_function(input, target)
         return 0.1 * loss
+
+
+class BaseModel(torch.nn.Module):
+
+    def name(self):
+        return 'BaseModel'
+
+    def initialize(self, opt):
+        self.opt = opt
+        self.gpu_ids = opt.gpu_ids
+        self.isTrain = opt.isTrain
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+
+    def set_input(self, input):
+        self.input = input
+
+    def forward(self):
+        pass
+
+    def test(self):
+        pass
+
+    def get_image_paths(self):
+        pass
+
+    def optimize_parameters(self):
+        pass
+
+    def get_current_visuals(self):
+        return self.input
+
+    def get_current_errors(self):
+        return {}
+
+    def save(self, label):
+        pass
+
+    def save_network(self, network, network_label, epoch_label, gpu_ids):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(network.cpu().state_dict(), save_path)
+        if len(gpu_ids) and torch.is_available():
+            network
+
+    def load_network(self, network, network_label, epoch_label, save_dir=''):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        if not save_dir:
+            save_dir = self.save_dir
+        save_path = os.path.join(save_dir, save_filename)
+        if not os.path.isfile(save_path):
+            None
+            if network_label == 'G':
+                raise 'Generator must exist!'
+        else:
+            try:
+                network.load_state_dict(torch.load(save_path))
+            except:
+                pretrained_dict = torch.load(save_path)
+                model_dict = network.state_dict()
+                try:
+                    pretrained_dict = {k: v for k, v in pretrained_dict.
+                        items() if k in model_dict}
+                    network.load_state_dict(pretrained_dict)
+                    if self.opt.verbose:
+                        None
+                except:
+                    None
+                    for k, v in pretrained_dict.items():
+                        if v.size() == model_dict[k].size():
+                            model_dict[k] = v
+                    if sys.version_info >= (3, 0):
+                        not_initialized = set()
+                    else:
+                        not_initialized = Set()
+                    for k, v in model_dict.items():
+                        if k not in pretrained_dict or v.size(
+                            ) != pretrained_dict[k].size():
+                            not_initialized.add(k.split('.')[0])
+                    None
+                    network.load_state_dict(model_dict)
+
+    def update_learning_rate():
+        pass
 
 
 class GANLoss(nn.Module):
@@ -1175,19 +1268,36 @@ class SpyNetwork(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Lotayou_everybody_dance_now_pytorch(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseModel(*[], **{}), [], {})
 
     @_fails_compile()
     def test_001(self):
+        self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(LocalEnhancer(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_005(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_007(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

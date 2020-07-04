@@ -55,10 +55,13 @@ test_sparse_rsgd = _module
 test_tensor_api = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -124,6 +127,28 @@ def create_ball(ball=None, c=None):
         assert c is not None, 'curvature of the ball should be explicitly specified'
         ball = geoopt.PoincareBall(c)
     return ball
+
+
+class MobiusLinear(torch.nn.Linear):
+
+    def __init__(self, *args, nonlin=None, ball=None, c=1.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ball = create_ball(ball, c)
+        if self.bias is not None:
+            self.bias = geoopt.ManifoldParameter(self.bias, manifold=self.ball)
+        self.nonlin = nonlin
+        self.reset_parameters()
+
+    def forward(self, input):
+        return mobius_linear(input, weight=self.weight, bias=self.bias,
+            nonlin=self.nonlin, ball=self.ball)
+
+    @torch.no_grad()
+    def reset_parameters(self):
+        torch.nn.init.eye_(self.weight)
+        self.weight.add_(torch.rand_like(self.weight).mul_(0.001))
+        if self.bias is not None:
+            self.bias.zero_()
 
 
 class ScalingInfo(object):
@@ -1043,6 +1068,7 @@ error: {}"""
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_geoopt_geoopt(_paritybench_base):

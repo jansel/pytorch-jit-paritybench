@@ -100,10 +100,13 @@ darknet = _module
 detect = _module
 layer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -152,6 +155,12 @@ from torch.nn.parallel.data_parallel import DataParallel
 from collections import OrderedDict
 
 
+import torchvision.datasets as td
+
+
+import torchvision.transforms as transforms
+
+
 import time
 
 
@@ -159,6 +168,9 @@ from torch.autograd import Variable
 
 
 from torch.nn.parameter import Parameter
+
+
+from torchvision.models import inception_v3
 
 
 from torch.optim import Adam
@@ -185,6 +197,12 @@ from collections import defaultdict
 from copy import deepcopy
 
 
+from torchvision import transforms as T
+
+
+from torchvision.models import resnet50
+
+
 from collections import namedtuple
 
 
@@ -195,6 +213,9 @@ from torch.distributions import Categorical
 
 
 import copy
+
+
+from torchvision.models import vgg19
 
 
 INIT_RANGE = 0.02
@@ -665,7 +686,7 @@ class Actor(nn.Module):
     def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len,
         dropout, use_cuda):
         super().__init__()
-        self.torch = torch.cuda if use_cuda else torch
+        self.torch = torch if use_cuda else torch
         self.dec_hsz = dec_hsz
         self.rnn_layers = rnn_layers
         self.bsz = bsz
@@ -804,7 +825,7 @@ class CRF(nn.Module):
         self.label_size = label_size
         self.transitions = nn.Parameter(torch.randn(label_size, label_size))
         self._init_weight()
-        self.torch = torch.cuda if is_cuda else torch
+        self.torch = torch if is_cuda else torch
 
     def _init_weight(self):
         init.xavier_uniform_(self.transitions)
@@ -2356,7 +2377,7 @@ class Model(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.torch = torch.cuda if use_cuda else torch
+        self.torch = torch if use_cuda else torch
         self.emb = nn.Embedding(self.dict_size, self.emb_dim)
         self.encode = torch.nn.LSTM(input_size=self.emb_dim, hidden_size=
             self.rnn_hsz, num_layers=1, bidirectional=True)
@@ -3163,7 +3184,7 @@ class Model(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.torch = torch.cuda if args.use_cuda else torch
+        self.torch = torch if args.use_cuda else torch
         self.bsz = args.batch_size
         self.rnn_hsz = args.rnn_hsz
         self.max_len = args.max_len
@@ -3756,6 +3777,73 @@ DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1,
     1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
 
 
+LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
+
+
+class DarkNet(nn.Module):
+
+    def __init__(self, use_cuda, nClasses):
+        super().__init__()
+        self.conv_1 = BasicConv(256, 512, 3, 2, 1)
+        self.seq_1 = nn.Sequential(BasicConv(3, 32, 3, 1, 1), BasicConv(32,
+            64, 3, 2, 1), LayerOne(), BasicConv(64, 128, 3, 2, 1), LayerTwo
+            (), BasicConv(128, 256, 3, 2, 1), LayerThree())
+        self.seq_2 = nn.Sequential(BasicConv(512, 1024, 3, 2, 1), LayerFive())
+        self.layer_4 = LayerFour()
+        self.uns_1 = nn.Sequential(BasicConv(512, 256, 1, 1, 0), nn.
+            Upsample(scale_factor=2, mode='bilinear'))
+        self.uns_2 = nn.Sequential(BasicConv(256, 128, 1, 1, 0), nn.
+            Upsample(scale_factor=2, mode='bilinear'))
+        self.pred_1 = FirstPred(DETECT_DICT['first'], use_cuda, nClasses)
+        self.pred_2 = SecondPred(DETECT_DICT['second'], use_cuda, nClasses)
+        self.pred_3 = ThirdPred(DETECT_DICT['third'], use_cuda, nClasses)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for layer in self.modules():
+            if type(layer) == nn.Conv2d:
+                layer.weight.data.normal_(0.0, 0.02)
+            if type(layer) == nn.BatchNorm2d:
+                layer.weight.data.normal_(1.0, 0.02)
+                layer.bias.data.fill_(0)
+
+    def forward(self, x, targets=None):
+        gather_losses = defaultdict(float)
+        x = self.seq_1(x)
+        r_0 = x
+        x = self.layer_4(self.conv_1(x))
+        r_1 = x
+        x = self.seq_2(x)
+        if targets is not None:
+            (sum_loss, *losses), x = self.pred_1(x, targets)
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+        else:
+            det_1, x = self.pred_1(x)
+        x = self.uns_1(x)
+        x = torch.cat((x, r_1), 1)
+        if targets is not None:
+            (this_loss, *losses), x = self.pred_2(x, targets)
+            sum_loss += this_loss
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+        else:
+            det_2, x = self.pred_2(x)
+        x = self.uns_2(x)
+        x = torch.cat((x, r_0), 1)
+        if targets is not None:
+            this_loss, *losses = self.pred_3(x, targets)
+            sum_loss += this_loss
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+            gather_losses['recall'] /= 3
+            gather_losses['precision'] /= 3
+            return sum_loss, gather_losses
+        else:
+            det_3 = self.pred_3(x)
+            return torch.cat((det_1, det_2, det_3), 1)
+
+
 class BasicConv(nn.Module):
 
     def __init__(self, ind, outd, kr_size, stride, padding, lr=0.1, bias=False
@@ -3823,7 +3911,7 @@ class BasicPred(nn.Module):
         self.classes = classes
         self.height = height
         self.anchors = anchors
-        self.torch = torch.cuda if use_cuda else torch
+        self.torch = torch if use_cuda else torch
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         self.ce_loss = nn.CrossEntropyLoss()
@@ -3981,6 +4069,7 @@ class BasicPred(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ne7ermore_torch_light(_paritybench_base):
@@ -3992,105 +4081,112 @@ class Test_ne7ermore_torch_light(_paritybench_base):
         self._check(AlphaEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(AtteMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(AtteMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([16, 4, 4]), torch.rand([64, 4])], {})
 
     def test_003(self):
         self._check(BasicConv(*[], **{'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(CNN(*[], **{'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}), [torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(Beauty(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_005(self):
+        self._check(CNN(*[], **{'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}), [torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(CRF(*[], **{'label_size': 4, 'is_cuda': False}), [torch.rand([4, 4, 4])], {})
+
+    def test_007(self):
         self._check(ConvUnit(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_006(self):
+    def test_008(self):
         self._check(DQN(*[], **{'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(DigitCap(*[], **{'use_cuda': 4, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(DilatedGatedConv1D(*[], **{'dilation_rate': 1, 'dim': 4}), [torch.rand([4, 4, 4])], {})
-
     def test_009(self):
-        self._check(Distance(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(DigitCap(*[], **{'use_cuda': False, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_010(self):
+        self._check(DilatedGatedConv1D(*[], **{'dilation_rate': 1, 'dim': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(Distance(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_012(self):
         self._check(Feature(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_013(self):
         self._check(FullMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_014(self):
         self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
-        self._check(HwLSTMCell(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': 4}), [torch.rand([4, 4])], {})
+    def test_016(self):
+        self._check(HwLSTMCell(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
-        self._check(HwLSTMlayer(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': 4}), [torch.rand([4, 4])], {})
-
-    def test_016(self):
-        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_017(self):
-        self._check(MaxpoolMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(HwLSTMlayer(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}), [torch.rand([4, 4])], {})
 
     def test_018(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
+        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
-        self._check(ObjModel(*[], **{'dim': 4, 'num_classes': 4}), [torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {})
+        self._check(MaxpoolMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_020(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(Net(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
 
     def test_021(self):
-        self._check(Pooler(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ObjModel(*[], **{'dim': 4, 'num_classes': 4}), [torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {})
 
     def test_022(self):
-        self._check(PositionWise(*[], **{'d_model': 4, 'd_ff': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(Policy(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_023(self):
-        self._check(PrimaryCap(*[], **{'num_primary_units': 4}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(Pooler(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_024(self):
-        self._check(ResBlockNet(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(PositionWise(*[], **{'d_model': 4, 'd_ff': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_025(self):
-        self._check(RnnDropout(*[], **{'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PrimaryCap(*[], **{'num_primary_units': 4}), [torch.rand([4, 256, 64, 64])], {})
 
     def test_026(self):
-        self._check(RnnEncoder(*[], **{'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(ResBlockNet(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_027(self):
-        self._check(Score(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(RnnDropout(*[], **{'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': False}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_028(self):
-        self._check(SubModel(*[], **{'dim': 4}), [torch.rand([4, 8, 8])], {})
+        self._check(RnnEncoder(*[], **{'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
 
     def test_029(self):
-        self._check(SubjectLinear(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Score(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_030(self):
-        self._check(Value(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(SubModel(*[], **{'dim': 4}), [torch.rand([4, 8, 8])], {})
 
     def test_031(self):
-        self._check(_DenseBLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SubjectLinear(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_032(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Value(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_033(self):
-        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseBLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_034(self):
-        self._check(highway_layer(*[], **{'hsz': 4, 'active': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_035(self):
+        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_036(self):
+        self._check(highway_layer(*[], **{'hsz': 4, 'active': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -13,10 +13,13 @@ train_eval = _module
 utils = _module
 utils_fasttext = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -377,6 +380,7 @@ class Position_wise_Feed_Forward(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
@@ -394,7 +398,7 @@ class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(Positional_Encoding(*[], **{'embed': 4, 'pad_size': 4, 'dropout': 0.5, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Positional_Encoding(*[], **{'embed': 4, 'pad_size': 4, 'dropout': 0.5, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

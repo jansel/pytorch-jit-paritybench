@@ -253,10 +253,13 @@ test_virtual = _module
 test_websocket_worker = _module
 test_worker = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -285,6 +288,12 @@ import torch.nn.functional as f
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import logging
@@ -666,6 +675,430 @@ class AvgPool2d(Module):
         return pred
 
 
+class SyftSerializable:
+    """
+        Interface for the communication protocols in syft.
+
+        syft-proto methods:
+            1. bufferize
+            2. unbufferize
+            3. get_protobuf_schema
+
+        msgpack methods:
+            1. simplify
+            2. detail
+
+        Note: the interface can be inherited from parent class, but each class
+        has to write it's own explicit methods, even if they are the ones from the parent class.
+    """
+
+    @staticmethod
+    def simplify(worker, obj):
+        """
+            Serialization method for msgpack.
+
+            Parameters:
+                worker: the worker on which the serialization is being made.
+                obj: the object to be serialized, an instantiated type of
+                the class that implements SyftSerializable.
+
+            Returns:
+                Serialized object using msgpack.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def detail(worker, obj):
+        """
+            Deserialization method for msgpack.
+
+            Parameters:
+                worker: the worker on which the serialization is being made.
+                obj: the object to be deserialized, a serialized object of
+                the class that implements SyftSerializable.
+
+            Returns:
+                Serialized object using msgpack.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def bufferize(worker, obj):
+        """
+            Serialization method for protobuf.
+
+            Parameters:
+                worker: the worker on which the bufferize is being made.
+                obj: the object to be bufferized using protobufers, an instantiated type
+                of the class that implements SyftSerializable.
+
+            Returns:
+                Protobuf class for the current type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_msgpack_code():
+        """
+            Method that provides a code for msgpack if the type is not present in proto.json.
+
+            The returned object should be similar to:
+            {
+                "code": int value,
+                "forced_code": int value
+            }
+
+            Both keys are optional, the common and right way would be to add only the "code" key.
+
+            Returns:
+                dict: A dict with the "code" or "forced_code" keys.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def unbufferize(worker, obj):
+        """
+            Deserialization method for protobuf.
+
+            Parameters:
+                worker: the worker on which the unbufferize is being made.
+                obj: the object to be unbufferized using protobufers, an instantiated type
+                of the class that implements SyftSerializable.
+
+            Returns:
+                Protobuf class for the current type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_protobuf_schema():
+        """
+            Returns the protobuf schema used for this type.
+
+            Returns:
+                Protobuf type.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def get_original_class():
+        """
+            Returns the original type, only used in wrappers.
+
+            Returns:
+                Wrapped type.
+        """
+        return NotImplementedError
+
+
+protocol_store = {}
+
+
+def crypto_protocol(protocol_name):
+    """
+    Decorator to define a specific operation behaviour depending on the crypto
+    protocol used
+
+    Args:
+        protocol_name: the name of the protocol. Currently supported:
+            - snn: SecureNN
+            - fss: Function Secret Sharing
+
+    Example in a tensor file:
+        ```
+        @crypto_protocol("snn")
+        def foo(...):
+            # SNN specific code
+
+        @crypto_protocol("fss")
+        def foo(...):
+            # FSS specific code
+        ```
+
+        See additive_sharing.py for more usage
+    """
+
+    def decorator(f):
+        name = f.__qualname__
+        protocol_store[name, protocol_name] = f
+
+        def method(self, *args, **kwargs):
+            f = protocol_store[name, self.protocol]
+            return f(self, *args, **kwargs)
+        return method
+    return decorator
+
+
+class memorize(dict):
+    """
+    This is a decorator to cache a function output when the function is
+    deterministic and the input space is small. In such condition, the
+    function will be called many times to perform the same computation
+    so we want this computation to be cached.
+    """
+
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args):
+        return self[args]
+
+    def __missing__(self, key):
+        result = self[key] = self.func(*key)
+        return result
+
+
+no_wrap = {'no_wrap': True}
+
+
+class Overloaded:
+
+    def __init__(self):
+        self.method = Overloaded.overload_method
+        self.function = Overloaded.overload_function
+        self.module = Overloaded.overload_module
+
+    @staticmethod
+    def overload_method(attr):
+        """
+        hook args and response for methods that hold the @overloaded.method decorator
+        """
+
+        def _hook_method_args(self, *args, **kwargs):
+            new_self, new_args, new_kwargs = hook_args.unwrap_args_from_method(
+                attr.__name__, self, args, kwargs)
+            response = attr(self, new_self, *new_args, **new_kwargs)
+            response = hook_args.hook_response(attr.__name__, response,
+                wrap_type=type(self), wrap_args=self.get_class_attributes())
+            return response
+        return _hook_method_args
+
+    @staticmethod
+    def overload_function(attr):
+        """
+        hook args and response for functions that hold the @overloaded.function decorator
+        """
+
+        def _hook_function_args(*args, **kwargs):
+            tensor = args[0] if not isinstance(args[0], (tuple, list)
+                ) else args[0][0]
+            cls = type(tensor)
+            new_args, new_kwargs, new_type = (hook_args.
+                unwrap_args_from_function(attr.__name__, args, kwargs))
+            response = attr(*new_args, **new_kwargs)
+            response = hook_args.hook_response(attr.__name__, response,
+                wrap_type=cls, wrap_args=tensor.get_class_attributes())
+            return response
+        return _hook_function_args
+
+    @staticmethod
+    def overload_module(attr):
+        module = Module()
+        attr(module)
+        return module
+
+
+overloaded = Overloaded()
+
+
+COMMUNICATION_METHODS = ['get', 'mid_get', 'move', 'remote_get',
+    'remote_send', 'send', 'share', 'share_']
+
+
+class RNNCellBase(nn.Module):
+    """
+    Cell to be used as base for all RNN cells, including GRU and LSTM
+    This class overrides the torch.nn.RNNCellBase
+    Only Linear and Dropout layers are used to be able to use MPC
+    """
+
+    def __init__(self, input_size, hidden_size, bias, num_chunks,
+        nonlinearity=None):
+        super(RNNCellBase, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.num_chunks = num_chunks
+        self.nonlinearity = nonlinearity
+        self.fc_xh = nn.Linear(input_size, self.num_chunks * hidden_size,
+            bias=bias)
+        self.fc_hh = nn.Linear(hidden_size, self.num_chunks * hidden_size,
+            bias=bias)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """
+        This method initializes or reset all the parameters of the cell.
+        The paramaters are initiated following a uniform distribution.
+        """
+        std = 1.0 / np.sqrt(self.hidden_size)
+        for w in self.parameters():
+            init.uniform_(w, -std, std)
+
+    def init_hidden(self, input):
+        """
+        This method initializes a hidden state when no hidden state is provided
+        in the forward method. It creates a hidden state with zero values.
+        """
+        h = torch.zeros(input.shape[0], self.hidden_size, dtype=input.dtype,
+            device=input.device)
+        if input.has_child() and isinstance(input.child, PointerTensor):
+            h = h.send(input.child.location)
+        if input.has_child() and isinstance(input.child, precision.
+            FixedPrecisionTensor):
+            h = h.fix_precision()
+            child = input.child
+            if isinstance(child.child, AdditiveSharingTensor):
+                crypto_provider = child.child.crypto_provider
+                owners = child.child.locations
+                h = h.share(*owners, crypto_provider=crypto_provider)
+        return h
+
+
+class LSTMCell(RNNCellBase):
+    """
+    Python implementation of LSTMCell for MPC
+    This class overrides the torch.nn.LSTMCell
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, nonlinearity=None):
+        super(LSTMCell, self).__init__(input_size, hidden_size, bias,
+            num_chunks=4)
+
+    def reset_parameters(self):
+        super(LSTMCell, self).reset_parameters()
+        incr_bias = 1.0 / self.hidden_size
+        init.constant_(self.fc_xh.bias[self.hidden_size:2 * self.
+            hidden_size], incr_bias)
+        init.constant_(self.fc_hh.bias[self.hidden_size:2 * self.
+            hidden_size], incr_bias)
+
+    def forward(self, x, hc=None):
+        if hc is None:
+            hc = self.init_hidden(x), self.init_hidden(x)
+        h, c = hc
+        gate_x = self.fc_xh(x)
+        gate_h = self.fc_hh(h)
+        x_i, x_f, x_c, x_o = gate_x.chunk(self.num_chunks, 1)
+        h_i, h_f, h_c, h_o = gate_h.chunk(self.num_chunks, 1)
+        inputgate = torch.sigmoid(x_i + h_i)
+        forgetgate = torch.sigmoid(x_f + h_f)
+        cellgate = torch.tanh(x_c + h_c)
+        outputgate = torch.sigmoid(x_o + h_o)
+        c_ = torch.mul(forgetgate, c) + torch.mul(inputgate, cellgate)
+        h_ = torch.mul(outputgate, torch.tanh(c_))
+        return h_, c_
+
+
+class RNNBase(nn.Module):
+    """
+    Module to be used as base for all RNN modules, including GRU and LSTM
+    This class overrides the torch.nn.RNNBase
+    Only Linear and Dropout layers are used to be able to use MPC
+    """
+
+    def __init__(self, input_size, hidden_size, num_layers, bias,
+        batch_first, dropout, bidirectional, base_cell, nonlinearity=None):
+        super(RNNBase, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.bias = bias
+        self.batch_first = batch_first
+        self.dropout = float(dropout)
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
+        self.is_lstm = base_cell is LSTMCell
+        self.nonlinearity = nonlinearity
+        sizes = [input_size, *(hidden_size for _ in range(self.num_layers - 1))
+            ]
+        self.rnn_forward = nn.ModuleList(base_cell(sz, hidden_size, bias,
+            nonlinearity) for sz in sizes)
+        if self.bidirectional:
+            self.rnn_backward = nn.ModuleList(base_cell(sz, hidden_size,
+                bias, nonlinearity) for sz in sizes)
+
+    def forward(self, x, hc=None):
+        if self.batch_first:
+            x = x.transpose(0, 1)
+        if hc is None:
+            hc = [self._init_hidden(x) for _ in range(2 if self.is_lstm else 1)
+                ]
+        else:
+            if not self.is_lstm:
+                hc = [hc]
+            if self.batch_first:
+                hc = [item.transpose(0, 1) for item in hc]
+        batch_size = x.shape[1]
+        seq_len = x.shape[0]
+        if self.bidirectional:
+            hc = [item.contiguous().view(self.num_layers, 2, batch_size,
+                self.hidden_size) for item in hc]
+            hc_fwd = [item[:, (0), :, :] for item in hc]
+            hc_back = [item[:, (1), :, :] for item in hc]
+        else:
+            hc_fwd = hc
+        output = x.new(seq_len, batch_size, self.hidden_size).zero_()
+        for t in range(seq_len):
+            hc_fwd = self._apply_time_step(x, hc_fwd, t)
+            output[(t), :, :] = hc_fwd[0][(-1), :, :]
+        if self.bidirectional:
+            output_back = x.new(seq_len, batch_size, self.hidden_size).zero_()
+            for t in range(seq_len - 1, -1, -1):
+                hc_back = self._apply_time_step(x, hc_back, t,
+                    reverse_direction=True)
+                output_back[(t), :, :] = hc_back[0][(-1), :, :]
+            output = torch.cat((output, output_back), dim=-1)
+            hidden = [torch.cat((hid_item, back_item), dim=0) for hid_item,
+                back_item in zip(hc_fwd, hc_back)]
+        else:
+            hidden = hc_fwd
+        if self.batch_first:
+            output = output.transpose(0, 1)
+            hidden = [item.transpose(0, 1) for item in hidden]
+        hidden = tuple(hidden) if self.is_lstm else hidden[0]
+        return output, hidden
+
+    def _init_hidden(self, input):
+        """
+        This method initializes a hidden state when no hidden state is provided
+        in the forward method. It creates a hidden state with zero values for each
+        layer of the network.
+        """
+        h = torch.zeros(self.num_layers * self.num_directions, input.shape[
+            1], self.hidden_size, dtype=input.dtype, device=input.device)
+        if input.has_child() and isinstance(input.child, PointerTensor):
+            h = h.send(input.child.location)
+        if input.has_child() and isinstance(input.child, precision.
+            FixedPrecisionTensor):
+            h = h.fix_precision()
+            child = input.child
+            if isinstance(child.child, AdditiveSharingTensor):
+                crypto_provider = child.child.crypto_provider
+                owners = child.child.locations
+                h = h.share(*owners, crypto_provider=crypto_provider)
+        return h
+
+    def _apply_time_step(self, x, hc, t, reverse_direction=False):
+        """
+        Apply RNN layers at time t, given input and previous hidden states
+        """
+        rnn_layers = (self.rnn_backward if reverse_direction else self.
+            rnn_forward)
+        hc = torch.stack([*hc])
+        hc_next = torch.zeros_like(hc)
+        for layer in range(self.num_layers):
+            inp = x[(t), :, :] if layer == 0 else hc_next[0][(layer - 1), :, :
+                ].clone()
+            if self.is_lstm:
+                hc_next[:, (layer), :, :] = torch.stack(rnn_layers[layer](
+                    inp, hc[:, (layer), :, :]))
+            else:
+                hc_next[0][(layer), :, :] = rnn_layers[layer](inp, hc[0][(
+                    layer), :, :])
+        return hc_next
+
+
 class TopLevelTraceModel(torch.nn.Module):
 
     def __init__(self):
@@ -679,6 +1112,7 @@ class TopLevelTraceModel(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_OpenMined_PySyft(_paritybench_base):

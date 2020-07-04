@@ -112,10 +112,13 @@ gpu_manager = _module
 nas_utils = _module
 weight_watcher = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -858,6 +861,78 @@ class ResNet(nn.Module):
         features = features.view(features.size(0), -1)
         logits = self.fc(features)
         return features, logits
+
+
+OPS = {'none': lambda C_in, C_out, stride, affine: Zero(stride),
+    'avg_pool_3x3': lambda C_in, C_out, stride, affine: POOLING(C_in, C_out,
+    stride, 'avg'), 'max_pool_3x3': lambda C_in, C_out, stride, affine:
+    POOLING(C_in, C_out, stride, 'max'), 'nor_conv_7x7': lambda C_in, C_out,
+    stride, affine: ReLUConvBN(C_in, C_out, (7, 7), (stride, stride), (3, 3
+    ), affine), 'nor_conv_3x3': lambda C_in, C_out, stride, affine:
+    ReLUConvBN(C_in, C_out, (3, 3), (stride, stride), (1, 1), affine),
+    'nor_conv_1x1': lambda C_in, C_out, stride, affine: ReLUConvBN(C_in,
+    C_out, (1, 1), (stride, stride), (0, 0), affine), 'skip_connect': lambda
+    C_in, C_out, stride, affine: Identity() if stride == 1 and C_in ==
+    C_out else FactorizedReduce(C_in, C_out, stride, affine),
+    'sep_conv_3x3': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out,
+    3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C_in, C_out,
+    stride, affine: SepConv(C_in, C_out, 5, stride, 2, affine=affine),
+    'sep_conv_7x7': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out,
+    7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C_in, C_out,
+    stride, affine: DilConv(C_in, C_out, 3, stride, 2, 2, affine=affine),
+    'dil_conv_5x5': lambda C_in, C_out, stride, affine: DilConv(C_in, C_out,
+    5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C_in, C_out,
+    stride, affine: Conv717(C_in, C_out, stride, affine), 'conv_3x1_1x3': 
+    lambda C_in, C_out, stride, affine: Conv313(C_in, C_out, stride, affine)}
+
+
+class InferCell(nn.Module):
+
+    def __init__(self, genotype, C_in, C_out, stride):
+        super(InferCell, self).__init__()
+        self.layers = nn.ModuleList()
+        self.node_IN = []
+        self.node_IX = []
+        self.genotype = deepcopy(genotype)
+        for i in range(1, len(genotype)):
+            node_info = genotype[i - 1]
+            cur_index = []
+            cur_innod = []
+            for op_name, op_in in node_info:
+                if op_in == 0:
+                    layer = OPS[op_name](C_in, C_out, stride, True, True)
+                else:
+                    layer = OPS[op_name](C_out, C_out, 1, True, True)
+                cur_index.append(len(self.layers))
+                cur_innod.append(op_in)
+                self.layers.append(layer)
+            self.node_IX.append(cur_index)
+            self.node_IN.append(cur_innod)
+        self.nodes = len(genotype)
+        self.in_dim = C_in
+        self.out_dim = C_out
+
+    def extra_repr(self):
+        string = 'info :: nodes={nodes}, inC={in_dim}, outC={out_dim}'.format(
+            **self.__dict__)
+        laystr = []
+        for i, (node_layers, node_innods) in enumerate(zip(self.node_IX,
+            self.node_IN)):
+            y = ['I{:}-L{:}'.format(_ii, _il) for _il, _ii in zip(
+                node_layers, node_innods)]
+            x = '{:}<-({:})'.format(i + 1, ','.join(y))
+            laystr.append(x)
+        return string + ', [{:}]'.format(' | '.join(laystr)) + ', {:}'.format(
+            self.genotype.tostr())
+
+    def forward(self, inputs):
+        nodes = [inputs]
+        for i, (node_layers, node_innods) in enumerate(zip(self.node_IX,
+            self.node_IN)):
+            node_feature = sum(self.layers[_il](nodes[_ii]) for _il, _ii in
+                zip(node_layers, node_innods))
+            nodes.append(node_feature)
+        return nodes[-1]
 
 
 class NASNetInferCell(nn.Module):
@@ -6510,6 +6585,7 @@ class CrossEntropyLabelSmooth(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
@@ -6531,7 +6607,7 @@ class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
         self._check(Conv717(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_006(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
@@ -6542,24 +6618,28 @@ class Test_D_X_Y_AutoDL_Projects(_paritybench_base):
     def test_008(self):
         self._check(ImageNetHEAD(*[], **{'C': 4}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(Policy(*[], **{'max_nodes': 4, 'search_space': [4, 4]}), [], {})
+        self._check(NAS201SearchCell(*[], **{'C_in': 0, 'C_out': [4, 4], 'stride': [4, 4], 'max_nodes': 1, 'op_names': [4, 4]}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Policy(*[], **{'max_nodes': 4, 'search_space': [4, 4]}), [], {})
 
     def test_011(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(WideBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
+        self._check(WideBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -31,10 +31,13 @@ train = _module
 utils = _module
 valid = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -60,6 +63,12 @@ import numpy as np
 
 
 import time
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import random
@@ -1494,22 +1503,22 @@ class RegionLoss(nn.Module):
         nH = output.data.size(2)
         nW = output.data.size(3)
         output = output.view(nB, nA, 5 + nC, nH, nW)
-        x = F.sigmoid(output.index_select(2, Variable(torch.cuda.LongTensor
-            ([0]))).view(nB, nA, nH, nW))
-        y = F.sigmoid(output.index_select(2, Variable(torch.cuda.LongTensor
-            ([1]))).view(nB, nA, nH, nW))
-        w = output.index_select(2, Variable(torch.cuda.LongTensor([2]))).view(
-            nB, nA, nH, nW)
-        h = output.index_select(2, Variable(torch.cuda.LongTensor([3]))).view(
-            nB, nA, nH, nW)
-        conf = F.sigmoid(output.index_select(2, Variable(torch.cuda.
-            LongTensor([4]))).view(nB, nA, nH, nW))
+        x = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([0])
+            )).view(nB, nA, nH, nW))
+        y = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([1])
+            )).view(nB, nA, nH, nW))
+        w = output.index_select(2, Variable(torch.LongTensor([2]))).view(nB,
+            nA, nH, nW)
+        h = output.index_select(2, Variable(torch.LongTensor([3]))).view(nB,
+            nA, nH, nW)
+        conf = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([
+            4]))).view(nB, nA, nH, nW))
         cls = output.index_select(2, Variable(torch.linspace(5, 5 + nC - 1,
             nC).long()))
         cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(
             nB * nA * nH * nW, nC)
         t1 = time.time()
-        pred_boxes = torch.cuda.FloatTensor(4, nB * nA * nH * nW)
+        pred_boxes = torch.FloatTensor(4, nB * nA * nH * nW)
         grid_x = torch.linspace(0, nW - 1, nW).repeat(nH, 1).repeat(nB * nA,
             1, 1).view(nB * nA * nH * nW)
         grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
@@ -1572,6 +1581,7 @@ class RegionLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_marvis_pytorch_yolo2(_paritybench_base):

@@ -15,6 +15,7 @@ preprocess = _module
 readpfm = _module
 sceneflow_collector = _module
 sceneflow_loader = _module
+finetune_kitti = _module
 loss_evaluation = _module
 deeppruner = _module
 feature_extractor_best = _module
@@ -28,10 +29,13 @@ setup_logging = _module
 submission_kitti = _module
 train_sceneflow = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -50,19 +54,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from collections import namedtuple
-
-
-import logging
-
-
-import torch.utils.data
-
-
-import math
-
-
 import random
+
+
+from collections import namedtuple
 
 
 import torch.nn.parallel
@@ -74,10 +69,22 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 
 
+import torch.utils.data
+
+
 from torch.autograd import Variable
 
 
 import numpy as np
+
+
+from torchvision import transforms
+
+
+import logging
+
+
+import math
 
 
 import time
@@ -175,10 +182,10 @@ class Reconstruct(nn.Module):
         return reconstruction
 
 
-_global_config['feature_extractor_filter_size'] = 4
-
-
 _global_config['patch_match_args'] = _mock_config()
+
+
+_global_config['feature_extractor_filter_size'] = 4
 
 
 class ImageReconstruction(nn.Module):
@@ -1068,6 +1075,7 @@ class SpatialTransformer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_uber_research_DeepPruner(_paritybench_base):
@@ -1075,4 +1083,7 @@ class Test_uber_research_DeepPruner(_paritybench_base):
     @_fails_compile()
     def test_000(self):
         self._check(PropagationFaster(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(feature_extraction(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 

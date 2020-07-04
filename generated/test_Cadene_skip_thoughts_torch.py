@@ -13,10 +13,13 @@ dump_features = _module
 dump_grus = _module
 dump_hashmaps = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -141,7 +144,124 @@ class AbstractGRU(nn.Module):
 urls = {}
 
 
+class AbstractSkipThoughts(nn.Module):
+
+    def __init__(self, dir_st, vocab, save=False, dropout=0, fixed_emb=False):
+        super(AbstractSkipThoughts, self).__init__()
+        self.dir_st = dir_st
+        self.vocab = vocab
+        self.save = save
+        self.dropout = dropout
+        self.fixed_emb = fixed_emb
+        self.embedding = self._load_embedding()
+        if fixed_emb:
+            self.embedding.weight.requires_grad = False
+        self.rnn = self._load_rnn()
+
+    def _get_table_name(self):
+        raise NotImplementedError
+
+    def _get_skip_name(self):
+        raise NotImplementedError
+
+    def _load_dictionary(self):
+        path_dico = os.path.join(self.dir_st, 'dictionary.txt')
+        if not os.path.exists(path_dico):
+            os.system('mkdir -p ' + self.dir_st)
+            os.system('wget {} -P {}'.format(urls['dictionary'], self.dir_st))
+        with open(path_dico, 'r') as handle:
+            dico_list = handle.readlines()
+        dico = {word.strip(): idx for idx, word in enumerate(dico_list)}
+        return dico
+
+    def _load_emb_params(self):
+        table_name = self._get_table_name()
+        path_params = os.path.join(self.dir_st, table_name + '.npy')
+        if not os.path.exists(path_params):
+            os.system('mkdir -p ' + self.dir_st)
+            os.system('wget {} -P {}'.format(urls[table_name], self.dir_st))
+        params = numpy.load(path_params, encoding='latin1', allow_pickle=True)
+        return params
+
+    def _load_rnn_params(self):
+        skip_name = self._get_skip_name()
+        path_params = os.path.join(self.dir_st, skip_name + '.npz')
+        if not os.path.exists(path_params):
+            os.system('mkdir -p ' + self.dir_st)
+            os.system('wget {} -P {}'.format(urls[skip_name], self.dir_st))
+        params = numpy.load(path_params, encoding='latin1', allow_pickle=True)
+        return params
+
+    def _load_embedding(self):
+        if self.save:
+            hash_id = hashlib.sha256(pickle.dumps(self.vocab, -1)).hexdigest()
+            path = '/tmp/uniskip_embedding_' + str(hash_id) + '.pth'
+        if self.save and os.path.exists(path):
+            self.embedding = torch.load(path)
+        else:
+            self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 
+                1, embedding_dim=620, padding_idx=0, sparse=False)
+            dictionary = self._load_dictionary()
+            parameters = self._load_emb_params()
+            state_dict = self._make_emb_state_dict(dictionary, parameters)
+            self.embedding.load_state_dict(state_dict)
+            if self.save:
+                torch.save(self.embedding, path)
+        return self.embedding
+
+    def _make_emb_state_dict(self, dictionary, parameters):
+        weight = torch.zeros(len(self.vocab) + 1, 620)
+        unknown_params = parameters[dictionary['UNK']]
+        nb_unknown = 0
+        for id_weight, word in enumerate(self.vocab):
+            if word in dictionary:
+                id_params = dictionary[word]
+                params = parameters[id_params]
+            else:
+                params = unknown_params
+                nb_unknown += 1
+            weight[id_weight + 1] = torch.from_numpy(params)
+        state_dict = OrderedDict({'weight': weight})
+        if nb_unknown > 0:
+            None
+        return state_dict
+
+    def _select_last(self, x, lengths):
+        batch_size = x.size(0)
+        seq_length = x.size(1)
+        mask = x.data.new().resize_as_(x.data).fill_(0)
+        for i in range(batch_size):
+            mask[i][lengths[i] - 1].fill_(1)
+        mask = Variable(mask)
+        x = x.mul(mask)
+        x = x.sum(1).view(batch_size, -1)
+        return x
+
+    def _select_last_old(self, input, lengths):
+        batch_size = input.size(0)
+        x = []
+        for i in range(batch_size):
+            x.append(input[i, lengths[i] - 1].view(1, -1))
+        output = torch.cat(x, 0)
+        return output
+
+    def _process_lengths(self, input):
+        max_length = input.size(1)
+        lengths = list(max_length - input.data.eq(0).sum(1).squeeze())
+        return lengths
+
+    def _load_rnn(self):
+        raise NotImplementedError
+
+    def _make_rnn_state_dict(self, p):
+        raise NotImplementedError
+
+    def forward(self, input, lengths=None):
+        raise NotImplementedError
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Cadene_skip_thoughts_torch(_paritybench_base):

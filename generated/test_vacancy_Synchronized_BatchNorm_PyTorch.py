@@ -11,10 +11,13 @@ test_numeric_batchnorm = _module
 test_numeric_batchnorm_v2 = _module
 test_sync_batchnorm = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -192,6 +195,93 @@ def _unsqueeze_ft(tensor):
     return tensor.unsqueeze(0).unsqueeze(-1)
 
 
+class _SynchronizedBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
+        track_running_stats=True):
+        assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
+            momentum=momentum, affine=affine, track_running_stats=
+            track_running_stats)
+        if not self.track_running_stats:
+            import warnings
+            warnings.warn(
+                'track_running_stats=False is not supported by the SynchronizedBatchNorm.'
+                )
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not (self._is_parallel and self.training):
+            return F.batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(
+                input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
+                input_sum, input_ssum, sum_size))
+        if self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
+                self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        return output.view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
+            get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
+                2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        if hasattr(torch, 'no_grad'):
+            with torch.no_grad():
+                self.running_mean = (1 - self.momentum
+                    ) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum
+                    ) * self.running_var + self.momentum * unbias_var.data
+        else:
+            self.running_mean = (1 - self.momentum
+                ) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum
+                ) * self.running_var + self.momentum * unbias_var.data
+        return mean, bias_var.clamp(self.eps) ** -0.5
+
+
 class BatchNorm2dReimpl(nn.Module):
     """
     A re-implementation of batch normalization, used for testing the numerical
@@ -291,10 +381,15 @@ class DataParallelWithCallback(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_vacancy_Synchronized_BatchNorm_PyTorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 

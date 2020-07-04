@@ -42,10 +42,13 @@ neck = _module
 utils = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -70,6 +73,9 @@ import numpy as np
 from torch.autograd import Variable
 
 
+from torchvision import transforms
+
+
 import scipy.io
 
 
@@ -77,6 +83,9 @@ import collections
 
 
 import math
+
+
+from torchvision import models
 
 
 import torch.nn.init as init
@@ -92,6 +101,9 @@ from collections import OrderedDict
 
 
 import time
+
+
+from torchvision import datasets
 
 
 class SiamRPN(nn.Module):
@@ -530,6 +542,51 @@ class SiamRPN(nn.Module):
         pred_regression = self.regress_adjust(self.xcorr(kernel_regression,
             conv_regression, 20))
         return pred_score, pred_regression
+
+
+def resnet50(**kwargs):
+    """Constructs a ResNet-50 model.
+
+    """
+    model = ResNetPP(Bottleneck, [3, 4, 6, 3], **kwargs)
+    return model
+
+
+class SiamRPNPP(nn.Module):
+
+    def __init__(self):
+        super(SiamRPNPP, self).__init__()
+        self.features = resnet50(**{'used_layers': [2, 3, 4]})
+        self.neck = AdjustAllLayer(**{'in_channels': [512, 1024, 2048],
+            'out_channels': [256, 256, 256]})
+        self.head = MultiRPN(**{'anchor_num': 5, 'in_channels': [256, 256, 
+            256], 'weighted': True})
+
+    def template(self, z):
+        zf = self.features(z)
+        zf = self.neck(zf)
+        self.zf = zf
+
+    def track(self, x):
+        xf = self.features(x)
+        xf = self.neck(xf)
+        cls, loc = self.head(self.zf, xf)
+        return {'cls': cls, 'loc': loc}
+
+    def log_softmax(self, cls):
+        b, a2, h, w = cls.size()
+        cls = cls.view(b, 2, a2 // 2, h, w)
+        cls = cls.permute(0, 2, 3, 4, 1).contiguous()
+        cls = F.log_softmax(cls, dim=4)
+        return cls
+
+    def forward(self, template, detection):
+        zf = self.features(template)
+        xf = self.features(detection)
+        zf = self.neck(zf)
+        xf = self.neck(xf)
+        cls, loc = self.head(zf, xf)
+        return cls, loc
 
 
 class Corr_Up(nn.Module):
@@ -1200,6 +1257,7 @@ class AdjustAllLayer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zllrunning_SiameseX_PyTorch(_paritybench_base):
@@ -1212,23 +1270,48 @@ class Test_zllrunning_SiameseX_PyTorch(_paritybench_base):
         self._check(AdjustLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
     def test_003(self):
-        self._check(BasicBlock_C(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(BasicConv2d_1x1(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock_C(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(BasicConv2d_3x3(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicConv2d_1x1(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Corr_Up(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicConv2d_3x3(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(DepthwiseXCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Corr_Up(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(DepthwiseXCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(Incep22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_010(self):
         self._check(InceptionM(*[], **{'in_channels': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(ResNeXt(*[], **{'num_blocks': [4, 4], 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_012(self):
+        self._check(ResNeXt22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_013(self):
+        self._check(ResNet22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_014(self):
+        self._check(ResNet22W(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(SiamRPN(*[], **{}), [torch.rand([4, 3, 128, 128]), torch.rand([4, 3, 128, 128])], {})
+
+    def test_016(self):
+        self._check(Vgg(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 

@@ -249,10 +249,13 @@ utils = _module
 utils_io = _module
 version = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -439,211 +442,71 @@ from typing import cast
 from torch.nn.modules.conv import _ConvNd
 
 
-class Seq2SeqAttn(nn.Module):
-
-    def __init__(self, train_data):
-        super().__init__()
-        self.source_vocab_size = train_data.source_vocab.size
-        self.target_vocab_size = train_data.target_vocab.size
-        self.bos_token_id = train_data.target_vocab.bos_token_id
-        self.eos_token_id = train_data.target_vocab.eos_token_id
-        self.source_embedder = tx.modules.WordEmbedder(vocab_size=self.
-            source_vocab_size, hparams=config_model.embedder)
-        self.target_embedder = tx.modules.WordEmbedder(vocab_size=self.
-            target_vocab_size, hparams=config_model.embedder)
-        self.encoder = tx.modules.BidirectionalRNNEncoder(input_size=self.
-            source_embedder.dim, hparams=config_model.encoder)
-        self.decoder = tx.modules.AttentionRNNDecoder(token_embedder=self.
-            target_embedder, encoder_output_size=self.encoder.cell_fw.
-            hidden_size + self.encoder.cell_bw.hidden_size, input_size=self
-            .target_embedder.dim, vocab_size=self.target_vocab_size,
-            hparams=config_model.decoder)
-
-    def forward(self, batch, mode):
-        enc_outputs, _ = self.encoder(inputs=self.source_embedder(batch[
-            'source_text_ids']), sequence_length=batch['source_length'])
-        memory = torch.cat(enc_outputs, dim=2)
-        if mode == 'train':
-            helper_train = self.decoder.create_helper(decoding_strategy=
-                'train_greedy')
-            training_outputs, _, _ = self.decoder(memory=memory,
-                memory_sequence_length=batch['source_length'], helper=
-                helper_train, inputs=batch['target_text_ids'][:, :-1],
-                sequence_length=batch['target_length'] - 1)
-            mle_loss = tx.losses.sequence_sparse_softmax_cross_entropy(labels
-                =batch['target_text_ids'][:, 1:], logits=training_outputs.
-                logits, sequence_length=batch['target_length'] - 1)
-            return mle_loss
-        else:
-            start_tokens = memory.new_full(batch['target_length'].size(),
-                self.bos_token_id, dtype=torch.int64)
-            infer_outputs = self.decoder(start_tokens=start_tokens,
-                end_token=self.eos_token_id, memory=memory,
-                memory_sequence_length=batch['source_length'], beam_width=
-                config_model.beam_width)
-            return infer_outputs
-
-
-class LabelSmoothingLoss(nn.Module):
-    """With label smoothing,
-    KL-divergence between q_{smoothed ground truth prob.}(w)
-    and p_{prob. computed by model}(w) is minimized.
+def transpose_batch_time(inputs: torch.Tensor) ->torch.Tensor:
+    """Transposes inputs between time-major and batch-major.
 
     Args:
-        label_confidence: the confidence weight on the ground truth label.
-        tgt_vocab_size: the size of the final classification.
-        ignore_index: The index in the vocabulary to ignore weight.
+        inputs: A Tensor of shape ``[batch_size, max_time, ...]`` (batch-major)
+            or ``[max_time, batch_size, ...]`` (time-major), or a (possibly
+            nested) tuple of such elements.
+
+    Returns:
+        A (possibly nested tuple of) Tensor with transposed batch and
+        time dimensions of inputs.
     """
-    one_hot: torch.Tensor
-
-    def __init__(self, label_confidence, tgt_vocab_size, ignore_index=0):
-        super().__init__()
-        self.ignore_index = ignore_index
-        self.tgt_vocab_size = tgt_vocab_size
-        label_smoothing = 1 - label_confidence
-        assert 0.0 < label_smoothing <= 1.0
-        smoothing_value = label_smoothing / (tgt_vocab_size - 2)
-        one_hot = torch.full((tgt_vocab_size,), smoothing_value)
-        one_hot[self.ignore_index] = 0
-        self.register_buffer('one_hot', one_hot.unsqueeze(0))
-        self.confidence = label_confidence
-
-    def forward(self, output: torch.Tensor, target: torch.Tensor,
-        label_lengths: torch.LongTensor) ->torch.Tensor:
-        """Compute the label smoothing loss.
-
-        Args:
-            output (FloatTensor): batch_size x seq_length * n_classes
-            target (LongTensor): batch_size * seq_length, specify the label
-                target
-            label_lengths(torch.LongTensor): specify the length of the labels
-        """
-        orig_shapes = output.size(), target.size()
-        output = output.view(-1, self.tgt_vocab_size)
-        target = target.view(-1)
-        model_prob = self.one_hot.repeat(target.size(0), 1)
-        model_prob = model_prob
-        model_prob.scatter_(1, target.unsqueeze(1), self.confidence)
-        model_prob.masked_fill_((target == self.ignore_index).unsqueeze(1), 0)
-        output = output.view(orig_shapes[0])
-        model_prob = model_prob.view(orig_shapes[0])
-        return tx.losses.sequence_softmax_cross_entropy(labels=model_prob,
-            logits=output, sequence_length=label_lengths,
-            average_across_batch=False, sum_over_timesteps=False)
+    return inputs.transpose(0, 1)
 
 
-def MultivariateNormalDiag(loc, scale_diag):
-    if loc.dim() < 1:
-        raise ValueError('loc must be at least one-dimensional.')
-    return Independent(Normal(loc, scale_diag), 1)
+def mask_sequences(sequence: Union[torch.Tensor, List[int]],
+    sequence_length: Union[torch.LongTensor, List[int]], dtype: Optional[
+    torch.dtype]=None, time_major: bool=False) ->torch.Tensor:
+    """Masks out sequence entries that are beyond the respective sequence
+    lengths. Masks along the time dimension.
 
+    :attr:`sequence` and :attr:`sequence_length` can either be python
+    arrays or Tensors, respectively. If both are Python arrays (or None), the
+    return will be a Python array as well.
 
-def kl_divergence(means: Tensor, logvars: Tensor) ->Tensor:
-    """Compute the KL divergence between Gaussian distribution
+    Args:
+        sequence: A Tensor or Python array of sequence values.
+            If ``time_major==False`` (default), this must be a Tensor of shape
+            ``[batch_size, max_time, ...]``. The batch and time dimension is
+            exchanged if ``time_major==True``.
+        sequence_length: A Tensor or python array of shape ``[batch_size]``.
+            Time steps beyond the respective sequence lengths will be
+            made zero.
+        dtype (dtype): Type of :attr:`sequence`. If `None`, infer from
+            :attr:`sequence` automatically.
+        time_major (bool): The shape format of the inputs. If `True`,
+            :attr:`sequence` must have shape
+            ``[max_time, batch_size, ...]``.
+            If `False` (default), :attr:`sequence` must have
+            shape ``[batch_size, max_time, ...]``.
+
+    Returns:
+        The masked sequence, i.e., a Tensor or python array of the same shape
+        as :attr:`sequence` but with masked-out entries (set to zero).
+
+        If both :attr:`sequence` and :attr:`sequence_length` are python
+        arrays, the returned value is a python array as well.
     """
-    kl_cost = -0.5 * (logvars - means ** 2 - torch.exp(logvars) + 1.0)
-    kl_cost = torch.mean(kl_cost, 0)
-    return torch.sum(kl_cost)
-
-
-State = TypeVar('State')
-
-
-class RNNCellBase(nn.Module, Generic[State]):
-    """The base class for RNN cells in our framework. Major differences over
-    :torch_nn:`RNNCell` are two-fold:
-
-    1. Holds an :torch_nn:`Module` which could either be a built-in
-       RNN cell or a wrapped cell instance. This design allows
-       :class:`RNNCellBase` to serve as the base class for both vanilla
-       cells and wrapped cells.
-
-    2. Adds :meth:`zero_state` method for initialization of hidden states,
-       which can also be used to implement batch-specific initialization
-       routines.
-    """
-
-    def __init__(self, cell: Union[nn.RNNCellBase, 'RNNCellBase']):
-        super().__init__()
-        if not isinstance(cell, nn.Module):
-            raise ValueError(
-                "Type of parameter 'cell' must be derived fromnn.Module, and has 'input_size' and 'hidden_size'attributes."
-                )
-        self._cell = cell
-
-    @property
-    def input_size(self) ->int:
-        """The number of expected features in the input."""
-        return self._cell.input_size
-
-    @property
-    def hidden_size(self) ->int:
-        """The number of features in the hidden state."""
-        return self._cell.hidden_size
-
-    @property
-    def _param(self) ->nn.Parameter:
-        """Convenience method to access a parameter under the module. Useful
-        when creating tensors of the same attributes using `param.new_*`.
-        """
-        return next(self.parameters())
-
-    def init_batch(self):
-        """Perform batch-specific initialization routines. For most cells this
-        is a no-op.
-        """
-        pass
-
-    def zero_state(self, batch_size: int) ->State:
-        """Return zero-filled state tensor(s).
-
-        Args:
-            batch_size: int, the batch size.
-
-        Returns:
-            State tensor(s) initialized to zeros. Note that different subclasses
-            might return tensors of different shapes and structures.
-        """
-        self.init_batch()
-        if isinstance(self._cell, nn.RNNCellBase):
-            state = self._param.new_zeros(batch_size, self.hidden_size,
-                requires_grad=False)
-        else:
-            state = self._cell.zero_state(batch_size)
-        return state
-
-    def forward(self, input: torch.Tensor, state: Optional[State]=None
-        ) ->Tuple[torch.Tensor, State]:
-        """
-        Returns:
-            A tuple of (output, state). For single layer RNNs, output is
-            the same as state.
-        """
-        if state is None:
-            batch_size = input.size(0)
-            state = self.zero_state(batch_size)
-        return self._cell(input, state)
-
-
-class MaxReducePool1d(nn.Module):
-    """A subclass of :torch_nn:`Module`.
-    Max Pool layer for 1D inputs. The same as :torch_nn:`MaxPool1d` except that
-    the pooling dimension is entirely reduced (i.e., `pool_size=input_length`).
-    """
-
-    def forward(self, input: torch.Tensor) ->torch.Tensor:
-        output, _ = torch.max(input, dim=2)
-        return output
-
-
-class AvgReducePool1d(nn.Module):
-    """A subclass of :torch_nn:`Module`.
-    Avg Pool layer for 1D inputs. The same as :torch_nn:`AvgPool1d` except that
-    the pooling dimension is entirely reduced (i.e., `pool_size=input_length`).
-    """
-
-    def forward(self, input: torch.Tensor) ->torch.Tensor:
-        return torch.mean(input, dim=2)
+    if not torch.is_tensor(sequence):
+        sequence = torch.tensor(sequence, dtype=dtype)
+    sequence: torch.Tensor
+    rank = sequence.dim()
+    if rank < 2:
+        raise ValueError('`sequence` must be 2D or higher order.')
+    if time_major:
+        sequence = transpose_batch_time(sequence)
+    max_time = sequence.size(1)
+    if dtype is None:
+        dtype = sequence.dtype
+    mask = utils.sequence_mask(sequence_length, max_time, dtype=dtype)
+    mask = mask.view(*mask.size(), *([1] * (rank - 2)))
+    sequence = sequence * mask
+    if time_major:
+        sequence = transpose_batch_time(sequence)
+    return sequence
 
 
 def _type_name(value):
@@ -957,6 +820,44 @@ class HParams:
         return dict_
 
 
+T = TypeVar('T')
+
+
+MaybeList = Union[T, List[T]]
+
+
+def _extract_google_drive_file_id(url: str) ->str:
+    url_suffix = url[url.find('/d/') + 3:]
+    if url_suffix.find('/') == -1:
+        return url_suffix
+    file_id = url_suffix[:url_suffix.find('/')]
+    return file_id
+
+
+def get_filename(url: str) ->str:
+    """Extracts the filename of the downloaded checkpoint file from the URL.
+    """
+    if 'drive.google.com' in url:
+        return _extract_google_drive_file_id(url)
+    url, filename = os.path.split(url)
+    return filename or os.path.basename(url)
+
+
+_BERT_PATH = 'https://storage.googleapis.com/bert_models/'
+
+
+_BIOBERT_PATH = (
+    'https://github.com/naver/biobert-pretrained/releases/download/')
+
+
+_SCIBERT_PATH = (
+    'https://s3-us-west-2.amazonaws.com/ai2-s2-research/scibert/tensorflow_models/'
+    )
+
+
+_SPANBERT_PATH = 'https://dl.fbaipublicfiles.com/fairseq/models/'
+
+
 def is_str(x):
     """Returns `True` if :attr:`x` is either a str or unicode.
     Returns `False` otherwise.
@@ -1065,6 +966,470 @@ def get_layer(hparams: Union[HParams, Dict[str, Any]]) ->nn.Module:
     if not isinstance(layer, nn.Module):
         raise ValueError('layer must be an instance of `torch.nn.Module`.')
     return layer
+
+
+def uniquify_str(str_: str, str_set: Collection[str]) ->str:
+    """Uniquifies :attr:`str_` if :attr:`str_` is included in :attr:`str_set`.
+
+    This is done by appending a number to :attr:`str_`. Returns
+    :attr:`str_` directly if it is not included in :attr:`str_set`.
+
+    Args:
+        str\\_ (string): A string to uniquify.
+        str_set (set, dict, or list): A collection of strings. The returned
+            string is guaranteed to be different from the elements in the
+            collection.
+
+    Returns:
+        The uniquified string. Returns :attr:`str_` directly if it is
+        already unique.
+
+    Example:
+
+        .. code-block:: python
+
+            print(uniquify_str('name', ['name', 'name_1']))
+            # 'name_2'
+
+    """
+    if str_ not in str_set:
+        return str_
+    else:
+        for i in range(1, len(str_set) + 1):
+            unique_str = str_ + '_%d' % i
+            if unique_str not in str_set:
+                return unique_str
+    raise ValueError('Failed to uniquify string: ' + str_)
+
+
+Type_size_keeper = [nn.ELU, nn.Hardshrink, nn.Hardtanh, nn.LeakyReLU, nn.
+    LogSigmoid, nn.PReLU, nn.ReLU, nn.RReLU, nn.SELU, nn.CELU, nn.Sigmoid,
+    nn.Softplus, nn.Softshrink, nn.Softsign, nn.Tanh, nn.Tanhshrink, nn.
+    Threshold, nn.Softmin, nn.Softmax, nn.LogSoftmax, nn.Dropout, nn.
+    AlphaDropout]
+
+
+Type_size_lambda_map = {nn.Linear: lambda x: x.out_features, nn.Bilinear: 
+    lambda x: x.out_features, _ConvNd: lambda x: x.out_channels * len(x.
+    kernel_size), nn.Embedding: lambda x: x.embedding_dim, nn.EmbeddingBag:
+    lambda x: x.embedding_dim, nn.RNNCellBase: lambda x: x.hidden_size}
+
+
+def get_output_size(input_instance: nn.Module) ->Optional[int]:
+    """Return the final dimension size of :attr:`input_instance` output.
+
+    If type of :attr:`input_instance` is among the common types, the final
+    dimension size will be computed.
+
+    Args:
+        input_instance: A :class:`~torch.nn.Module` instance from
+            which to compute the final dimension size.
+
+    Returns:
+        int (optional): The final dimension size of the output.
+            If output size is determined by input, returns ``-1``,
+            otherwise if output size is not computable, return `None`.
+    """
+    for t, l in Type_size_lambda_map.items():
+        if isinstance(input_instance, t):
+            return l(input_instance)
+    for t in Type_size_keeper:
+        if isinstance(input_instance, t):
+            return -1
+    return None
+
+
+def default_transformer_poswise_net_hparams(input_dim: int, output_dim: int=512
+    ) ->Dict[str, Any]:
+    """Returns default hyperparameters of a
+    :class:`~texar.torch.modules.FeedForwardNetwork` as a position-wise network
+    used in :class:`~texar.torch.modules.TransformerEncoder` and
+    :class:`~texar.torch.modules.TransformerDecoder`.
+    This is a 2-layer dense network with dropout in-between.
+
+    .. code-block:: python
+
+        {
+            "layers": [
+                {
+                    "type": "Linear",
+                    "kwargs": {
+                        "in_features": input_dim,
+                        "out_features": output_dim * 4,
+                        "bias": True,
+                    }
+                },
+                {
+                    "type": "nn.ReLU",
+                    "kwargs": {
+                        "inplace": True
+                    }
+                },
+                {
+                    "type": "Dropout",
+                    "kwargs": {
+                        "p": 0.1,
+                    }
+                },
+                {
+                    "type": "Linear",
+                    "kwargs": {
+                        "in_features": output_dim * 4,
+                        "out_features": output_dim,
+                        "bias": True,
+                    }
+                }
+            ],
+            "name": "ffn"
+        }
+
+    Args:
+        input_dim (int): The size of dense layer input.
+        output_dim (int): The size of dense layer output.
+    """
+    return {'layers': [{'type': 'Linear', 'kwargs': {'in_features':
+        input_dim, 'out_features': output_dim * 4, 'bias': True}}, {'type':
+        'ReLU', 'kwargs': {'inplace': True}}, {'type': 'Dropout', 'kwargs':
+        {'p': 0.1}}, {'type': 'Linear', 'kwargs': {'in_features': 
+        output_dim * 4, 'out_features': output_dim, 'bias': True}}], 'name':
+        'ffn'}
+
+
+def sequence_mask(lengths: Union[torch.LongTensor, List[int]], max_len:
+    Optional[int]=None, dtype: Optional[torch.dtype]=None, device: Optional
+    [torch.device]=None) ->torch.ByteTensor:
+    """Return a mask tensor representing the first N positions of each cell.
+
+    If ``lengths`` has shape ``[d_1, d_2, ..., d_n]`` the resulting tensor
+    ``mask`` has dtype ``dtype`` and shape ``[d_1, d_2, ..., d_n, maxlen]``,
+    with
+
+    ```
+    mask[i_1, i_2, ..., i_n, j] = (j < lengths[i_1, i_2, ..., i_n])
+    ```
+
+    Examples:
+
+    ```python
+    sequence_mask([1, 3, 2], 5)  # [[True, False, False, False, False],
+                                 #  [True,  True,  True, False, False],
+                                 #  [True,  True, False, False, False]]
+
+    sequence_mask([[1, 3],[2,0]])  # [[[ True, False, False],
+                                   #   [ True,  True,  True]],
+                                   #  [[ True,  True, False],
+                                   #   [False, False, False]]]
+    ```
+
+    Args:
+        lengths: integer tensor or list of int, all its values <= max_len.
+        max_len: scalar integer tensor, size of last dimension of returned
+            tensor. Default is the maximum value in ``lengths``.
+        dtype: the desired data type of returned tensor. Default: if None,
+            returns :torch:`ByteTensor`.
+        device: the desired device of returned tensor. Default: if None, uses
+            the current device for the default tensor type.
+    Returns:
+        A mask tensor of shape :python:`lengths.shape + (max_len,)`, cast to
+        specified dtype.
+    Raises:
+        ValueError: if ``max_len`` is not a scalar.
+    """
+    if not isinstance(lengths, torch.Tensor):
+        lengths = torch.tensor(lengths, device=device)
+    elif device is None:
+        device = lengths.device
+    lengths: torch.LongTensor
+    if max_len is None:
+        max_len = torch.max(lengths).item()
+    size = lengths.size()
+    row_vector = torch.arange(max_len, device=device, dtype=lengths.dtype
+        ).view(*([1] * len(size)), -1).expand(*size, max_len)
+    mask = (row_vector < lengths.unsqueeze(-1)).to(device=device)
+    if dtype is not None:
+        mask = mask.to(dtype=dtype)
+    return mask
+
+
+AnyDict = MutableMapping[str, Any]
+
+
+ParamDict = Union[HParams, AnyDict]
+
+
+def dict_fetch(src_dict: Optional[ParamDict], tgt_dict_or_keys: Union[
+    ParamDict, List[str]]) ->Optional[AnyDict]:
+    """Fetches a sub-dictionary of :attr:`src_dict` with the keys in
+    :attr:`tgt_dict_or_keys`.
+
+    Args:
+        src_dict: A dictionary or instance of :class:`~texar.torch.HParams`.
+            The source dictionary to fetch values from.
+        tgt_dict_or_keys: A dictionary, instance of
+            :class:`~texar.torch.HParams`, or a list (or a
+            ``dict_keys``/``KeysView``) of keys to be included in the output
+            dictionary.
+
+    Returns:
+        A new dictionary that is a sub-dictionary of :attr:`src_dict`.
+    """
+    if src_dict is None:
+        return src_dict
+    if isinstance(tgt_dict_or_keys, HParams):
+        tgt_dict_or_keys = tgt_dict_or_keys.todict()
+    if isinstance(tgt_dict_or_keys, MutableMapping):
+        tgt_dict_or_keys = tgt_dict_or_keys.keys()
+    keys = list(tgt_dict_or_keys)
+    if isinstance(src_dict, HParams):
+        src_dict = src_dict.todict()
+    return {k: src_dict[k] for k in keys if k in src_dict}
+
+
+def get_initializer(hparams=None) ->Optional[Callable[[torch.Tensor], torch
+    .Tensor]]:
+    """Returns an initializer instance.
+
+    Args:
+        hparams (dict or HParams, optional): Hyperparameters with the structure
+
+            .. code-block:: python
+
+                {
+                    "type": "initializer_class_or_function",
+                    "kwargs": {
+                        # ...
+                    }
+                }
+
+            The `"type"` field can be a function name or module path. If name is
+            provided, it be must be from one the following modules:
+            :torch_docs:`torch.nn.init <nn.html#torch-nn-init>` and
+            :mod:`texar.torch.custom`.
+
+            Besides, the `"type"` field can also be an initialization function
+            called with :python:`initialization_fn(**kwargs)`. In this case
+            `"type"` can be the function, or its name or module path. If no
+            keyword argument is required, `"kwargs"` can be omitted.
+
+    Returns:
+        An initializer instance. `None` if :attr:`hparams` is `None`.
+    """
+    if hparams is None:
+        return None
+    kwargs = hparams.get('kwargs', {})
+    if isinstance(kwargs, HParams):
+        kwargs = kwargs.todict()
+    modules = ['torch.nn.init', 'torch', 'texar.torch.custom']
+    initializer_fn = utils.get_function(hparams['type'], modules)
+    initializer = functools.partial(initializer_fn, **kwargs)
+    return initializer
+
+
+class Seq2SeqAttn(nn.Module):
+
+    def __init__(self, train_data):
+        super().__init__()
+        self.source_vocab_size = train_data.source_vocab.size
+        self.target_vocab_size = train_data.target_vocab.size
+        self.bos_token_id = train_data.target_vocab.bos_token_id
+        self.eos_token_id = train_data.target_vocab.eos_token_id
+        self.source_embedder = tx.modules.WordEmbedder(vocab_size=self.
+            source_vocab_size, hparams=config_model.embedder)
+        self.target_embedder = tx.modules.WordEmbedder(vocab_size=self.
+            target_vocab_size, hparams=config_model.embedder)
+        self.encoder = tx.modules.BidirectionalRNNEncoder(input_size=self.
+            source_embedder.dim, hparams=config_model.encoder)
+        self.decoder = tx.modules.AttentionRNNDecoder(token_embedder=self.
+            target_embedder, encoder_output_size=self.encoder.cell_fw.
+            hidden_size + self.encoder.cell_bw.hidden_size, input_size=self
+            .target_embedder.dim, vocab_size=self.target_vocab_size,
+            hparams=config_model.decoder)
+
+    def forward(self, batch, mode):
+        enc_outputs, _ = self.encoder(inputs=self.source_embedder(batch[
+            'source_text_ids']), sequence_length=batch['source_length'])
+        memory = torch.cat(enc_outputs, dim=2)
+        if mode == 'train':
+            helper_train = self.decoder.create_helper(decoding_strategy=
+                'train_greedy')
+            training_outputs, _, _ = self.decoder(memory=memory,
+                memory_sequence_length=batch['source_length'], helper=
+                helper_train, inputs=batch['target_text_ids'][:, :-1],
+                sequence_length=batch['target_length'] - 1)
+            mle_loss = tx.losses.sequence_sparse_softmax_cross_entropy(labels
+                =batch['target_text_ids'][:, 1:], logits=training_outputs.
+                logits, sequence_length=batch['target_length'] - 1)
+            return mle_loss
+        else:
+            start_tokens = memory.new_full(batch['target_length'].size(),
+                self.bos_token_id, dtype=torch.int64)
+            infer_outputs = self.decoder(start_tokens=start_tokens,
+                end_token=self.eos_token_id, memory=memory,
+                memory_sequence_length=batch['source_length'], beam_width=
+                config_model.beam_width)
+            return infer_outputs
+
+
+class LabelSmoothingLoss(nn.Module):
+    """With label smoothing,
+    KL-divergence between q_{smoothed ground truth prob.}(w)
+    and p_{prob. computed by model}(w) is minimized.
+
+    Args:
+        label_confidence: the confidence weight on the ground truth label.
+        tgt_vocab_size: the size of the final classification.
+        ignore_index: The index in the vocabulary to ignore weight.
+    """
+    one_hot: torch.Tensor
+
+    def __init__(self, label_confidence, tgt_vocab_size, ignore_index=0):
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.tgt_vocab_size = tgt_vocab_size
+        label_smoothing = 1 - label_confidence
+        assert 0.0 < label_smoothing <= 1.0
+        smoothing_value = label_smoothing / (tgt_vocab_size - 2)
+        one_hot = torch.full((tgt_vocab_size,), smoothing_value)
+        one_hot[self.ignore_index] = 0
+        self.register_buffer('one_hot', one_hot.unsqueeze(0))
+        self.confidence = label_confidence
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor,
+        label_lengths: torch.LongTensor) ->torch.Tensor:
+        """Compute the label smoothing loss.
+
+        Args:
+            output (FloatTensor): batch_size x seq_length * n_classes
+            target (LongTensor): batch_size * seq_length, specify the label
+                target
+            label_lengths(torch.LongTensor): specify the length of the labels
+        """
+        orig_shapes = output.size(), target.size()
+        output = output.view(-1, self.tgt_vocab_size)
+        target = target.view(-1)
+        model_prob = self.one_hot.repeat(target.size(0), 1)
+        model_prob = model_prob
+        model_prob.scatter_(1, target.unsqueeze(1), self.confidence)
+        model_prob.masked_fill_((target == self.ignore_index).unsqueeze(1), 0)
+        output = output.view(orig_shapes[0])
+        model_prob = model_prob.view(orig_shapes[0])
+        return tx.losses.sequence_softmax_cross_entropy(labels=model_prob,
+            logits=output, sequence_length=label_lengths,
+            average_across_batch=False, sum_over_timesteps=False)
+
+
+def MultivariateNormalDiag(loc, scale_diag):
+    if loc.dim() < 1:
+        raise ValueError('loc must be at least one-dimensional.')
+    return Independent(Normal(loc, scale_diag), 1)
+
+
+def kl_divergence(means: Tensor, logvars: Tensor) ->Tensor:
+    """Compute the KL divergence between Gaussian distribution
+    """
+    kl_cost = -0.5 * (logvars - means ** 2 - torch.exp(logvars) + 1.0)
+    kl_cost = torch.mean(kl_cost, 0)
+    return torch.sum(kl_cost)
+
+
+State = TypeVar('State')
+
+
+class RNNCellBase(nn.Module, Generic[State]):
+    """The base class for RNN cells in our framework. Major differences over
+    :torch_nn:`RNNCell` are two-fold:
+
+    1. Holds an :torch_nn:`Module` which could either be a built-in
+       RNN cell or a wrapped cell instance. This design allows
+       :class:`RNNCellBase` to serve as the base class for both vanilla
+       cells and wrapped cells.
+
+    2. Adds :meth:`zero_state` method for initialization of hidden states,
+       which can also be used to implement batch-specific initialization
+       routines.
+    """
+
+    def __init__(self, cell: Union[nn.RNNCellBase, 'RNNCellBase']):
+        super().__init__()
+        if not isinstance(cell, nn.Module):
+            raise ValueError(
+                "Type of parameter 'cell' must be derived fromnn.Module, and has 'input_size' and 'hidden_size'attributes."
+                )
+        self._cell = cell
+
+    @property
+    def input_size(self) ->int:
+        """The number of expected features in the input."""
+        return self._cell.input_size
+
+    @property
+    def hidden_size(self) ->int:
+        """The number of features in the hidden state."""
+        return self._cell.hidden_size
+
+    @property
+    def _param(self) ->nn.Parameter:
+        """Convenience method to access a parameter under the module. Useful
+        when creating tensors of the same attributes using `param.new_*`.
+        """
+        return next(self.parameters())
+
+    def init_batch(self):
+        """Perform batch-specific initialization routines. For most cells this
+        is a no-op.
+        """
+        pass
+
+    def zero_state(self, batch_size: int) ->State:
+        """Return zero-filled state tensor(s).
+
+        Args:
+            batch_size: int, the batch size.
+
+        Returns:
+            State tensor(s) initialized to zeros. Note that different subclasses
+            might return tensors of different shapes and structures.
+        """
+        self.init_batch()
+        if isinstance(self._cell, nn.RNNCellBase):
+            state = self._param.new_zeros(batch_size, self.hidden_size,
+                requires_grad=False)
+        else:
+            state = self._cell.zero_state(batch_size)
+        return state
+
+    def forward(self, input: torch.Tensor, state: Optional[State]=None
+        ) ->Tuple[torch.Tensor, State]:
+        """
+        Returns:
+            A tuple of (output, state). For single layer RNNs, output is
+            the same as state.
+        """
+        if state is None:
+            batch_size = input.size(0)
+            state = self.zero_state(batch_size)
+        return self._cell(input, state)
+
+
+class MaxReducePool1d(nn.Module):
+    """A subclass of :torch_nn:`Module`.
+    Max Pool layer for 1D inputs. The same as :torch_nn:`MaxPool1d` except that
+    the pooling dimension is entirely reduced (i.e., `pool_size=input_length`).
+    """
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        output, _ = torch.max(input, dim=2)
+        return output
+
+
+class AvgReducePool1d(nn.Module):
+    """A subclass of :torch_nn:`Module`.
+    Avg Pool layer for 1D inputs. The same as :torch_nn:`AvgPool1d` except that
+    the pooling dimension is entirely reduced (i.e., `pool_size=input_length`).
+    """
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        return torch.mean(input, dim=2)
 
 
 class MergeLayer(nn.Module):
@@ -1305,6 +1670,7 @@ class PositionalEmbedding(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_asyml_texar_pytorch(_paritybench_base):

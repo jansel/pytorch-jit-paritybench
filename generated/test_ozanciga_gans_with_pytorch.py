@@ -20,10 +20,13 @@ wgan_gp = _module
 dataset_loader = _module
 wgan = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -45,13 +48,25 @@ from torch import optim
 from torch.autograd.variable import Variable
 
 
+from torchvision import transforms
+
+
+from torchvision import datasets
+
+
 from torch.utils.data import DataLoader
 
 
 import torch.nn.functional as F
 
 
+from torchvision.utils import save_image
+
+
 import numpy
+
+
+from torchvision.models import vgg19
 
 
 from torch.autograd import Variable
@@ -61,6 +76,51 @@ parser = argparse.ArgumentParser()
 
 
 opt = parser.parse_args()
+
+
+class Generator(nn.Module):
+
+    def __init__(self):
+        super(Generator, self).__init__()
+        self.z_map = nn.Sequential(nn.Linear(opt.latent_dim, 200), nn.
+            BatchNorm1d(200), nn.ReLU(inplace=True))
+        self.y_map = nn.Sequential(nn.Linear(opt.n_classes, 1000), nn.
+            BatchNorm1d(1000), nn.ReLU(inplace=True))
+        self.zy_map = nn.Sequential(nn.Linear(1200, 1200), nn.BatchNorm1d(
+            1200), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(1200, n_features), nn.Tanh())
+
+    def forward(self, z, y):
+        zh = self.z_map(z)
+        yh = self.y_map(y)
+        zy = torch.cat((zh, yh), dim=1)
+        zyh = self.zy_map(zy)
+        x = self.model(zyh)
+        x = x.view(x.size(0), *img_dims)
+        return x
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.model = nn.Sequential(nn.Linear(240, 1), nn.Sigmoid())
+        self.x_map = nn.Sequential(nn.Linear(n_features, 240 * 5))
+        self.y_map = nn.Sequential(nn.Linear(opt.n_classes, 50 * 5))
+        self.j_map = nn.Sequential(nn.Linear(240 + 50, 240 * 4))
+
+    def forward(self, x, y):
+        x = x.view(-1, n_features)
+        x = self.x_map(x)
+        x, _ = x.view(-1, 240, 5).max(dim=2)
+        y = y.view(-1, opt.n_classes)
+        y = self.y_map(y)
+        y, _ = y.view(-1, 50, 5).max(dim=2)
+        jmx = torch.cat((x, y), dim=1)
+        jmx = self.j_map(jmx)
+        jmx, _ = jmx.view(-1, 240, 4).max(dim=2)
+        prob = self.model(jmx)
+        return prob
 
 
 class MeanPoolConv(nn.Module):
@@ -853,6 +913,7 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ozanciga_gans_with_pytorch(_paritybench_base):
@@ -871,4 +932,7 @@ class Test_ozanciga_gans_with_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(UpsampleConv(*[], **{'n_input': 4, 'n_output': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(VGGFeatures(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

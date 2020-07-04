@@ -4,10 +4,13 @@ del sys
 hard_triplet_loss = _module
 netvlad = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -214,17 +217,18 @@ class TripletNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lyakaap_NetVLAD_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(EmbedNet(*[], **{'base_model': ReLU(), 'net_vlad': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EmbedNet(*[], **{'base_model': _mock_layer(), 'net_vlad': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
         self._check(NetVLAD(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
 
     def test_002(self):
-        self._check(TripletNet(*[], **{'embed_net': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(TripletNet(*[], **{'embed_net': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

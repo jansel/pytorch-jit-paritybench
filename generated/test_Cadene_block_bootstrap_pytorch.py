@@ -54,10 +54,13 @@ test_run_tdiuc_options = _module
 test_run_vqa2_options = _module
 test_run_vrd_options = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -92,6 +95,9 @@ import types
 
 
 from torch.autograd import Function
+
+
+import numbers
 
 
 from torch.autograd import Variable
@@ -1116,6 +1122,32 @@ class MFH(nn.Module):
         return z
 
 
+class MCB(nn.Module):
+
+    def __init__(self, input_dims, output_dim, mm_dim=16000, activ_output=
+        'relu', dropout_output=0.0):
+        super(MCB, self).__init__()
+        self.input_dims = input_dims
+        self.output_dim = output_dim
+        self.mm_dim = mm_dim
+        self.activ_output = activ_output
+        self.dropout_output = dropout_output
+        self.mcb = cbp.CompactBilinearPooling(input_dims[0], input_dims[1],
+            mm_dim)
+        self.linear_out = nn.Linear(mm_dim, output_dim)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.
+            requires_grad)
+
+    def forward(self, x):
+        z = self.mcb(x[0], x[1])
+        z = self.linear_out(z)
+        if self.activ_output:
+            z = getattr(F, self.activ_output)(z)
+        if self.dropout_output > 0:
+            z = F.dropout(z, p=self.dropout_output, training=self.training)
+        return z
+
+
 class LinearSum(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input=
@@ -1368,6 +1400,7 @@ class VRDNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Cadene_block_bootstrap_pytorch(_paritybench_base):
@@ -1378,29 +1411,33 @@ class Test_Cadene_block_bootstrap_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BlockTucker(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(MFB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(MFH(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(MFB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MFH(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
+        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

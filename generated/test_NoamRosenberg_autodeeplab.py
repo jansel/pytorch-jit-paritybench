@@ -66,10 +66,13 @@ saver = _module
 step_lr_scheduler = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -98,6 +101,9 @@ import numpy as np
 
 
 from numpy import int64 as int64
+
+
+import torchvision.transforms as transforms
 
 
 import torch.utils.model_zoo as model_zoo
@@ -622,6 +628,41 @@ class Cell(nn.Module):
                 if m.weight is not None:
                     m.weight.data.fill_(1)
                     m.bias.data.zero_()
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None
+        ):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+            dilation=dilation, padding=dilation, bias=False)
+        self.bn2 = BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.dilation = dilation
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class ResNet(nn.Module):
@@ -1197,6 +1238,34 @@ class DeepLabv3_plus(nn.Module):
             elif isinstance(m, BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
+
+class _ASPPModule(nn.Module):
+
+    def __init__(self, inplanes, planes, kernel_size, padding, dilation,
+        BatchNorm, separate=False):
+        super(_ASPPModule, self).__init__()
+        if separate:
+            self.atrous_conv = SeparateConv(inplanes, planes, kernel_size, 
+                1, padding, dilation, False, BatchNorm)
+        else:
+            self.atrous_conv = nn.Conv2d(inplanes, planes, kernel_size=
+                kernel_size, stride=1, padding=padding, dilation=dilation,
+                bias=False)
+        self.bn = BatchNorm(planes)
+        self._init_weight()
+
+    def forward(self, x):
+        x = self.atrous_conv(x)
+        x = self.bn(x)
+        return x
+
+    def init_weight(self):
+        for ly in self.children():
+            if isinstance(ly, nn.Conv2d):
+                nn.init.kaiming_normal_(ly.weight, a=1)
+                if not ly.bias is None:
+                    nn.init.constant_(ly.bias, 0)
 
 
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
@@ -3111,6 +3180,7 @@ class OhemCELoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NoamRosenberg_autodeeplab(_paritybench_base):
@@ -3123,50 +3193,58 @@ class Test_NoamRosenberg_autodeeplab(_paritybench_base):
     def test_001(self):
         self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_003(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(DoubleFactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DoubleFactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilation': 1, 'expand_ratio': 4, 'BatchNorm': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
         self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
         self._check(NaiveBN(*[], **{'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_014(self):
         self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_016(self):
         self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
-        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+    def test_017(self):
+        self._check(SingleGPU(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_018(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

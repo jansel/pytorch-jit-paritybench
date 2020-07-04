@@ -169,10 +169,13 @@ test_batchnorm1d = _module
 test_groups = _module
 two_gpu_unit_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -251,6 +254,9 @@ from torch._utils import _unflatten_dense_tensors
 from copy import copy
 
 
+import numbers
+
+
 from torch.nn import init
 
 
@@ -270,6 +276,9 @@ import copy
 
 
 import torch.cuda.profiler as profiler
+
+
+import torchvision.models as models
 
 
 import torch.optim as optim
@@ -299,10 +308,22 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
+
+
 import torch.optim
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.datasets as datasets
 
 
 import functools as ft
@@ -1050,8 +1071,8 @@ class BatchNorm2d_NHWC(_BatchNorm):
         super(BatchNorm2d_NHWC, self).__init__(num_features)
         self.fuse_relu = fuse_relu
         self.multi_stream = multi_stream
-        self.minibatch_mean = torch.cuda.FloatTensor(num_features)
-        self.minibatch_riv = torch.cuda.FloatTensor(num_features)
+        self.minibatch_mean = torch.FloatTensor(num_features)
+        self.minibatch_riv = torch.FloatTensor(num_features)
         self.bn_group = bn_group
         self.max_cta_per_sm = max_cta_per_sm
         self.cta_launch_margin = cta_launch_margin
@@ -1068,7 +1089,7 @@ class BatchNorm2d_NHWC(_BatchNorm):
             ), max_cta_per_sm)
         self.addrelu_bwd_occupancy = min(bnp.bn_addrelu_bwd_nhwc_occupancy(
             ), max_cta_per_sm)
-        mp_count = torch.cuda.get_device_properties(None).multi_processor_count
+        mp_count = torch.get_device_properties(None).multi_processor_count
         self.fwd_grid_dim_x = max(mp_count * self.fwd_occupancy -
             cta_launch_margin, 1)
         self.bwd_grid_dim_x = max(mp_count * self.bwd_occupancy -
@@ -1078,7 +1099,7 @@ class BatchNorm2d_NHWC(_BatchNorm):
         self.addrelu_bwd_grid_dim_x = max(mp_count * self.
             addrelu_bwd_occupancy - cta_launch_margin, 1)
         self.grid_dim_y = (num_features + 63) // 64
-        self.ret_cta = torch.cuda.ByteTensor(8192).fill_(0)
+        self.ret_cta = torch.ByteTensor(8192).fill_(0)
         if bn_group > 1:
             local_rank = torch.distributed.get_rank()
             world_size = torch.distributed.get_world_size()
@@ -1089,15 +1110,15 @@ class BatchNorm2d_NHWC(_BatchNorm):
                 bn_sync_steps = 2
             if bn_group == 8:
                 bn_sync_steps = 3
-            self.ipc_buffer = torch.cuda.ByteTensor(bnp.get_buffer_size(
+            self.ipc_buffer = torch.ByteTensor(bnp.get_buffer_size(
                 bn_sync_steps))
             self.my_data = bnp.get_data_ptr(self.ipc_buffer)
             self.storage = self.ipc_buffer.storage()
             self.share_cuda = self.storage._share_cuda_()
             internal_cuda_mem = self.share_cuda
-            my_handle = torch.cuda.ByteTensor(np.frombuffer(
-                internal_cuda_mem[1], dtype=np.uint8))
-            my_offset = torch.cuda.IntTensor([internal_cuda_mem[3]])
+            my_handle = torch.ByteTensor(np.frombuffer(internal_cuda_mem[1],
+                dtype=np.uint8))
+            my_offset = torch.IntTensor([internal_cuda_mem[3]])
             handles_all = torch.empty(world_size, my_handle.size(0), dtype=
                 my_handle.dtype, device=my_handle.device)
             handles_l = list(handles_all.unbind(0))
@@ -2050,6 +2071,63 @@ class MlpFunction(torch.autograd.Function):
         return None, None, *grads
 
 
+class MLP(torch.nn.Module):
+    """Launch MLP in C++
+
+    Args:
+        mlp_sizes (list of int): MLP sizes. Example: [1024,1024,1024] will create 2 MLP layers with shape 1024x1024
+        bias (bool): Default True:
+        relu (bool): Default True
+    """
+
+    def __init__(self, mlp_sizes, bias=True, activation='relu'):
+        super(MLP, self).__init__()
+        self.num_layers = len(mlp_sizes) - 1
+        self.mlp_sizes = copy(mlp_sizes)
+        self.bias = 1 if bias else 0
+        if activation is 'none':
+            self.activation = 0
+        elif activation is 'relu':
+            self.activation = 1
+        elif activation is 'sigmoid':
+            self.activation = 2
+        else:
+            raise TypeError('activation must be relu or none.')
+        self.weights = []
+        self.biases = []
+        for i in range(self.num_layers):
+            w = torch.nn.Parameter(torch.empty(mlp_sizes[i + 1], mlp_sizes[i]))
+            self.weights.append(w)
+            name = 'weight_{}'.format(i)
+            setattr(self, name, w)
+            if self.bias:
+                b = torch.nn.Parameter(torch.empty(mlp_sizes[i + 1]))
+                self.biases.append(b)
+                name = 'bias_{}'.format(i)
+                setattr(self, name, b)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for weight in self.weights:
+            dimsum = weight.size(0) + weight.size(1)
+            std = math.sqrt(2.0 / float(dimsum))
+            nn.init.normal_(weight, 0.0, std)
+        if self.bias:
+            for bias in self.biases:
+                std = math.sqrt(1.0 / float(bias.size(0)))
+                nn.init.normal_(bias, 0.0, std)
+
+    def forward(self, input):
+        return mlp_function(self.bias, self.activation, input, *self.
+            weights, *self.biases)
+
+    def extra_repr(self):
+        s = (
+            f'MLP sizes: {self.mlp_sizes}, Bias={self.bias}, activation={self.activation}'
+            )
+        return s
+
+
 class FusedLayerNormAffineFunction(torch.autograd.Function):
 
     @staticmethod
@@ -2298,6 +2376,426 @@ def split_half_float_double(tensors):
         if bucket:
             buckets.append(bucket)
     return buckets
+
+
+class DistributedDataParallel(Module):
+    """
+    :class:`apex.parallel.DistributedDataParallel` is a module wrapper that enables
+    easy multiprocess distributed data parallel training, similar to ``torch.nn.parallel.DistributedDataParallel``.  Parameters are broadcast across participating processes on initialization, and gradients are
+    allreduced and averaged over processes during ``backward()``.
+
+    :class:`DistributedDataParallel` is optimized for use with NCCL.  It achieves high performance by
+    overlapping communication with computation during ``backward()`` and bucketing smaller gradient
+    transfers to reduce the total number of transfers required.
+
+    :class:`DistributedDataParallel` is designed to work with the upstream launch utility script
+    ``torch.distributed.launch`` with ``--nproc_per_node <= number of gpus per node``.
+    When used with this launcher, :class:`DistributedDataParallel` assumes 1:1 mapping of processes to GPUs.
+    It also assumes that your script calls ``torch.cuda.set_device(args.rank)`` before creating the model.
+
+    https://github.com/NVIDIA/apex/tree/master/examples/simple/distributed shows detailed usage.
+    https://github.com/NVIDIA/apex/tree/master/examples/imagenet shows another example
+    that combines :class:`DistributedDataParallel` with mixed precision training.
+
+    Args:
+        module: Network definition to be run in multi-gpu/distributed mode.
+        message_size (int, default=1e7): Minimum number of elements in a communication bucket.
+        delay_allreduce (bool, default=False):  Delay all communication to the end of the backward pass.  This disables overlapping communication with computation.
+        allreduce_trigger_params (list, optional, default=None):  If supplied, should contain a list of parameters drawn from the model.  Allreduces will be kicked off whenever one of these parameters receives its gradient (as opposed to when a bucket of size message_size is full).  At the end of backward(), a cleanup allreduce to catch any remaining gradients will also be performed automatically.  If allreduce_trigger_params is supplied, the message_size argument will be ignored.
+        allreduce_always_fp32 (bool, default=False):  Convert any FP16 gradients to FP32 before allreducing.  This can improve stability for widely scaled-out runs.
+        gradient_average (bool, default=True):  Option to toggle whether or not DDP averages the allreduced gradients over processes.  For proper scaling, the default value of True is recommended.
+        gradient_predivide_factor (float, default=1.0):  Allows perfoming the average of gradients over processes partially before and partially after the allreduce.  Before allreduce:  ``grads.mul_(1.0/gradient_predivide_factor)``.  After allreduce:  ``grads.mul_(gradient_predivide_factor/world size)``.  This can reduce the stress on the dynamic range of FP16 allreduces for widely scaled-out runs.
+
+    .. warning::
+        If ``gradient_average=False``, the pre-allreduce division (``grads.mul_(1.0/gradient_predivide_factor)``) will still be applied, but the post-allreduce gradient averaging (``grads.mul_(gradient_predivide_factor/world size)``) will be omitted.
+
+    """
+
+    def __init__(self, module, message_size=10000000, delay_allreduce=False,
+        shared_param=None, allreduce_trigger_params=None,
+        retain_allreduce_buffers=False, allreduce_always_fp32=False,
+        num_allreduce_streams=1, allreduce_communicators=None,
+        gradient_average=True, gradient_predivide_factor=1.0,
+        gradient_average_split_factor=None, prof=False):
+        super(DistributedDataParallel, self).__init__()
+        if hasattr(dist, 'get_backend'):
+            self._backend = dist.get_backend()
+            if hasattr(dist, 'DistBackend'):
+                self.backend_enum_holder = dist.DistBackend
+            else:
+                self.backend_enum_holder = dist.Backend
+        else:
+            self._backend = dist._backend
+            self.backend_enum_holder = dist.dist_backend
+        self.warn_on_half = (True if self._backend == self.
+            backend_enum_holder.GLOO else False)
+        self.prof = prof
+        self.allreduce_different_streams = num_allreduce_streams > 1
+        self.num_allreduce_streams = num_allreduce_streams
+        self.allreduce_communicators = allreduce_communicators
+        if self.allreduce_communicators:
+            assert len(allreduce_communicators[0]) == num_allreduce_streams
+            assert len(allreduce_communicators[0]) == len(
+                allreduce_communicators[1])
+            assert self.allreduce_different_streams
+        if self.allreduce_different_streams and delay_allreduce:
+            raise ValueError(
+                'self.allreduce_different_streams may only be used if delay_allreduce=False.'
+                )
+        if shared_param is not None:
+            raise ValueError(
+                'shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.'
+                )
+        self.world_size = float(dist.get_world_size())
+        self.retain_allreduce_buffers = retain_allreduce_buffers
+        self.allreduce_always_fp32 = allreduce_always_fp32
+        self.gradient_average = gradient_average
+        self.gradient_predivide_factor = gradient_predivide_factor
+        self.custom_allreduce_triggers = False
+        if allreduce_trigger_params is not None:
+            if delay_allreduce:
+                raise ValueError(
+                    'Setting allreduce_trigger_params is only valid if delay_allreduce=False.'
+                    )
+            self.custom_allreduce_triggers = True
+            self.allreduce_trigger_params = set([id(param) for param in
+                allreduce_trigger_params])
+        self.delay_allreduce = delay_allreduce
+        self.message_size = message_size
+        self.main_stream = torch.current_stream()
+        self.bucket_streams = []
+        self.bucket_events = []
+        self.module = module
+        self._disable_allreduce = False
+        if self._backend == self.backend_enum_holder.NCCL:
+            for param in self.module.parameters():
+                assert param.is_cuda, 'NCCL backend only supports model parameters to be on GPU.'
+        self.active_params = []
+        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0,
+            'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
+        if multi_tensor_applier.available:
+            self.multi_tensor_scale = amp_C.multi_tensor_scale
+            self._overflow_buf = torch.IntTensor([0])
+        self.create_hooks()
+        flat_dist_call([param.data for param in self.module.parameters()],
+            dist.broadcast, (0,))
+
+    def __setstate__(self, state):
+        super(DistributedDataParallel, self).__setstate__(state)
+        if self.allreduce_different_streams and delay_allreduce:
+            raise ValueError(
+                'self.allreduce_different_streams may only be used if delay_allreduce=False.'
+                )
+        if self.delay_allreduce:
+            self.needs_refresh = True
+        self.bucket_streams = []
+        self.bucket_events = []
+
+    def __getstate__(self):
+        attrs = copy.copy(self.__dict__)
+        if self._backend != self.backend_enum_holder.NCCL:
+            del attrs['self.bucket_streams']
+            del attrs['self.bucket_events']
+            return attrs
+
+    def enable_allreduce(self):
+        self._disable_allreduce = False
+
+    def disable_allreduce(self):
+        self._disable_allreduce = True
+
+    def sync_bucket_structure(self):
+        for tmp_bucket in self.tmp_buckets:
+            if len(tmp_bucket) > 0:
+                self.active_i_buckets.append(tmp_bucket)
+        self.num_buckets = len(self.active_i_buckets)
+        self.bucket_sizes = [len(bucket) for bucket in self.active_i_buckets]
+        info_tensor = torch.IntTensor([self.num_buckets] + self.
+            bucket_sizes + list(chain(*self.active_i_buckets)))
+        dist.broadcast(info_tensor, 0)
+        info = [int(entry) for entry in info_tensor]
+        self.num_buckets = info[0]
+        self.bucket_sizes = info[1:self.num_buckets + 1]
+        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in
+            range(self.num_buckets)]
+        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])
+            ] for i in range(self.num_buckets)]
+        flattened_buckets = info[self.num_buckets + 1:]
+        flat_i = 0
+        for bucket_idx in range(self.num_buckets):
+            for bucket_loc in range(self.bucket_sizes[bucket_idx]):
+                param_i = flattened_buckets[flat_i]
+                self.active_i_buckets[bucket_idx][bucket_loc] = param_i
+                self.param_id_to_bucket[id(self.active_params[param_i])
+                    ] = bucket_idx, bucket_loc
+                flat_i += 1
+
+    def create_hooks(self):
+
+        def allreduce_params():
+            if not self.delay_allreduce:
+                if self.needs_refresh:
+                    self.sync_bucket_structure()
+                    self.needs_refresh = False
+            self.allreduce_fallback()
+
+        def overlapping_backward_epilogue():
+            for stream, event in zip(self.bucket_streams, self.bucket_events):
+                stream.record_event(event)
+                torch.current_stream().wait_event(event)
+            if self.next_bucket != self.num_buckets:
+                raise RuntimeError(
+                    'In epilogue, next_bucket ({}) != num_buckets ({}).  '.
+                    format(self.next_bucket, self.num_buckets),
+                    'This probably indicates some buckets were not allreduced.'
+                    )
+            for actual, expected in zip(self.buckets_ready_size, self.
+                bucket_sizes):
+                if actual != expected:
+                    raise RuntimeError(
+                        'Some param buckets were not allreduced.')
+        self.grad_accs = []
+        for param in self.module.parameters():
+            if param.requires_grad:
+
+                def wrapper(param):
+                    param_tmp = param.expand_as(param)
+                    grad_acc = param_tmp.grad_fn.next_functions[0][0]
+
+                    def allreduce_hook(*unused):
+                        if self.prof:
+                            torch.nvtx.range_push('allreduce_hook')
+                        if not self._disable_allreduce:
+                            if self.delay_allreduce or self.needs_refresh:
+                                if (not self.delay_allreduce and self.
+                                    needs_refresh):
+                                    active_i = self.param_id_to_active_i[id
+                                        (param)]
+                                    current_type = self.param_type_to_tmp_i[
+                                        param.type()]
+                                    self.tmp_buckets[current_type].append(
+                                        active_i)
+                                    ship_tmp_bucket = False
+                                    if self.custom_allreduce_triggers:
+                                        if id(param
+                                            ) in self.allreduce_trigger_params:
+                                            ship_tmp_bucket = True
+                                    else:
+                                        self.tmp_numels[current_type
+                                            ] += param.numel()
+                                        if self.tmp_numels[current_type
+                                            ] >= self.message_size:
+                                            ship_tmp_bucket = True
+                                    if ship_tmp_bucket:
+                                        self.active_i_buckets.append(self.
+                                            tmp_buckets[current_type])
+                                        self.tmp_buckets[current_type] = []
+                                        self.tmp_numels[current_type] = 0
+                                if not self.callback_queued:
+                                    Variable._execution_engine.queue_callback(
+                                        allreduce_params)
+                                    self.callback_queued = True
+                            else:
+                                if not self.callback_queued:
+                                    Variable._execution_engine.queue_callback(
+                                        overlapping_backward_epilogue)
+                                    self.callback_queued = True
+                                self.comm_ready_buckets(param)
+                        if self.prof:
+                            torch.nvtx.range_pop()
+                    grad_acc.register_hook(allreduce_hook)
+                    self.grad_accs.append(grad_acc)
+                wrapper(param)
+
+    def _stream_this_bucket(self, bucket_idx):
+        if self.allreduce_different_streams:
+            return self.bucket_streams[bucket_idx % self.num_allreduce_streams]
+        else:
+            return self.bucket_streams[0]
+
+    def _event_this_bucket(self, bucket_idx):
+        if self.allreduce_different_streams:
+            return self.bucket_events[bucket_idx % self.num_allreduce_streams]
+        else:
+            return self.bucket_events[0]
+
+    def allreduce_bucket(self, bucket, bucket_idx, force_default_stream):
+        tensor = flatten(bucket)
+        if force_default_stream:
+            bucket_stream = self.main_stream
+        else:
+            bucket_stream = self._stream_this_bucket(bucket_idx)
+            bucket_event = self._event_this_bucket(bucket_idx)
+            torch.current_stream().record_event(bucket_event)
+            bucket_stream.wait_event(bucket_event)
+        with torch.stream(bucket_stream):
+            tensor_to_allreduce = tensor
+            if self.allreduce_always_fp32:
+                tensor_to_allreduce = tensor.float()
+            if self.gradient_predivide_factor != 1.0:
+                tensor_to_allreduce.mul_(1.0 / self.gradient_predivide_factor)
+            if self.allreduce_different_streams and not force_default_stream:
+                dist.all_reduce(tensor_to_allreduce, group=self.bucket_pgs[
+                    bucket_idx % self.num_allreduce_streams])
+            else:
+                dist.all_reduce(tensor_to_allreduce)
+            if self.gradient_average:
+                tensor_to_allreduce.mul_(self.gradient_predivide_factor /
+                    self.world_size)
+            if (self.allreduce_always_fp32 and tensor is not
+                tensor_to_allreduce):
+                tensor.copy_(tensor_to_allreduce)
+            if not self.retain_allreduce_buffers:
+                if multi_tensor_applier.available:
+                    multi_tensor_applier(self.multi_tensor_scale, self.
+                        _overflow_buf, [unflatten(tensor, bucket), bucket], 1.0
+                        )
+                else:
+                    for buf, synced in zip(bucket, unflatten(tensor, bucket)):
+                        buf.copy_(synced)
+            tensor.record_stream(bucket_stream)
+        return tensor
+
+    def allreduce_maybe_retain(self, bucket, bucket_idx,
+        force_default_stream=False):
+        allreduced = self.allreduce_bucket(bucket, bucket_idx,
+            force_default_stream)
+        if self.retain_allreduce_buffers:
+            if self.allreduce_buffers[bucket_idx] is not None:
+                raise RuntimeError(
+                    'The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.'
+                    )
+            self.allreduce_buffers[bucket_idx] = allreduced
+            for view, grad in zip(unflatten(allreduced, bucket), bucket):
+                grad.data = view
+
+    def allreduce_fallback(self):
+        for stream, event in zip(self.bucket_streams, self.bucket_events):
+            stream.record_event(event)
+            torch.current_stream().wait_event(event)
+        if self.retain_allreduce_buffers:
+            grads = [param.grad for param in self.module.parameters() if 
+                param.grad is not None]
+        else:
+            grads = [param.grad.data for param in self.module.parameters() if
+                param.grad is not None]
+        split_buckets = split_half_float_double(grads)
+        if self.retain_allreduce_buffers:
+            self.allreduce_buffers = [None for _ in range(len(split_buckets))]
+        for i, bucket in enumerate(split_buckets):
+            allreduced = self.allreduce_maybe_retain(bucket, i,
+                force_default_stream=True)
+
+    def comm_ready_buckets(self, param):
+        if self.prof:
+            torch.nvtx.range_push('comm_ready_buckets')
+        bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
+        if self.buckets[bucket_idx][bucket_loc] is not None:
+            raise RuntimeError(
+                'The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.'
+                )
+        if self.retain_allreduce_buffers:
+            self.buckets[bucket_idx][bucket_loc] = param.grad
+        else:
+            self.buckets[bucket_idx][bucket_loc] = param.grad.data
+        self.buckets_ready_size[bucket_idx] += 1
+        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx
+            ]:
+            if bucket_idx == self.next_bucket:
+                self.allreduce_maybe_retain(self.buckets[bucket_idx],
+                    bucket_idx)
+                self.next_bucket += 1
+                if len(self.ready_buckets_not_reduced) > 0:
+                    sorted_todo = sorted(self.ready_buckets_not_reduced)
+                    for i in sorted_todo:
+                        if i > self.next_bucket:
+                            break
+                        elif i == self.next_bucket:
+                            self.allreduce_maybe_retain(self.buckets[i], i)
+                            self.ready_buckets_not_reduced.remove(i)
+                            self.next_bucket += 1
+                        else:
+                            raise ValueError(
+                                'i should always be >= next_bucket')
+            else:
+                self.ready_buckets_not_reduced.add(bucket_idx)
+        if self.prof:
+            torch.nvtx.range_pop()
+
+    def forward(self, *inputs, **kwargs):
+        result = self.module(*inputs, **kwargs)
+        if self.prof:
+            torch.nvtx.range_push('forward pass DDP logic')
+        if not self._disable_allreduce:
+            if not self.delay_allreduce:
+                param_list = [param for param in self.module.parameters() if
+                    param.requires_grad]
+                if not self.active_params or len(param_list) != len(self.
+                    active_params) or any([(param1 is not param2) for 
+                    param1, param2 in zip(param_list, self.active_params)]):
+                    self.needs_refresh = True
+                if self.needs_refresh:
+                    self.active_i_buckets = []
+                    self.buckets = []
+                    self.tmp_buckets = [[], [], []]
+                    self.tmp_numels = [0, 0, 0]
+                    self.bucket_sizes = []
+                    self.param_id_to_active_i = {id(param): i for i, param in
+                        enumerate(param_list)}
+                    self.param_id_to_bucket = {}
+                    self.bucket_pgs = []
+                    self.bucket_streams = []
+                    self.bucket_events = []
+                else:
+                    if not self.buckets:
+                        self.buckets = [[None for _ in range(self.
+                            bucket_sizes[i])] for i in range(self.num_buckets)]
+                    else:
+                        assert len(self.buckets
+                            ) == self.num_buckets, 'len(buckets) = {}, expected {}'.format(
+                            len(self.buckets), self.num_buckets)
+                        for b, bucket in enumerate(self.buckets):
+                            assert len(bucket) == self.bucket_sizes[b
+                                ], 'len(buckets[{}]) = {}, expected {})'.format(
+                                b, len(buckets[b]), self.bucket_sizes[b])
+                            for i in range(len(bucket)):
+                                bucket[i] = None
+                    if self.allreduce_communicators:
+                        self.bucket_pgs = self.allreduce_communicators[0]
+                        self.bucket_streams = self.allreduce_communicators[1]
+                        self.bucket_events = [torch.Event(enable_timing=
+                            False, blocking=False) for _ in range(self.
+                            num_allreduce_streams)]
+                    else:
+                        if self.allreduce_different_streams:
+                            if not self.bucket_pgs:
+                                self.bucket_pgs = [dist.new_group() for _ in
+                                    range(self.num_allreduce_streams)]
+                                for i, bg in enumerate(self.bucket_pgs):
+                                    None
+                        if self.allreduce_different_streams:
+                            if not self.bucket_streams:
+                                self.bucket_streams = [torch.Stream() for _ in
+                                    range(self.num_allreduce_streams)]
+                                self.bucket_events = [torch.Event(
+                                    enable_timing=False, blocking=False) for
+                                    _ in range(self.num_allreduce_streams)]
+                        elif not self.bucket_streams:
+                            self.bucket_streams = [torch.Stream()]
+                            self.bucket_events = [torch.Event(enable_timing
+                                =False, blocking=False)]
+                    self.buckets_ready_size = [(0) for i in range(self.
+                        num_buckets)]
+                    if self.retain_allreduce_buffers:
+                        self.allreduce_buffers = [None for _ in range(self.
+                            num_buckets)]
+                    self.next_bucket = 0
+                    self.ready_buckets_not_reduced = set()
+                self.active_params = param_list
+            self.callback_queued = False
+        if self.prof:
+            torch.nvtx.range_pop()
+        return result
 
 
 class SyncBatchnormFunction(Function):
@@ -2555,7 +3053,7 @@ class SyncBatchNorm(_BatchNorm):
         self.process_group = process_group
 
     def forward(self, input):
-        torch.cuda.nvtx.range_push('sync_bn_fw_with_mean_var')
+        torch.nvtx.range_push('sync_bn_fw_with_mean_var')
         mean = None
         var = None
         cast = None
@@ -2569,7 +3067,7 @@ class SyncBatchNorm(_BatchNorm):
                 input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
-            torch.cuda.nvtx.range_pop()
+            torch.nvtx.range_pop()
             out = F.batch_norm(input, self.running_mean, self.running_var,
                 self.weight, self.bias, False, 0.0, self.eps)
         else:
@@ -2608,7 +3106,7 @@ class SyncBatchNorm(_BatchNorm):
                 if self.running_var is not None:
                     self.running_var = m / (m - 1) * self.momentum * var + (
                         1 - self.momentum) * self.running_var
-            torch.cuda.nvtx.range_pop()
+            torch.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
                 mean, var, self.eps, process_group, world_size)
         return out
@@ -2834,6 +3332,52 @@ parser = argparse.ArgumentParser()
 opt = parser.parse_args()
 
 
+class Generator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Generator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
+            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
+            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
+            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
+            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
+            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
+            4, 2, 1, bias=False), nn.Tanh())
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self, ngpu):
+        super(Discriminator, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
+            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
+            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
+            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
+            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
+            4, 1, 0, bias=False))
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self
+                .ngpu))
+        else:
+            output = self.main(input)
+        return output.view(-1, 1).squeeze(1)
+
+
 class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
@@ -3000,14 +3544,15 @@ class Model(Module):
 
     def __init__(self):
         super(Model, self).__init__()
-        self.a = Parameter(torch.cuda.FloatTensor(4096 * 4096).fill_(1.0))
-        self.b = Parameter(torch.cuda.FloatTensor(4096 * 4096).fill_(2.0))
+        self.a = Parameter(torch.FloatTensor(4096 * 4096).fill_(1.0))
+        self.b = Parameter(torch.FloatTensor(4096 * 4096).fill_(2.0))
 
     def forward(self, input):
         return input * self.a * self.b
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVIDIA_apex(_paritybench_base):
@@ -3018,9 +3563,8 @@ class Test_NVIDIA_apex(_paritybench_base):
     def test_001(self):
         self._check(Foo(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Model(*[], **{}), [torch.rand([4, 16777216])], {})
 
     def test_003(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})

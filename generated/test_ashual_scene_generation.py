@@ -25,10 +25,13 @@ sample_images = _module
 train_accuracy_net = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,16 +62,31 @@ from torch.nn.functional import interpolate
 from torch import nn
 
 
+from torchvision import models
+
+
 from torch.autograd import Variable
 
 
+import torchvision
+
+
 import torch.utils.data
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
 
 
 from scipy.stats import entropy
 
 
 from torch.nn import functional as F
+
+
+from torchvision.models.inception import inception_v3
 
 
 import time
@@ -1372,7 +1390,7 @@ class InceptionScore(nn.Module):
         self.batch_size = batch_size
         self.cuda = cuda
         self.device = 'cuda' if cuda else 'cpu'
-        if not cuda and torch.cuda.is_available():
+        if not cuda and torch.is_available():
             None
         self.inception_model = inception_v3(pretrained=True,
             transform_input=False)
@@ -1409,6 +1427,7 @@ class InceptionScore(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ashual_scene_generation(_paritybench_base):
@@ -1419,14 +1438,23 @@ class Test_ashual_scene_generation(_paritybench_base):
     def test_001(self):
         self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(VGGLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_007(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

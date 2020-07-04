@@ -17,10 +17,13 @@ output_utils = _module
 pascal2coco = _module
 timer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -301,10 +304,10 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['img_size'] = 4
-
-
 _global_config['use_square_anchors'] = 4
+
+
+_global_config['img_size'] = 4
 
 
 def make_anchors(conv_h, conv_w, scale):
@@ -326,16 +329,16 @@ mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
     3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
-_global_config['backbone'] = 4
-
-
-_global_config['scales'] = 1.0
+_global_config['train_semantic'] = False
 
 
 _global_config['freeze_bn'] = 4
 
 
-_global_config['train_semantic'] = False
+_global_config['scales'] = 1.0
+
+
+_global_config['backbone'] = 4
 
 
 class Yolact(nn.Module):
@@ -582,16 +585,16 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
 _global_config['mask_alpha'] = 4
 
 
-_global_config['conf_alpha'] = 4
-
-
-_global_config['bbox_alpha'] = 4
+_global_config['semantic_alpha'] = 4
 
 
 _global_config['masks_to_train'] = False
 
 
-_global_config['semantic_alpha'] = 4
+_global_config['conf_alpha'] = 4
+
+
+_global_config['bbox_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):
@@ -783,7 +786,12 @@ class FastBaseTransform(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_feiyuhuahuo_Yolact_minimal(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(ResNetBackbone(*[], **{'layers': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+

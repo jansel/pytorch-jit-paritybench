@@ -63,10 +63,13 @@ misc = _module
 path = _module
 registry = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,6 +94,9 @@ import numpy as np
 import torch
 
 
+import torchvision.transforms as tt
+
+
 import math
 
 
@@ -98,6 +104,9 @@ import copy
 
 
 import logging
+
+
+from torchvision.models.resnet import model_urls
 
 
 from functools import partial
@@ -116,6 +125,9 @@ import time
 
 
 from collections import OrderedDict
+
+
+import torchvision
 
 
 from torch.utils import model_zoo
@@ -562,6 +574,181 @@ class Bottleneck(nn.Module):
         return out
 
 
+def build_act_layer(cfg, num_features, postfix='', layer_only=False):
+    """ Build activate layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify activate layer type.
+            layer args: args needed to instantiate a activate layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into act abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created act layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in act_cfg:
+        raise KeyError('Unrecognized activate type {}'.format(layer_type))
+    else:
+        abbr, act_layer = act_cfg[layer_type]
+        if act_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    if layer_type != 'Tlu':
+        layer = act_layer(**cfg_)
+    else:
+        layer = act_layer(num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    if layer_only:
+        return layer
+    else:
+        return name, layer
+
+
+def build_norm_layer(cfg, num_features, postfix='', layer_only=False):
+    """ Build normalization layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    if layer_only:
+        return layer
+    return name, layer
+
+
+class ResNetCls(nn.Module):
+
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
+        False, groups=1, width_per_group=64, replace_stride_with_dilation=
+        None, multi_grid=None, norm_cfg=None, act_cfg=None):
+        super(ResNetCls, self).__init__()
+        if norm_cfg is None:
+            norm_cfg = dict(type='BN')
+        self._norm_layer = partial(build_norm_layer, norm_cfg, layer_only=True)
+        if act_cfg is None:
+            act_cfg = dict(type='Relu', inplace=True)
+        self._act_layer = partial(build_act_layer, act_cfg, layer_only=True)
+        self.inplanes = 64
+        self.dilation = 1
+        if replace_stride_with_dilation is None:
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError(
+                'replace_stride_with_dilation should be None or a 3-element tuple, got {}'
+                .format(replace_stride_with_dilation))
+        self.groups = groups
+        self.base_width = width_per_group
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
+            padding=3, bias=False)
+        self.bn1 = self._norm_layer(self.inplanes)
+        self.relu1 = self._act_layer(self.inplanes)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+            dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+            dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+            dilate=replace_stride_with_dilation[2], multi_grid=multi_grid)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilate=False,
+        multi_grid=None):
+        norm_layer = self._norm_layer
+        act_layer = self._act_layer
+        downsample = None
+        previous_dilation = self.dilation
+        if multi_grid is None:
+            multi_grid = [(1) for _ in range(blocks)]
+        else:
+            assert len(multi_grid) == blocks
+        if dilate:
+            self.dilation *= stride
+            stride = 1
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
+                block.expansion, stride), norm_layer(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, norm_layer, act_layer,
+            stride, downsample, self.groups, self.base_width, 
+            previous_dilation * multi_grid[0]))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, norm_layer=
+                norm_layer, act_layer=act_layer, groups=self.groups,
+                base_width=self.base_width, dilation=self.dilation *
+                multi_grid[i]))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.avgpool(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
 class ASPPConv(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, dilation, norm_layer,
@@ -586,6 +773,56 @@ class ASPPPooling(nn.Sequential):
 
 
 ENHANCE_MODULES = Registry('enhance_module')
+
+
+@ENHANCE_MODULES.register_module
+class ASPP(nn.Module):
+
+    def __init__(self, in_channels, out_channels, atrous_rates, from_layer,
+        to_layer, dropout=None, norm_cfg=None, act_cfg=None):
+        super(ASPP, self).__init__()
+        self.from_layer = from_layer
+        self.to_layer = to_layer
+        if norm_cfg is None:
+            norm_cfg = dict(type='BN')
+        norm_layer = partial(build_norm_layer, norm_cfg, layer_only=True)
+        if act_cfg is None:
+            act_cfg = dict(type='Relu', inplace=True)
+        act_layer = partial(build_act_layer, act_cfg, layer_only=True)
+        modules = []
+        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
+            bias=False), norm_layer(out_channels), act_layer(out_channels)))
+        rate1, rate2, rate3 = tuple(atrous_rates)
+        modules.append(ASPPConv(in_channels, out_channels, rate1,
+            norm_layer, act_layer))
+        modules.append(ASPPConv(in_channels, out_channels, rate2,
+            norm_layer, act_layer))
+        modules.append(ASPPConv(in_channels, out_channels, rate3,
+            norm_layer, act_layer))
+        modules.append(ASPPPooling(in_channels, out_channels, norm_layer,
+            act_layer))
+        self.convs = nn.ModuleList(modules)
+        self.project = nn.Sequential(nn.Conv2d(5 * out_channels,
+            out_channels, 1, bias=False), norm_layer(out_channels),
+            act_layer(out_channels))
+        self.with_dropout = dropout is not None
+        if self.with_dropout:
+            self.dropout = nn.Dropout(dropout)
+        logger.info('ASPP init weights')
+        init_weights(self.modules())
+
+    def forward(self, feats):
+        feats_ = feats.copy()
+        x = feats_[self.from_layer]
+        res = []
+        for conv in self.convs:
+            res.append(conv(x))
+        res = torch.cat(res, dim=1)
+        res = self.project(res)
+        if self.with_dropout:
+            res = self.dropout(res)
+        feats_[self.to_layer] = res
+        return feats_
 
 
 @ENHANCE_MODULES.register_module
@@ -892,19 +1129,30 @@ class Upsample(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Media_Smart_vedaseg(_paritybench_base):
     pass
     def test_000(self):
-        self._check(CollectBlock(*[], **{'from_layer': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Head(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(CollectBlock(*[], **{'from_layer': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(Head(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(TLU(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

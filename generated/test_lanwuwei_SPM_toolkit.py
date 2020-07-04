@@ -54,10 +54,13 @@ test_quora = _module
 torch_util = _module
 train_quora = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -202,7 +205,7 @@ class DecAtt(nn.Module):
             raw_index = r_matrix - r.view(-1, 1)
             clipped_index = torch.clamp(raw_index, 0, self.distance_biases - 1)
             clipped_index = Variable(clipped_index.long())
-            if torch.cuda.is_available():
+            if torch.is_available():
                 clipped_index = clipped_index
             bias = self.bias_embedding(clipped_index)
             bias = torch.squeeze(bias)
@@ -359,7 +362,7 @@ class DecAtt(nn.Module):
             raw_index = r_matrix - r.view(-1, 1)
             clipped_index = torch.clamp(raw_index, 0, self.distance_biases - 1)
             clipped_index = Variable(clipped_index.long())
-            if torch.cuda.is_available():
+            if torch.is_available():
                 clipped_index = clipped_index
             bias = self.bias_embedding(clipped_index)
             bias = torch.squeeze(bias)
@@ -551,7 +554,7 @@ class BinaryTreeLSTM(nn.Module):
             lh = Variable(torch.zeros(1, self.mem_dim))
             rc = Variable(torch.zeros(1, self.mem_dim))
             rh = Variable(torch.zeros(1, self.mem_dim))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 lc = lc
                 lh = lh
                 rc = rc
@@ -565,7 +568,7 @@ class BinaryTreeLSTM(nn.Module):
             lc, lh, rc, rh = self.get_child_state(tree)
             if PAD:
                 index = Variable(torch.LongTensor([self.num_words - 1]))
-                if torch.cuda.is_available():
+                if torch.is_available():
                     index = index
                 tree.state = self.composer.forward(self.word_embedding(
                     index), lc, lh, rc, rh)
@@ -601,11 +604,11 @@ class ESIM(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.tree_lstm_intra = BinaryTreeLSTM(torch.cuda.is_available(),
+        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(),
             embedding_size, num_units, self.word_embedding, num_words)
         self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units,
             num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.tree_lstm_compare = BinaryTreeLSTM(torch.cuda.is_available(),
+        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(),
             embedding_size, num_units, self.word_embedding, num_words)
         self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
             Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5),
@@ -744,7 +747,7 @@ class BinaryTreeLSTM(nn.Module):
 		"""
         h = Variable(torch.zeros(x.size(1), x.size(0), x.size(2)))
         c = Variable(torch.zeros(x.size(1), x.size(0), x.size(2)))
-        if torch.cuda.is_available():
+        if torch.is_available():
             h = h
             c = c
         for step in range(x.size(0)):
@@ -814,11 +817,11 @@ class ESIM(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.tree_lstm_intra = BinaryTreeLSTM(torch.cuda.is_available(),
+        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(),
             embedding_size, num_units)
         self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units,
             num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.tree_lstm_compare = BinaryTreeLSTM(torch.cuda.is_available(),
+        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(),
             embedding_size, num_units)
         self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
             Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5),
@@ -839,7 +842,7 @@ class ESIM(nn.Module):
         return u.astype('float32')
 
     def initialize_lstm(self):
-        if torch.cuda.is_available():
+        if torch.is_available():
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
                 ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
@@ -976,7 +979,7 @@ class LSTM(nn.Module):
 		"""
         h = Variable(torch.zeros(x.size(1), x.size(2)))
         c = Variable(torch.zeros(x.size(1), x.size(2)))
-        if torch.cuda.is_available():
+        if torch.is_available():
             h = h
             c = c
         all_hidden = []
@@ -1029,11 +1032,10 @@ class ESIM(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.lstm_intra = LSTM(torch.cuda.is_available(), embedding_size,
-            num_units)
+        self.lstm_intra = LSTM(torch.is_available(), embedding_size, num_units)
         self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units *
             2, num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.lstm_compare = LSTM(torch.cuda.is_available(), embedding_size,
+        self.lstm_compare = LSTM(torch.is_available(), embedding_size,
             num_units)
         self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
             Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=
@@ -1054,7 +1056,7 @@ class ESIM(nn.Module):
         return u.astype('float32')
 
     def initialize_lstm(self):
-        if torch.cuda.is_available():
+        if torch.is_available():
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
                 ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
@@ -1123,15 +1125,15 @@ class ESIM(nn.Module):
         x2 = self.word_embedding(x2)
         x2 = self.dropout(x2)
         idx_1 = [i for i in range(x1.size(0) - 1, -1, -1)]
-        if torch.cuda.is_available():
-            idx_1 = Variable(torch.cuda.LongTensor(idx_1))
+        if torch.is_available():
+            idx_1 = Variable(torch.LongTensor(idx_1))
         else:
             idx_1 = Variable(torch.LongTensor(idx_1))
         x1_r = torch.index_select(x1, 0, idx_1)
         x1_mask_r = torch.index_select(x1_mask, 0, idx_1)
         idx_2 = [i for i in range(x2.size(0) - 1, -1, -1)]
-        if torch.cuda.is_available():
-            idx_2 = Variable(torch.cuda.LongTensor(idx_2))
+        if torch.is_available():
+            idx_2 = Variable(torch.LongTensor(idx_2))
         else:
             idx_2 = Variable(torch.LongTensor(idx_2))
         x2_r = torch.index_select(x2, 0, idx_2)
@@ -1177,15 +1179,15 @@ class ESIM(nn.Module):
         x2 = self.word_embedding(x2)
         x2 = self.dropout(x2)
         idx_1 = [i for i in range(x1.size(0) - 1, -1, -1)]
-        if torch.cuda.is_available():
-            idx_1 = Variable(torch.cuda.LongTensor(idx_1))
+        if torch.is_available():
+            idx_1 = Variable(torch.LongTensor(idx_1))
         else:
             idx_1 = Variable(torch.LongTensor(idx_1))
         x1_r = torch.index_select(x1, 0, idx_1)
         x1_mask_r = torch.index_select(x1_mask, 0, idx_1)
         idx_2 = [i for i in range(x2.size(0) - 1, -1, -1)]
-        if torch.cuda.is_available():
-            idx_2 = Variable(torch.cuda.LongTensor(idx_2))
+        if torch.is_available():
+            idx_2 = Variable(torch.LongTensor(idx_2))
         else:
             idx_2 = Variable(torch.LongTensor(idx_2))
         x2_r = torch.index_select(x2, 0, idx_2)
@@ -1328,7 +1330,7 @@ class DeepPairWiseWord(nn.Module):
             self.W3 = Variable(torch.rand(embedding_dim, embedding_dim))
             self.vg = Variable(torch.rand(embedding_dim, 1))
             self.bg = Variable(torch.rand(1, 1))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 self.df = self.df
                 self.db = self.db
                 self.bias = self.bias
@@ -1530,7 +1532,7 @@ class DeepPairWiseWord(nn.Module):
         simCube12 = F.cosine_similarity(simCube8_0, simCube8_1)
         simCube12 = torch.unsqueeze(simCube12.view(len0, len1), 0)
         """"""
-        if torch.cuda.is_available():
+        if torch.is_available():
             simCube13 = torch.unsqueeze(Variable(torch.zeros(len0, len1)) +
                 1, 0)
         else:
@@ -1542,7 +1544,7 @@ class DeepPairWiseWord(nn.Module):
         return simCube, extra_loss
 
     def similarity_focus(self, simCube):
-        if torch.cuda.is_available():
+        if torch.is_available():
             mask = torch.mul(torch.ones(simCube.size(0), simCube.size(1),
                 simCube.size(2)), 0.1)
         else:
@@ -1654,7 +1656,7 @@ class DeepPairWiseWord(nn.Module):
             .index('</s>')]))
         target_bw_1 = Variable(torch.LongTensor([self.tokens.index('<s>')] +
             target_B[:-1]))
-        if torch.cuda.is_available():
+        if torch.is_available():
             target_fw_0 = target_fw_0
             target_bw_0 = target_bw_0
             target_fw_1 = target_fw_1
@@ -1684,7 +1686,7 @@ class DeepPairWiseWord(nn.Module):
                 None
                 None
                 sys.exit()
-            if torch.cuda.is_available():
+            if torch.is_available():
                 sentA = sentA
                 sentB = sentB
         elif glove_mode == True and update_inv_mode == False and update_oov_mode == True:
@@ -1694,27 +1696,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
                         output = Variable(self.dict[word].view(1, self.
                             embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         firstFlag = False
                 elif word in self.oov:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
                     output_new = Variable(self.dict[word].view(1, self.
                         embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new), 0)
             sentA = output
@@ -1724,27 +1726,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
                         output = Variable(self.dict[word].view(1, self.
                             embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         firstFlag = False
                 elif word in self.oov:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
                     output_new = Variable(self.dict[word].view(1, self.
                         embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new), 0)
             sentB = output
@@ -1755,27 +1757,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         output = Variable(self.fake_dict[word].view(1, self
                             .embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.copied_word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
                     output_new = Variable(self.fake_dict[word].view(1, self
                         .embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.copied_word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
@@ -1786,27 +1788,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         output = Variable(torch.Tensor([random.uniform(-
                             0.05, 0.05) for i in range(self.embedding_dim)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.copied_word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
                     output_new = Variable(torch.Tensor([random.uniform(-
                         0.05, 0.05) for i in range(self.embedding_dim)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.copied_word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
@@ -1819,7 +1821,7 @@ class DeepPairWiseWord(nn.Module):
                 except:
                     tmp.append(self.word2id['oov'])
             indices = Variable(torch.LongTensor(tmp))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 indices = indices
             sentA = self.copied_word_embedding(indices)
             tmp = []
@@ -1829,7 +1831,7 @@ class DeepPairWiseWord(nn.Module):
                 except:
                     tmp.append(self.word2id['oov'])
             indices = Variable(torch.LongTensor(tmp))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 indices = indices
             sentB = self.copied_word_embedding(indices)
         elif glove_mode == False and update_inv_mode == False and update_oov_mode == False:
@@ -1838,14 +1840,14 @@ class DeepPairWiseWord(nn.Module):
                 if firstFlag:
                     output = Variable(self.fake_dict[word].view(1, self.
                         embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output = output
                     output = output.view(1, -1)
                     firstFlag = False
                 else:
                     output_new = Variable(self.fake_dict[word].view(1, self
                         .embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
             sentA = output
@@ -1854,14 +1856,14 @@ class DeepPairWiseWord(nn.Module):
                 if firstFlag:
                     output = Variable(self.fake_dict[word].view(1, self.
                         embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output = output
                     output = output.view(1, -1)
                     firstFlag = False
                 else:
                     output_new = Variable(self.fake_dict[word].view(1, self
                         .embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
             sentB = output
@@ -1872,28 +1874,28 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
                         output = Variable(self.fake_dict[word].view(1, self
                             .embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                 elif word in self.oov:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
                     output_new = Variable(self.fake_dict[word].view(1, self
                         .embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output_new = output_new.view(1, -1)
                     output = torch.cat((output, output_new), 0)
@@ -1904,28 +1906,28 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
                         output = Variable(self.fake_dict[word].view(1, self
                             .embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                 elif word in self.oov:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
                     output_new = Variable(self.fake_dict[word].view(1, self
                         .embedding_dim))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output_new = output_new.view(1, -1)
                     output = torch.cat((output, output_new), 0)
@@ -1937,27 +1939,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         output = Variable(self.dict[word].view(1, self.
                             embedding_dim))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
                     output_new = Variable(torch.Tensor(self.dict[word].view
                         (1, self.embedding_dim)))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new.view(1, -1)), 0)
@@ -1968,27 +1970,27 @@ class DeepPairWiseWord(nn.Module):
                     if word in self.oov:
                         output = Variable(torch.Tensor([random.uniform(-
                             0.05, 0.05) for i in range(self.embedding_dim)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
                         indice = Variable(torch.LongTensor([self.tokens.
                             index(word)]))
-                        if torch.cuda.is_available():
+                        if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
                     output_new = Variable(torch.Tensor([random.uniform(-
                         0.05, 0.05) for i in range(self.embedding_dim)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
                     indice = Variable(torch.LongTensor([self.tokens.index(
                         word)]))
-                    if torch.cuda.is_available():
+                    if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new.view(1, -1)), 0)
@@ -1996,12 +1998,12 @@ class DeepPairWiseWord(nn.Module):
         elif glove_mode == False and update_inv_mode == True and update_oov_mode == True:
             indices = Variable(torch.LongTensor([self.tokens.index(word) for
                 word in lsents]))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 indices = indices
             sentA = self.word_embedding(indices)
             indices = Variable(torch.LongTensor([self.tokens.index(word) for
                 word in rsents]))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 indices = indices
             sentB = self.word_embedding(indices)
         sentA = torch.unsqueeze(sentA, 0).view(-1, 1, self.embedding_dim)
@@ -2010,7 +2012,7 @@ class DeepPairWiseWord(nn.Module):
 
     def c2w_cell(self, indices, h, c):
         input = Variable(torch.LongTensor(indices))
-        if torch.cuda.is_available():
+        if torch.is_available():
             input = input
         input = self.c2w_embedding(input)
         input = input.view(-1, 1, 50)
@@ -2022,7 +2024,7 @@ class DeepPairWiseWord(nn.Module):
 
     def charCNN_cell(self, indices):
         input = Variable(torch.LongTensor(indices))
-        if torch.cuda.is_available():
+        if torch.is_available():
             input = input
         input = self.char_cnn_embedding(input)
         input = torch.unsqueeze(input, 0)
@@ -2118,7 +2120,7 @@ class DeepPairWiseWord(nn.Module):
     def c2w_or_cnn_layer(self, lsents, rsents):
         h = Variable(torch.zeros(2, 1, self.embedding_dim))
         c = Variable(torch.zeros(2, 1, self.embedding_dim))
-        if torch.cuda.is_available():
+        if torch.is_available():
             h = h
             c = c
         firstFlag = True
@@ -2174,7 +2176,7 @@ class DeepPairWiseWord(nn.Module):
         extra_loss = 0
         indices_reduce_dim = Variable(torch.LongTensor([(i * 2) for i in
             range(self.embedding_dim)]))
-        if torch.cuda.is_available():
+        if torch.is_available():
             indices_reduce_dim = indices_reduce_dim
         if self.combine_mode == 'concat':
             result = torch.cat((output_word, output_char), 1)
@@ -2205,7 +2207,7 @@ class DeepPairWiseWord(nn.Module):
     def mix_layer(self, lsents, rsents):
         h = Variable(torch.zeros(2, 1, self.embedding_dim))
         c = Variable(torch.zeros(2, 1, self.embedding_dim))
-        if torch.cuda.is_available():
+        if torch.is_available():
             h = h
             c = c
         firstFlag = True
@@ -2226,7 +2228,7 @@ class DeepPairWiseWord(nn.Module):
                 else:
                     output_char = self.down_sampling_200(output_char)
             output_word = Variable(torch.Tensor(self.dict[word])).view(1, -1)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 output_word = output_word
             if firstFlag:
                 output, extra_loss = self.mix_cell(word, output_word,
@@ -2258,7 +2260,7 @@ class DeepPairWiseWord(nn.Module):
                 else:
                     output_char = self.down_sampling_200(output_char)
             output_word = Variable(torch.Tensor(self.dict[word])).view(1, -1)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 output_word = output_word
             if firstFlag:
                 output, extra_loss = self.mix_cell(word, output_word,
@@ -2284,7 +2286,7 @@ class DeepPairWiseWord(nn.Module):
         extra_loss2 = 0
         raw_input_A = input_A
         raw_input_B = input_B
-        if torch.cuda.is_available():
+        if torch.is_available():
             h0 = Variable(torch.zeros(self.num_layers * 2, 1, self.hidden_dim))
             c0 = Variable(torch.zeros(self.num_layers * 2, 1, self.hidden_dim))
         else:
@@ -2407,27 +2409,20 @@ class StackBiLSTMMaxout(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lanwuwei_SPM_toolkit(_paritybench_base):
     pass
     def test_000(self):
-        self._check(BinaryTreeCell(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BinaryTreeCell(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(BinaryTreeComposer(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BinaryTreeComposer(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BinaryTreeLSTM(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(BinaryTreeLeafModule(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BinaryTreeLeafModule(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(LSTM(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(LSTM_Cell(*[], **{'cuda': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LSTM_Cell(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

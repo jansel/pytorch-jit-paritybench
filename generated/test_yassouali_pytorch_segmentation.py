@@ -42,10 +42,13 @@ unittest = _module
 torchsummary = _module
 transforms = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -79,10 +82,16 @@ import scipy
 import torch.nn.functional as F
 
 
+from torchvision import transforms
+
+
 from scipy import ndimage
 
 
 from math import ceil
+
+
+from torchvision import models
 
 
 import torch.utils.model_zoo as model_zoo
@@ -91,10 +100,16 @@ import torch.utils.model_zoo as model_zoo
 from itertools import chain
 
 
+import torchvision
+
+
 from torch import nn
 
 
 import time
+
+
+from torchvision.utils import make_grid
 
 
 from torch.autograd import Variable
@@ -699,7 +714,7 @@ class BottleNeck(nn.Module):
         if self.pad > 0:
             extras = torch.zeros((identity.size(0), self.pad, identity.size
                 (2), identity.size(3)))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 extras = extras
             identity = torch.cat((identity, extras), dim=1)
         x = self.conv1(x)
@@ -1853,6 +1868,7 @@ class DataParallelWithCallback(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yassouali_pytorch_segmentation(_paritybench_base):
@@ -1874,30 +1890,46 @@ class Test_yassouali_pytorch_segmentation(_paritybench_base):
         self._check(Block_Resnet_GCN(*[], **{'kernel_size': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Decoder(*[], **{'low_level_channels': 4, 'num_classes': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(DUC(*[], **{'in_channels': 4, 'out_channles': 4, 'upscale': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
-        self._check(DecoderBottleneck(*[], **{'inchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_007(self):
-        self._check(InitalBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Decoder(*[], **{'low_level_channels': 4, 'num_classes': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(DecoderBottleneck(*[], **{'inchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(InitalBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(LastBottleneck(*[], **{'inchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(LovaszSoftmax(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
+        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_014(self):
+        self._check(ResNet_HDC_DUC(*[], **{'in_channels': 4, 'output_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_015(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_016(self):
         self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_017(self):
+        self._check(Xception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_018(self):
         self._check(encoder(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

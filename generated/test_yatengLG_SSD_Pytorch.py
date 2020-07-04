@@ -32,10 +32,13 @@ utils = _module
 visdom_op = _module
 voc_cal_ap = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -70,6 +73,9 @@ import time
 
 
 import math
+
+
+import torchvision
 
 
 from torch.optim.lr_scheduler import MultiStepLR
@@ -730,6 +736,113 @@ def vgg(cfg, pretrained=True):
     return model
 
 
+class SSD(nn.Module):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.backbone = vgg(cfg, pretrained=True)
+        self.predictor = predictor(cfg)
+        self.postprocessor = postprocessor(cfg)
+        self.priors = priorbox(self.cfg)()
+
+    def forward(self, images):
+        features = self.backbone(images)
+        cls_logits, bbox_pred = self.predictor(features)
+        return cls_logits, bbox_pred
+
+    def load_pretrained_weight(self, weight_pkl):
+        self.load_state_dict(torch.load(weight_pkl))
+
+    def forward_with_postprocess(self, images):
+        """
+        前向传播并后处理
+        :param images:
+        :return:
+        """
+        cls_logits, bbox_pred = self.forward(images)
+        detections = self.postprocessor(cls_logits, bbox_pred)
+        return detections
+
+    @torch.no_grad()
+    def Detect_single_img(self, image, score_threshold=0.7, device='cuda'):
+        """
+        检测单张照片
+        eg:
+            image, boxes, labels, scores= net.Detect_single_img(img)
+            plt.imshow(image)
+            plt.show()
+
+        :param image:           图片,PIL.Image.Image
+        :param score_threshold: 阈值
+        :param device:          检测时所用设备,默认'cuda'
+        :return:                添加回归框的图片(np.array),回归框,标签,分数
+        """
+        self.eval()
+        assert isinstance(image, Image.Image)
+        w, h = image.width, image.height
+        images_tensor = SSDTramsfrom(self.cfg, is_train=False)(np.array(image)
+            )[0].unsqueeze(0)
+        self
+        images_tensor = images_tensor
+        time1 = time.time()
+        detections = self.forward_with_postprocess(images_tensor)[0]
+        boxes, labels, scores = detections
+        boxes, labels, scores = boxes.numpy(), labels.numpy(), scores.numpy()
+        boxes[:, 0::2] *= w / self.cfg.MODEL.INPUT.IMAGE_SIZE
+        boxes[:, 1::2] *= h / self.cfg.MODEL.INPUT.IMAGE_SIZE
+        indices = scores > score_threshold
+        boxes = boxes[indices]
+        labels = labels[indices]
+        scores = scores[indices]
+        None
+        drawn_image = draw_boxes(image=image, boxes=boxes, labels=labels,
+            scores=scores, class_name_map=self.cfg.DATA.DATASET.CLASS_NAME
+            ).astype(np.uint8)
+        return drawn_image, boxes, labels, scores
+
+    @torch.no_grad()
+    def Detect_video(self, video_path, score_threshold=0.5, save_video_path
+        =None, show=True):
+        """
+        检测视频
+        :param video_path:      视频路径  eg: /XXX/aaa.mp4
+        :param score_threshold:
+        :param save_video_path: 保存路径,不指定则不保存
+        :param show:            在检测过程中实时显示,(会存在卡顿现象,受检测效率影响)
+        :return:
+        """
+        cap = cv2.VideoCapture(video_path)
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        weight = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if save_video_path:
+            out = cv2.VideoWriter(save_video_path, fourcc, cap.get(5), (
+                weight, height))
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if ret == True:
+                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                drawn_image, boxes, labels, scores = self.Detect_single_img(
+                    image=image, device='cuda:0', score_threshold=
+                    score_threshold)
+                frame = cv2.cvtColor(np.asarray(drawn_image), cv2.COLOR_RGB2BGR
+                    )
+                if show:
+                    cv2.imshow('frame', frame)
+                if save_video_path:
+                    out.write(frame)
+                if cv2.waitKey(1) & 255 == ord('q'):
+                    break
+            else:
+                break
+        cap.release()
+        if save_video_path:
+            out.release()
+        cv2.destroyAllWindows()
+        return True
+
+
 def hard_negative_mining(loss, labels, neg_pos_ratio=3):
     """
     用于训练过程中正负例比例的限制.默认在训练时,负例数量是正例数量的三倍
@@ -840,6 +953,7 @@ class predictor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yatengLG_SSD_Pytorch(_paritybench_base):

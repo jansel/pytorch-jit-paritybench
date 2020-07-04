@@ -7,10 +7,13 @@ model = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -44,10 +47,16 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 
+import torchvision.models as models
+
+
 import math
 
 
 import torch.optim as optim
+
+
+import torchvision.transforms as transforms
 
 
 def apply_attention(input, attention):
@@ -190,6 +199,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Cyanogenoid_pytorch_vqa(_paritybench_base):
@@ -200,4 +210,7 @@ class Test_Cyanogenoid_pytorch_vqa(_paritybench_base):
 
     def test_001(self):
         self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(TextProcessor(*[], **{'embedding_tokens': 4, 'embedding_features': 4, 'lstm_features': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

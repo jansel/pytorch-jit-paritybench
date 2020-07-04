@@ -17,10 +17,13 @@ deeplab_resnet = _module
 train = _module
 train_coco = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -48,6 +51,9 @@ from torch.nn import functional as F
 import torch.nn as nn
 
 
+import torchvision.models.resnet as resnet
+
+
 from collections import OrderedDict
 
 
@@ -55,6 +61,9 @@ from torch.autograd import Variable
 
 
 import torch.optim as optim
+
+
+from torchvision import transforms
 
 
 from torch.utils.data import DataLoader
@@ -312,6 +321,7 @@ class MS_Deeplab(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jfzhang95_DeepGrabCut_PyTorch(_paritybench_base):

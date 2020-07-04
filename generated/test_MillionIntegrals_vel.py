@@ -246,10 +246,13 @@ summary = _module
 tensor_accumulator = _module
 tensor_util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -275,6 +278,9 @@ import torch.nn.functional as F
 
 
 import torch.distributions as dist
+
+
+import torchvision.models.resnet as m
 
 
 import torch.nn.init as init
@@ -308,6 +314,86 @@ from torch.autograd import Variable
 
 
 from collections import OrderedDict
+
+
+class TrainingHistory:
+    """
+    Simple aggregator for the training history.
+
+    An output of training storing scalar metrics in a pandas dataframe.
+    """
+
+    def __init__(self):
+        self.data = []
+
+    def add(self, epoch_result):
+        """ Add a datapoint to the history """
+        self.data.append(epoch_result)
+
+    def frame(self):
+        """ Return history dataframe """
+        return pd.DataFrame(self.data).set_index('epoch_idx')
+
+
+class Model(nn.Module):
+    """ Class representing full neural network model """
+
+    def metrics(self) ->list:
+        """ Set of metrics for this model """
+        return [Loss()]
+
+    def train(self, mode=True):
+        """
+        Sets the module in training mode.
+
+        This has any effect only on certain modules. See documentations of
+        particular modules for details of their behaviors in training/evaluation
+        mode, if they are affected, e.g. :class:`Dropout`, :class:`BatchNorm`,
+        etc.
+
+        Returns:
+            Module: self
+        """
+        super().train(mode)
+        if mode:
+            mu.apply_leaf(self, mu.set_train_mode)
+        return self
+
+    def summary(self, input_size=None, hashsummary=False):
+        """ Print a model summary """
+        if input_size is None:
+            None
+            None
+            number = sum(p.numel() for p in self.model.parameters())
+            None
+            None
+        else:
+            summary(self, input_size)
+        if hashsummary:
+            for idx, hashvalue in enumerate(self.hashsummary()):
+                None
+
+    def hashsummary(self):
+        """ Print a model summary - checksums of each layer parameters """
+        children = list(self.children())
+        result = []
+        for child in children:
+            result.extend(hashlib.sha256(x.detach().cpu().numpy().tobytes()
+                ).hexdigest() for x in child.parameters())
+        return result
+
+    def get_layer_groups(self):
+        """ Return layers grouped """
+        return [self]
+
+    def reset_weights(self):
+        """ Call proper initializers for the weights """
+        pass
+
+    @property
+    def is_recurrent(self) ->bool:
+        """ If the network is recurrent and needs to be fed state as well as the observations """
+        return False
 
 
 class AdaptiveConcatPool2d(nn.Module):
@@ -1123,6 +1209,7 @@ class ValueHead(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MillionIntegrals_vel(_paritybench_base):
@@ -1151,7 +1238,7 @@ class Test_MillionIntegrals_vel(_paritybench_base):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(Lambda(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):

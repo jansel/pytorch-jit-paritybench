@@ -66,10 +66,13 @@ test_monitors = _module
 test_network = _module
 test_nodes = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -124,6 +127,9 @@ from typing import Iterable
 from scipy.spatial.distance import euclidean
 
 
+from torchvision import models
+
+
 from typing import Type
 
 
@@ -149,6 +155,9 @@ from torch import Tensor
 
 
 from numpy import ndarray
+
+
+from torchvision import transforms
 
 
 class Permute(nn.Module):
@@ -204,6 +213,33 @@ class FeatureExtractor(nn.Module):
             x = module(x)
             activations[name] = x
         return activations
+
+
+class AbstractMonitor(ABC):
+    """
+    Abstract base class for state variable monitors.
+    """
+
+
+class AbstractReward(ABC):
+    """
+    Abstract base class for reward computation.
+    """
+
+    @abstractmethod
+    def compute(self, **kwargs) ->None:
+        """
+        Computes/modifies reward.
+        """
+        pass
+
+    @abstractmethod
+    def update(self, **kwargs) ->None:
+        """
+        Updates internal variables needed to modify reward. Usually called once per
+        episode.
+        """
+        pass
 
 
 class Nodes(torch.nn.Module):
@@ -350,7 +386,7 @@ class AbstractConnection(ABC, Module):
         self.target = target
         self.nu = nu
         self.weight_decay = weight_decay
-        self.reduction = reductionNone
+        self.reduction = reduction
         self.update_rule = kwargs.get('update_rule', NoOp)
         self.wmin = kwargs.get('wmin', -np.inf)
         self.wmax = kwargs.get('wmax', np.inf)
@@ -438,13 +474,18 @@ class FullyConnectedNetwork(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_BindsNET_bindsnet(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(FullyConnectedNetwork(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(FeatureExtractor(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(FullyConnectedNetwork(*[], **{}), [torch.rand([784, 784])], {})
+
+    def test_002(self):
         self._check(Net(*[], **{}), [torch.rand([6400, 6400])], {})
 

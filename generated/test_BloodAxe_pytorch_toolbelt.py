@@ -94,10 +94,13 @@ test_tiles = _module
 test_tta = _module
 test_utils_functional = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -177,6 +180,21 @@ import torch.functional as F
 
 
 import warnings
+
+
+from torchvision.models import densenet121
+
+
+from torchvision.models import densenet161
+
+
+from torchvision.models import densenet169
+
+
+from torchvision.models import densenet201
+
+
+from torchvision.models import DenseNet
 
 
 from copy import deepcopy
@@ -2625,6 +2643,189 @@ def pytorch_toolbelt_deprecated(reason):
         raise TypeError(repr(type(reason)))
 
 
+class EncoderModule(nn.Module):
+
+    def __init__(self, channels: List[int], strides: List[int], layers:
+        List[int]):
+        super().__init__()
+        assert len(channels) == len(strides)
+        self._layers = layers
+        self._output_strides = _take(strides, layers)
+        self._output_filters = _take(channels, layers)
+
+    def forward(self, x: Tensor) ->List[Tensor]:
+        output_features = []
+        for layer in self.encoder_layers:
+            output = layer(x)
+            output_features.append(output)
+            x = output
+        return _take(output_features, self._layers)
+
+    @property
+    def channels(self) ->List[int]:
+        return self._output_filters
+
+    @property
+    def strides(self) ->List[int]:
+        return self._output_strides
+
+    @property
+    @pytorch_toolbelt_deprecated(
+        'This property is deprecated, please use .strides instead.')
+    def output_strides(self) ->List[int]:
+        return self.strides
+
+    @property
+    @pytorch_toolbelt_deprecated(
+        'This property is deprecated, please use .channels instead.')
+    def output_filters(self) ->List[int]:
+        return self.channels
+
+    @property
+    @pytorch_toolbelt_deprecated(
+        "This property is deprecated, please don't use it")
+    def encoder_layers(self) ->List[nn.Module]:
+        raise NotImplementedError
+
+    def set_trainable(self, trainable):
+        for param in self.parameters():
+            param.requires_grad = bool(trainable)
+
+    def change_input_channels(self, input_channels: int, mode='auto'):
+        """
+        Change number of channels expected in the input tensor. By default,
+        all encoders assume 3-channel image in BCHW notation with C=3.
+        This method changes first convolution to have user-defined number of
+        channels as input.
+        """
+        raise NotImplementedError
+
+
+def round_filters(filters: int, width_coefficient, depth_divisor, min_depth
+    ) ->int:
+    """
+    Calculate and round number of filters based on depth multiplier.
+    """
+    filters *= width_coefficient
+    min_depth = min_depth or depth_divisor
+    new_filters = max(min_depth, int(filters + depth_divisor / 2) //
+        depth_divisor * depth_divisor)
+    if new_filters < 0.9 * filters:
+        new_filters += depth_divisor
+    return int(new_filters)
+
+
+def round_repeats(repeats: int, depth_multiplier):
+    """
+    Round number of filters based on depth multiplier.
+    """
+    if not depth_multiplier:
+        return repeats
+    return int(math.ceil(depth_multiplier * repeats))
+
+
+class EfficientNetBlockArgs:
+
+    def __init__(self, input_filters, output_filters, expand_ratio, repeats
+        =1, kernel_size=3, stride=1, se_reduction=4, dropout=0.0, id_skip=True
+        ):
+        self.in_channels = input_filters
+        self.out_channels = output_filters
+        self.expand_ratio = expand_ratio
+        self.num_repeat = repeats
+        self.se_reduction = se_reduction
+        self.dropout = dropout
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.width_coefficient = 1.0
+        self.depth_coefficient = 1.0
+        self.depth_divisor = 8
+        self.min_filters = None
+        self.id_skip = id_skip
+
+    def __repr__(self):
+        """Encode a block args class to a string representation."""
+        args = ['r%d' % self.num_repeat, 'k%d' % self.kernel_size, 's%d' %
+            self.stride, 'e%s' % self.expand_ratio, 'i%d' % self.
+            in_channels, 'o%d' % self.out_channels]
+        if self.se_reduction > 0:
+            args.append('se%s' % self.se_reduction)
+        return '_'.join(args)
+
+    def copy(self):
+        return deepcopy(self)
+
+    def scale(self, width_coefficient: float, depth_coefficient: float,
+        depth_divisor: float=8.0, min_filters: int=None):
+        copy = self.copy()
+        copy.in_channels = round_filters(self.in_channels,
+            width_coefficient, depth_divisor, min_filters)
+        copy.out_channels = round_filters(self.out_channels,
+            width_coefficient, depth_divisor, min_filters)
+        copy.num_repeat = round_repeats(self.num_repeat, depth_coefficient)
+        copy.width_coefficient = width_coefficient
+        copy.depth_coefficient = depth_coefficient
+        copy.depth_divisor = depth_divisor
+        copy.min_filters = min_filters
+        return copy
+
+    @staticmethod
+    def B0():
+        params = get_default_efficientnet_params(dropout=0.2)
+        params = [p.scale(width_coefficient=1.0, depth_coefficient=1.0) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B1():
+        params = get_default_efficientnet_params(dropout=0.2)
+        params = [p.scale(width_coefficient=1.0, depth_coefficient=1.1) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B2():
+        params = get_default_efficientnet_params(dropout=0.3)
+        params = [p.scale(width_coefficient=1.1, depth_coefficient=1.2) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B3():
+        params = get_default_efficientnet_params(dropout=0.3)
+        params = [p.scale(width_coefficient=1.2, depth_coefficient=1.4) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B4():
+        params = get_default_efficientnet_params(dropout=0.4)
+        params = [p.scale(width_coefficient=1.4, depth_coefficient=1.8) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B5():
+        params = get_default_efficientnet_params(dropout=0.4)
+        params = [p.scale(width_coefficient=1.6, depth_coefficient=2.2) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B6():
+        params = get_default_efficientnet_params(dropout=0.5)
+        params = [p.scale(width_coefficient=1.8, depth_coefficient=2.6) for
+            p in params]
+        return params
+
+    @staticmethod
+    def B7():
+        params = get_default_efficientnet_params(dropout=0.5)
+        params = [p.scale(width_coefficient=2.0, depth_coefficient=3.1) for
+            p in params]
+        return params
+
+
 def drop_connect(inputs, p, training):
     """
     Drop connect implementation.
@@ -2638,6 +2839,67 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
+
+
+class MBConvBlock(nn.Module):
+    """
+    Mobile Inverted Residual Bottleneck Block
+    Args:
+        block_args (namedtuple): BlockArgs, see above
+        global_params (namedtuple): GlobalParam, see above
+    Attributes:
+        has_se (bool): Whether the block contains a Squeeze and Excitation layer.
+    """
+
+    def __init__(self, block_args: EfficientNetBlockArgs, abn_block: ABN):
+        super().__init__()
+        self.has_se = block_args.se_reduction is not None
+        self.id_skip = block_args.id_skip
+        self.expand_ratio = block_args.expand_ratio
+        self.stride = block_args.stride
+        inp = block_args.in_channels
+        oup = block_args.in_channels * block_args.expand_ratio
+        if block_args.expand_ratio != 1:
+            self.expand_conv = nn.Conv2d(in_channels=inp, out_channels=oup,
+                kernel_size=1, bias=False)
+            self.abn0 = abn_block(oup)
+        self.depthwise_conv = nn.Conv2d(in_channels=oup, out_channels=oup,
+            groups=oup, kernel_size=block_args.kernel_size, padding=
+            block_args.kernel_size // 2, stride=block_args.stride, bias=False)
+        self.abn1 = abn_block(oup)
+        if self.has_se:
+            se_channels = max(1, inp // block_args.se_reduction)
+            self.se_block = SpatialGate2d(oup, squeeze_channels=se_channels)
+        self.project_conv = nn.Conv2d(in_channels=oup, out_channels=
+            block_args.out_channels, kernel_size=1, bias=False)
+        self.abn2 = abn_block(block_args.out_channels)
+        self.input_filters = block_args.in_channels
+        self.output_filters = block_args.out_channels
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        pass
+
+    def forward(self, inputs, drop_connect_rate=None):
+        """
+        :param inputs: input tensor
+        :param drop_connect_rate: drop connect rate (float, between 0 and 1)
+        :return: output of block
+        """
+        x = inputs
+        if self.expand_ratio != 1:
+            x = self.abn0(self.expand_conv(inputs))
+        x = self.abn1(self.depthwise_conv(x))
+        if self.has_se:
+            x = self.se_block(x)
+        x = self.abn2(self.project_conv(x))
+        if (self.id_skip and self.stride == 1 and self.input_filters ==
+            self.output_filters):
+            if drop_connect_rate:
+                x = drop_connect(x, p=drop_connect_rate, training=self.training
+                    )
+            x = x + inputs
+        return x
 
 
 class EfficientNetStem(nn.Module):
@@ -4138,162 +4400,284 @@ class SumAll(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_BloodAxe_pytorch_toolbelt(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AMM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPObjectContextBlock(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BilinearAdditiveUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(CFM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_005(self):
-        self._check(ChannelGate2d(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_003(self):
+        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(BaseOC_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
     def test_006(self):
+        self._check(BilinearAdditiveUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(BinaryFocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(BinaryLovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(CANDecoder(*[], **{'features': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+
+    def test_010(self):
+        self._check(CFM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(ChannelGate2d(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(ChannelSpatialGate2d(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(ChannelSpatialGate2dV2(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
         self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_015(self):
         self._check(DeconvolutionUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_016(self):
         self._check(DepthToSpaceUpsample2d(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_017(self):
         self._check(DepthwiseSeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
-        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_018(self):
+        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
-        self._check(DropBlockScheduled(*[], **{'dropblock': ReLU(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_012(self):
-        self._check(FPNBottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_013(self):
-        self._check(FPNCatDecoderBlock(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(GlobalWeightedAvgPool2d(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(HGBlock(*[], **{'depth': 1, 'input_features': 4, 'features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(HGResidualBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
-        self._check(HGStemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_018(self):
-        self._check(HGSupervisionBlock(*[], **{'features': 4, 'supervision_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_019(self):
-        self._check(HRNetBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DropBlockScheduled(*[], **{'dropblock': _mock_layer(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_020(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(EfficientNetStem(*[], **{'in_channels': 4, 'out_channels': 4, 'abn_block': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPNBottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_022(self):
-        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(FPNCatDecoderBlock(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_023(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(FPNContextBlock(*[], **{'in_channels': 64, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_024(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_025(self):
-        self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4, 'expplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_026(self):
-        self._check(LovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalWeightedAvgPool2d(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_027(self):
-        self._check(MILCustomPoolingModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HGBlock(*[], **{'depth': 1, 'input_features': 4, 'features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_028(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(HGFeaturesBlock(*[], **{'features': 4, 'activation': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_029(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(HGResidualBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_030(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(HGStemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_031(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(HGSupervisionBlock(*[], **{'features': 4, 'supervision_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_032(self):
-        self._check(NoOp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_033(self):
-        self._check(Normalize(*[], **{'mean': [4, 4], 'std': [4, 4]}), [torch.rand([4, 2, 4, 4])], {})
-
-    def test_034(self):
-        self._check(RCM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_035(self):
-        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
-
-    def test_036(self):
-        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
-
-    def test_037(self):
-        self._check(ResidualDeconvolutionUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_038(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HRNetBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
+    def test_033(self):
+        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_034(self):
+        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_035(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_036(self):
+        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_037(self):
+        self._check(InceptionV4(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_038(self):
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
     def test_039(self):
-        self._check(SEXResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_040(self):
-        self._check(SRMLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
 
     def test_041(self):
-        self._check(StemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4, 'activation': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_042(self):
-        self._check(SumAll(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LastBlockLarge(*[], **{'inplanes': 4, 'num_classes': 4, 'expplanes1': 4, 'expplanes2': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_043(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LastBlockSmall(*[], **{'inplanes': 4, 'num_classes': 4, 'expplanes1': 4, 'expplanes2': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_044(self):
-        self._check(SwishNaive(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4, 'expplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_045(self):
-        self._check(UnetBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LossModule(*[], **{'output_key': 4, 'target_key': 4, 'loss_fn': MSELoss()}), [torch.rand([5, 4, 4, 4]), torch.rand([5, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_046(self):
-        self._check(UnetCentralBlock(*[], **{'in_dec_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_047(self):
-        self._check(UnetCentralBlockV2(*[], **{'in_dec_filters': 4, 'out_filters': 4, 'mask_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MILCustomPoolingModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_048(self):
+        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_049(self):
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_050(self):
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    def test_051(self):
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    def test_052(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_053(self):
+        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_054(self):
+        self._check(NoOp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_055(self):
+        self._check(Normalize(*[], **{'mean': [4, 4], 'std': [4, 4]}), [torch.rand([4, 2, 4, 4])], {})
+
+    @_fails_compile()
+    def test_056(self):
+        self._check(ObjectContextBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_057(self):
+        self._check(PickModelOutput(*[], **{'model': _mock_layer(), 'key': 4}), [], {'input': torch.rand([5, 4])})
+
+    @_fails_compile()
+    def test_058(self):
+        self._check(PyramidObjectContextBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_059(self):
+        self._check(PyramidSelfAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_060(self):
+        self._check(RCM(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_061(self):
+        self._check(RMSPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_062(self):
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    def test_063(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    def test_064(self):
+        self._check(ResidualDeconvolutionUpsample2d(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_065(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_066(self):
+        self._check(SEXResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
+
+    def test_067(self):
+        self._check(SRMLayer(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_068(self):
+        self._check(SelfAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_069(self):
+        self._check(SoftBCEWithLogitsLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_070(self):
+        self._check(SpatialGate2dV2(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_071(self):
+        self._check(SqEx(*[], **{'n_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_072(self):
+        self._check(StemBlock(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_073(self):
+        self._check(SumAll(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_074(self):
+        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_075(self):
+        self._check(SwishNaive(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_076(self):
+        self._check(UnetBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_077(self):
+        self._check(UnetCentralBlock(*[], **{'in_dec_filters': 4, 'out_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_078(self):
+        self._check(UnetCentralBlockV2(*[], **{'in_dec_filters': 4, 'out_filters': 4, 'mask_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_079(self):
+        self._check(UnetDecoderBlockV2(*[], **{'in_dec_filters': 4, 'in_enc_filters': 4, 'out_filters': 4, 'mask_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_080(self):
         self._check(XResNetBlock(*[], **{'expansion': 4, 'n_inputs': 4, 'n_hidden': 4}), [torch.rand([4, 16, 64, 64])], {})
+
+    @_fails_compile()
+    def test_081(self):
+        self._check(_PyramidSelfAttentionBlock(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_082(self):
+        self._check(_SelfAttentionBlock(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

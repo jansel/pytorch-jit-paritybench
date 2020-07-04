@@ -16,10 +16,13 @@ simple_Gan = _module
 backward = _module
 custom_data_io = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -50,7 +53,22 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 from torch import optim
+
+
+import torchvision
+
+
+from torchvision.utils import save_image
+
+
+from torchvision.datasets import MNIST
 
 
 import torch.nn as nn
@@ -220,13 +238,13 @@ class LSTMTagger(nn.Module):
                 char_list.append(character_to_idx[letter.lower()])
             char_list = torch.LongTensor(char_list)
             char_list = char_list.unsqueeze(0)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 tempchar = self.char_lstm(Variable(char_list))
             else:
                 tempchar = self.char_lstm(Variable(char_list))
             tempchar = tempchar.squeeze(0)
             char = torch.cat((char, tempchar.cpu().data), 0)
-        if torch.cuda.is_available():
+        if torch.is_available():
             char = char
         char = Variable(char)
         x = self.word_embedding(x)
@@ -273,8 +291,8 @@ class VAE(nn.Module):
 
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        if torch.cuda.is_available():
-            eps = torch.cuda.FloatTensor(std.size()).normal_()
+        if torch.is_available():
+            eps = torch.FloatTensor(std.size()).normal_()
         else:
             eps = torch.FloatTensor(std.size()).normal_()
         eps = Variable(eps)
@@ -417,6 +435,7 @@ class DQN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):

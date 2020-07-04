@@ -268,10 +268,13 @@ util = _module
 test_net = _module
 trainval_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -314,6 +317,9 @@ from functools import partial
 import random
 
 
+import torchvision.models as models
+
+
 from torch import nn
 
 
@@ -333,6 +339,9 @@ import torch.backends.cudnn as cudnn
 
 
 import torch.optim as optim
+
+
+import torchvision.transforms as transforms
 
 
 from torch.utils.data.sampler import Sampler
@@ -983,10 +992,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
     return loss_box
 
 
-_global_config['ANCHOR_SCALES'] = 4
-
-
 _global_config['FEAT_STRIDE'] = 4
+
+
+_global_config['ANCHOR_SCALES'] = 4
 
 
 class _RPN(nn.Module):
@@ -1592,6 +1601,132 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+_global_config['POOLING_LENGTH'] = 4
+
+
+_global_config['POOLING_WIDTH'] = 4
+
+
+_global_config['POOLING_MODE'] = 4
+
+
+_global_config['POOLING_HEIGHT'] = 4
+
+
+_global_config['DEDUP_TWINS'] = 4
+
+
+_global_config['USE_ATTENTION'] = 4
+
+
+_global_config['NUM_CLASSES'] = 4
+
+
+class _TDCNN(nn.Module):
+    """ faster RCNN """
+
+    def __init__(self):
+        super(_TDCNN, self).__init__()
+        self.n_classes = cfg.NUM_CLASSES
+        self.RCNN_loss_cls = 0
+        self.RCNN_loss_twin = 0
+        self.RCNN_rpn = _RPN(self.dout_base_model)
+        self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
+        self.RCNN_roi_temporal_pool = _RoITemporalPooling(cfg.
+            POOLING_LENGTH, cfg.POOLING_HEIGHT, cfg.POOLING_WIDTH, cfg.
+            DEDUP_TWINS)
+        if cfg.USE_ATTENTION:
+            self.RCNN_attention = NONLocalBlock3D(self.dout_base_model,
+                inter_channels=self.dout_base_model)
+
+    def prepare_data(self, video_data):
+        return video_data
+
+    def forward(self, video_data, gt_twins):
+        batch_size = video_data.size(0)
+        gt_twins = gt_twins.data
+        video_data = self.prepare_data(video_data)
+        base_feat = self.RCNN_base(video_data)
+        rois, _, _, rpn_loss_cls, rpn_loss_twin, _, _ = self.RCNN_rpn(base_feat
+            , gt_twins)
+        if self.training:
+            roi_data = self.RCNN_proposal_target(rois, gt_twins)
+            (rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws
+                ) = roi_data
+            rois_label = Variable(rois_label.view(-1).long())
+            rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
+            rois_inside_ws = Variable(rois_inside_ws.view(-1,
+                rois_inside_ws.size(2)))
+            rois_outside_ws = Variable(rois_outside_ws.view(-1,
+                rois_outside_ws.size(2)))
+        else:
+            rois_label = None
+            rois_target = None
+            rois_inside_ws = None
+            rois_outside_ws = None
+            rpn_loss_cls = 0
+            rpn_loss_twin = 0
+        rois = Variable(rois)
+        if cfg.POOLING_MODE == 'pool':
+            pooled_feat = self.RCNN_roi_temporal_pool(base_feat, rois.view(
+                -1, 3))
+        if cfg.USE_ATTENTION:
+            pooled_feat = self.RCNN_attention(pooled_feat)
+        pooled_feat = self._head_to_tail(pooled_feat)
+        twin_pred = self.RCNN_twin_pred(pooled_feat)
+        if self.training:
+            twin_pred_view = twin_pred.view(twin_pred.size(0), int(
+                twin_pred.size(1) / 2), 2)
+            twin_pred_select = torch.gather(twin_pred_view, 1, rois_label.
+                view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 2)
+                )
+            twin_pred = twin_pred_select.squeeze(1)
+        cls_score = self.RCNN_cls_score(pooled_feat)
+        cls_prob = F.softmax(cls_score, dim=1)
+        if DEBUG:
+            None
+            None
+            None
+            None
+            None
+        RCNN_loss_cls = 0
+        RCNN_loss_twin = 0
+        if self.training:
+            RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
+            RCNN_loss_twin = _smooth_l1_loss(twin_pred, rois_target,
+                rois_inside_ws, rois_outside_ws)
+            rpn_loss_cls = torch.unsqueeze(rpn_loss_cls, 0)
+            rpn_loss_twin = torch.unsqueeze(rpn_loss_twin, 0)
+            RCNN_loss_cls = torch.unsqueeze(RCNN_loss_cls, 0)
+            RCNN_loss_twin = torch.unsqueeze(RCNN_loss_twin, 0)
+        cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
+        twin_pred = twin_pred.view(batch_size, rois.size(1), -1)
+        if self.training:
+            return (rois, cls_prob, twin_pred, rpn_loss_cls, rpn_loss_twin,
+                RCNN_loss_cls, RCNN_loss_twin, rois_label)
+        else:
+            return rois, cls_prob, twin_pred
+
+    def _init_weights(self):
+
+        def normal_init(m, mean, stddev, truncated=False):
+            """
+            weight initalizer: truncated normal and random normal.
+            """
+            if truncated:
+                m.weight.data.normal_().fmod_(2).mul_(stddev).add_(mean)
+            else:
+                m.weight.data.normal_(mean, stddev)
+                m.bias.data.zero_()
+        self.RCNN_rpn.init_weights()
+        normal_init(self.RCNN_cls_score, 0, 0.01, cfg.TRAIN.TRUNCATED)
+        normal_init(self.RCNN_twin_pred, 0, 0.001, cfg.TRAIN.TRUNCATED)
+
+    def create_architecture(self):
+        self._init_modules()
+        self._init_weights()
 
 
 class _NonLocalBlockND(nn.Module):
@@ -2412,4 +2547,80 @@ class InceptionV4(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.classif(x)
         return x
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
+    pass
+    def test_000(self):
+        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(BasicConv3d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+
+    def test_006(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+
+    @_fails_compile()
+    def test_016(self):
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+
+    @_fails_compile()
+    def test_017(self):
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 

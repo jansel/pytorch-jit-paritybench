@@ -27,10 +27,13 @@ train = _module
 utils = _module
 video_detect = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -49,6 +52,9 @@ import torch
 import torch.nn as nn
 
 
+import torchvision.transforms as transforms
+
+
 from torch.utils.data.sampler import Sampler
 
 
@@ -62,6 +68,12 @@ import random
 
 
 import math
+
+
+import torchvision
+
+
+import torchvision.ops as ops
 
 
 import numpy as numpy
@@ -79,13 +91,31 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 
+from torchvision import transforms
+
+
 import torch.backends.cudnn as cudnn
+
+
+import torchvision.models.detection.backbone_utils as backbone_utils
+
+
+import torchvision.models.resnet as resnet
+
+
+import torchvision.models._utils as _utils
 
 
 from collections import OrderedDict
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import models
 
 
 from torch.optim import lr_scheduler
@@ -1141,6 +1171,7 @@ class RegressionTransform(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_supernotman_RetinaFace_Pytorch(_paritybench_base):

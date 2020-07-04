@@ -17,10 +17,13 @@ test_base = _module
 test_pretrained_models = _module
 test_torchvision_models = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -51,6 +54,12 @@ from torch import nn
 from torch.utils import model_zoo
 
 
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
 from torch.autograd import Variable
 
 
@@ -61,6 +70,9 @@ import torch.optim as optim
 
 
 import types
+
+
+from torchvision import models as torchvision_models
 
 
 MODEL_REGISTRY = {}
@@ -222,6 +234,7 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_creafz_pytorch_cnn_finetune(_paritybench_base):

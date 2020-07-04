@@ -2,6 +2,7 @@ import ast
 import inspect
 import itertools
 import logging
+import operator
 import os
 import re
 import sys
@@ -12,19 +13,15 @@ from typing import Callable, List
 
 import torch
 
+from ._paritybench_helpers import _mock_layer
+
 log = logging.getLogger(__name__)
 
 
-def _mock_layer(in_features=None, out_features=None, bias=True):
-    if in_features and out_features:
-        return torch.nn.Linear(in_features, out_features, bias)
-    return torch.nn.ReLU()
-
-
 class DeductionFailed(RuntimeError):
-    def __init__(self, attempt_log, name='', traceback=''):
+    def __init__(self, attempt_log, name='', traceback='', signature='', index=-1):
         attempt_lines = "\n".join(f" - {attempt}" for attempt in attempt_log)
-        error_msg = f"{attempt_log[-1][1]}\n{name}:\n{attempt_lines}\n----\n{traceback}\n----\n"
+        error_msg = f"{attempt_log[index][1]}\n{name}:\n{signature}\n{attempt_lines}\n----\n{traceback}\n----\n"
         super().__init__(error_msg)
 
 
@@ -66,6 +63,9 @@ class DeduceParameters(object):
         self.last_result = None
         self.last_traceback = None
         self.checker = checker
+
+        names = repr([x.name for x in args])
+        self.signature = f"args={names}, kwargs={list(kwargs.keys())}"
 
     def __str__(self):
         return ", ".join(itertools.chain(
@@ -119,7 +119,7 @@ class DeduceParameters(object):
                         return False
                     arg.rollback()
 
-        raise DeductionFailed(self.attempt_log, str(type(self.nn_module)), self.last_traceback)
+        raise EOFError()
 
     def all_args(self):
         return list(self.args) + list(self.kwargs.values())
@@ -146,26 +146,34 @@ class DeduceParameters(object):
     def search_n(self, limit):
         if str(self) in self.tried:
             return False
-        for attempt in range(limit):
-            if self.search_once():
-                return True
+        try:
+            for attempt in range(limit):
+                if self.search_once():
+                    return True
+        except EOFError:
+            pass
         return False
 
-    def search(self, limit: int = 10):
-        for gen in range(2):
-            try:
-                if self.search_n(limit):
-                    return self.last_result
-            except DeductionFailed:
-                pass  # ignore error as we will try again
+    def search(self, limit: int = 16, alt_guesses=3):
+        attempt_index = -1
+        traceback = ""
+
+        for gen in range(alt_guesses):
+            if self.search_n(limit):
+                return self.last_result
+
+            if gen == 0:
+                attempt_index = len(self.attempt_log) - 1
+                traceback = self.last_traceback
 
             for arg in self.all_args():
                 arg.alt_guess(gen)
 
-        if self.search_n(limit):
-            return self.last_result
-
-        raise DeductionFailed(self.attempt_log, str(type(self.nn_module)), self.last_traceback)
+        raise DeductionFailed(self.attempt_log,
+                              str(type(self.nn_module)),
+                              traceback,
+                              self.signature,
+                              index=attempt_index)
 
     def get_fixors(self):
         return [
@@ -177,6 +185,10 @@ class DeduceParameters(object):
              self.fix_size_mismatch),
             (r"shape (?P<a>\[[\d, ]+\]) doesn't match the broadcast shape (?P<b>\[[\d, ]+\])]",
              self.fix_size_mismatch),
+            (r"assert +len\((?P<str_a>\w+)\) *== *len\((?P<str_b>\w+)\)",
+             self.fix_equal_names),
+            (r"assert +(?P<str_a>\w+) *== *(?P<str_b>\w+)",
+             self.fix_equal_names),
         ]
 
     def fix_size_mismatch(self, a, b):
@@ -202,6 +214,18 @@ class DeduceParameters(object):
         if matches_a:
             guess = min(matches_a, key=lambda x: x.created)
             guess.change_guess(TensorGuess(shape=b))
+            return True
+
+    def fix_equal_names(self, str_a, str_b):
+        matches_a = [arg for arg in self.all_args() if arg.name == str_a]
+        matches_b = [arg for arg in self.all_args() if arg.name == str_b]
+        if matches_a and matches_b:
+            guess_a = matches_a[0]
+            guess_b = matches_b[0]
+            if guess_a.created > guess_b.created:
+                guess_b.change_guess(guess_a.clone_guess())
+            else:
+                guess_a.change_guess(guess_b.clone_guess())
             return True
 
     def fix_missing_arg(self, name):
@@ -239,19 +263,25 @@ class DeduceParameter(object):
             "layer": 1,
             "dilation": 1,
             "groups": 1,
-            "block": 1,
             "depth": 1,
             "gpu": False,
             "train": False,
+            "cuda": False,
             "loss": torch.nn.MSELoss(),
             "dropout": 0.5,
             "drop_rate": 0.5,
+            "require_grad": False,
+            "requires_grad": False,
+            "device": 0,
+            "block_cls": _mock_layer,
+            "layer_cls": _mock_layer,
+            "module": _mock_layer(),
         }
-        for search_name, placeholder_value in common_args.items():
+        for search_name, placeholder_value in sorted(common_args.items()):
             if search_name in name:
                 return cls(name, position, LiteralGuess(placeholder_value))
 
-        for search_name in ('cfg', 'config', 'options', 'args'):
+        for search_name in ("cfg", "config", "options", "args", "opt"):
             if search_name in name:
                 return cls(name, position, ConfigGuess())
 
@@ -319,7 +349,7 @@ class DeduceParameter(object):
             return count == this_count
 
     def alt_guess(self, gen):
-        if isinstance(self._guesses[-1], TensorGuess):
+        if isinstance(self._guesses[-1], TensorGuess) and gen < 2:
             # try starting with a smaller size
             new_size = [2, 3][gen]
             self.change_guess(TensorGuess([TensorGuess.default_size] * new_size))
@@ -348,13 +378,15 @@ class Guess(object):
         for pattern, fixor in fixors:
             match = re.search(pattern, error_msg, flags=re.I)
             if match:
-                fix = fixor(**{k: Guess.literal(v) for k, v in match.groupdict().items()})
+                fix = fixor(**{k: Guess.literal(k, v) for k, v in match.groupdict().items()})
                 if fix is not None:
-                    log.debug(f"FIX: {fixor.__name__} {error_msg}")
+                    log.debug(f"FIX: {fixor.__name__} {error_msg} {fix}")
                     return fix
 
     @staticmethod
-    def literal(value):
+    def literal(name, value):
+        if name.startswith('str_'):
+            return value
         # [1 x 1] => [1, 1]
         return ast.literal_eval(value.replace(" x ", ","))
 
@@ -370,19 +402,25 @@ class Guess(object):
     def rollback(self):
         pass
 
+    def clone(self):
+        return self.__class__(value=self.value)
+
 
 class LiteralGuess(Guess):
+
+    def __str__(self):
+        return repr(self.value)
+
     def get_fix(self, error_message: str, pass_number: int, name: str):
         fix = super(LiteralGuess, self).get_fix(error_message, pass_number, name)
         if fix:
             return fix
 
-        if pass_number > 0:
             return
 
         fixors = []
 
-        if isinstance(self.value, int):
+        if pass_number == 0 and isinstance(self.value, int):
             def fix_too_small():
                 if self.value < 64:
                     return 64
@@ -398,12 +436,14 @@ class LiteralGuess(Guess):
                  lambda: [TensorGuess.default_size] * 2),
                 (r"AttributeError: 'int' object has no attribute '(size|shape|dtype|device|ndim)'",
                  lambda: TensorGuess([TensorGuess.default_size] * 2)),
+                (r"must be Tensor, not int",
+                 lambda: TensorGuess([TensorGuess.default_size] * 2)),
                 (r"TypeError: int is not a Module subclass",
-                 lambda: torch.nn.ReLU()),
-                (r"DeductionFailed: TypeError: 'int' object is not callable",
-                 lambda: _mock_layer),
+                 lambda: _mock_layer()),
+                (r"AttributeError: 'int' object has no attribute 'expansion'",
+                 lambda: _mock_layer()),
                 (r"ModuleList.extend should be called with an iterable, but got int",
-                 lambda: [torch.nn.ReLU()]),
+                 lambda: [_mock_layer()]),
                 (r"ModuleDict.update should be called.*but got int",
                  lambda: {'relu': torch.nn.ReLU()}),
                 (r"AttributeError: 'int' object has no attribute 'split'",
@@ -417,14 +457,58 @@ class LiteralGuess(Guess):
                 (r"multiple of (?P<m>\d{1,3})",
                  lambda m: m),
                 (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
-                 lambda v: 0.5 if v == self.value else None),
+                 lambda v: 0.5 if v == self.value and "drop" in name else None),
+                (r"should be a number in range \[0, 1\]",
+                 lambda: 0.5 if "drop" in name else None),
                 (r"member .* should be callable",
-                 lambda: torch.nn.ReLU()),
+                 lambda: _mock_layer()),
                 (r'''assert.*in\s+[(\[{]\s*(?P<v>\d+|'[^'\\]*'|"[^"\\]*")''',
                  lambda v: v),
+                (r"AttributeError: 'int' object has no attribute '(upper|lower)'",
+                 lambda: 'gru' if 'rnn_type' in name else None),
+                (r"TypeError: 'int' object is not callable",
+                 lambda: _mock_layer if any(s in name for s in ["norm", "act", "cls", "block"]) else None),
+                (r"ZeroDivisionError: float division by zero",
+                 lambda: self.value * 2 if self.value < 256 else None),
+                (r"ZeroDivisionError: integer division or modulo by zero",
+                 lambda: self.value * 2 if self.value < 256 else None),
             ])
 
-        if isinstance(self.value, list):
+        if pass_number == 1 and isinstance(self.value, int):
+            fixors.extend([
+                (r"Embeddings parameter is expected to be 2-dimensional",
+                 lambda: TensorGuess([TensorGuess.default_size] * 2)),
+                (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
+                 lambda v: 0.5 if v == self.value else None),
+                (r"should be a number in range \[0, 1\]",
+                 lambda v: 0.5),
+                (r"(NotImplementedError|AssertionError):[^\d]*\b(?P<val>\d+)\b",
+                 lambda val: val),
+                (r"TypeError: 'int' object is not callable",
+                 lambda: _mock_layer),
+            ])
+
+        if pass_number == 2 and isinstance(self.value, int):
+            fixors.extend([
+                (r"Embeddings parameter is expected to be 2-dimensional",
+                 lambda: TensorGuess([TensorGuess.default_size] * 2)),
+                (r"dropout probability has to be between 0 and 1, but got (?P<v>\d+)",
+                 lambda v: 0.5 if v == self.value else None),
+                (r"should be a number in range \[0, 1\]",
+                 lambda v: 0.5),
+                (r"(NotImplementedError|AssertionError):.*bigger than.*[^\d]*\b(?P<val>\d+)\b",
+                 lambda val: val * 2),
+            ])
+
+        if pass_number == 0 and isinstance(self.value, float):
+            fixors.extend([
+                (r"received an invalid combination of arguments.*float",
+                 lambda: TensorGuess.default_size),
+                (r"TypeError: 'float' object cannot be interpreted as an integer",
+                 lambda: int(self.value)),
+            ])
+
+        if pass_number == 0 and isinstance(self.value, list):
             def fix_too_many(want):
                 if len(self.value) > want:
                     return [TensorGuess.default_size] * want
@@ -444,11 +528,24 @@ class LiteralGuess(Guess):
                  lambda: _mock_layer),
                 (r"IndexError: list index out of range",
                  lambda: self.value + [TensorGuess.default_size]),
+                (r"AttributeError: 'list' object has no attribute 'expansion'",
+                 lambda: _mock_layer()),
+                (r"TypeError: 'list' object cannot be interpreted as an integer",
+                 lambda: TensorGuess.default_size),
             ])
+
+        if pass_number == 0 and isinstance(self.value, torch.nn.Module):
+            fixors.extend([
+                (r"object has no attribute 'split'",
+                 lambda: type(self.value).__name__)
+            ])
+
+        if not fixors:
+            return
 
         new_value = self.apply_fixors(fixors, error_message)
         if new_value is not None:
-            if isinstance(new_value, Guess):
+            if isinstance(new_value, Guess) and new_value != self.value:
                 return new_value
             return LiteralGuess(new_value)
 
@@ -460,15 +557,19 @@ class LiteralGuess(Guess):
 class TensorGuess(Guess):
     default_size = DeduceParameters.default_size
 
-    def __init__(self, shape, dtype=torch.float32):
+    def __init__(self, shape, dtype=torch.float32, fill_value=None):
         super(TensorGuess, self).__init__()
         assert isinstance(shape, list)
         assert all(isinstance(x, int) for x in shape)
         self.shape = shape
         self.dtype = dtype
-        if self.dtype == torch.int64:
-            # used for embedding lookups often
+        self.fill_value = fill_value  # currently one 1 is supported
+        assert self.fill_value in (None, 1)
+        # used for embedding lookups often
+        if self.fill_value == 1:
             self.value = torch.zeros(self.shape, dtype=self.dtype)
+        elif self.dtype == torch.int64:
+            self.value = torch.ones(self.shape, dtype=self.dtype)
         else:
             self.value = torch.rand(self.shape, dtype=self.dtype)
 
@@ -476,7 +577,9 @@ class TensorGuess(Guess):
         return self.__class__(self.shape, self.dtype)
 
     def __str__(self):
-        if self.dtype == torch.float32:
+        if self.fill_value == 1:
+            return f"torch.ones({self.shape}, dtype={self.dtype})"
+        elif self.dtype == torch.float32:
             return f"torch.rand({self.shape})"
         elif self.dtype == torch.int64:
             return f"torch.zeros({self.shape}, dtype={self.dtype})"
@@ -492,18 +595,22 @@ class TensorGuess(Guess):
 
         new_shape = self.apply_fixors(self.shape_fixors(pass_number), error_message)
         if new_shape:
-            return self.__class__(new_shape, self.dtype)
+            return self.__class__(new_shape, self.dtype, self.fill_value)
 
         def tried_to_call():
             keywords = ("layer", "activation", "dropout", "normalization")
             for keyword in keywords:
                 if keyword in name:
-                    return LiteralGuess(torch.nn.ReLU())
+                    return LiteralGuess(_mock_layer())
 
         other_fixors = [
             (r"scalar type Long; but got torch.FloatTensor",
              lambda: self.__class__([self.default_size], torch.int64)),
             (r"Expected dtype int64 for index",
+             lambda: self.__class__([self.default_size], torch.int64)),
+            (r"tensors used as indices must be long",
+             lambda: self.__class__([self.default_size], torch.int64)),
+            (r"only integer scalar arrays can be converted to a scalar index",
              lambda: self.__class__([self.default_size], torch.int64)),
             (r"TypeError: [']Tensor['] object is not callable",
              tried_to_call),
@@ -513,6 +620,14 @@ class TensorGuess(Guess):
              lambda: (self.__class__([self.default_size], torch.int64) if "len" in name else None)),
             (r"Boolean value of Tensor with more than one value is ambiguous",
              lambda: LiteralGuess(0)),
+            (r"only supports 0-dimension value tensor",
+             lambda: LiteralGuess(0)),
+            (r"Length of all samples has to be greater than 0",
+             lambda: self.__class__([self.shape], self.dtype, fill_value=1)),
+            (r"invalid combination of arguments.*Tensor",
+             lambda: LiteralGuess(list(self.shape))),
+            (r"argument 'size' must be tuple of ints, but found element of type Tensor",
+             lambda: LiteralGuess(self.default_size)),
         ]
         return self.apply_fixors(other_fixors, error_message)
 
@@ -537,6 +652,8 @@ class TensorGuess(Guess):
                  self.fix_dimensions_at),
                 (r"must match except in dimension \d+. Got (?P<want>\d+) and (?P<got>\d+) in dimension (?P<dim>\d+)",
                  self.fix_dimensions_at),
+                (r"input.size\(-1\) must be equal to input_size. Expected (?P<want>\d+), got (?P<got>\d+)",
+                 lambda want, got: self.fix_dimensions_at(want=want, got=got, dim=len(self.shape) - 1)),
                 (r"matrices expected, got (?P<got>\d+)D, (?P<want>\d+)D ",
                  self.fix_dimensions),
                 (r"expected \d+D or (?P<want>\d+)D input \(got (?P<got>\d+)D input\)",
@@ -559,7 +676,28 @@ class TensorGuess(Guess):
                  self.fix_dimensions),
                 (r"size mismatch, m1: (?P<a>\[.*\]), m2: (?P<b>\[.*\])",
                  self.fix_size_mismatch),
+                (r"Embeddings parameter is expected to be 2-dimensional",
+                 lambda: [self.default_size] * 2 if len(self.shape) != 2 else None),
+                (r"IndexError: too many indices for tensor of dimension 0",
+                 lambda: self.shape + [self.default_size] if len(self.shape) < 4 else None),
+                (r"IndexError: dimension specified as 0 but tensor has no dimensions",
+                 lambda: self.shape + [self.default_size] if len(self.shape) < 4 else None),
+                (r"Only 3D, 4D and (?P<want>\d+)D input Tensors supported \(got (?P<got>\d+)D\)",
+                 self.fix_dimensions),
+                (r"AssertionError:.*(?P<got>\b\d+\b).*(?P<want>\b\d+\b).*(size\(\)|shape)\[(?P<dim>\d+)",
+                 self.fix_dimensions_at),
+                (r"assert.*\.dim\(\) *== *(?P<want>\d+)",
+                 self.fix_dimensions),
+                (r"Padding size should be less than the corresponding input dimension",
+                 self.fix_too_small),
+                (r"Kernel size can't be greater than actual input size",
+                 self.fix_too_small),
+                (r"Output size is too small",
+                 self.fix_too_small),
+                (r"shape '(?P<view>\[[\d, -]+\])' is invalid for input of size (?P<size>\d+)",
+                 self.fix_view),
             ]
+
         if pass_number == 1:
             return [
                 (r"Given groups=(?P<groups>\d+).*(?P<weight>\[[\d, ]+\]), expected input\[[\d, ]+\]",
@@ -578,17 +716,52 @@ class TensorGuess(Guess):
                  self.fix_dimensions),
                 (r"Expected tensor to have size (?P<got>\d+) at dimension (?P<dim>\d+), but got size (?P<want>\d+)",
                  self.fix_dimensions_at),
+                (r"IndexError: Dimension out of range",
+                 lambda: self.shape + [self.default_size] if len(self.shape) < 4 else None),
+                (r"AssertionError:.*(?P<want>\b\d+\b).*(?P<got>\b\d+\b).*(size\(\)|shape)\[(?P<dim>\d+)",
+                 self.fix_dimensions_at),
+                (r"index (?P<index>\d+) is out of bounds for dimension (?P<dim>\d+) with size (?P<size>\d+)",
+                 self.fix_out_of_bounds),
             ]
         if pass_number == 2:
             return [
                 (r"Expected \d+-dimensional.*for.*(?P<weight>\[[\d, ]+\]).*got.*(?P<got>\[[\d, ]+\])",
                  self.fix_convolution_offset),
+                (r"The size.*[(](?P<got>\d+)[)] must match.*[(](?P<want>\d+)[)] at.*dimension (?P<dim>\d+)",
+                 self.fix_dimensions_at_pass2),
             ]
+
+    def fix_view(self, view, size):
+        if reduce(operator.mul, self.shape) == size:
+            if all(x > 0 for x in view):
+                return list(view)
+            if all(x > 0 for x in view[1:]):
+                return [self.shape[0]] + list(view[1:])
+
+    def fix_too_small(self):
+        if len(self.shape) >= 4:
+            tmp = list(self.shape)
+            v = 64
+            if 64 <= tmp[-1] < 256:
+                v = tmp[-1] * 2
+            tmp[-1] = v
+            tmp[-2] = v
+            return tmp
+
+    def fix_out_of_bounds(self, index, dim, size):
+        if len(self.shape) > dim and self.shape[dim] == size:
+            tmp = list(self.shape)
+            tmp[dim] = index + 1
+            return tmp
 
     def fix_size_mismatch(self, a, b):
         # b may be hidden part of a nn.Linear()
         if self.shape[-1] == a[-1]:
             return self.shape[:-1] + [b[0]]
+        if len(self.shape) > len(a) and self.shape[len(a) - 1] == a[-1]:
+            tmp = list(self.shape)
+            tmp[len(a) - 1] = b[0]
+            return tmp
 
     def fix_dimension_out_of_range(self, got, want):
         if 0 <= got < want:
@@ -615,7 +788,7 @@ class TensorGuess(Guess):
             if len(guess) > idx and guess[idx] == got:
                 guess[idx] = want
                 return guess
-        if len(guess) > 1:
+        if len(guess) > 1 and got > 0:
             guess[1] = guess[1] * want // got
             if guess[1] > 0:
                 return guess
@@ -632,6 +805,9 @@ class TensorGuess(Guess):
             shape[dim] = want
             return shape
 
+    def fix_dimensions_at_pass2(self, want, got, dim):
+        self.fix_dimensions_at(want, got, dim + 1)
+
     def fix_dimensions_unknown(self):
         shape = list(self.shape)
         if len(shape) > 2:
@@ -640,8 +816,8 @@ class TensorGuess(Guess):
 
 
 class ConfigGuess(Guess):
-    def __init__(self):
-        super(ConfigGuess, self).__init__(value=MockConfig())
+    def __init__(self, value=None):
+        super(ConfigGuess, self).__init__(value=value or MockConfig())
         self._rollback = []
 
     def get_fix(self, error_message: str, pass_number: int, name: str):
@@ -660,6 +836,9 @@ class MockConfig(object):
     def __init__(self):
         super(MockConfig, self).__init__()
         self._guesses = dict()
+
+    def clone(self):
+        return self  # fake it so we can continue mutating result
 
     def __str__(self):
         return "_mock_config({})".format(

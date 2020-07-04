@@ -72,10 +72,13 @@ webnlg_gcnonmt_input = _module
 webnlg_gcnonmt_relexicalise = _module
 webnlg_relexicalise = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -2594,6 +2597,7 @@ class GCNLayer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_diegma_graph_2_text(_paritybench_base):
@@ -2634,9 +2638,12 @@ class Test_diegma_graph_2_text(_paritybench_base):
         self._check(StackedCNN(*[], **{'num_layers': 1, 'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
+        self._check(StackedGRU(*[], **{'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(TargetContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(WeightNormConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

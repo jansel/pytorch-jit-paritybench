@@ -42,10 +42,13 @@ opts = _module
 trandition = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -104,6 +107,24 @@ from collections import OrderedDict
 
 
 import torch.nn.init as init
+
+
+from torchtext import data
+
+
+from torchtext import datasets
+
+
+from torchtext.vocab import Vectors
+
+
+from torchtext.vocab import GloVe
+
+
+from torchtext.vocab import CharNGram
+
+
+from torchtext.vocab import FastText
 
 
 from functools import wraps
@@ -318,7 +339,7 @@ class CapsuleLayer(nn.Module):
         if self.num_route_nodes != -1:
             priors = torch.matmul(x[(None), :, :, (None), :], self.
                 route_weights[:, (None), :, :, :])
-            if torch.cuda.is_available():
+            if torch.is_available():
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
             else:
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
@@ -344,7 +365,7 @@ class LSTMAttention(torch.nn.Module):
         super(LSTMAttention, self).__init__()
         self.hidden_dim = opt.hidden_dim
         self.batch_size = opt.batch_size
-        self.use_gpu = torch.cuda.is_available()
+        self.use_gpu = torch.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
         self.word_embeddings.weight = nn.Parameter(opt.embeddings,
             requires_grad=opt.embedding_training)
@@ -516,7 +537,7 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self.hidden_dim = opt.hidden_dim
         self.batch_size = opt.batch_size
-        self.use_gpu = torch.cuda.is_available()
+        self.use_gpu = torch.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
         self.word_embeddings.weight = nn.Parameter(opt.embeddings,
             requires_grad=opt.embedding_training)
@@ -928,6 +949,7 @@ class AttentionIsAllYouNeed(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
@@ -938,7 +960,7 @@ class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(CapsuleLayer(*[], **{'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{'n_src_vocab': 4, 'n_max_seq': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 
     def test_002(self):
         self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})

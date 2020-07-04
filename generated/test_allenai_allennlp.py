@@ -388,10 +388,13 @@ tagger = _module
 basic_allennlp_test = _module
 version_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -623,6 +626,18 @@ DataArray = TypeVar('DataArray', torch.Tensor, Dict[str, torch.Tensor],
     Dict[str, Dict[str, torch.Tensor]])
 
 
+DEFAULT_NON_PADDED_NAMESPACES = '*tags', '*labels'
+
+
+DEFAULT_OOV_TOKEN = '@@UNKNOWN@@'
+
+
+DEFAULT_PADDING_TOKEN = '@@PADDING@@'
+
+
+NAMESPACE_PADDING_FILE = 'non_padded_namespaces.txt'
+
+
 def _is_encodable(value: str) ->bool:
     """
     We need to filter out environment variables that can't
@@ -662,6 +677,607 @@ def _replace_none(params: Any) ->Any:
     elif isinstance(params, list):
         return [_replace_none(value) for value in params]
     return params
+
+
+def url_to_filename(url: str, etag: str=None) ->str:
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def _find_latest_cached(url: str, cache_dir: str) ->Optional[str]:
+    filename = url_to_filename(url)
+    cache_path = os.path.join(cache_dir, filename)
+    candidates: List[Tuple[str, float]] = []
+    for path in glob.glob(cache_path + '*'):
+        if path.endswith('.json'):
+            continue
+        mtime = os.path.getmtime(path)
+        candidates.append((path, mtime))
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    if candidates:
+        return candidates[0][0]
+    return None
+
+
+def _http_etag(url: str) ->Optional[str]:
+    with _session_with_backoff() as session:
+        response = session.head(url, allow_redirects=True)
+    if response.status_code != 200:
+        raise IOError('HEAD request failed for url {} with status code {}'.
+            format(url, response.status_code))
+    return response.headers.get('ETag')
+
+
+class Tqdm:
+    default_mininterval: float = 0.1
+
+    @staticmethod
+    def set_default_mininterval(value: float) ->None:
+        Tqdm.default_mininterval = value
+
+    @staticmethod
+    def set_slower_interval(use_slower_interval: bool) ->None:
+        """
+        If `use_slower_interval` is `True`, we will dramatically slow down `tqdm's` default
+        output rate.  `tqdm's` default output rate is great for interactively watching progress,
+        but it is not great for log files.  You might want to set this if you are primarily going
+        to be looking at output through log files, not the terminal.
+        """
+        if use_slower_interval:
+            Tqdm.default_mininterval = 10.0
+        else:
+            Tqdm.default_mininterval = 0.1
+
+    @staticmethod
+    def tqdm(*args, **kwargs):
+        new_kwargs = {'mininterval': Tqdm.default_mininterval, **kwargs}
+        return _tqdm(*args, **new_kwargs)
+
+
+def _get_s3_resource():
+    session = boto3.session.Session()
+    if session.get_credentials() is None:
+        s3_resource = session.resource('s3', config=botocore.client.Config(
+            signature_version=botocore.UNSIGNED))
+    else:
+        s3_resource = session.resource('s3')
+    return s3_resource
+
+
+def _s3_request(func: Callable):
+    """
+    Wrapper function for s3 requests in order to create more helpful error
+    messages.
+    """
+
+    @wraps(func)
+    def wrapper(url: str, *args, **kwargs):
+        try:
+            return func(url, *args, **kwargs)
+        except ClientError as exc:
+            if int(exc.response['Error']['Code']) == 404:
+                raise FileNotFoundError('file {} not found'.format(url))
+            else:
+                raise
+    return wrapper
+
+
+def _split_s3_path(url: str) ->Tuple[str, str]:
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_from_cache(url: str, cache_dir: str=None) ->str:
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = CACHE_DIRECTORY
+    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        if url.startswith('s3://'):
+            etag = _s3_etag(url)
+        else:
+            etag = _http_etag(url)
+    except (ConnectionError, EndpointConnectionError):
+        logger.warning(
+            'Connection error occured while trying to fetch ETag for %s. Will attempt to use latest cached version of resource'
+            , url)
+        latest_cached = _find_latest_cached(url, cache_dir)
+        if latest_cached:
+            logger.info(
+                'ETag request failed with connection error, using latest cached version of %s: %s'
+                , url, latest_cached)
+            return latest_cached
+        else:
+            logger.error(
+                'Connection failed while trying to fetch ETag, and no cached version of %s could be found'
+                , url)
+            raise
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    logger.info('checking cache for %s at %s', url, cache_path)
+    logger.info('waiting to acquire lock on %s', cache_path)
+    with FileLock(cache_path + '.lock'):
+        if os.path.exists(cache_path):
+            logger.info('cache of %s is up-to-date', url)
+        else:
+            with tempfile.NamedTemporaryFile() as temp_file:
+                logger.info('%s not found in cache, downloading to %s', url,
+                    temp_file.name)
+                if url.startswith('s3://'):
+                    _s3_get(url, temp_file)
+                else:
+                    _http_get(url, temp_file)
+                temp_file.flush()
+                temp_file.seek(0)
+                logger.info('copying %s to cache at %s', temp_file.name,
+                    cache_path)
+                with open(cache_path, 'wb') as cache_file:
+                    shutil.copyfileobj(temp_file, cache_file)
+                logger.info('creating metadata file for %s', cache_path)
+                meta = {'url': url, 'etag': etag}
+                meta_path = cache_path + '.json'
+                with open(meta_path, 'w') as meta_file:
+                    json.dump(meta, meta_file)
+                logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def infer_and_cast(value: Any):
+    """
+    In some cases we'll be feeding params dicts to functions we don't own;
+    for example, PyTorch optimizers. In that case we can't use `pop_int`
+    or similar to force casts (which means you can't specify `int` parameters
+    using environment variables). This function takes something that looks JSON-like
+    and recursively casts things that look like (bool, int, float) to (bool, int, float).
+    """
+    if isinstance(value, (int, float, bool)):
+        return value
+    elif isinstance(value, list):
+        return [infer_and_cast(item) for item in value]
+    elif isinstance(value, dict):
+        return {key: infer_and_cast(item) for key, item in value.items()}
+    elif isinstance(value, str):
+        if value.lower() == 'true':
+            return True
+        elif value.lower() == 'false':
+            return False
+        else:
+            try:
+                return int(value)
+            except ValueError:
+                pass
+            try:
+                return float(value)
+            except ValueError:
+                return value
+    else:
+        raise ValueError(f'cannot infer type of {value}')
+
+
+def unflatten(flat_dict: Dict[str, Any]) ->Dict[str, Any]:
+    """
+    Given a "flattened" dict with compound keys, e.g.
+        {"a.b": 0}
+    unflatten it:
+        {"a": {"b": 0}}
+    """
+    unflat: Dict[str, Any] = {}
+    for compound_key, value in flat_dict.items():
+        curr_dict = unflat
+        parts = compound_key.split('.')
+        for key in parts[:-1]:
+            curr_value = curr_dict.get(key)
+            if key not in curr_dict:
+                curr_dict[key] = {}
+                curr_dict = curr_dict[key]
+            elif isinstance(curr_value, dict):
+                curr_dict = curr_value
+            else:
+                raise ConfigurationError('flattened dictionary is invalid')
+        if not isinstance(curr_dict, dict) or parts[-1] in curr_dict:
+            raise ConfigurationError('flattened dictionary is invalid')
+        curr_dict[parts[-1]] = value
+    return unflat
+
+
+def parse_overrides(serialized_overrides: str) ->Dict[str, Any]:
+    if serialized_overrides:
+        ext_vars = _environment_variables()
+        return unflatten(json.loads(evaluate_snippet('',
+            serialized_overrides, ext_vars=ext_vars)))
+    else:
+        return {}
+
+
+def with_fallback(preferred: Dict[str, Any], fallback: Dict[str, Any]) ->Dict[
+    str, Any]:
+    """
+    Deep merge two dicts, preferring values from `preferred`.
+    """
+
+    def merge(preferred_value: Any, fallback_value: Any) ->Any:
+        if isinstance(preferred_value, dict) and isinstance(fallback_value,
+            dict):
+            return with_fallback(preferred_value, fallback_value)
+        elif isinstance(preferred_value, dict) and isinstance(fallback_value,
+            list):
+            merged_list = fallback_value
+            for elem_key, preferred_element in preferred_value.items():
+                try:
+                    index = int(elem_key)
+                    merged_list[index] = merge(preferred_element,
+                        fallback_value[index])
+                except ValueError:
+                    raise ConfigurationError(
+                        f'could not merge dicts - the preferred dict contains invalid keys (key {elem_key} is not a valid list index)'
+                        )
+                except IndexError:
+                    raise ConfigurationError(
+                        f'could not merge dicts - the preferred dict contains invalid keys (key {index} is out of bounds)'
+                        )
+            return merged_list
+        else:
+            return copy.deepcopy(preferred_value)
+    preferred_keys = set(preferred.keys())
+    fallback_keys = set(fallback.keys())
+    common_keys = preferred_keys & fallback_keys
+    merged: Dict[str, Any] = {}
+    for key in (preferred_keys - fallback_keys):
+        merged[key] = copy.deepcopy(preferred[key])
+    for key in (fallback_keys - preferred_keys):
+        merged[key] = copy.deepcopy(fallback[key])
+    for key in common_keys:
+        preferred_value = preferred[key]
+        fallback_value = fallback[key]
+        merged[key] = merge(preferred_value, fallback_value)
+    return merged
+
+
+T = TypeVar('T')
+
+
+def takes_arg(obj, arg: str) ->bool:
+    """
+    Checks whether the provided obj takes a certain arg.
+    If it's a class, we're really checking whether its constructor does.
+    If it's a function or method, we're checking the object itself.
+    Otherwise, we raise an error.
+    """
+    if inspect.isclass(obj):
+        signature = inspect.signature(obj.__init__)
+    elif inspect.ismethod(obj) or inspect.isfunction(obj):
+        signature = inspect.signature(obj)
+    else:
+        raise ConfigurationError(f'object {obj} is not callable')
+    return arg in signature.parameters
+
+
+def takes_kwargs(obj) ->bool:
+    """
+    Checks whether a provided object takes in any positional arguments.
+    Similar to takes_arg, we do this for both the __init__ function of
+    the class or a function / method
+    Otherwise, we raise an error
+    """
+    if inspect.isclass(obj):
+        signature = inspect.signature(obj.__init__)
+    elif inspect.ismethod(obj) or inspect.isfunction(obj):
+        signature = inspect.signature(obj)
+    else:
+        raise ConfigurationError(f'object {obj} is not callable')
+    return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.
+        parameters.values())
+
+
+def create_extras(cls: Type[T], extras: Dict[str, Any]) ->Dict[str, Any]:
+    """
+    Given a dictionary of extra arguments, returns a dictionary of
+    kwargs that actually are a part of the signature of the cls.from_params
+    (or cls) method.
+    """
+    subextras: Dict[str, Any] = {}
+    if hasattr(cls, 'from_params'):
+        from_params_method = cls.from_params
+    else:
+        from_params_method = cls
+    if takes_kwargs(from_params_method):
+        subextras = extras
+    else:
+        subextras = {k: v for k, v in extras.items() if takes_arg(
+            from_params_method, k)}
+    return subextras
+
+
+def infer_params(cls: Type[T], constructor: Callable[..., T]=None):
+    if constructor is None:
+        constructor = cls.__init__
+    signature = inspect.signature(constructor)
+    parameters = dict(signature.parameters)
+    has_kwargs = False
+    for param in parameters.values():
+        if param.kind == param.VAR_KEYWORD:
+            has_kwargs = True
+    if not has_kwargs:
+        return parameters
+    super_class = None
+    for super_class_candidate in cls.mro()[1:]:
+        if issubclass(super_class_candidate, FromParams):
+            super_class = super_class_candidate
+            break
+    if not super_class:
+        raise RuntimeError(
+            'found a kwargs parameter with no inspectable super class')
+    super_parameters = infer_params(super_class)
+    return {**super_parameters, **parameters}
+
+
+_NO_DEFAULT = inspect.Parameter.empty
+
+
+def can_construct_from_params(type_: Type) ->bool:
+    if type_ in [str, int, float, bool]:
+        return True
+    origin = getattr(type_, '__origin__', None)
+    if origin == Lazy:
+        return True
+    elif origin:
+        if hasattr(type_, 'from_params'):
+            return True
+        args = getattr(type_, '__args__')
+        return all(can_construct_from_params(arg) for arg in args)
+    return hasattr(type_, 'from_params')
+
+
+def remove_optional(annotation: type):
+    """
+    Optional[X] annotations are actually represented as Union[X, NoneType].
+    For our purposes, the "Optional" part is not interesting, so here we
+    throw it away.
+    """
+    origin = getattr(annotation, '__origin__', None)
+    args = getattr(annotation, '__args__', ())
+    if origin == Union and len(args) == 2 and args[1] == type(None):
+        return args[0]
+    else:
+        return annotation
+
+
+def is_base_registrable(cls) ->bool:
+    """
+    Checks whether this is a class that directly inherits from Registrable, or is a subclass of such
+    a class.
+    """
+    from allennlp.common.registrable import Registrable
+    if not issubclass(cls, Registrable):
+        return False
+    method_resolution_order = inspect.getmro(cls)[1:]
+    for base_class in method_resolution_order:
+        if issubclass(base_class, Registrable
+            ) and base_class is not Registrable:
+            return False
+    return True
+
+
+def namespace_match(pattern: str, namespace: str):
+    """
+    Matches a namespace pattern against a namespace string.  For example, `*tags` matches
+    `passage_tags` and `question_tags` and `tokens` matches `tokens` but not
+    `stemmed_tokens`.
+    """
+    if pattern[0] == '*' and namespace.endswith(pattern[1:]):
+        return True
+    elif pattern == namespace:
+        return True
+    return False
+
+
+class _NamespaceDependentDefaultDict(defaultdict):
+    """
+    This is a [defaultdict]
+    (https://docs.python.org/2/library/collections.html#collections.defaultdict) where the
+    default value is dependent on the key that is passed.
+
+    We use "namespaces" in the :class:`Vocabulary` object to keep track of several different
+    mappings from strings to integers, so that we have a consistent API for mapping words, tags,
+    labels, characters, or whatever else you want, into integers.  The issue is that some of those
+    namespaces (words and characters) should have integers reserved for padding and
+    out-of-vocabulary tokens, while others (labels and tags) shouldn't.  This class allows you to
+    specify filters on the namespace (the key used in the `defaultdict`), and use different
+    default values depending on whether the namespace passes the filter.
+
+    To do filtering, we take a set of `non_padded_namespaces`.  This is a set of strings
+    that are either matched exactly against the keys, or treated as suffixes, if the
+    string starts with `*`.  In other words, if `*tags` is in `non_padded_namespaces` then
+    `passage_tags`, `question_tags`, etc. (anything that ends with `tags`) will have the
+    `non_padded` default value.
+
+    # Parameters
+
+    non_padded_namespaces : `Iterable[str]`
+        A set / list / tuple of strings describing which namespaces are not padded.  If a namespace
+        (key) is missing from this dictionary, we will use :func:`namespace_match` to see whether
+        the namespace should be padded.  If the given namespace matches any of the strings in this
+        list, we will use `non_padded_function` to initialize the value for that namespace, and
+        we will use `padded_function` otherwise.
+    padded_function : `Callable[[], Any]`
+        A zero-argument function to call to initialize a value for a namespace that `should` be
+        padded.
+    non_padded_function : `Callable[[], Any]`
+        A zero-argument function to call to initialize a value for a namespace that should `not` be
+        padded.
+    """
+
+    def __init__(self, non_padded_namespaces: Iterable[str],
+        padded_function: Callable[[], Any], non_padded_function: Callable[[
+        ], Any]) ->None:
+        self._non_padded_namespaces = set(non_padded_namespaces)
+        self._padded_function = padded_function
+        self._non_padded_function = non_padded_function
+        super().__init__()
+
+    def __missing__(self, key: str):
+        if any(namespace_match(pattern, key) for pattern in self.
+            _non_padded_namespaces):
+            value = self._non_padded_function()
+        else:
+            value = self._padded_function()
+        dict.__setitem__(self, key, value)
+        return value
+
+    def add_non_padded_namespaces(self, non_padded_namespaces: Set[str]):
+        self._non_padded_namespaces.update(non_padded_namespaces)
+
+
+class _IndexToTokenDefaultDict(_NamespaceDependentDefaultDict):
+
+    def __init__(self, non_padded_namespaces: Set[str], padding_token: str,
+        oov_token: str) ->None:
+        super().__init__(non_padded_namespaces, lambda : {(0):
+            padding_token, (1): oov_token}, lambda : {})
+
+
+_NEW_LINE_REGEX = re.compile('\\n|\\r\\n')
+
+
+class _TokenToIndexDefaultDict(_NamespaceDependentDefaultDict):
+
+    def __init__(self, non_padded_namespaces: Set[str], padding_token: str,
+        oov_token: str) ->None:
+        super().__init__(non_padded_namespaces, lambda : {padding_token: 0,
+            oov_token: 1}, lambda : {})
+
+
+def _read_pretrained_tokens(embeddings_file_uri: str) ->List[str]:
+    from allennlp.modules.token_embedders.embedding import EmbeddingsTextFile
+    logger.info('Reading pretrained tokens from: %s', embeddings_file_uri)
+    tokens: List[str] = []
+    with EmbeddingsTextFile(embeddings_file_uri) as embeddings_file:
+        for line_number, line in enumerate(Tqdm.tqdm(embeddings_file), start=1
+            ):
+            token_end = line.find(' ')
+            if token_end >= 0:
+                token = line[:token_end]
+                tokens.append(token)
+            else:
+                line_begin = line[:20] + '...' if len(line) > 20 else line
+                logger.warning('Skipping line number %d: %s', line_number,
+                    line_begin)
+    return tokens
+
+
+A = TypeVar('A')
+
+
+def ensure_list(iterable: Iterable[A]) ->List[A]:
+    """
+    An Iterable may be a list or a generator.
+    This ensures we get a list without making an unnecessary copy.
+    """
+    if isinstance(iterable, list):
+        return iterable
+    else:
+        return list(iterable)
+
+
+_DEFAULT_WEIGHTS = 'best.th'
+
+
+def info_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
+    """
+    if dtype == torch.bool:
+        raise TypeError('Does not support torch.bool')
+    elif dtype.is_floating_point:
+        return torch.finfo(dtype)
+    else:
+        return torch.iinfo(dtype)
+
+
+def min_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
+    """
+    return info_value_of_dtype(dtype).min
+
+
+def tiny_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns a moderately tiny value for a given PyTorch data type that is used to avoid numerical
+    issues such as division by zero.
+    This is different from `info_value_of_dtype(dtype).tiny` because it causes some NaN bugs.
+    Only supports floating point dtypes.
+    """
+    if not dtype.is_floating_point:
+        raise TypeError('Only supports floating point dtypes.')
+    if dtype == torch.float or dtype == torch.double:
+        return 1e-13
+    elif dtype == torch.half:
+        return 0.0001
+    else:
+        raise TypeError('Does not support dtype ' + str(dtype))
+
+
+def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
+    1, memory_efficient: bool=False) ->torch.Tensor:
+    """
+    `torch.nn.functional.softmax(vector)` does not work if some elements of `vector` should be
+    masked.  This performs a softmax on just the non-masked portions of `vector`.  Passing
+    `None` in for the mask is also acceptable; you'll just get a regular softmax.
+
+    `vector` can have an arbitrary number of dimensions; the only requirement is that `mask` is
+    broadcastable to `vector's` shape.  If `mask` has fewer dimensions than `vector`, we will
+    unsqueeze on dimension 1 until they match.  If you need a different unsqueezing of your mask,
+    do it yourself before passing the mask into this function.
+
+    If `memory_efficient` is set to true, we will simply use a very large negative number for those
+    masked positions so that the probabilities of those positions would be approximately 0.
+    This is not accurate in math, but works for most cases and consumes less memory.
+
+    In the case that the input vector is completely masked and `memory_efficient` is false, this function
+    returns an array of `0.0`. This behavior may cause `NaN` if this is used as the last layer of
+    a model that uses categorical cross-entropy loss. Instead, if `memory_efficient` is true, this function
+    will treat every element as equal, and do softmax over equal numbers.
+    """
+    if mask is None:
+        result = torch.nn.functional.softmax(vector, dim=dim)
+    else:
+        while mask.dim() < vector.dim():
+            mask = mask.unsqueeze(1)
+        if not memory_efficient:
+            result = torch.nn.functional.softmax(vector * mask, dim=dim)
+            result = result * mask
+            result = result / (result.sum(dim=dim, keepdim=True) +
+                tiny_value_of_dtype(result.dtype))
+        else:
+            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(
+                vector.dtype))
+            result = torch.nn.functional.softmax(masked_vector, dim=dim)
+    return result
 
 
 def block_orthogonal(tensor: torch.Tensor, split_sizes: List[int], gain:
@@ -1164,25 +1780,6 @@ def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor
     return mask.sum(-1)
 
 
-def info_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
-    """
-    if dtype == torch.bool:
-        raise TypeError('Does not support torch.bool')
-    elif dtype.is_floating_point:
-        return torch.finfo(dtype)
-    else:
-        return torch.iinfo(dtype)
-
-
-def min_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
-    """
-    return info_value_of_dtype(dtype).min
-
-
 def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
     keepdim: bool=False) ->torch.Tensor:
     """
@@ -1208,23 +1805,6 @@ def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
         dtype))
     max_value, _ = replaced_vector.max(dim=dim, keepdim=keepdim)
     return max_value
-
-
-def tiny_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns a moderately tiny value for a given PyTorch data type that is used to avoid numerical
-    issues such as division by zero.
-    This is different from `info_value_of_dtype(dtype).tiny` because it causes some NaN bugs.
-    Only supports floating point dtypes.
-    """
-    if not dtype.is_floating_point:
-        raise TypeError('Only supports floating point dtypes.')
-    if dtype == torch.float or dtype == torch.double:
-        return 1e-13
-    elif dtype == torch.half:
-        return 0.0001
-    else:
-        raise TypeError('Does not support dtype ' + str(dtype))
 
 
 def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
@@ -1253,44 +1833,6 @@ def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
     value_count = torch.sum(mask, dim=dim, keepdim=keepdim)
     return value_sum / value_count.float().clamp(min=tiny_value_of_dtype(
         torch.float))
-
-
-def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
-    1, memory_efficient: bool=False) ->torch.Tensor:
-    """
-    `torch.nn.functional.softmax(vector)` does not work if some elements of `vector` should be
-    masked.  This performs a softmax on just the non-masked portions of `vector`.  Passing
-    `None` in for the mask is also acceptable; you'll just get a regular softmax.
-
-    `vector` can have an arbitrary number of dimensions; the only requirement is that `mask` is
-    broadcastable to `vector's` shape.  If `mask` has fewer dimensions than `vector`, we will
-    unsqueeze on dimension 1 until they match.  If you need a different unsqueezing of your mask,
-    do it yourself before passing the mask into this function.
-
-    If `memory_efficient` is set to true, we will simply use a very large negative number for those
-    masked positions so that the probabilities of those positions would be approximately 0.
-    This is not accurate in math, but works for most cases and consumes less memory.
-
-    In the case that the input vector is completely masked and `memory_efficient` is false, this function
-    returns an array of `0.0`. This behavior may cause `NaN` if this is used as the last layer of
-    a model that uses categorical cross-entropy loss. Instead, if `memory_efficient` is true, this function
-    will treat every element as equal, and do softmax over equal numbers.
-    """
-    if mask is None:
-        result = torch.nn.functional.softmax(vector, dim=dim)
-    else:
-        while mask.dim() < vector.dim():
-            mask = mask.unsqueeze(1)
-        if not memory_efficient:
-            result = torch.nn.functional.softmax(vector * mask, dim=dim)
-            result = result * mask
-            result = result / (result.sum(dim=dim, keepdim=True) +
-                tiny_value_of_dtype(result.dtype))
-        else:
-            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(
-                vector.dtype))
-            result = torch.nn.functional.softmax(masked_vector, dim=dim)
-    return result
 
 
 def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor,
@@ -1551,9 +2093,6 @@ class ConditionalRandomField(torch.nn.Module):
         return best_paths
 
 
-logger = logging.getLogger(__name__)
-
-
 def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor
     ) ->Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -1717,6 +2256,260 @@ def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
         raise ValueError(
             'add_sentence_boundary_token_ids only accepts 2D and 3D input')
     return tensor_with_boundary_tokens, new_mask
+
+
+IndexedTokenList = Dict[str, List[Any]]
+
+
+def pad_sequence_to_length(sequence: List, desired_length: int,
+    default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True
+    ) ->List:
+    """
+    Take a list of objects and pads it to the desired length, returning the padded list.  The
+    original list is not modified.
+
+    # Parameters
+
+    sequence : `List`
+        A list of objects to be padded.
+
+    desired_length : `int`
+        Maximum length of each sequence. Longer sequences are truncated to this length, and
+        shorter ones are padded to it.
+
+    default_value: `Callable`, optional (default=`lambda: 0`)
+        Callable that outputs a default value (of any type) to use as padding values.  This is
+        a lambda to avoid using the same object when the default value is more complex, like a
+        list.
+
+    padding_on_right : `bool`, optional (default=`True`)
+        When we add padding tokens (or truncate the sequence), should we do it on the right or
+        the left?
+
+    # Returns
+
+    padded_sequence : `List`
+    """
+    if padding_on_right:
+        padded_sequence = sequence[:desired_length]
+    else:
+        padded_sequence = sequence[-desired_length:]
+    pad_length = desired_length - len(padded_sequence)
+    values_to_pad = [default_value()] * pad_length
+    if padding_on_right:
+        padded_sequence = padded_sequence + values_to_pad
+    else:
+        padded_sequence = values_to_pad + padded_sequence
+    return padded_sequence
+
+
+TextFieldTensors = Dict[str, Dict[str, torch.Tensor]]
+
+
+def batch_to_ids(batch: List[List[str]]) ->torch.Tensor:
+    """
+    Converts a batch of tokenized sentences to a tensor representing the sentences with encoded characters
+    (len(batch), max sentence length, max word length).
+
+    # Parameters
+
+    batch : `List[List[str]]`, required
+        A list of tokenized sentences.
+
+    # Returns
+
+        A tensor of padded character ids.
+    """
+    instances = []
+    indexer = ELMoTokenCharactersIndexer()
+    for sentence in batch:
+        tokens = [Token(token) for token in sentence]
+        field = TextField(tokens, {'character_ids': indexer})
+        instance = Instance({'elmo': field})
+        instances.append(instance)
+    dataset = Batch(instances)
+    vocab = Vocabulary()
+    dataset.index_instances(vocab)
+    return dataset.as_tensor_dict()['elmo']['character_ids']['elmo_tokens']
+
+
+def get_device_of(tensor: torch.Tensor) ->int:
+    """
+    Returns the device of the tensor.
+    """
+    if not tensor.is_cuda:
+        return -1
+    else:
+        return tensor.get_device()
+
+
+def lazy_groups_of(iterable: Iterable[A], group_size: int) ->Iterator[List[A]]:
+    """
+    Takes an iterable and batches the individual instances into lists of the
+    specified size. The last list may be smaller if there are instances left over.
+    """
+    iterator = iter(iterable)
+    while True:
+        s = list(islice(iterator, group_size))
+        if len(s) > 0:
+            yield s
+        else:
+            break
+
+
+class _ElmoBiLm(torch.nn.Module):
+    """
+    Run a pre-trained bidirectional language model, outputting the activations at each
+    layer for weighting together into an ELMo representation (with
+    `allennlp.modules.seq2seq_encoders.Elmo`).  This is a lower level class, useful
+    for advanced uses, but most users should use `allennlp.modules.Elmo` directly.
+
+    # Parameters
+
+    options_file : `str`
+        ELMo JSON options file
+    weight_file : `str`
+        ELMo hdf5 weight file
+    requires_grad : `bool`, optional, (default = `False`).
+        If True, compute gradient of ELMo parameters for fine tuning.
+    vocab_to_cache : `List[str]`, optional, (default = `None`).
+        A list of words to pre-compute and cache character convolutions
+        for. If you use this option, _ElmoBiLm expects that you pass word
+        indices of shape (batch_size, timesteps) to forward, instead
+        of character indices. If you use this option and pass a word which
+        wasn't pre-cached, this will break.
+    """
+
+    def __init__(self, options_file: str, weight_file: str, requires_grad:
+        bool=False, vocab_to_cache: List[str]=None) ->None:
+        super().__init__()
+        self._token_embedder = _ElmoCharacterEncoder(options_file,
+            weight_file, requires_grad=requires_grad)
+        self._requires_grad = requires_grad
+        if requires_grad and vocab_to_cache:
+            logging.warning(
+                'You are fine tuning ELMo and caching char CNN word vectors. This behaviour is not guaranteed to be well defined, particularly. if not all of your inputs will occur in the vocabulary cache.'
+                )
+        self._word_embedding = None
+        self._bos_embedding: torch.Tensor = None
+        self._eos_embedding: torch.Tensor = None
+        if vocab_to_cache:
+            logging.info(
+                'Caching character cnn layers for words in vocabulary.')
+            self.create_cached_cnn_embeddings(vocab_to_cache)
+        with open(cached_path(options_file), 'r') as fin:
+            options = json.load(fin)
+        if not options['lstm'].get('use_skip_connections'):
+            raise ConfigurationError(
+                'We only support pretrained biLMs with residual connections')
+        self._elmo_lstm = ElmoLstm(input_size=options['lstm'][
+            'projection_dim'], hidden_size=options['lstm']['projection_dim'
+            ], cell_size=options['lstm']['dim'], num_layers=options['lstm']
+            ['n_layers'], memory_cell_clip_value=options['lstm'][
+            'cell_clip'], state_projection_clip_value=options['lstm'][
+            'proj_clip'], requires_grad=requires_grad)
+        self._elmo_lstm.load_weights(weight_file)
+        self.num_layers = options['lstm']['n_layers'] + 1
+
+    def get_output_dim(self):
+        return 2 * self._token_embedder.get_output_dim()
+
+    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None
+        ) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
+        """
+        # Parameters
+
+        inputs : `torch.Tensor`, required.
+            Shape `(batch_size, timesteps, 50)` of character ids representing the current batch.
+        word_inputs : `torch.Tensor`, required.
+            If you passed a cached vocab, you can in addition pass a tensor of shape `(batch_size, timesteps)`,
+            which represent word ids which have been pre-cached.
+
+        # Returns
+
+        Dict with keys:
+
+        `'activations'` : `List[torch.Tensor]`
+            A list of activations at each layer of the network, each of shape
+            `(batch_size, timesteps + 2, embedding_dim)`
+        `'mask'`:  `torch.BoolTensor`
+            Shape `(batch_size, timesteps + 2)` long tensor with sequence mask.
+
+        Note that the output tensors all include additional special begin and end of sequence
+        markers.
+        """
+        if self._word_embedding is not None and word_inputs is not None:
+            try:
+                mask_without_bos_eos = word_inputs > 0
+                embedded_inputs = self._word_embedding(word_inputs)
+                type_representation, mask = add_sentence_boundary_token_ids(
+                    embedded_inputs, mask_without_bos_eos, self.
+                    _bos_embedding, self._eos_embedding)
+            except (RuntimeError, IndexError):
+                token_embedding = self._token_embedder(inputs)
+                mask = token_embedding['mask']
+                type_representation = token_embedding['token_embedding']
+        else:
+            token_embedding = self._token_embedder(inputs)
+            mask = token_embedding['mask']
+            type_representation = token_embedding['token_embedding']
+        lstm_outputs = self._elmo_lstm(type_representation, mask)
+        output_tensors = [torch.cat([type_representation,
+            type_representation], dim=-1) * mask.unsqueeze(-1)]
+        for layer_activations in torch.chunk(lstm_outputs, lstm_outputs.
+            size(0), dim=0):
+            output_tensors.append(layer_activations.squeeze(0))
+        return {'activations': output_tensors, 'mask': mask}
+
+    def create_cached_cnn_embeddings(self, tokens: List[str]) ->None:
+        """
+        Given a list of tokens, this method precomputes word representations
+        by running just the character convolutions and highway layers of elmo,
+        essentially creating uncontextual word vectors. On subsequent forward passes,
+        the word ids are looked up from an embedding, rather than being computed on
+        the fly via the CNN encoder.
+
+        This function sets 3 attributes:
+
+        _word_embedding : `torch.Tensor`
+            The word embedding for each word in the tokens passed to this method.
+        _bos_embedding : `torch.Tensor`
+            The embedding for the BOS token.
+        _eos_embedding : `torch.Tensor`
+            The embedding for the EOS token.
+
+        # Parameters
+
+        tokens : `List[str]`, required.
+            A list of tokens to precompute character convolutions for.
+        """
+        tokens = [ELMoCharacterMapper.bos_token, ELMoCharacterMapper.eos_token
+            ] + tokens
+        timesteps = 32
+        batch_size = 32
+        chunked_tokens = lazy_groups_of(iter(tokens), timesteps)
+        all_embeddings = []
+        device = get_device_of(next(self.parameters()))
+        for batch in lazy_groups_of(chunked_tokens, batch_size):
+            batched_tensor = batch_to_ids(batch)
+            if device >= 0:
+                batched_tensor = batched_tensor
+            output = self._token_embedder(batched_tensor)
+            token_embedding = output['token_embedding']
+            mask = output['mask']
+            token_embedding, _ = remove_sentence_boundaries(token_embedding,
+                mask)
+            all_embeddings.append(token_embedding.view(-1, token_embedding.
+                size(-1)))
+        full_embedding = torch.cat(all_embeddings, 0)
+        full_embedding = full_embedding[:len(tokens), :]
+        embedding = full_embedding[2:len(tokens), :]
+        vocab_size, embedding_dim = list(embedding.size())
+        self._bos_embedding = full_embedding[(0), :]
+        self._eos_embedding = full_embedding[(1), :]
+        self._word_embedding = Embedding(num_embeddings=vocab_size,
+            embedding_dim=embedding_dim, weight=embedding.data, trainable=
+            self._requires_grad, padding_index=0)
 
 
 RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
@@ -2892,6 +3685,7 @@ class _Net2(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_allenai_allennlp(_paritybench_base):
@@ -2906,23 +3700,19 @@ class Test_allenai_allennlp(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(LstmCellWithProjection(*[], **{'input_size': 4, 'hidden_size': 4, 'cell_size': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
-
-    @_fails_compile()
-    def test_003(self):
         self._check(MaskedLayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_003(self):
         self._check(ResidualWithLayerDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_004(self):
         self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(_Net1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(_Net2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -10,10 +10,13 @@ test_one = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,6 +45,15 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
 
 
 from torch.autograd import Variable
@@ -77,7 +89,7 @@ class _netG(nn.Module):
             1, bias=False), nn.Tanh())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             output = nn.parallel.data_parallel(self.main, input, range(self
                 .ngpu))
         else:
@@ -101,7 +113,7 @@ class _netlocalD(nn.Module):
             bias=False), nn.Sigmoid())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             output = nn.parallel.data_parallel(self.main, input, range(self
                 .ngpu))
         else:
@@ -110,7 +122,16 @@ class _netlocalD(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_BoyuanJiang_context_encoder_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(_netG(*[], **{'opt': _mock_config(ngpu=False, nc=4, nef=4, nBottleneck=4, ngf=4)}), [torch.rand([4, 4, 128, 128])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(_netlocalD(*[], **{'opt': _mock_config(ngpu=False, nc=4, ndf=4)}), [torch.rand([4, 4, 64, 64])], {})
+

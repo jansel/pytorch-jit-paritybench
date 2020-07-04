@@ -127,10 +127,13 @@ test_texturing = _module
 test_transforms = _module
 test_vert_align = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -328,7 +331,7 @@ class GraphConv(nn.Module):
             return verts.new_zeros((0, self.output_dim)) * verts.sum()
         verts_w0 = self.w0(verts)
         verts_w1 = self.w1(verts)
-        if torch.cuda.is_available() and verts.is_cuda and edges.is_cuda:
+        if torch.is_available() and verts.is_cuda and edges.is_cuda:
             neighbor_sums = gather_scatter(verts_w1, edges, self.directed)
         else:
             neighbor_sums = gather_scatter_python(verts_w1, edges, self.
@@ -2539,6 +2542,263 @@ class BlendParams(NamedTuple):
 BROADCAST_TYPES = float, int, list, tuple, torch.Tensor, np.ndarray
 
 
+def format_tensor(input, dtype=torch.float32, device: str='cpu'
+    ) ->torch.Tensor:
+    """
+    Helper function for converting a scalar value to a tensor.
+
+    Args:
+        input: Python scalar, Python list/tuple, torch scalar, 1D torch tensor
+        dtype: data type for the input
+        device: torch device on which the tensor should be placed.
+
+    Returns:
+        input_vec: torch tensor with optional added batch dimension.
+    """
+    if not torch.is_tensor(input):
+        input = torch.tensor(input, dtype=dtype, device=device)
+    if input.dim() == 0:
+        input = input.view(1)
+    if input.device != device:
+        input = input.to(device=device)
+    return input
+
+
+def convert_to_tensors_and_broadcast(*args, dtype=torch.float32, device:
+    str='cpu'):
+    """
+    Helper function to handle parsing an arbitrary number of inputs (*args)
+    which all need to have the same batch dimension.
+    The output is a list of tensors.
+
+    Args:
+        *args: an arbitrary number of inputs
+            Each of the values in `args` can be one of the following
+                - Python scalar
+                - Torch scalar
+                - Torch tensor of shape (N, K_i) or (1, K_i) where K_i are
+                  an arbitrary number of dimensions which can vary for each
+                  value in args. In this case each input is broadcast to a
+                  tensor of shape (N, K_i)
+        dtype: data type to use when creating new tensors.
+        device: torch device on which the tensors should be placed.
+
+    Output:
+        args: A list of tensors of shape (N, K_i)
+    """
+    args_1d = [format_tensor(c, dtype, device) for c in args]
+    sizes = [c.shape[0] for c in args_1d]
+    N = max(sizes)
+    args_Nd = []
+    for c in args_1d:
+        if c.shape[0] != 1 and c.shape[0] != N:
+            msg = 'Got non-broadcastable sizes %r' % sizes
+            raise ValueError(msg)
+        expand_sizes = (N,) + (-1,) * len(c.shape[1:])
+        args_Nd.append(c.expand(*expand_sizes))
+    if len(args) == 1:
+        args_Nd = args_Nd[0]
+    return args_Nd
+
+
+class TensorProperties(object):
+    """
+    A mix-in class for storing tensors as properties with helper methods.
+    """
+
+    def __init__(self, dtype=torch.float32, device='cpu', **kwargs):
+        """
+        Args:
+            dtype: data type to set for the inputs
+            device: str or torch.device
+            kwargs: any number of keyword arguments. Any arguments which are
+                of type (float/int/tuple/tensor/array) are broadcasted and
+                other keyword arguments are set as attributes.
+        """
+        super().__init__()
+        self.device = device
+        self._N = 0
+        if kwargs is not None:
+            args_to_broadcast = {}
+            for k, v in kwargs.items():
+                if isinstance(v, (str, bool)):
+                    setattr(self, k, v)
+                elif isinstance(v, BROADCAST_TYPES):
+                    args_to_broadcast[k] = v
+                else:
+                    msg = 'Arg %s with type %r is not broadcastable'
+                    warnings.warn(msg % (k, type(v)))
+            names = args_to_broadcast.keys()
+            values = tuple(v for v in args_to_broadcast.values())
+            if len(values) > 0:
+                broadcasted_values = convert_to_tensors_and_broadcast(*
+                    values, device=device)
+                for i, n in enumerate(names):
+                    setattr(self, n, broadcasted_values[i])
+                    if self._N == 0:
+                        self._N = broadcasted_values[i].shape[0]
+
+    def __len__(self) ->int:
+        return self._N
+
+    def isempty(self) ->bool:
+        return self._N == 0
+
+    def __getitem__(self, index: Union[int, slice]):
+        """
+
+        Args:
+            index: an int or slice used to index all the fields.
+
+        Returns:
+            if `index` is an index int/slice return a TensorAccessor class
+            with getattribute/setattribute methods which return/update the value
+            at the index in the original camera.
+        """
+        if isinstance(index, (int, slice)):
+            return TensorAccessor(class_object=self, index=index)
+        msg = 'Expected index of type int or slice; got %r'
+        raise ValueError(msg % type(index))
+
+    def to(self, device: str='cpu'):
+        """
+        In place operation to move class properties which are tensors to a
+        specified device. If self has a property "device", update this as well.
+        """
+        for k in dir(self):
+            v = getattr(self, k)
+            if k == 'device':
+                setattr(self, k, device)
+            if torch.is_tensor(v) and v.device != device:
+                setattr(self, k, v.to(device))
+        return self
+
+    def clone(self, other):
+        """
+        Update the tensor properties of other with the cloned properties of self.
+        """
+        for k in dir(self):
+            v = getattr(self, k)
+            if inspect.ismethod(v) or k.startswith('__'):
+                continue
+            if torch.is_tensor(v):
+                v_clone = v.clone()
+            else:
+                v_clone = copy.deepcopy(v)
+            setattr(other, k, v_clone)
+        return other
+
+    def gather_props(self, batch_idx):
+        """
+        This is an in place operation to reformat all tensor class attributes
+        based on a set of given indices using torch.gather. This is useful when
+        attributes which are batched tensors e.g. shape (N, 3) need to be
+        multiplied with another tensor which has a different first dimension
+        e.g. packed vertices of shape (V, 3).
+
+        Example
+
+        .. code-block:: python
+
+            self.specular_color = (N, 3) tensor of specular colors for each mesh
+
+        A lighting calculation may use
+
+        .. code-block:: python
+
+            verts_packed = meshes.verts_packed()  # (V, 3)
+
+        To multiply these two tensors the batch dimension needs to be the same.
+        To achieve this we can do
+
+        .. code-block:: python
+
+            batch_idx = meshes.verts_packed_to_mesh_idx()  # (V)
+
+        This gives index of the mesh for each vertex in verts_packed.
+
+        .. code-block:: python
+
+            self.gather_props(batch_idx)
+            self.specular_color = (V, 3) tensor with the specular color for
+                                     each packed vertex.
+
+        torch.gather requires the index tensor to have the same shape as the
+        input tensor so this method takes care of the reshaping of the index
+        tensor to use with class attributes with arbitrary dimensions.
+
+        Args:
+            batch_idx: shape (B, ...) where `...` represents an arbitrary
+                number of dimensions
+
+        Returns:
+            self with all properties reshaped. e.g. a property with shape (N, 3)
+            is transformed to shape (B, 3).
+        """
+        for k in dir(self):
+            v = getattr(self, k)
+            if torch.is_tensor(v):
+                if v.shape[0] > 1:
+                    _batch_idx = batch_idx.clone()
+                    idx_dims = _batch_idx.shape
+                    tensor_dims = v.shape
+                    if len(idx_dims) > len(tensor_dims):
+                        msg = 'batch_idx cannot have more dimensions than %s. '
+                        msg += 'got shape %r and %s has shape %r'
+                        raise ValueError(msg % (k, idx_dims, k, tensor_dims))
+                    if idx_dims != tensor_dims:
+                        new_dims = len(tensor_dims) - len(idx_dims)
+                        new_shape = idx_dims + (1,) * new_dims
+                        expand_dims = (-1,) + tensor_dims[1:]
+                        _batch_idx = _batch_idx.view(*new_shape)
+                        _batch_idx = _batch_idx.expand(*expand_dims)
+                    v = v.gather(0, _batch_idx)
+                    setattr(self, k, v)
+        return self
+
+
+class Materials(TensorProperties):
+    """
+    A class for storing a batch of material properties. Currently only one
+    material per batch element is supported.
+    """
+
+    def __init__(self, ambient_color=((1, 1, 1),), diffuse_color=((1, 1, 1)
+        ,), specular_color=((1, 1, 1),), shininess=64, device='cpu'):
+        """
+        Args:
+            ambient_color: RGB ambient reflectivity of the material
+            diffuse_color: RGB diffuse reflectivity of the material
+            specular_color: RGB specular reflectivity of the material
+            shininess: The specular exponent for the material. This defines
+                the focus of the specular highlight with a high value
+                resulting in a concentrated highlight. Shininess values
+                can range from 0-1000.
+            device: torch.device or string
+
+        ambient_color, diffuse_color and specular_color can be of shape
+        (1, 3) or (N, 3). shininess can be of shape (1) or (N).
+
+        The colors and shininess are broadcast against each other so need to
+        have either the same batch dimension or batch dimension = 1.
+        """
+        super().__init__(device=device, diffuse_color=diffuse_color,
+            ambient_color=ambient_color, specular_color=specular_color,
+            shininess=shininess)
+        for n in ['ambient_color', 'diffuse_color', 'specular_color']:
+            t = getattr(self, n)
+            if t.shape[-1] != 3:
+                msg = 'Expected %s to have shape (N, 3); got %r'
+                raise ValueError(msg % (n, t.shape))
+        if self.shininess.shape != torch.Size([self._N]):
+            msg = 'shininess should have shape (N); got %r'
+            raise ValueError(msg % repr(self.shininess.shape))
+
+    def clone(self):
+        other = Materials(device=self.device)
+        return super().clone(other)
+
+
 def _validate_light_properties(obj):
     props = 'ambient_color', 'diffuse_color', 'specular_color'
     for n in props:
@@ -2548,70 +2808,49 @@ def _validate_light_properties(obj):
             raise ValueError(msg % (n, t.shape))
 
 
-def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Args:
-        points: torch tensor of shape (N, P, 3) or (P, 3).
-        normals: torch tensor of shape (N, P, 3) or (P, 3)
-        lights: instance of the Lights class.
-        cameras: instance of the Cameras class.
-        materials: instance of the Materials class.
+class PointLights(TensorProperties):
 
-    Returns:
-        ambient_color: same shape as materials.ambient_color
-        diffuse_color: same shape as the input points
-        specular_color: same shape as the input points
-    """
-    light_diffuse = lights.diffuse(normals=normals, points=points)
-    light_specular = lights.specular(normals=normals, points=points,
-        camera_position=cameras.get_camera_center(), shininess=materials.
-        shininess)
-    ambient_color = materials.ambient_color * lights.ambient_color
-    diffuse_color = materials.diffuse_color * light_diffuse
-    specular_color = materials.specular_color * light_specular
-    if normals.dim() == 2 and points.dim() == 2:
-        return ambient_color.squeeze(), diffuse_color.squeeze(
-            ), specular_color.squeeze()
-    return ambient_color, diffuse_color, specular_color
+    def __init__(self, ambient_color=((0.5, 0.5, 0.5),), diffuse_color=((
+        0.3, 0.3, 0.3),), specular_color=((0.2, 0.2, 0.2),), location=((0, 
+        1, 0),), device: str='cpu'):
+        """
+        Args:
+            ambient_color: RGB color of the ambient component
+            diffuse_color: RGB color of the diffuse component
+            specular_color: RGB color of the specular component
+            location: xyz position of the light.
+            device: torch.device on which the tensors should be located
 
+        The inputs can each be
+            - 3 element tuple/list or list of lists
+            - torch tensor of shape (1, 3)
+            - torch tensor of shape (N, 3)
+        The inputs are broadcast against each other so they all have batch
+        dimension N.
+        """
+        super().__init__(device=device, ambient_color=ambient_color,
+            diffuse_color=diffuse_color, specular_color=specular_color,
+            location=location)
+        _validate_light_properties(self)
+        if self.location.shape[-1] != 3:
+            msg = 'Expected location to have shape (N, 3); got %r'
+            raise ValueError(msg % repr(self.location.shape))
 
-def gouraud_shading(meshes, fragments, lights, cameras, materials
-    ) ->torch.Tensor:
-    """
-    Apply per vertex shading. First compute the vertex illumination by applying
-    ambient, diffuse and specular lighting. If vertex color is available,
-    combine the ambient and diffuse vertex illumination with the vertex color
-    and add the specular component to determine the vertex shaded color.
-    Then interpolate the vertex shaded colors using the barycentric coordinates
-    to get a color per pixel.
+    def clone(self):
+        other = self.__class__(device=self.device)
+        return super().clone(other)
 
-    Args:
-        meshes: Batch of meshes
-        fragments: Fragments named tuple with the outputs of rasterization
-        lights: Lights class containing a batch of lights parameters
-        cameras: Cameras class containing a batch of cameras parameters
-        materials: Materials class containing a batch of material properties
+    def diffuse(self, normals, points) ->torch.Tensor:
+        direction = self.location - points
+        return diffuse(normals=normals, color=self.diffuse_color, direction
+            =direction)
 
-    Returns:
-        colors: (N, H, W, K, 3)
-    """
-    faces = meshes.faces_packed()
-    verts = meshes.verts_packed()
-    vertex_normals = meshes.verts_normals_packed()
-    vertex_colors = meshes.textures.verts_rgb_packed()
-    vert_to_mesh_idx = meshes.verts_packed_to_mesh_idx()
-    if len(meshes) > 1:
-        lights = lights.clone().gather_props(vert_to_mesh_idx)
-        cameras = cameras.clone().gather_props(vert_to_mesh_idx)
-        materials = materials.clone().gather_props(vert_to_mesh_idx)
-    ambient, diffuse, specular = _apply_lighting(verts, vertex_normals,
-        lights, cameras, materials)
-    verts_colors_shaded = vertex_colors * (ambient + diffuse) + specular
-    face_colors = verts_colors_shaded[faces]
-    colors = interpolate_face_attributes(fragments.pix_to_face, fragments.
-        bary_coords, face_colors)
-    return colors
+    def specular(self, normals, points, camera_position, shininess
+        ) ->torch.Tensor:
+        direction = self.location - points
+        return specular(points=points, normals=normals, color=self.
+            specular_color, direction=direction, camera_position=
+            camera_position, shininess=shininess)
 
 
 def hard_rgb_blend(colors, fragments, blend_params) ->torch.Tensor:
@@ -2643,11 +2882,104 @@ def hard_rgb_blend(colors, fragments, blend_params) ->torch.Tensor:
     return torch.cat([pixel_colors, alpha], dim=-1)
 
 
-class HardGouraudShader(nn.Module):
+def interpolate_vertex_colors(fragments, meshes) ->torch.Tensor:
     """
-    Per vertex lighting - the lighting model is applied to the vertex colors and
-    the colors are then interpolated using the barycentric coordinates to
-    obtain the colors for each pixel. The blending function hard assigns
+    Detemine the color for each rasterized face. Interpolate the colors for
+    vertices which form the face using the barycentric coordinates.
+    Args:
+        meshes: A Meshes class representing a batch of meshes.
+        fragments:
+            The outputs of rasterization. From this we use
+
+            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
+              of the faces (in the packed representation) which
+              overlap each pixel in the image.
+            - barycentric_coords: FloatTensor of shape (N, H, W, K, 3) specifying
+              the barycentric coordianates of each pixel
+              relative to the faces (in the packed
+              representation) which overlap the pixel.
+
+    Returns:
+        texels: An texture per pixel of shape (N, H, W, K, C).
+        There will be one C dimensional value for each element in
+        fragments.pix_to_face.
+    """
+    vertex_textures = meshes.textures.verts_rgb_padded().reshape(-1, 3)
+    vertex_textures = vertex_textures[(meshes.verts_padded_to_packed_idx()), :]
+    faces_packed = meshes.faces_packed()
+    faces_textures = vertex_textures[faces_packed]
+    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.
+        bary_coords, faces_textures)
+    return texels
+
+
+def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Args:
+        points: torch tensor of shape (N, P, 3) or (P, 3).
+        normals: torch tensor of shape (N, P, 3) or (P, 3)
+        lights: instance of the Lights class.
+        cameras: instance of the Cameras class.
+        materials: instance of the Materials class.
+
+    Returns:
+        ambient_color: same shape as materials.ambient_color
+        diffuse_color: same shape as the input points
+        specular_color: same shape as the input points
+    """
+    light_diffuse = lights.diffuse(normals=normals, points=points)
+    light_specular = lights.specular(normals=normals, points=points,
+        camera_position=cameras.get_camera_center(), shininess=materials.
+        shininess)
+    ambient_color = materials.ambient_color * lights.ambient_color
+    diffuse_color = materials.diffuse_color * light_diffuse
+    specular_color = materials.specular_color * light_specular
+    if normals.dim() == 2 and points.dim() == 2:
+        return ambient_color.squeeze(), diffuse_color.squeeze(
+            ), specular_color.squeeze()
+    return ambient_color, diffuse_color, specular_color
+
+
+def phong_shading(meshes, fragments, lights, cameras, materials, texels
+    ) ->torch.Tensor:
+    """
+    Apply per pixel shading. First interpolate the vertex normals and
+    vertex coordinates using the barycentric coordinates to get the position
+    and normal at each pixel. Then compute the illumination for each pixel.
+    The pixel color is obtained by multiplying the pixel textures by the ambient
+    and diffuse illumination and adding the specular component.
+
+    Args:
+        meshes: Batch of meshes
+        fragments: Fragments named tuple with the outputs of rasterization
+        lights: Lights class containing a batch of lights
+        cameras: Cameras class containing a batch of cameras
+        materials: Materials class containing a batch of material properties
+        texels: texture per pixel of shape (N, H, W, K, 3)
+
+    Returns:
+        colors: (N, H, W, K, 3)
+    """
+    verts = meshes.verts_packed()
+    faces = meshes.faces_packed()
+    vertex_normals = meshes.verts_normals_packed()
+    faces_verts = verts[faces]
+    faces_normals = vertex_normals[faces]
+    pixel_coords = interpolate_face_attributes(fragments.pix_to_face,
+        fragments.bary_coords, faces_verts)
+    pixel_normals = interpolate_face_attributes(fragments.pix_to_face,
+        fragments.bary_coords, faces_normals)
+    ambient, diffuse, specular = _apply_lighting(pixel_coords,
+        pixel_normals, lights, cameras, materials)
+    colors = (ambient + diffuse) * texels + specular
+    return colors
+
+
+class HardPhongShader(nn.Module):
+    """
+    Per pixel lighting - the lighting model is applied using the interpolated
+    coordinates and normals for each pixel. The blending function hard assigns
     the color of the closest face for each pixel.
 
     To use the default values, simply initialize the shader with the desired
@@ -2655,7 +2987,7 @@ class HardGouraudShader(nn.Module):
 
     .. code-block::
 
-        shader = HardGouraudShader(device=torch.device("cuda:0"))
+        shader = HardPhongShader(device=torch.device("cuda:0"))
     """
 
     def __init__(self, device='cpu', cameras=None, lights=None, materials=
@@ -2673,15 +3005,16 @@ class HardGouraudShader(nn.Module):
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
             msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of HardGouraudShader'
+                'Cameras must be specified either at initialization                 or in the forward pass of HardPhongShader'
                 )
             raise ValueError(msg)
+        texels = interpolate_vertex_colors(fragments, meshes)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
         blend_params = kwargs.get('blend_params', self.blend_params)
-        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments,
-            lights=lights, cameras=cameras, materials=materials)
-        images = hard_rgb_blend(pixel_colors, fragments, blend_params)
+        colors = phong_shading(meshes=meshes, fragments=fragments, texels=
+            texels, lights=lights, cameras=cameras, materials=materials)
+        images = hard_rgb_blend(colors, fragments, blend_params)
         return images
 
 
@@ -2747,6 +3080,127 @@ def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
     pixel_colors[(...), :3] = weighted_colors + weighted_background
     pixel_colors[..., 3] = 1.0 - alpha
     return pixel_colors
+
+
+class SoftPhongShader(nn.Module):
+    """
+    Per pixel lighting - the lighting model is applied using the interpolated
+    coordinates and normals for each pixel. The blending function returns the
+    soft aggregated color using all the faces per pixel.
+
+    To use the default values, simply initialize the shader with the desired
+    device e.g.
+
+    .. code-block::
+
+        shader = SoftPhongShader(device=torch.device("cuda:0"))
+    """
+
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=
+        None, blend_params=None):
+        super().__init__()
+        self.lights = lights if lights is not None else PointLights(device=
+            device)
+        self.materials = materials if materials is not None else Materials(
+            device=device)
+        self.cameras = cameras
+        self.blend_params = (blend_params if blend_params is not None else
+            BlendParams())
+
+    def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
+        cameras = kwargs.get('cameras', self.cameras)
+        if cameras is None:
+            msg = (
+                'Cameras must be specified either at initialization                 or in the forward pass of SoftPhongShader'
+                )
+            raise ValueError(msg)
+        texels = interpolate_vertex_colors(fragments, meshes)
+        lights = kwargs.get('lights', self.lights)
+        materials = kwargs.get('materials', self.materials)
+        colors = phong_shading(meshes=meshes, fragments=fragments, texels=
+            texels, lights=lights, cameras=cameras, materials=materials)
+        images = softmax_rgb_blend(colors, fragments, self.blend_params)
+        return images
+
+
+def gouraud_shading(meshes, fragments, lights, cameras, materials
+    ) ->torch.Tensor:
+    """
+    Apply per vertex shading. First compute the vertex illumination by applying
+    ambient, diffuse and specular lighting. If vertex color is available,
+    combine the ambient and diffuse vertex illumination with the vertex color
+    and add the specular component to determine the vertex shaded color.
+    Then interpolate the vertex shaded colors using the barycentric coordinates
+    to get a color per pixel.
+
+    Args:
+        meshes: Batch of meshes
+        fragments: Fragments named tuple with the outputs of rasterization
+        lights: Lights class containing a batch of lights parameters
+        cameras: Cameras class containing a batch of cameras parameters
+        materials: Materials class containing a batch of material properties
+
+    Returns:
+        colors: (N, H, W, K, 3)
+    """
+    faces = meshes.faces_packed()
+    verts = meshes.verts_packed()
+    vertex_normals = meshes.verts_normals_packed()
+    vertex_colors = meshes.textures.verts_rgb_packed()
+    vert_to_mesh_idx = meshes.verts_packed_to_mesh_idx()
+    if len(meshes) > 1:
+        lights = lights.clone().gather_props(vert_to_mesh_idx)
+        cameras = cameras.clone().gather_props(vert_to_mesh_idx)
+        materials = materials.clone().gather_props(vert_to_mesh_idx)
+    ambient, diffuse, specular = _apply_lighting(verts, vertex_normals,
+        lights, cameras, materials)
+    verts_colors_shaded = vertex_colors * (ambient + diffuse) + specular
+    face_colors = verts_colors_shaded[faces]
+    colors = interpolate_face_attributes(fragments.pix_to_face, fragments.
+        bary_coords, face_colors)
+    return colors
+
+
+class HardGouraudShader(nn.Module):
+    """
+    Per vertex lighting - the lighting model is applied to the vertex colors and
+    the colors are then interpolated using the barycentric coordinates to
+    obtain the colors for each pixel. The blending function hard assigns
+    the color of the closest face for each pixel.
+
+    To use the default values, simply initialize the shader with the desired
+    device e.g.
+
+    .. code-block::
+
+        shader = HardGouraudShader(device=torch.device("cuda:0"))
+    """
+
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=
+        None, blend_params=None):
+        super().__init__()
+        self.lights = lights if lights is not None else PointLights(device=
+            device)
+        self.materials = materials if materials is not None else Materials(
+            device=device)
+        self.cameras = cameras
+        self.blend_params = (blend_params if blend_params is not None else
+            BlendParams())
+
+    def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
+        cameras = kwargs.get('cameras', self.cameras)
+        if cameras is None:
+            msg = (
+                'Cameras must be specified either at initialization                 or in the forward pass of HardGouraudShader'
+                )
+            raise ValueError(msg)
+        lights = kwargs.get('lights', self.lights)
+        materials = kwargs.get('materials', self.materials)
+        blend_params = kwargs.get('blend_params', self.blend_params)
+        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments,
+            lights=lights, cameras=cameras, materials=materials)
+        images = hard_rgb_blend(pixel_colors, fragments, blend_params)
+        return images
 
 
 class SoftGouraudShader(nn.Module):
@@ -2840,41 +3294,6 @@ def interpolate_texture_map(fragments, meshes) ->torch.Tensor:
     return texels
 
 
-def phong_shading(meshes, fragments, lights, cameras, materials, texels
-    ) ->torch.Tensor:
-    """
-    Apply per pixel shading. First interpolate the vertex normals and
-    vertex coordinates using the barycentric coordinates to get the position
-    and normal at each pixel. Then compute the illumination for each pixel.
-    The pixel color is obtained by multiplying the pixel textures by the ambient
-    and diffuse illumination and adding the specular component.
-
-    Args:
-        meshes: Batch of meshes
-        fragments: Fragments named tuple with the outputs of rasterization
-        lights: Lights class containing a batch of lights
-        cameras: Cameras class containing a batch of cameras
-        materials: Materials class containing a batch of material properties
-        texels: texture per pixel of shape (N, H, W, K, 3)
-
-    Returns:
-        colors: (N, H, W, K, 3)
-    """
-    verts = meshes.verts_packed()
-    faces = meshes.faces_packed()
-    vertex_normals = meshes.verts_normals_packed()
-    faces_verts = verts[faces]
-    faces_normals = vertex_normals[faces]
-    pixel_coords = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_verts)
-    pixel_normals = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_normals)
-    ambient, diffuse, specular = _apply_lighting(pixel_coords,
-        pixel_normals, lights, cameras, materials)
-    colors = (ambient + diffuse) * texels + specular
-    return colors
-
-
 class TexturedSoftPhongShader(nn.Module):
     """
     Per pixel lighting applied to a texture map. First interpolate the vertex
@@ -2957,37 +3376,6 @@ def flat_shading(meshes, fragments, lights, cameras, materials, texels
         pixel_normals, lights, cameras, materials)
     colors = (ambient + diffuse) * texels + specular
     return colors
-
-
-def interpolate_vertex_colors(fragments, meshes) ->torch.Tensor:
-    """
-    Detemine the color for each rasterized face. Interpolate the colors for
-    vertices which form the face using the barycentric coordinates.
-    Args:
-        meshes: A Meshes class representing a batch of meshes.
-        fragments:
-            The outputs of rasterization. From this we use
-
-            - pix_to_face: LongTensor of shape (N, H, W, K) specifying the indices
-              of the faces (in the packed representation) which
-              overlap each pixel in the image.
-            - barycentric_coords: FloatTensor of shape (N, H, W, K, 3) specifying
-              the barycentric coordianates of each pixel
-              relative to the faces (in the packed
-              representation) which overlap the pixel.
-
-    Returns:
-        texels: An texture per pixel of shape (N, H, W, K, C).
-        There will be one C dimensional value for each element in
-        fragments.pix_to_face.
-    """
-    vertex_textures = meshes.textures.verts_rgb_padded().reshape(-1, 3)
-    vertex_textures = vertex_textures[(meshes.verts_padded_to_packed_idx()), :]
-    faces_packed = meshes.faces_packed()
-    faces_textures = vertex_textures[faces_packed]
-    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.
-        bary_coords, faces_textures)
-    return texels
 
 
 class HardFlatShader(nn.Module):
@@ -3366,6 +3754,736 @@ def _handle_angle_input(x, dtype, device: str, name: str):
         return _handle_coord(x, dtype, device)
 
 
+def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool=
+    False):
+    """
+    Helper function to handle parsing logic for building transforms. The output
+    is always a tensor of shape (N, 3), but there are several types of allowed
+    input.
+
+    Case I: Single Matrix
+        In this case x is a tensor of shape (N, 3), and y and z are None. Here just
+        return x.
+
+    Case II: Vectors and Scalars
+        In this case each of x, y, and z can be one of the following
+            - Python scalar
+            - Torch scalar
+            - Torch tensor of shape (N, 1) or (1, 1)
+        In this case x, y and z are broadcast to tensors of shape (N, 1)
+        and concatenated to a tensor of shape (N, 3)
+
+    Case III: Singleton (only if allow_singleton=True)
+        In this case y and z are None, and x can be one of the following:
+            - Python scalar
+            - Torch scalar
+            - Torch tensor of shape (N, 1) or (1, 1)
+        Here x will be duplicated 3 times, and we return a tensor of shape (N, 3)
+
+    Returns:
+        xyz: Tensor of shape (N, 3)
+    """
+    if torch.is_tensor(x) and x.dim() == 2:
+        if x.shape[1] != 3:
+            msg = 'Expected tensor of shape (N, 3); got %r (in %s)'
+            raise ValueError(msg % (x.shape, name))
+        if y is not None or z is not None:
+            msg = 'Expected y and z to be None (in %s)' % name
+            raise ValueError(msg)
+        return x
+    if allow_singleton and y is None and z is None:
+        y = x
+        z = x
+    xyz = [_handle_coord(c, dtype, device) for c in [x, y, z]]
+    sizes = [c.shape[0] for c in xyz]
+    N = max(sizes)
+    for c in xyz:
+        if c.shape[0] != 1 and c.shape[0] != N:
+            msg = 'Got non-broadcastable sizes %r (in %s)' % (sizes, name)
+            raise ValueError(msg)
+    xyz = [c.expand(N) for c in xyz]
+    xyz = torch.stack(xyz, dim=1)
+    return xyz
+
+
+def _broadcast_bmm(a, b):
+    """
+    Batch multiply two matrices and broadcast if necessary.
+
+    Args:
+        a: torch tensor of shape (P, K) or (M, P, K)
+        b: torch tensor of shape (N, K, K)
+
+    Returns:
+        a and b broadcast multipled. The output batch dimension is max(N, M).
+
+    To broadcast transforms across a batch dimension if M != N then
+    expect that either M = 1 or N = 1. The tensor with batch dimension 1 is
+    expanded to have shape N or M.
+    """
+    if a.dim() == 2:
+        a = a[None]
+    if len(a) != len(b):
+        if not (len(a) == 1 or len(b) == 1):
+            msg = 'Expected batch dim for bmm to be equal or 1; got %r, %r'
+            raise ValueError(msg % (a.shape, b.shape))
+        if len(a) == 1:
+            a = a.expand(len(b), -1, -1)
+        if len(b) == 1:
+            b = b.expand(len(a), -1, -1)
+    return a.bmm(b)
+
+
+class Transform3d:
+    """
+    A Transform3d object encapsulates a batch of N 3D transformations, and knows
+    how to transform points and normal vectors. Suppose that t is a Transform3d;
+    then we can do the following:
+
+    .. code-block:: python
+
+        N = len(t)
+        points = torch.randn(N, P, 3)
+        normals = torch.randn(N, P, 3)
+        points_transformed = t.transform_points(points)    # => (N, P, 3)
+        normals_transformed = t.transform_points(normals)  # => (N, P, 3)
+
+
+    BROADCASTING
+    Transform3d objects supports broadcasting. Suppose that t1 and tN are
+    Transform3D objects with len(t1) == 1 and len(tN) == N respectively. Then we
+    can broadcast transforms like this:
+
+    .. code-block:: python
+
+        t1.transform_points(torch.randn(P, 3))     # => (P, 3)
+        t1.transform_points(torch.randn(1, P, 3))  # => (1, P, 3)
+        t1.transform_points(torch.randn(M, P, 3))  # => (M, P, 3)
+        tN.transform_points(torch.randn(P, 3))     # => (N, P, 3)
+        tN.transform_points(torch.randn(1, P, 3))  # => (N, P, 3)
+
+
+    COMBINING TRANSFORMS
+    Transform3d objects can be combined in two ways: composing and stacking.
+    Composing is function composition. Given Transform3d objects t1, t2, t3,
+    the following all compute the same thing:
+
+    .. code-block:: python
+
+        y1 = t3.transform_points(t2.transform_points(t2.transform_points(x)))
+        y2 = t1.compose(t2).compose(t3).transform_points()
+        y3 = t1.compose(t2, t3).transform_points()
+
+
+    Composing transforms should broadcast.
+
+    .. code-block:: python
+
+        if len(t1) == 1 and len(t2) == N, then len(t1.compose(t2)) == N.
+
+    We can also stack a sequence of Transform3d objects, which represents
+    composition along the batch dimension; then the following should compute the
+    same thing.
+
+    .. code-block:: python
+
+        N, M = len(tN), len(tM)
+        xN = torch.randn(N, P, 3)
+        xM = torch.randn(M, P, 3)
+        y1 = torch.cat([tN.transform_points(xN), tM.transform_points(xM)], dim=0)
+        y2 = tN.stack(tM).transform_points(torch.cat([xN, xM], dim=0))
+
+    BUILDING TRANSFORMS
+    We provide convenience methods for easily building Transform3d objects
+    as compositions of basic transforms.
+
+    .. code-block:: python
+
+        # Scale by 0.5, then translate by (1, 2, 3)
+        t1 = Transform3d().scale(0.5).translate(1, 2, 3)
+
+        # Scale each axis by a different amount, then translate, then scale
+        t2 = Transform3d().scale(1, 3, 3).translate(2, 3, 1).scale(2.0)
+
+        t3 = t1.compose(t2)
+        tN = t1.stack(t3, t3)
+
+
+    BACKPROP THROUGH TRANSFORMS
+    When building transforms, we can also parameterize them by Torch tensors;
+    in this case we can backprop through the construction and application of
+    Transform objects, so they could be learned via gradient descent or
+    predicted by a neural network.
+
+    .. code-block:: python
+
+        s1_params = torch.randn(N, requires_grad=True)
+        t_params = torch.randn(N, 3, requires_grad=True)
+        s2_params = torch.randn(N, 3, requires_grad=True)
+
+        t = Transform3d().scale(s1_params).translate(t_params).scale(s2_params)
+        x = torch.randn(N, 3)
+        y = t.transform_points(x)
+        loss = compute_loss(y)
+        loss.backward()
+
+        with torch.no_grad():
+            s1_params -= lr * s1_params.grad
+            t_params -= lr * t_params.grad
+            s2_params -= lr * s2_params.grad
+
+    CONVENTIONS
+    We adopt a right-hand coordinate system, meaning that rotation about an axis
+    with a positive angle results in a counter clockwise rotation.
+
+    This class assumes that transformations are applied on inputs which
+    are row vectors. The internal representation of the Nx4x4 transformation
+    matrix is of the form:
+
+    .. code-block:: python
+
+        M = [
+                [Rxx, Ryx, Rzx, 0],
+                [Rxy, Ryy, Rzy, 0],
+                [Rxz, Ryz, Rzz, 0],
+                [Tx,  Ty,  Tz,  1],
+            ]
+
+    To apply the transformation to points which are row vectors, the M matrix
+    can be pre multiplied by the points:
+
+    .. code-block:: python
+
+        points = [[0, 1, 2]]  # (1 x 3) xyz coordinates of a point
+        transformed_points = points * M
+
+    """
+
+    def __init__(self, dtype: torch.dtype=torch.float32, device='cpu',
+        matrix: Optional[torch.Tensor]=None):
+        """
+        Args:
+            dtype: The data type of the transformation matrix.
+                to be used if `matrix = None`.
+            device: The device for storing the implemented transformation.
+                If `matrix != None`, uses the device of input `matrix`.
+            matrix: A tensor of shape (4, 4) or of shape (minibatch, 4, 4)
+                representing the 4x4 3D transformation matrix.
+                If `None`, initializes with identity using
+                the specified `device` and `dtype`.
+        """
+        if matrix is None:
+            self._matrix = torch.eye(4, dtype=dtype, device=device).view(1,
+                4, 4)
+        else:
+            if matrix.ndim not in (2, 3):
+                raise ValueError(
+                    '"matrix" has to be a 2- or a 3-dimensional tensor.')
+            if matrix.shape[-2] != 4 or matrix.shape[-1] != 4:
+                raise ValueError(
+                    '"matrix" has to be a tensor of shape (minibatch, 4, 4)')
+            device = matrix.device
+            self._matrix = matrix.view(-1, 4, 4)
+        self._transforms = []
+        self._lu = None
+        self.device = device
+
+    def __len__(self):
+        return self.get_matrix().shape[0]
+
+    def compose(self, *others):
+        """
+        Return a new Transform3d with the tranforms to compose stored as
+        an internal list.
+
+        Args:
+            *others: Any number of Transform3d objects
+
+        Returns:
+            A new Transform3d with the stored transforms
+        """
+        out = Transform3d(device=self.device)
+        out._matrix = self._matrix.clone()
+        for other in others:
+            if not isinstance(other, Transform3d):
+                msg = 'Only possible to compose Transform3d objects; got %s'
+                raise ValueError(msg % type(other))
+        out._transforms = self._transforms + list(others)
+        return out
+
+    def get_matrix(self):
+        """
+        Return a matrix which is the result of composing this transform
+        with others stored in self.transforms. Where necessary transforms
+        are broadcast against each other.
+        For example, if self.transforms contains transforms t1, t2, and t3, and
+        given a set of points x, the following should be true:
+
+        .. code-block:: python
+
+            y1 = t1.compose(t2, t3).transform(x)
+            y2 = t3.transform(t2.transform(t1.transform(x)))
+            y1.get_matrix() == y2.get_matrix()
+
+        Returns:
+            A transformation matrix representing the composed inputs.
+        """
+        composed_matrix = self._matrix.clone()
+        if len(self._transforms) > 0:
+            for other in self._transforms:
+                other_matrix = other.get_matrix()
+                composed_matrix = _broadcast_bmm(composed_matrix, other_matrix)
+        return composed_matrix
+
+    def _get_matrix_inverse(self):
+        """
+        Return the inverse of self._matrix.
+        """
+        return torch.inverse(self._matrix)
+
+    def inverse(self, invert_composed: bool=False):
+        """
+        Returns a new Transform3D object that represents an inverse of the
+        current transformation.
+
+        Args:
+            invert_composed:
+                - True: First compose the list of stored transformations
+                  and then apply inverse to the result. This is
+                  potentially slower for classes of transformations
+                  with inverses that can be computed efficiently
+                  (e.g. rotations and translations).
+                - False: Invert the individual stored transformations
+                  independently without composing them.
+
+        Returns:
+            A new Transform3D object contaning the inverse of the original
+            transformation.
+        """
+        tinv = Transform3d(device=self.device)
+        if invert_composed:
+            tinv._matrix = torch.inverse(self.get_matrix())
+        else:
+            i_matrix = self._get_matrix_inverse()
+            if len(self._transforms) > 0:
+                tinv._transforms = [t.inverse() for t in reversed(self.
+                    _transforms)]
+                last = Transform3d(device=self.device)
+                last._matrix = i_matrix
+                tinv._transforms.append(last)
+            else:
+                tinv._matrix = i_matrix
+        return tinv
+
+    def stack(self, *others):
+        transforms = [self] + list(others)
+        matrix = torch.cat([t._matrix for t in transforms], dim=0)
+        out = Transform3d()
+        out._matrix = matrix
+        return out
+
+    def transform_points(self, points, eps: Optional[float]=None):
+        """
+        Use this transform to transform a set of 3D points. Assumes row major
+        ordering of the input points.
+
+        Args:
+            points: Tensor of shape (P, 3) or (N, P, 3)
+            eps: If eps!=None, the argument is used to clamp the
+                last coordinate before peforming the final division.
+                The clamping corresponds to:
+                last_coord := (last_coord.sign() + (last_coord==0)) *
+                torch.clamp(last_coord.abs(), eps),
+                i.e. the last coordinates that are exactly 0 will
+                be clamped to +eps.
+
+        Returns:
+            points_out: points of shape (N, P, 3) or (P, 3) depending
+            on the dimensions of the transform
+        """
+        points_batch = points.clone()
+        if points_batch.dim() == 2:
+            points_batch = points_batch[None]
+        if points_batch.dim() != 3:
+            msg = 'Expected points to have dim = 2 or dim = 3: got shape %r'
+            raise ValueError(msg % repr(points.shape))
+        N, P, _3 = points_batch.shape
+        ones = torch.ones(N, P, 1, dtype=points.dtype, device=points.device)
+        points_batch = torch.cat([points_batch, ones], dim=2)
+        composed_matrix = self.get_matrix()
+        points_out = _broadcast_bmm(points_batch, composed_matrix)
+        denom = points_out[(...), 3:]
+        if eps is not None:
+            denom_sign = denom.sign() + (denom == 0.0).type_as(denom)
+            denom = denom_sign * torch.clamp(denom.abs(), eps)
+        points_out = points_out[(...), :3] / denom
+        if points_out.shape[0] == 1 and points.dim() == 2:
+            points_out = points_out.reshape(points.shape)
+        return points_out
+
+    def transform_normals(self, normals):
+        """
+        Use this transform to transform a set of normal vectors.
+
+        Args:
+            normals: Tensor of shape (P, 3) or (N, P, 3)
+
+        Returns:
+            normals_out: Tensor of shape (P, 3) or (N, P, 3) depending
+            on the dimensions of the transform
+        """
+        if normals.dim() not in [2, 3]:
+            msg = 'Expected normals to have dim = 2 or dim = 3: got shape %r'
+            raise ValueError(msg % (normals.shape,))
+        composed_matrix = self.get_matrix()
+        mat = composed_matrix[:, :3, :3]
+        normals_out = _broadcast_bmm(normals, mat.transpose(1, 2).inverse())
+        if normals_out.shape[0] == 1 and normals.dim() == 2:
+            normals_out = normals_out.reshape(normals.shape)
+        return normals_out
+
+    def translate(self, *args, **kwargs):
+        return self.compose(Translate(*args, device=self.device, **kwargs))
+
+    def scale(self, *args, **kwargs):
+        return self.compose(Scale(*args, device=self.device, **kwargs))
+
+    def rotate_axis_angle(self, *args, **kwargs):
+        return self.compose(RotateAxisAngle(*args, device=self.device, **
+            kwargs))
+
+    def clone(self):
+        """
+        Deep copy of Transforms object. All internal tensors are cloned
+        individually.
+
+        Returns:
+            new Transforms object.
+        """
+        other = Transform3d(device=self.device)
+        if self._lu is not None:
+            other._lu = [l.clone() for l in self._lu]
+        other._matrix = self._matrix.clone()
+        other._transforms = [t.clone() for t in self._transforms]
+        return other
+
+    def to(self, device, copy: bool=False, dtype=None):
+        """
+        Match functionality of torch.Tensor.to()
+        If copy = True or the self Tensor is on a different device, the
+        returned tensor is a copy of self with the desired torch.device.
+        If copy = False and the self Tensor already has the correct torch.device,
+        then self is returned.
+
+        Args:
+          device: Device id for the new tensor.
+          copy: Boolean indicator whether or not to clone self. Default False.
+          dtype: If not None, casts the internal tensor variables
+              to a given torch.dtype.
+
+        Returns:
+          Transform3d object.
+        """
+        if not copy and self.device == device:
+            return self
+        other = self.clone()
+        if self.device != device:
+            other.device = device
+            other._matrix = self._matrix.to(device=device, dtype=dtype)
+            for t in other._transforms:
+                t.to(device, copy=copy, dtype=dtype)
+        return other
+
+    def cpu(self):
+        return self.to(torch.device('cpu'))
+
+    def cuda(self):
+        return self.to(torch.device('cuda'))
+
+
+def _check_valid_rotation_matrix(R, tol: float=1e-07):
+    """
+    Determine if R is a valid rotation matrix by checking it satisfies the
+    following conditions:
+
+    ``RR^T = I and det(R) = 1``
+
+    Args:
+        R: an (N, 3, 3) matrix
+
+    Returns:
+        None
+
+    Emits a warning if R is an invalid rotation matrix.
+    """
+    N = R.shape[0]
+    eye = torch.eye(3, dtype=R.dtype, device=R.device)
+    eye = eye.view(1, 3, 3).expand(N, -1, -1)
+    orthogonal = torch.allclose(R.bmm(R.transpose(1, 2)), eye, atol=tol)
+    det_R = torch.det(R)
+    no_distortion = torch.allclose(det_R, torch.ones_like(det_R))
+    if not (orthogonal and no_distortion):
+        msg = 'R is not a valid rotation matrix'
+        warnings.warn(msg)
+    return
+
+
+class Rotate(Transform3d):
+
+    def __init__(self, R, dtype=torch.float32, device: str='cpu',
+        orthogonal_tol: float=1e-05):
+        """
+        Create a new Transform3d representing 3D rotation using a rotation
+        matrix as the input.
+
+        Args:
+            R: a tensor of shape (3, 3) or (N, 3, 3)
+            orthogonal_tol: tolerance for the test of the orthogonality of R
+
+        """
+        super().__init__(device=device)
+        if R.dim() == 2:
+            R = R[None]
+        if R.shape[-2:] != (3, 3):
+            msg = 'R must have shape (3, 3) or (N, 3, 3); got %s'
+            raise ValueError(msg % repr(R.shape))
+        R = R.to(dtype=dtype).to(device=device)
+        _check_valid_rotation_matrix(R, tol=orthogonal_tol)
+        N = R.shape[0]
+        mat = torch.eye(4, dtype=dtype, device=device)
+        mat = mat.view(1, 4, 4).repeat(N, 1, 1)
+        mat[:, :3, :3] = R
+        self._matrix = mat
+
+    def _get_matrix_inverse(self):
+        """
+        Return the inverse of self._matrix.
+        """
+        return self._matrix.permute(0, 2, 1).contiguous()
+
+
+r = np.expand_dims(np.eye(3), axis=0)
+
+
+t = np.expand_dims(np.zeros(3), axis=0)
+
+
+def get_world_to_view_transform(R=r, T=t) ->Transform3d:
+    """
+    This function returns a Transform3d representing the transformation
+    matrix to go from world space to view space by applying a rotation and
+    a translation.
+
+    PyTorch3D uses the same convention as Hartley & Zisserman.
+    I.e., for camera extrinsic parameters R (rotation) and T (translation),
+    we map a 3D point `X_world` in world coordinates to
+    a point `X_cam` in camera coordinates with:
+    `X_cam = X_world R + T`
+
+    Args:
+        R: (N, 3, 3) matrix representing the rotation.
+        T: (N, 3) matrix representing the translation.
+
+    Returns:
+        a Transform3d object which represents the composed RT transformation.
+
+    """
+    if T.shape[0] != R.shape[0]:
+        msg = 'Expected R, T to have the same batch dimension; got %r, %r'
+        raise ValueError(msg % (R.shape[0], T.shape[0]))
+    if T.dim() != 2 or T.shape[1:] != (3,):
+        msg = 'Expected T to have shape (N, 3); got %r'
+        raise ValueError(msg % repr(T.shape))
+    if R.dim() != 3 or R.shape[1:] != (3, 3):
+        msg = 'Expected R to have shape (N, 3, 3); got %r'
+        raise ValueError(msg % repr(R.shape))
+    T = Translate(T, device=T.device)
+    R = Rotate(R, device=R.device)
+    return R.compose(T)
+
+
+class _RasterizePoints(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, points, cloud_to_packed_first_idx,
+        num_points_per_cloud, image_size: int=256, radius: float=0.01,
+        points_per_pixel: int=8, bin_size: int=0, max_points_per_bin: int=0):
+        args = (points, cloud_to_packed_first_idx, num_points_per_cloud,
+            image_size, radius, points_per_pixel, bin_size, max_points_per_bin)
+        idx, zbuf, dists = _C.rasterize_points(*args)
+        ctx.save_for_backward(points, idx)
+        ctx.mark_non_differentiable(idx)
+        return idx, zbuf, dists
+
+    @staticmethod
+    def backward(ctx, grad_idx, grad_zbuf, grad_dists):
+        grad_points = None
+        grad_cloud_to_packed_first_idx = None
+        grad_num_points_per_cloud = None
+        grad_image_size = None
+        grad_radius = None
+        grad_points_per_pixel = None
+        grad_bin_size = None
+        grad_max_points_per_bin = None
+        points, idx = ctx.saved_tensors
+        args = points, idx, grad_zbuf, grad_dists
+        grad_points = _C.rasterize_points_backward(*args)
+        grads = (grad_points, grad_cloud_to_packed_first_idx,
+            grad_num_points_per_cloud, grad_image_size, grad_radius,
+            grad_points_per_pixel, grad_bin_size, grad_max_points_per_bin)
+        return grads
+
+
+kMaxPointsPerBin = 22
+
+
+def rasterize_points(pointclouds, image_size: int=256, radius: float=0.01,
+    points_per_pixel: int=8, bin_size: Optional[int]=None,
+    max_points_per_bin: Optional[int]=None):
+    """
+    Pointcloud rasterization
+
+    Args:
+        pointclouds: A Pointclouds object representing a batch of point clouds to be
+            rasterized. This is a batch of N pointclouds, where each point cloud
+            can have a different number of points; the coordinates of each point
+            are (x, y, z). The coordinates are expected to
+            be in normalized device coordinates (NDC): [-1, 1]^3 with the camera at
+            (0, 0, 0); In the camera coordinate frame the x-axis goes from right-to-left,
+            the y-axis goes from bottom-to-top, and the z-axis goes from back-to-front.
+        image_size: Integer giving the resolution of the rasterized image
+        radius (Optional): Float giving the radius (in NDC units) of the disk to
+            be rasterized for each point.
+        points_per_pixel (Optional): We will keep track of this many points per
+            pixel, returning the nearest points_per_pixel points along the z-axis
+        bin_size: Size of bins to use for coarse-to-fine rasterization. Setting
+            bin_size=0 uses naive rasterization; setting bin_size=None attempts to
+            set it heuristically based on the shape of the input. This should not
+            affect the output, but can affect the speed of the forward pass.
+        points_per_bin: Only applicable when using coarse-to-fine rasterization
+            (bin_size > 0); this is the maxiumum number of points allowed within each
+            bin. If more than this many points actually fall into a bin, an error
+            will be raised. This should not affect the output values, but can affect
+            the memory usage in the forward pass.
+
+    Returns:
+        3-element tuple containing
+
+        - **idx**: int32 Tensor of shape (N, image_size, image_size, points_per_pixel)
+          giving the indices of the nearest points at each pixel, in ascending
+          z-order. Concretely `idx[n, y, x, k] = p` means that `points[p]` is the kth
+          closest point (along the z-direction) to pixel (y, x) - note that points
+          represents the packed points of shape (P, 3).
+          Pixels that are hit by fewer than points_per_pixel are padded with -1.
+        - **zbuf**: Tensor of shape (N, image_size, image_size, points_per_pixel)
+          giving the z-coordinates of the nearest points at each pixel, sorted in
+          z-order. Concretely, if `idx[n, y, x, k] = p` then
+          `zbuf[n, y, x, k] = points[n, p, 2]`. Pixels hit by fewer than
+          points_per_pixel are padded with -1
+        - **dists2**: Tensor of shape (N, image_size, image_size, points_per_pixel)
+          giving the squared Euclidean distance (in NDC units) in the x/y plane
+          for each point closest to the pixel. Concretely if `idx[n, y, x, k] = p`
+          then `dists[n, y, x, k]` is the squared distance between the pixel (y, x)
+          and the point `(points[n, p, 0], points[n, p, 1])`. Pixels hit with fewer
+          than points_per_pixel are padded with -1.
+    """
+    points_packed = pointclouds.points_packed()
+    cloud_to_packed_first_idx = pointclouds.cloud_to_packed_first_idx()
+    num_points_per_cloud = pointclouds.num_points_per_cloud()
+    if bin_size is None:
+        if not points_packed.is_cuda:
+            bin_size = 0
+        elif image_size <= 64:
+            bin_size = 8
+        elif image_size <= 256:
+            bin_size = 16
+        elif image_size <= 512:
+            bin_size = 32
+        elif image_size <= 1024:
+            bin_size = 64
+    if bin_size != 0:
+        points_per_bin = 1 + (image_size - 1) // bin_size
+        if points_per_bin >= kMaxPointsPerBin:
+            raise ValueError(
+                'bin_size too small, number of points per bin must be less than %d; got %d'
+                 % (kMaxPointsPerBin, points_per_bin))
+    if max_points_per_bin is None:
+        max_points_per_bin = int(max(10000, points_packed.shape[0] / 5))
+    return _RasterizePoints.apply(points_packed, cloud_to_packed_first_idx,
+        num_points_per_cloud, image_size, radius, points_per_pixel,
+        bin_size, max_points_per_bin)
+
+
+class PointsRasterizer(nn.Module):
+    """
+    This class implements methods for rasterizing a batch of pointclouds.
+    """
+
+    def __init__(self, cameras=None, raster_settings=None):
+        """
+        cameras: A cameras object which has a  `transform_points` method
+                which returns the transformed points after applying the
+                world-to-view and view-to-screen
+                transformations.
+            raster_settings: the parameters for rasterization. This should be a
+                named tuple.
+
+        All these initial settings can be overridden by passing keyword
+        arguments to the forward function.
+        """
+        super().__init__()
+        if raster_settings is None:
+            raster_settings = PointsRasterizationSettings()
+        self.cameras = cameras
+        self.raster_settings = raster_settings
+
+    def transform(self, point_clouds, **kwargs) ->torch.Tensor:
+        """
+        Args:
+            point_clouds: a set of point clouds
+
+        Returns:
+            points_screen: the points with the vertex positions in screen
+            space
+
+        NOTE: keeping this as a separate function for readability but it could
+        be moved into forward.
+        """
+        cameras = kwargs.get('cameras', self.cameras)
+        if cameras is None:
+            msg = (
+                'Cameras must be specified either at initialization                 or in the forward pass of PointsRasterizer'
+                )
+            raise ValueError(msg)
+        pts_world = point_clouds.points_padded()
+        pts_world_packed = point_clouds.points_packed()
+        pts_screen = cameras.transform_points(pts_world, **kwargs)
+        view_transform = get_world_to_view_transform(R=cameras.R, T=cameras.T)
+        verts_view = view_transform.transform_points(pts_world)
+        pts_screen[..., 2] = verts_view[..., 2]
+        pad_to_packed_idx = point_clouds.padded_to_packed_idx()
+        pts_screen_packed = pts_screen.view(-1, 3)[(pad_to_packed_idx), :]
+        pts_packed_offset = pts_screen_packed - pts_world_packed
+        point_clouds = point_clouds.offset(pts_packed_offset)
+        return point_clouds
+
+    def forward(self, point_clouds, **kwargs) ->PointFragments:
+        """
+        Args:
+            point_clouds: a set of point clouds with coordinates in world space.
+        Returns:
+            PointFragments: Rasterization outputs as a named tuple.
+        """
+        points_screen = self.transform(point_clouds, **kwargs)
+        raster_settings = kwargs.get('raster_settings', self.raster_settings)
+        idx, zbuf, dists2 = rasterize_points(points_screen, image_size=
+            raster_settings.image_size, radius=raster_settings.radius,
+            points_per_pixel=raster_settings.points_per_pixel, bin_size=
+            raster_settings.bin_size, max_points_per_bin=raster_settings.
+            max_points_per_bin)
+        return PointFragments(idx=idx, zbuf=zbuf, dists=dists2)
+
+
 class PointsRenderer(nn.Module):
     """
     A class for rendering a batch of points. The class should
@@ -3390,6 +4508,7 @@ class PointsRenderer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_facebookresearch_pytorch3d(_paritybench_base):

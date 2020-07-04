@@ -9,10 +9,13 @@ make_train_txt = _module
 region_loss = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -273,10 +276,9 @@ class RegionLoss(nn.Module):
         nB = x.data.size(0)
         nH = x.data.size(2)
         nW = x.data.size(3)
-        FloatTensor = (torch.cuda.FloatTensor if x.is_cuda else torch.
-            FloatTensor)
-        LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
-        ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
+        FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
+        LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
+        ByteTensor = torch.ByteTensor if x.is_cuda else torch.ByteTensor
         prediction = x.view(nB, nA, self.bbox_attrs, nH, nW).permute(0, 1, 
             3, 4, 2).contiguous()
         x = torch.sigmoid(prediction[..., 0])
@@ -335,10 +337,15 @@ class RegionLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_AI_liu_Complex_YOLO(_paritybench_base):
     pass
     def test_000(self):
         self._check(ComplexYOLO(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(RegionLoss(*[], **{}), [torch.rand([4, 5, 15, 15, 15]), torch.rand([4, 4, 5])], {})
 

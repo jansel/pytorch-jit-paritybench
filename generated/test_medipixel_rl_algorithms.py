@@ -74,10 +74,13 @@ setup = _module
 test_cnn_cfg = _module
 test_config_registry = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -270,6 +273,18 @@ class Bottleneck(nn.Module):
 HEADS = Registry('heads')
 
 
+class NoisyMLPHandler:
+    """Includes methods to handle noisy linear."""
+
+    def reset_noise(self):
+        """Re-sample noise"""
+        for _, module in self.named_children():
+            module.reset_noise()
+
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+
 def init_layer_uniform(layer: nn.Linear, init_w: float=0.003) ->nn.Linear:
     """Init uniform parameters on the single layer"""
     layer.weight.data.uniform_(-init_w, init_w)
@@ -347,6 +362,7 @@ class NoisyLinear(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_medipixel_rl_algorithms(_paritybench_base):

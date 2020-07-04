@@ -44,10 +44,13 @@ preprocess = _module
 scheduler = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -70,6 +73,9 @@ import numpy as np
 
 
 from collections import OrderedDict
+
+
+from torchvision import models
 
 
 from torch import nn
@@ -1394,83 +1400,103 @@ class Xception65(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_nyoki_mtl_pytorch_segmentation(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(ASPOC(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    def test_001(self):
         self._check(ASPP(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(ActivatedBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(BaseOC(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(BaseOC_Context(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(BinaryClassCriterion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_006(self):
-        self._check(ExpandedConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DecoderSPP(*[], **{}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 256, 64, 64])], {})
 
-    @_fails_compile()
     def test_007(self):
-        self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(EncoderDecoderNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_009(self):
+        self._check(ExpandedConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(KlLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_012(self):
         self._check(LovaszLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_013(self):
         self._check(MixedDiceBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_014(self):
         self._check(MobileASPP(*[], **{}), [torch.rand([4, 320, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_015(self):
         self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_016(self):
         self._check(OhemCrossEntropy2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_017(self):
         self._check(SPP(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 
-    def test_015(self):
+    def test_018(self):
         self._check(SPPDecoder(*[], **{'in_channels': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_016(self):
-        self._check(SelfAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_017(self):
-        self._check(SeparableConv2d(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_018(self):
-        self._check(SoftCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
     def test_019(self):
-        self._check(SoftIoULoss(*[], **{'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(SPPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_020(self):
+        self._check(SelfAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_021(self):
+        self._check(SeparableConv2d(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(SoftCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_023(self):
+        self._check(SoftIoULoss(*[], **{'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(Xception65(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_025(self):
         self._check(_ActivatedBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

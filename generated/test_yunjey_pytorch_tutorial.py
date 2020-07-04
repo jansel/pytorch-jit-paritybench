@@ -23,10 +23,13 @@ main = _module
 logger = _module
 main = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,13 +45,31 @@ import torch
 import torch.nn as nn
 
 
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
 import numpy as np
 
 
 from torch.nn.utils import clip_grad_norm_
 
 
+from torchvision import transforms
+
+
+from torchvision.utils import save_image
+
+
+import torchvision.models as models
+
+
 from torch.nn.utils.rnn import pack_padded_sequence
+
+
+from torchvision import models
 
 
 import torch.nn.functional as F
@@ -335,6 +356,7 @@ class NeuralNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yunjey_pytorch_tutorial(_paritybench_base):
@@ -342,16 +364,24 @@ class Test_yunjey_pytorch_tutorial(_paritybench_base):
     def test_000(self):
         self._check(BiRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(NeuralNet(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(EncoderCNN(*[], **{'embed_size': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_002(self):
+        self._check(NeuralNet(*[], **{}), [torch.rand([784, 784])], {})
+
+    def test_003(self):
         self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(VAE(*[], **{}), [torch.rand([784, 784])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(VGGNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

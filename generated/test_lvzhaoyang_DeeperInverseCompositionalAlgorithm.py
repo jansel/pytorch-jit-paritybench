@@ -19,10 +19,13 @@ timers = _module
 train = _module
 train_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,7 +44,13 @@ import torch
 import torch.utils.data as data
 
 
+import torchvision.utils as torch_utils
+
+
 import torch.nn as nn
+
+
+import torchvision.models as models
 
 
 import torch.nn.functional as func
@@ -60,6 +69,9 @@ from torch import acos
 
 
 from torch.nn import init
+
+
+from torchvision import transforms
 
 
 from torch.utils.data import DataLoader
@@ -739,6 +751,7 @@ class ListModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lvzhaoyang_DeeperInverseCompositionalAlgorithm(_paritybench_base):

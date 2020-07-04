@@ -22,10 +22,13 @@ train = _module
 coco_img_name = _module
 mupots_img_name = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -50,6 +53,9 @@ from torch.utils.data import DataLoader
 import torch.optim
 
 
+import torchvision.transforms as transforms
+
+
 from torch.nn.parallel.data_parallel import DataParallel
 
 
@@ -57,6 +63,15 @@ import torch
 
 
 import torch.nn as nn
+
+
+from torchvision.models.resnet import BasicBlock
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.resnet import model_urls
 
 
 from torch.nn import functional as F
@@ -220,6 +235,7 @@ class ResPoseNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mks0601_3DMPPE_POSENET_RELEASE(_paritybench_base):

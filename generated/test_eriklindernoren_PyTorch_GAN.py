@@ -50,10 +50,13 @@ wgan = _module
 wgan_div = _module
 wgan_gp = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -72,7 +75,16 @@ import math
 import itertools
 
 
+import torchvision.transforms as transforms
+
+
+from torchvision.utils import save_image
+
+
 from torch.utils.data import DataLoader
+
+
+from torchvision import datasets
 
 
 from torch.autograd import Variable
@@ -90,16 +102,58 @@ import torch
 import time
 
 
+from torchvision.models import resnet18
+
+
 import scipy
 
 
+from torchvision.utils import make_grid
+
+
 import torch.autograd as autograd
+
+
+from torchvision.models import vgg19
 
 
 parser = argparse.ArgumentParser()
 
 
 opt = parser.parse_args()
+
+
+cuda = True if torch.cuda.is_available() else False
+
+
+Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+
+
+def reparameterization(mu, logvar):
+    std = torch.exp(logvar / 2)
+    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.
+        latent_dim))))
+    z = sampled_z * std + mu
+    return z
+
+
+class Encoder(nn.Module):
+
+    def __init__(self):
+        super(Encoder, self).__init__()
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
+            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.
+            BatchNorm1d(512), nn.LeakyReLU(0.2, inplace=True))
+        self.mu = nn.Linear(512, opt.latent_dim)
+        self.logvar = nn.Linear(512, opt.latent_dim)
+
+    def forward(self, img):
+        img_flat = img.view(img.shape[0], -1)
+        x = self.model(img_flat)
+        mu = self.mu(x)
+        logvar = self.logvar(x)
+        z = reparameterization(mu, logvar)
+        return z
 
 
 class Decoder(nn.Module):
@@ -2149,7 +2203,7 @@ class Encoder(nn.Module):
         self.shared_block = shared_block
 
     def reparameterization(self, mu):
-        Tensor = torch.cuda.FloatTensor if mu.is_cuda else torch.FloatTensor
+        Tensor = torch.FloatTensor if mu.is_cuda else torch.FloatTensor
         z = Variable(Tensor(np.random.normal(0, 1, mu.shape)))
         return z + mu
 
@@ -2315,6 +2369,7 @@ class Discriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_eriklindernoren_PyTorch_GAN(_paritybench_base):
@@ -2323,29 +2378,46 @@ class Test_eriklindernoren_PyTorch_GAN(_paritybench_base):
     def test_000(self):
         self._check(DenseResidualBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(GeneratorRRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(MultiDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(GeneratorResNet(*[], **{}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 1, 1])], {})
 
     def test_004(self):
-        self._check(ResidualBlock(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneratorUNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(ResidualInResidualDenseBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
 
     def test_007(self):
+        self._check(MultiDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(Reshape(*[], **{}), [torch.rand([4])], {})
+
+    def test_009(self):
+        self._check(ResidualBlock(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(ResidualInResidualDenseBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+
+    def test_012(self):
         self._check(UNetDown(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_013(self):
         self._check(UNetUp(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 

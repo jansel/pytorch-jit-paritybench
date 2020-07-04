@@ -19,10 +19,13 @@ network = _module
 ops = _module
 painter_gmcnn = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,6 +44,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+import torchvision.models as models
+
+
 import numpy as np
 
 
@@ -51,6 +57,12 @@ from functools import reduce
 
 
 from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+import torchvision.utils as vutils
 
 
 class BaseModel(nn.Module):
@@ -94,7 +106,7 @@ class BaseModel(nn.Module):
                 save_filename = '%s_net_%s.pth' % (which_epoch, name)
                 save_path = os.path.join(self.save_dir, save_filename)
                 net = getattr(self, 'net' + name)
-                if len(self.gpu_ids) > 0 and torch.cuda.is_available():
+                if len(self.gpu_ids) > 0 and torch.is_available():
                     torch.save(net.state_dict(), save_path)
                 else:
                     torch.save(net.state_dict(), save_path)
@@ -681,6 +693,7 @@ class TVLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_shepnerd_inpainting_gmcnn(_paritybench_base):
@@ -690,14 +703,30 @@ class Test_shepnerd_inpainting_gmcnn(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(ContentLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(IDMRFLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(PartialConv(*[], **{}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(PureUpsampling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    @_fails_compile()
+    def test_005(self):
+        self._check(StyleLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_006(self):
         self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_007(self):
         self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(VGG19FeatLayer(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -111,10 +111,13 @@ shufflenet_v1 = _module
 squeezenet_fire = _module
 retinanet = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -151,7 +154,16 @@ from torch.autograd import Variable
 import torch.optim as optim
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as dset
+
+
 import random
+
+
+import torchvision.models as models
 
 
 import torch.utils.model_zoo as model_zoo
@@ -534,10 +546,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
 _global_config['TRAIN'] = 4
 
 
-_global_config['POOLING_SIZE'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 _global_config['POOLING_MODE'] = 4
@@ -1219,8 +1231,8 @@ class Depth3DGridGen_with_mask(Module):
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                cuda.FloatTensor) * (y.ge(0).type(torch.cuda.FloatTensor) -
-                y.lt(0).type(torch.cuda.FloatTensor))
+                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
+                type(torch.FloatTensor))
         else:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
                 FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
@@ -1243,6 +1255,50 @@ sources = []
 
 
 with_cuda = False
+
+
+class RoICropFunction(Function):
+
+    def forward(self, input1, input2):
+        self.input1 = input1
+        self.input2 = input2
+        self.device_c = ffi.new('int *')
+        output = torch.zeros(input2.size()[0], input1.size()[1], input2.
+            size()[1], input2.size()[2])
+        if input1.is_cuda:
+            self.device = torch.cuda.current_device()
+        else:
+            self.device = -1
+        self.device_c[0] = self.device
+        if not input1.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
+        else:
+            output = output.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2,
+                output)
+        return output
+
+    def backward(self, grad_output):
+        grad_input1 = torch.zeros(self.input1.size())
+        grad_input2 = torch.zeros(self.input2.size())
+        if not grad_output.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.
+                input2, grad_input1, grad_input2, grad_output)
+        else:
+            grad_input1 = grad_input1.cuda(self.device)
+            grad_input2 = grad_input2.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1,
+                self.input2, grad_input1, grad_input2, grad_output)
+        return grad_input1, grad_input2
+
+
+class _RoICrop(Module):
+
+    def __init__(self, layout='BHWD'):
+        super(_RoICrop, self).__init__()
+
+    def forward(self, input1, input2):
+        return RoICropFunction()(input1, input2)
 
 
 class RoIPoolFunction(Function):
@@ -1933,13 +1989,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
+_global_config['ANCHOR_RATIOS'] = 4
+
+
 _global_config['ANCHOR_SCALES'] = 4
 
 
 _global_config['FEAT_STRIDE'] = 4
-
-
-_global_config['ANCHOR_RATIOS'] = 4
 
 
 class _RPN(nn.Module):
@@ -2040,6 +2096,387 @@ def log_sum_exp(x):
     return torch.log(torch.sum(torch.exp(x - x_max), 1, keepdim=True)) + x_max
 
 
+def intersect(box_a, box_b):
+    """ We resize both tensors to [A,B,2] without new malloc:
+    [A,2] -> [A,1,2] -> [A,B,2]
+    [B,2] -> [1,B,2] -> [A,B,2]
+    Then we compute the area of intersect between box_a and box_b.
+    Args:
+      box_a: (tensor) bounding boxes, Shape: [A,4].
+      box_b: (tensor) bounding boxes, Shape: [B,4].
+    Return:
+      (tensor) intersection area, Shape: [A,B].
+    """
+    A = box_a.size(0)
+    B = box_b.size(0)
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
+        2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
+        :2].unsqueeze(0).expand(A, B, 2))
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    return inter[:, :, (0)] * inter[:, :, (1)]
+
+
+def jaccard(box_a, box_b):
+    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
+    is simply the intersection over union of two boxes.  Here we operate on
+    ground truth boxes and default boxes.
+    E.g.:
+        A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
+    Return:
+        jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
+    """
+    inter = intersect(box_a, box_b)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+        ).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
+        ).unsqueeze(0).expand_as(inter)
+    union = area_a + area_b - inter
+    return inter / union
+
+
+def point_form(boxes):
+    """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
+    representation for comparison to point form ground truth data.
+    Args:
+        boxes: (tensor) center-size default boxes from priorbox layers.
+    Return:
+        boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
+    """
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
+        [:, 2:] / 2), 1)
+
+
+def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
+    """Match each prior box with the ground truth box of the highest jaccard
+    overlap, encode the bounding boxes, then return the matched indices
+    corresponding to both confidence and location preds.
+    Args:
+        threshold: (float) The overlap threshold used when mathing boxes.
+        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
+        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
+        variances: (tensor) Variances corresponding to each prior coord,
+            Shape: [num_priors, 4].
+        labels: (tensor) All the class labels for the image, Shape: [num_obj].
+        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
+        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
+        idx: (int) current batch index
+    Return:
+        The matched indices corresponding to 1)location and 2)confidence preds.
+    """
+    overlaps = jaccard(truths, point_form(priors))
+    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
+    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+    best_truth_idx.squeeze_(0)
+    best_truth_overlap.squeeze_(0)
+    best_prior_idx.squeeze_(1)
+    best_prior_overlap.squeeze_(1)
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
+    for j in range(best_prior_idx.size(0)):
+        best_truth_idx[best_prior_idx[j]] = j
+    matches = truths[best_truth_idx]
+    conf = labels[best_truth_idx] + 1
+    conf[best_truth_overlap < threshold] = 0
+    loc = encode(matches, priors, variances)
+    loc_t[idx] = loc
+    conf_t[idx] = conf
+
+
+_global_config['variance'] = 4
+
+
+class MultiBoxLoss(nn.Module):
+    """SSD Weighted Loss Function
+    Compute Targets:
+        1) Produce Confidence Target Indices by matching  ground truth boxes
+           with (default) 'priorboxes' that have jaccard index > threshold parameter
+           (default threshold: 0.5).
+        2) Produce localization target by 'encoding' variance into offsets of ground
+           truth boxes and their matched  'priorboxes'.
+        3) Hard negative mining to filter the excessive number of negative examples
+           that comes with using a large number of default bounding boxes.
+           (default negative:positive ratio 3:1)
+    Objective Loss:
+        L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
+        Where, Lconf is the CrossEntropy Loss and Lloc is the SmoothL1 Loss
+        weighted by α which is set to 1 by cross val.
+        Args:
+            c: class confidences,
+            l: predicted boxes,
+            g: ground truth boxes
+            N: number of matched default boxes
+        See: https://arxiv.org/pdf/1512.02325.pdf for more details.
+    """
+
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
+        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu
+        =True):
+        super(MultiBoxLoss, self).__init__()
+        self.use_gpu = use_gpu
+        self.num_classes = num_classes
+        self.threshold = overlap_thresh
+        self.background_label = bkg_label
+        self.encode_target = encode_target
+        self.use_prior_for_matching = prior_for_matching
+        self.do_neg_mining = neg_mining
+        self.negpos_ratio = neg_pos
+        self.neg_overlap = neg_overlap
+        self.variance = cfg['variance']
+
+    def forward(self, predictions, targets):
+        """Multibox Loss
+        Args:
+            predictions (tuple): A tuple containing loc preds, conf preds,
+            and prior boxes from SSD net.
+                conf shape: torch.size(batch_size,num_priors,num_classes)
+                loc shape: torch.size(batch_size,num_priors,4)
+                priors shape: torch.size(num_priors,4)
+
+            targets (tensor): Ground truth boxes and labels for a batch,
+                shape: [batch_size,num_objs,5] (last idx is the label).
+        """
+        loc_data, conf_data, priors = predictions
+        num = loc_data.size(0)
+        priors = priors[:loc_data.size(1), :]
+        num_priors = priors.size(0)
+        num_classes = self.num_classes
+        loc_t = torch.Tensor(num, num_priors, 4)
+        conf_t = torch.LongTensor(num, num_priors)
+        for idx in range(num):
+            truths = targets[idx][:, :-1].data
+            labels = targets[idx][:, (-1)].data
+            defaults = priors.data
+            match(self.threshold, truths, defaults, self.variance, labels,
+                loc_t, conf_t, idx)
+        if self.use_gpu:
+            loc_t = loc_t
+            conf_t = conf_t
+        pos = conf_t > 0
+        num_pos = pos.sum(dim=1, keepdim=True)
+        pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
+        loc_p = loc_data[pos_idx].view(-1, 4)
+        loc_t = loc_t[pos_idx].view(-1, 4)
+        loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+        batch_conf = conf_data.view(-1, self.num_classes)
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
+            (-1, 1))
+        loss_c = loss_c.view(pos.size()[0], pos.size()[1])
+        loss_c[pos] = 0
+        loss_c = loss_c.view(num, -1)
+        _, loss_idx = loss_c.sort(1, descending=True)
+        _, idx_rank = loss_idx.sort(1)
+        num_pos = pos.long().sum(1, keepdim=True)
+        num_neg = torch.clamp(self.negpos_ratio * num_pos, max=pos.size(1) - 1)
+        neg = idx_rank < num_neg.expand_as(idx_rank)
+        pos_idx = pos.unsqueeze(2).expand_as(conf_data)
+        neg_idx = neg.unsqueeze(2).expand_as(conf_data)
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
+            )
+        targets_weighted = conf_t[(pos + neg).gt(0)]
+        loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
+        N = num_pos.data.sum()
+        loss_l /= N.type('torch.cuda.FloatTensor')
+        loss_c /= N.type('torch.cuda.FloatTensor')
+        return loss_l, loss_c
+
+
+class Detect(Function):
+    """At test time, Detect is the final layer of SSD.  Decode location preds,
+    apply non-maximum suppression to location predictions based on conf
+    scores and threshold to a top_k number of output predictions for both
+    confidence score and locations.
+    """
+
+    def __init__(self, num_classes, bkg_label, top_k, conf_thresh, nms_thresh):
+        self.num_classes = num_classes
+        self.background_label = bkg_label
+        self.top_k = top_k
+        self.nms_thresh = nms_thresh
+        if nms_thresh <= 0:
+            raise ValueError('nms_threshold must be non negative.')
+        self.conf_thresh = conf_thresh
+        self.variance = cfg['variance']
+
+    def forward(self, loc_data, conf_data, prior_data):
+        """
+        Args:
+            loc_data: (tensor) Loc preds from loc layers
+                Shape: [batch,num_priors*4]
+            conf_data: (tensor) Shape: Conf preds from conf layers
+                Shape: [batch*num_priors,num_classes]
+            prior_data: (tensor) Prior boxes and variances from priorbox layers
+                Shape: [1,num_priors,4]
+        """
+        num = loc_data.size(0)
+        num_priors = prior_data.size(0)
+        output = torch.zeros(num, self.num_classes, self.top_k, 5)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes
+            ).transpose(2, 1)
+        for i in range(num):
+            decoded_boxes = decode(loc_data[i], prior_data, self.variance)
+            conf_scores = conf_preds[i].clone()
+            for cl in range(1, self.num_classes):
+                c_mask = conf_scores[cl].gt(self.conf_thresh)
+                scores = conf_scores[cl][c_mask]
+                if scores.dim() == 0:
+                    continue
+                l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
+                boxes = decoded_boxes[l_mask].view(-1, 4)
+                ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
+                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
+                    unsqueeze(1), boxes[ids[:count]]), 1)
+        flt = output.contiguous().view(num, -1, 5)
+        _, idx = flt[:, :, (0)].sort(1, descending=True)
+        _, rank = idx.sort(1)
+        flt[(rank < self.top_k).unsqueeze(-1).expand_as(flt)].fill_(0)
+        return output
+
+
+class PriorBox(object):
+    """Compute priorbox coordinates in center-offset form for each source
+    feature map.
+    """
+
+    def __init__(self, cfg):
+        super(PriorBox, self).__init__()
+        self.image_size = cfg['min_dim']
+        self.num_priors = len(cfg['aspect_ratios'])
+        self.variance = cfg['variance'] or [0.1]
+        self.feature_maps = cfg['feature_maps']
+        self.min_sizes = cfg['min_sizes']
+        self.max_sizes = cfg['max_sizes']
+        self.steps = cfg['steps']
+        self.aspect_ratios = cfg['aspect_ratios']
+        self.clip = cfg['clip']
+        self.version = cfg['name']
+        for v in self.variance:
+            if v <= 0:
+                raise ValueError('Variances must be greater than 0')
+
+    def forward(self):
+        mean = []
+        for k, f in enumerate(self.feature_maps):
+            for i, j in product(range(f), repeat=2):
+                f_k = self.image_size / self.steps[k]
+                cx = (j + 0.5) / f_k
+                cy = (i + 0.5) / f_k
+                s_k = self.min_sizes[k] / self.image_size
+                mean += [cx, cy, s_k, s_k]
+                s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
+                mean += [cx, cy, s_k_prime, s_k_prime]
+                for ar in self.aspect_ratios[k]:
+                    mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
+                    mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
+        output = torch.Tensor(mean).view(-1, 4)
+        if self.clip:
+            output.clamp_(max=1, min=0)
+        return output
+
+
+voc = {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
+    120000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps':
+    [8, 16, 32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264],
+    'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 
+    3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True,
+    'name': 'VOC'}
+
+
+class SSD(nn.Module):
+    """Single Shot Multibox Architecture
+    The network is composed of a base VGG network followed by the
+    added multibox conv layers.  Each multibox layer branches into
+        1) conv2d for class conf scores
+        2) conv2d for localization predictions
+        3) associated priorbox layer to produce default bounding
+           boxes specific to the layer's feature map size.
+    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
+
+    Args:
+        phase: (string) Can be "test" or "train"
+        size: input image size
+        base: VGG16 layers for input, size of either 300 or 500
+        extras: extra layers that feed to multibox loc and conf layers
+        head: "multibox head" consists of loc and conf conv layers
+    """
+
+    def __init__(self, phase, size, base, extras, head, num_classes):
+        super(SSD, self).__init__()
+        self.phase = phase
+        self.num_classes = num_classes
+        self.cfg = voc
+        self.priorbox = PriorBox(self.cfg)
+        self.priors = self.priorbox.forward()
+        self.size = size
+        self.vgg = nn.ModuleList(base)
+        self.L2Norm = L2Norm(512, 20)
+        self.extras = nn.ModuleList(extras)
+        self.loc = nn.ModuleList(head[0])
+        self.conf = nn.ModuleList(head[1])
+        if phase == 'test':
+            self.softmax = nn.Softmax(dim=-1)
+            self.detect = Detect(num_classes, 0, 200, 0.01, 0.45)
+
+    def forward(self, x):
+        """Applies network layers and ops on input image(s) x.
+
+        Args:
+            x: input image or batch of images. Shape: [batch,3,300,300].
+
+        Return:
+            Depending on phase:
+            test:
+                Variable(tensor) of output class label predictions,
+                confidence score, and corresponding location predictions for
+                each object detected. Shape: [batch,topk,7]
+
+            train:
+                list of concat outputs from:
+                    1: confidence layers, Shape: [batch*num_priors,num_classes]
+                    2: localization layers, Shape: [batch,num_priors*4]
+                    3: priorbox layers, Shape: [2,num_priors*4]
+        """
+        sources = list()
+        loc = list()
+        conf = list()
+        for k in range(23):
+            x = self.vgg[k](x)
+        s = self.L2Norm(x)
+        sources.append(s)
+        for k in range(23, len(self.vgg)):
+            x = self.vgg[k](x)
+        sources.append(x)
+        for k, v in enumerate(self.extras):
+            x = F.relu(v(x), inplace=True)
+            if k % 2 == 1:
+                sources.append(x)
+        for x, l, c in zip(sources, self.loc, self.conf):
+            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
+            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
+        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
+        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
+        if self.phase == 'test':
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
+                (conf.view(conf.size(0), -1, self.num_classes)), self.
+                priors.type(type(x.data)))
+        else:
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
+                -1, self.num_classes), self.priors
+        return output
+
+    def load_weights(self, base_file):
+        other, ext = os.path.splitext(base_file)
+        if ext == '.pkl' or '.pth':
+            None
+            self.load_state_dict(torch.load(base_file, map_location=lambda
+                storage, loc: storage))
+            None
+        else:
+            None
+
+
 def _make_layers(in_channels, net_cfg):
     layers = []
     if len(net_cfg) > 0 and isinstance(net_cfg[0], list):
@@ -2058,10 +2495,7 @@ def _make_layers(in_channels, net_cfg):
     return nn.Sequential(*layers), in_channels
 
 
-_global_config['multi_scale_inp_size'] = 1.0
-
-
-_global_config['object_scale'] = 1.0
+_global_config['anchors'] = 4
 
 
 _global_config['noobject_scale'] = 1.0
@@ -2070,19 +2504,22 @@ _global_config['noobject_scale'] = 1.0
 _global_config['class_scale'] = 1.0
 
 
-_global_config['multi_scale_out_size'] = 1.0
-
-
 _global_config['num_classes'] = 4
 
 
-_global_config['anchors'] = 4
+_global_config['multi_scale_out_size'] = 1.0
+
+
+_global_config['iou_thresh'] = 4
 
 
 _global_config['coord_scale'] = 1.0
 
 
-_global_config['iou_thresh'] = 4
+_global_config['object_scale'] = 1.0
+
+
+_global_config['multi_scale_inp_size'] = 1.0
 
 
 def _process_batch(data, size_index):
@@ -2673,6 +3110,7 @@ class RetinaNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dongdonghy_Detection_PyTorch_Notebook(_paritybench_base):
@@ -2729,5 +3167,8 @@ class Test_dongdonghy_Detection_PyTorch_Notebook(_paritybench_base):
         self._check(MLP(*[], **{'in_dim': 4, 'hid_dim1': 4, 'hid_dim2': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_017(self):
         self._check(Perception(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

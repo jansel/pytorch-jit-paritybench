@@ -86,10 +86,13 @@ log = _module
 preprocess = _module
 tune = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -148,6 +151,9 @@ from torch.nn.utils.rnn import pad_packed_sequence
 
 
 import logging
+
+
+from torchtext import data
 
 
 from torch.nn import functional as F
@@ -330,7 +336,7 @@ class DecAtt(nn.Module):
             raw_index = r_matrix - r.view(-1, 1)
             clipped_index = torch.clamp(raw_index, 0, self.distance_biases - 1)
             clipped_index = Variable(clipped_index.long())
-            if torch.cuda.is_available():
+            if torch.is_available():
                 clipped_index = clipped_index
             bias = self.bias_embedding(clipped_index)
             bias = torch.squeeze(bias)
@@ -472,7 +478,7 @@ class LSTM(nn.Module):
         """
         h = Variable(torch.zeros(x.size(1), x.size(2)))
         c = Variable(torch.zeros(x.size(1), x.size(2)))
-        if torch.cuda.is_available():
+        if torch.is_available():
             h = h
             c = c
         all_hidden = []
@@ -544,7 +550,7 @@ class ESIM(nn.Module):
         return u.astype('float32')
 
     def initialize_lstm(self):
-        if torch.cuda.is_available():
+        if torch.is_available():
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
                 ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
@@ -627,13 +633,13 @@ class ESIM(nn.Module):
         x2 = self.dropout(sent2)
         idx_1 = [i for i in range(x1.size(0) - 1, -1, -1)]
         idx_1 = Variable(torch.LongTensor(idx_1))
-        if torch.cuda.is_available():
+        if torch.is_available():
             idx_1 = idx_1
         x1_r = torch.index_select(x1, 0, idx_1)
         x1_mask_r = torch.index_select(x1_mask, 0, idx_1)
         idx_2 = [i for i in range(x2.size(0) - 1, -1, -1)]
         idx_2 = Variable(torch.LongTensor(idx_2))
-        if torch.cuda.is_available():
+        if torch.is_available():
             idx_2 = Variable(torch.LongTensor(idx_2))
         x2_r = torch.index_select(x2, 0, idx_2)
         x2_mask_r = torch.index_select(x2_mask, 0, idx_2)
@@ -1329,21 +1335,18 @@ class VDPWIModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_castorini_castor(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LSTM(*[], **{'device': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LSTM_Cell(*[], **{'device': 0, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(LSTM_Cell(*[], **{'device': 4, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(ResNet(*[], **{'config': _mock_config(res_layers=1, res_fmaps=4, n_labels=4)}), [torch.rand([4, 12, 64, 64])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_002(self):
         self._check(VDPWIConvNet(*[], **{'config': _mock_config(n_labels=4)}), [torch.rand([4, 12, 4, 4])], {})
 

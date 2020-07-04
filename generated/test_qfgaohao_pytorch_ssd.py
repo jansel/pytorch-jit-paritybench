@@ -54,10 +54,13 @@ misc = _module
 model_book = _module
 visual_tf_models = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -77,6 +80,12 @@ import torch.optim as optim
 
 
 from torch.optim import lr_scheduler
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import logging
@@ -554,8 +563,8 @@ class SSD(nn.Module):
         if device:
             self.device = device
         else:
-            self.device = torch.device('cuda:0' if torch.cuda.is_available(
-                ) else 'cpu')
+            self.device = torch.device('cuda:0' if torch.is_available() else
+                'cpu')
         if is_test:
             self.config = config
             self.priors = config.priors
@@ -660,6 +669,7 @@ class SSD(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_qfgaohao_pytorch_ssd(_paritybench_base):
@@ -670,7 +680,13 @@ class Test_qfgaohao_pytorch_ssd(_paritybench_base):
     def test_001(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
+        self._check(MobileNetV1(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_003(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(ScaledL2Norm(*[], **{'in_channels': 4, 'initial_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 

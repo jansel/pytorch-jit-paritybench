@@ -16,10 +16,13 @@ coco_results = _module
 model_wrn_eval = _module
 model_wrn_mtan = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,6 +41,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torchvision.models.utils import load_state_dict_from_url
+
+
 import torch.optim as optim
 
 
@@ -50,7 +56,13 @@ from torch.autograd import Variable
 import torch.nn.init as init
 
 
+import torchvision
+
+
 import numpy as np
+
+
+from torchvision.transforms import transforms
 
 
 class DeepLabHead(nn.Sequential):
@@ -274,11 +286,335 @@ class ResNet(nn.Module):
         return x
 
 
+class ResnetDilated(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8):
+        super(ResnetDilated, self).__init__()
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=4))
+        elif dilate_scale == 16:
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=2))
+        self.conv1 = orig_resnet.conv1
+        self.bn1 = orig_resnet.bn1
+        self.relu1 = orig_resnet.relu
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
+
+    def forward(self, x):
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
+
+
+class MTANDeepLabv3(nn.Module):
+
+    def __init__(self):
+        super(MTANDeepLabv3, self).__init__()
+        backbone = ResnetDilated(resnet.__dict__['resnet50'](pretrained=True))
+        ch = [256, 512, 1024, 2048]
+        self.tasks = ['segmentation', 'depth']
+        self.num_out_channels = {'segmentation': 13, 'depth': 1}
+        self.shared_conv = nn.Sequential(backbone.conv1, backbone.bn1,
+            backbone.relu1, backbone.maxpool)
+        self.shared_layer1_b = backbone.layer1[:-1]
+        self.shared_layer1_t = backbone.layer1[-1]
+        self.shared_layer2_b = backbone.layer2[:-1]
+        self.shared_layer2_t = backbone.layer2[-1]
+        self.shared_layer3_b = backbone.layer3[:-1]
+        self.shared_layer3_t = backbone.layer3[-1]
+        self.shared_layer4_b = backbone.layer4[:-1]
+        self.shared_layer4_t = backbone.layer4[-1]
+        self.encoder_att_1 = nn.ModuleList([self.att_layer(ch[0], ch[0] // 
+            4, ch[0]) for _ in self.tasks])
+        self.encoder_att_2 = nn.ModuleList([self.att_layer(2 * ch[1], ch[1] //
+            4, ch[1]) for _ in self.tasks])
+        self.encoder_att_3 = nn.ModuleList([self.att_layer(2 * ch[2], ch[2] //
+            4, ch[2]) for _ in self.tasks])
+        self.encoder_att_4 = nn.ModuleList([self.att_layer(2 * ch[3], ch[3] //
+            4, ch[3]) for _ in self.tasks])
+        self.encoder_block_att_1 = self.conv_layer(ch[0], ch[1] // 4)
+        self.encoder_block_att_2 = self.conv_layer(ch[1], ch[2] // 4)
+        self.encoder_block_att_3 = self.conv_layer(ch[2], ch[3] // 4)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.decoders = nn.ModuleList([DeepLabHead(2048, self.
+            num_out_channels[t]) for t in self.tasks])
+
+    def forward(self, x, out_size):
+        x = self.shared_conv(x)
+        u_1_b = self.shared_layer1_b(x)
+        u_1_t = self.shared_layer1_t(u_1_b)
+        u_2_b = self.shared_layer2_b(u_1_t)
+        u_2_t = self.shared_layer2_t(u_2_b)
+        u_3_b = self.shared_layer3_b(u_2_t)
+        u_3_t = self.shared_layer3_t(u_3_b)
+        u_4_b = self.shared_layer4_b(u_3_t)
+        u_4_t = self.shared_layer4_t(u_4_b)
+        a_1_mask = [att_i(u_1_b) for att_i in self.encoder_att_1]
+        a_1 = [(a_1_mask_i * u_1_t) for a_1_mask_i in a_1_mask]
+        a_1 = [self.down_sampling(self.encoder_block_att_1(a_1_i)) for
+            a_1_i in a_1]
+        a_2_mask = [att_i(torch.cat((u_2_b, a_1_i), dim=1)) for a_1_i,
+            att_i in zip(a_1, self.encoder_att_2)]
+        a_2 = [(a_2_mask_i * u_2_t) for a_2_mask_i in a_2_mask]
+        a_2 = [self.encoder_block_att_2(a_2_i) for a_2_i in a_2]
+        a_3_mask = [att_i(torch.cat((u_3_b, a_2_i), dim=1)) for a_2_i,
+            att_i in zip(a_2, self.encoder_att_3)]
+        a_3 = [(a_3_mask_i * u_3_t) for a_3_mask_i in a_3_mask]
+        a_3 = [self.encoder_block_att_3(a_3_i) for a_3_i in a_3]
+        a_4_mask = [att_i(torch.cat((u_4_b, a_3_i), dim=1)) for a_3_i,
+            att_i in zip(a_3, self.encoder_att_4)]
+        a_4 = [(a_4_mask_i * u_4_t) for a_4_mask_i in a_4_mask]
+        out = {}
+        for i, t in enumerate(self.tasks):
+            out[t] = nn.functional.interpolate(self.decoders[i](a_4[i]),
+                size=out_size, mode='bilinear').squeeze()
+        return out
+
+    def att_layer(self, in_channel, intermediate_channel, out_channel):
+        return nn.Sequential(nn.Conv2d(in_channels=in_channel, out_channels
+            =intermediate_channel, kernel_size=1, padding=0), nn.
+            BatchNorm2d(intermediate_channel), nn.ReLU(inplace=True), nn.
+            Conv2d(in_channels=intermediate_channel, out_channels=
+            out_channel, kernel_size=1, padding=0), nn.BatchNorm2d(
+            out_channel), nn.Sigmoid())
+
+    def conv_layer(self, in_channel, out_channel):
+        downsample = nn.Sequential(conv1x1(in_channel, 4 * out_channel,
+            stride=1), nn.BatchNorm2d(4 * out_channel))
+        return Bottleneck(in_channel, out_channel, downsample=downsample)
+
+
 parser = argparse.ArgumentParser(description=
     'Multi-task: Attention Network on WRN')
 
 
 opt = parser.parse_args()
+
+
+device = torch.device('cuda:{}'.format(opt.gpu) if torch.cuda.is_available(
+    ) else 'cpu')
+
+
+class SegNet(nn.Module):
+
+    def __init__(self):
+        super(SegNet, self).__init__()
+        filter = [64, 128, 256, 512, 512]
+        self.class_nb = 13
+        self.encoder_block_t = nn.ModuleList([nn.ModuleList([self.
+            conv_layer([3, filter[0], filter[0]], bottle_neck=True)])])
+        self.decoder_block_t = nn.ModuleList([nn.ModuleList([self.
+            conv_layer([filter[0], filter[0], filter[0]], bottle_neck=True)])])
+        for j in range(3):
+            if j < 2:
+                self.encoder_block_t.append(nn.ModuleList([self.conv_layer(
+                    [3, filter[0], filter[0]], bottle_neck=True)]))
+                self.decoder_block_t.append(nn.ModuleList([self.conv_layer(
+                    [filter[0], filter[0], filter[0]], bottle_neck=True)]))
+            for i in range(4):
+                if i == 0:
+                    self.encoder_block_t[j].append(self.conv_layer([filter[
+                        i], filter[i + 1], filter[i + 1]], bottle_neck=True))
+                    self.decoder_block_t[j].append(self.conv_layer([filter[
+                        i + 1], filter[i], filter[i]], bottle_neck=True))
+                else:
+                    self.encoder_block_t[j].append(self.conv_layer([filter[
+                        i], filter[i + 1], filter[i + 1]], bottle_neck=False))
+                    self.decoder_block_t[j].append(self.conv_layer([filter[
+                        i + 1], filter[i], filter[i]], bottle_neck=False))
+        self.cs_unit_encoder = nn.Parameter(data=torch.ones(4, 3))
+        self.cs_unit_decoder = nn.Parameter(data=torch.ones(5, 3))
+        self.pred_task1 = self.conv_layer([filter[0], self.class_nb],
+            bottle_neck=True, pred_layer=True)
+        self.pred_task2 = self.conv_layer([filter[0], 1], bottle_neck=True,
+            pred_layer=True)
+        self.pred_task3 = self.conv_layer([filter[0], 3], bottle_neck=True,
+            pred_layer=True)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
+            return_indices=True)
+        self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
+        self.logsigma = nn.Parameter(torch.FloatTensor([-0.5, -0.5, -0.5]))
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Parameter):
+                nn.init.constant(m.weight, 1)
+
+    def conv_layer(self, channel, bottle_neck, pred_layer=False):
+        if bottle_neck:
+            if not pred_layer:
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
+                    out_channels=channel[1], kernel_size=3, padding=1), nn.
+                    BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.
+                    Conv2d(in_channels=channel[1], out_channels=channel[2],
+                    kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]),
+                    nn.ReLU(inplace=True))
+            else:
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
+                    out_channels=channel[0], kernel_size=3, padding=1), nn.
+                    Conv2d(in_channels=channel[0], out_channels=channel[1],
+                    kernel_size=1, padding=0))
+        else:
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
+                out_channels=channel[1], kernel_size=3, padding=1), nn.
+                BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
+                in_channels=channel[1], out_channels=channel[1],
+                kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.
+                ReLU(inplace=True), nn.Conv2d(in_channels=channel[1],
+                out_channels=channel[2], kernel_size=3, padding=1), nn.
+                BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
+        return conv_block
+
+    def forward(self, x):
+        (encoder_conv_t, decoder_conv_t, encoder_samp_t, decoder_samp_t,
+            indices_t) = ([0] * 3 for _ in range(5))
+        for i in range(3):
+            encoder_conv_t[i], decoder_conv_t[i], encoder_samp_t[i
+                ], decoder_samp_t[i], indices_t[i] = ([0] * 5 for _ in range(5)
+                )
+        for i in range(5):
+            for j in range(3):
+                if i == 0:
+                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](x)
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
+                        encoder_conv_t[j][i])
+                else:
+                    encoder_cross_stitch = self.cs_unit_encoder[i - 1][0
+                        ] * encoder_samp_t[0][i - 1] + self.cs_unit_encoder[
+                        i - 1][1] * encoder_samp_t[1][i - 1
+                        ] + self.cs_unit_encoder[i - 1][2] * encoder_samp_t[2][
+                        i - 1]
+                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](
+                        encoder_cross_stitch)
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
+                        encoder_conv_t[j][i])
+        for i in range(5):
+            for j in range(3):
+                if i == 0:
+                    decoder_cross_stitch = self.cs_unit_decoder[i][0
+                        ] * encoder_samp_t[0][-1] + self.cs_unit_decoder[i][1
+                        ] * encoder_samp_t[1][-1] + self.cs_unit_decoder[i][2
+                        ] * encoder_samp_t[2][-1]
+                    decoder_samp_t[j][i] = self.up_sampling(
+                        decoder_cross_stitch, indices_t[j][-i - 1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
+                        decoder_samp_t[j][i])
+                else:
+                    decoder_cross_stitch = self.cs_unit_decoder[i][0
+                        ] * decoder_conv_t[0][i - 1] + self.cs_unit_decoder[i][
+                        1] * decoder_conv_t[1][i - 1] + self.cs_unit_decoder[i
+                        ][2] * decoder_conv_t[2][i - 1]
+                    decoder_samp_t[j][i] = self.up_sampling(
+                        decoder_cross_stitch, indices_t[j][-i - 1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
+                        decoder_samp_t[j][i])
+        t1_pred = F.log_softmax(self.pred_task1(decoder_conv_t[0][-1]), dim=1)
+        t2_pred = self.pred_task2(decoder_conv_t[1][-1])
+        t3_pred = self.pred_task3(decoder_conv_t[2][-1])
+        t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
+        return [t1_pred, t2_pred, t3_pred], self.logsigma
+
+    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
+        x_output3):
+        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
+            ).unsqueeze(1)
+        loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
+        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
+            ) / torch.nonzero(binary_mask).size(0)
+        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask
+            ) / torch.nonzero(binary_mask).size(0)
+        return [loss1, loss2, loss3]
+
+    def compute_miou(self, x_pred, x_output):
+        _, x_pred_label = torch.max(x_pred, dim=1)
+        x_output_label = x_output
+        batch_size = x_pred.size(0)
+        for i in range(batch_size):
+            true_class = 0
+            first_switch = True
+            for j in range(self.class_nb):
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
+                    x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(
+                    x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
+                    torch.FloatTensor)
+                union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
+                intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
+                if union == 0:
+                    continue
+                if first_switch:
+                    class_prob = intsec / union
+                    first_switch = False
+                else:
+                    class_prob = intsec / union + class_prob
+                true_class += 1
+            if i == 0:
+                batch_avg = class_prob / true_class
+            else:
+                batch_avg = class_prob / true_class + batch_avg
+        return batch_avg / batch_size
+
+    def compute_iou(self, x_pred, x_output):
+        _, x_pred_label = torch.max(x_pred, dim=1)
+        x_output_label = x_output
+        batch_size = x_pred.size(0)
+        for i in range(batch_size):
+            if i == 0:
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
+                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
+                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+            else:
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
+                    x_pred_label[i], x_output_label[i]).type(torch.
+                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
+                    torch.FloatTensor)))
+        return pixel_acc / batch_size
+
+    def depth_error(self, x_pred, x_output):
+        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
+        x_pred_true = x_pred.masked_select(binary_mask)
+        x_output_true = x_output.masked_select(binary_mask)
+        abs_err = torch.abs(x_pred_true - x_output_true)
+        rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
+            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+
+    def normal_error(self, x_pred, x_output):
+        binary_mask = torch.sum(x_output, dim=1) != 0
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
+            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = np.degrees(error)
+        return np.mean(error), np.median(error), np.mean(error < 11.25
+            ), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -1619,6 +1955,7 @@ class WideResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lorenmt_mtan(_paritybench_base):

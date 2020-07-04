@@ -28,10 +28,13 @@ utils = _module
 validation = _module
 writer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -221,6 +224,150 @@ def sample_gmm(mu, std, pi):
 EOS = '~'
 
 
+def _should_keep_symbol(s):
+    return s in _symbol_to_id and s is not '_' and s is not '~'
+
+
+def _symbols_to_sequence(symbols):
+    return [_symbol_to_id[s] for s in symbols if _should_keep_symbol(s)]
+
+
+def _arpabet_to_sequence(text):
+    return _symbols_to_sequence([('@' + s) for s in text.split()])
+
+
+def _clean_text(text, cleaner_names):
+    for name in cleaner_names:
+        cleaner = getattr(cleaners, name)
+        if not cleaner:
+            raise Exception('Unknown cleaner: %s' % name)
+        text = cleaner(text)
+    return text
+
+
+_curly_re = re.compile('(.*?)\\{(.+?)\\}(.*)')
+
+
+PAD = '_'
+
+
+def sequence_to_text(sequence, skip_eos_and_pad=False, combine_jamo=False):
+    """Converts a sequence of IDs back to a string"""
+    result = ''
+    for symbol_id in sequence:
+        if symbol_id in _id_to_symbol:
+            s = _id_to_symbol[symbol_id]
+            if len(s) > 1 and s[0] == '@':
+                s = '{%s}' % s[1:]
+            if not skip_eos_and_pad or s not in [EOS, PAD]:
+                result += s
+    result = result.replace('}{', ' ')
+    if combine_jamo:
+        return jamo_to_korean(result)
+    else:
+        return result
+
+
+def _text_to_sequence(text, cleaner_names, as_token):
+    """Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
+
+        The text can optionally have ARPAbet sequences enclosed in curly braces embedded
+        in it. For example, "Turn left on {HH AW1 S S T AH0 N} Street."
+
+        Args:
+            text: string to convert to a sequence
+            cleaner_names: names of the cleaner functions to run the text through
+
+        Returns:
+            List of integers corresponding to the symbols in the text
+    """
+    sequence = []
+    while len(text):
+        m = _curly_re.match(text)
+        if not m:
+            sequence += _symbols_to_sequence(_clean_text(text, cleaner_names))
+            break
+        sequence += _symbols_to_sequence(_clean_text(m.group(1), cleaner_names)
+            )
+        sequence += _arpabet_to_sequence(m.group(2))
+        text = m.group(3)
+    sequence.append(_symbol_to_id[EOS])
+    if as_token:
+        return sequence_to_text(sequence, combine_jamo=True)
+    else:
+        return np.array(sequence, dtype=np.int32)
+
+
+def text_to_sequence(text, cleaner_names=['korean_cleaners'], as_token=False):
+    return _text_to_sequence(text, cleaner_names, as_token)
+
+
+class MelNet(nn.Module):
+
+    def __init__(self, hp, args, infer_hp):
+        super(MelNet, self).__init__()
+        self.hp = hp
+        self.args = args
+        self.infer_hp = infer_hp
+        self.f_div = f_div[hp.model.tier + 1]
+        self.t_div = t_div[hp.model.tier]
+        self.n_mels = hp.audio.n_mels
+        self.tierutil = TierUtil(hp)
+        if infer_hp.conditional:
+            self.tiers = [TTS(hp=hp, freq=hp.audio.n_mels // self.f_div *
+                f_div[1], layers=hp.model.layers[0])] + [Tier(hp=hp, freq=
+                hp.audio.n_mels // self.f_div * f_div[tier], layers=hp.
+                model.layers[tier - 1], tierN=tier) for tier in range(2, hp
+                .model.tier + 1)]
+        else:
+            self.tiers = [Tier(hp=hp, freq=hp.audio.n_mels // self.f_div *
+                f_div[tier], layers=hp.model.layers[tier - 1], tierN=tier) for
+                tier in range(1, hp.model.tier + 1)]
+        self.tiers = nn.ModuleList([None] + [nn.DataParallel(tier) for tier in
+            self.tiers])
+
+    def forward(self, x, tier_num):
+        assert tier_num > 0, 'tier_num should be larger than 0, got %d' % tier_num
+        return self.tiers[tier_num](x)
+
+    def sample(self, condition):
+        x = None
+        seq = torch.from_numpy(text_to_sequence(condition)).long().unsqueeze(0)
+        input_lengths = torch.LongTensor([seq[0].shape[0]])
+        audio_lengths = torch.LongTensor([0])
+        tqdm.write('Tier 1')
+        for t in tqdm(range(self.args.timestep // self.t_div)):
+            audio_lengths += 1
+            if x is None:
+                x = torch.zeros((1, self.n_mels // self.f_div, 1))
+            else:
+                x = torch.cat([x, torch.zeros((1, self.n_mels // self.f_div,
+                    1))], dim=-1)
+            for m in tqdm(range(self.n_mels // self.f_div)):
+                torch.synchronize()
+                if self.infer_hp.conditional:
+                    mu, std, pi, _ = self.tiers[1](x, seq, input_lengths,
+                        audio_lengths)
+                else:
+                    mu, std, pi = self.tiers[1](x, audio_lengths)
+                temp = sample_gmm(mu, std, pi)
+                x[:, (m), (t)] = temp[:, (m), (t)]
+        for tier in tqdm(range(2, self.hp.model.tier + 1)):
+            tqdm.write('Tier %d' % tier)
+            mu, std, pi = self.tiers[tier](x)
+            temp = sample_gmm(mu, std, pi)
+            x = self.tierutil.interleave(x, temp, tier + 1)
+        return x
+
+    def load_tiers(self):
+        for idx, chkpt_path in enumerate(self.infer_hp.checkpoints):
+            checkpoint = torch.load(chkpt_path)
+            hp = load_hparam_str(checkpoint['hp_str'])
+            if self.hp != hp:
+                None
+            self.tiers[idx + 1].load_state_dict(checkpoint['model'])
+
+
 class DelayedRNN(nn.Module):
 
     def __init__(self, hp):
@@ -362,9 +509,6 @@ class Attention(nn.Module):
         return contexts, alignment
 
 
-PAD = '_'
-
-
 en_symbols = (PAD + EOS +
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? ")
 
@@ -453,6 +597,7 @@ class UpsampleRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Deepest_Project_MelNet(_paritybench_base):

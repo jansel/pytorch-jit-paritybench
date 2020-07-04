@@ -171,10 +171,13 @@ total_variation_denoising = _module
 warp_affine = _module
 warp_perspective = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -7658,6 +7661,7 @@ class TVDenoise(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kornia_kornia(_paritybench_base):
@@ -7681,6 +7685,7 @@ class Test_kornia_kornia(_paritybench_base):
     def test_004(self):
         self._check(ExtractTensorPatches(*[], **{'window_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
         self._check(HardNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

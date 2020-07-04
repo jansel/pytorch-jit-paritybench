@@ -22,10 +22,13 @@ senet = _module
 vgg = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -53,6 +56,9 @@ import numpy as np
 from scipy.stats import ortho_group
 
 
+from numbers import Number
+
+
 from collections import OrderedDict
 
 
@@ -60,6 +66,12 @@ import torch.optim as optim
 
 
 from torch.utils import data
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
 
 
 import time
@@ -867,34 +879,49 @@ class VGG(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_leonardblier_alrao(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AlraoModel(*[], **{'task': 4, 'loss': MSELoss(), 'internal_nn': _mock_layer(), 'n_last_layers': 1, 'last_layer_gen': _mock_layer}), [], {'input': torch.rand([4, 4])})
 
     def test_001(self):
-        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(LinearClassifier(*[], **{'in_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GoogLeNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_004(self):
-        self._check(LinearClassifierRNN(*[], **{'nhid': 4, 'ntoken': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(LinearRegressor(*[], **{'dim_input': 4, 'dim_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearClassifier(*[], **{'in_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearClassifierRNN(*[], **{'nhid': 4, 'ntoken': 4}), [torch.rand([16, 4, 4])], {})
 
     def test_007(self):
-        self._check(RegModel(*[], **{'input_dim': 4, 'pre_output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LinearRegressor(*[], **{'dim_input': 4, 'dim_output': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_009(self):
+        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(RegModel(*[], **{'input_dim': 4, 'pre_output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(SENet(*[], **{'block': _mock_layer, 'num_blocks': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(StandardModel(*[], **{'internal_nn': _mock_layer(), 'classifier': _mock_layer}), [], {'input': torch.rand([4, 4])})
 

@@ -46,10 +46,13 @@ visualize = _module
 variable_stat = _module
 video2image = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -101,10 +104,43 @@ from collections import OrderedDict
 import torch.utils.model_zoo as model_zoo
 
 
+import torchvision.models.densenet as _model
+
+
+from torchvision.models.densenet import _DenseBlock
+
+
+from torchvision.models.densenet import _Transition
+
+
+from torchvision.models.densenet import model_urls
+
+
 import scipy.stats as stats
 
 
 import torch.utils.model_zoo
+
+
+import torchvision.models.inception as _model
+
+
+from torchvision.models.inception import BasicConv2d
+
+
+from torchvision.models.inception import InceptionA
+
+
+from torchvision.models.inception import InceptionB
+
+
+from torchvision.models.inception import InceptionC
+
+
+from torchvision.models.inception import InceptionD
+
+
+from torchvision.models.inception import InceptionE
 
 
 import collections.abc
@@ -114,6 +150,21 @@ import collections
 
 
 import re
+
+
+import torchvision.models.resnet as _model
+
+
+from torchvision.models.resnet import conv3x3
+
+
+import torchvision.models.vgg as _model
+
+
+from torchvision.models.vgg import model_urls
+
+
+import torchvision.transforms
 
 
 def meshgrid(rows, cols, swap=False):
@@ -131,7 +182,7 @@ class Inference(nn.Module):
         self.anchors = anchors
 
     def forward(self, x):
-        device_id = x.get_device() if torch.cuda.is_available() else None
+        device_id = x.get_device() if torch.is_available() else None
         feature = self.dnn(x)
         rows, cols = feature.size()[-2:]
         cells = rows * cols
@@ -921,6 +972,7 @@ class Tiny(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ruiminshen_yolo2_pytorch(_paritybench_base):

@@ -20,10 +20,13 @@ test_cli = _module
 unit = _module
 test_emd_loss = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -37,6 +40,9 @@ import torch
 
 
 import torch.nn as nn
+
+
+import torchvision as tv
 
 
 class EDMLoss(nn.Module):
@@ -71,10 +77,14 @@ class NIMA(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_truskovskiyk_nima_pytorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(EDMLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(NIMA(*[], **{'base_model': _mock_layer(), 'input_features': 4, 'drop_out': 0.5}), [torch.rand([4, 4])], {})
 

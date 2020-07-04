@@ -11,10 +11,13 @@ kitti_utils = _module
 pointnet2_msg = _module
 train_and_eval = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -280,6 +283,19 @@ class GroupAll(nn.Module):
         return new_features
 
 
+class SharedMLP(nn.Sequential):
+
+    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.
+        ReLU(inplace=True), preact: bool=False, first: bool=False, name:
+        str='', instance_norm: bool=False):
+        super().__init__()
+        for i in range(len(args) - 1):
+            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i],
+                args[i + 1], bn=(not first or not preact or i != 0) and bn,
+                activation=activation if not first or not preact or i != 0 else
+                None, preact=preact, instance_norm=instance_norm))
+
+
 class _ConvBase(nn.Sequential):
 
     def __init__(self, in_size, out_size, kernel_size, stride, padding,
@@ -453,7 +469,7 @@ class Pointnet2MSG(nn.Module):
             ) > 3 else None
         return xyz, features
 
-    def forward(self, pointcloud: torch.cuda.FloatTensor):
+    def forward(self, pointcloud: torch.FloatTensor):
         xyz, features = self._break_up_pc(pointcloud)
         l_xyz, l_features = [xyz], [features]
         for i in range(len(self.SA_modules)):
@@ -487,6 +503,7 @@ class DiceLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_sshaoshuai_Pointnet2_PyTorch(_paritybench_base):

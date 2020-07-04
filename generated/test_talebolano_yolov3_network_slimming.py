@@ -8,10 +8,13 @@ sparsity_train = _module
 util = _module
 yolomodel = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -165,10 +168,9 @@ class DetectionLayer(nn.Module):
         nB = x.size(0)
         nG = x.size(2)
         stride = self.image_dim / nG
-        FloatTensor = (torch.cuda.FloatTensor if x.is_cuda else torch.
-            FloatTensor)
-        LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
-        ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
+        FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
+        LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
+        ByteTensor = torch.ByteTensor if x.is_cuda else torch.ByteTensor
         prediction = x.view(nB, nA, self.bbox_attrs, nG, nG).permute(0, 1, 
             3, 4, 2).contiguous()
         x = torch.sigmoid(prediction[..., 0])
@@ -523,6 +525,7 @@ class Darknet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_talebolano_yolov3_network_slimming(_paritybench_base):

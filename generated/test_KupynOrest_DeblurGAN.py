@@ -36,10 +36,13 @@ metrics = _module
 png = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -65,6 +68,9 @@ import torch.autograd as autograd
 
 
 import numpy as np
+
+
+import torchvision.models as models
 
 
 from torch.autograd import Variable
@@ -158,7 +164,7 @@ class ResnetGenerator(nn.Module):
         self.model = nn.Sequential(*model)
 
     def forward(self, input):
-        if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor
+        if self.gpu_ids and isinstance(input.data, torch.FloatTensor
             ) and self.use_parallel:
             output = nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
@@ -217,7 +223,7 @@ class UnetGenerator(nn.Module):
         self.model = unet_block
 
     def forward(self, input):
-        if self.gpu_ids and isinstance(input.data, torch.cuda.FloatTensor
+        if self.gpu_ids and isinstance(input.data, torch.FloatTensor
             ) and self.use_parallel:
             output = nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
@@ -307,7 +313,7 @@ class NLayerDiscriminator(nn.Module):
         self.model = nn.Sequential(*sequence)
 
     def forward(self, input):
-        if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor
+        if len(self.gpu_ids) and isinstance(input.data, torch.FloatTensor
             ) and self.use_parallel:
             return nn.parallel.data_parallel(self.model, input, self.gpu_ids)
         else:
@@ -315,6 +321,7 @@ class NLayerDiscriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_KupynOrest_DeblurGAN(_paritybench_base):
@@ -325,4 +332,8 @@ class Test_KupynOrest_DeblurGAN(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
 

@@ -138,10 +138,13 @@ ventilator = _module
 worker_base = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -161,6 +164,9 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import transforms
 
 
 import logging
@@ -218,7 +224,11 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_uber_petastorm(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(Net(*[], **{}), [torch.rand([4, 1, 28, 28])], {})
+

@@ -28,10 +28,13 @@ train_kinetics = _module
 train_model = _module
 train_ucf101 = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -66,6 +69,9 @@ import torch.nn.parallel
 
 
 import torch.distributed as dist
+
+
+import torchvision
 
 
 class BN_AC_CONV3D(nn.Module):
@@ -117,7 +123,87 @@ class MF_UNIT(nn.Module):
         return h + x
 
 
+class MFNET_3D(nn.Module):
+
+    def __init__(self, num_classes, pretrained=False, **kwargs):
+        super(MFNET_3D, self).__init__()
+        groups = 16
+        k_sec = {(2): 3, (3): 4, (4): 6, (5): 3}
+        conv1_num_out = 16
+        self.conv1 = nn.Sequential(OrderedDict([('conv', nn.Conv3d(3,
+            conv1_num_out, kernel_size=(3, 5, 5), padding=(1, 2, 2), stride
+            =(1, 2, 2), bias=False)), ('bn', nn.BatchNorm3d(conv1_num_out)),
+            ('relu', nn.ReLU(inplace=True))]))
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2),
+            padding=(0, 1, 1))
+        num_mid = 96
+        conv2_num_out = 96
+        self.conv2 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
+            num_in=conv1_num_out if i == 1 else conv2_num_out, num_mid=
+            num_mid, num_out=conv2_num_out, stride=(2, 1, 1) if i == 1 else
+            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
+            k_sec[2] + 1)]))
+        num_mid *= 2
+        conv3_num_out = 2 * conv2_num_out
+        self.conv3 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
+            num_in=conv2_num_out if i == 1 else conv3_num_out, num_mid=
+            num_mid, num_out=conv3_num_out, stride=(1, 2, 2) if i == 1 else
+            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
+            k_sec[3] + 1)]))
+        num_mid *= 2
+        conv4_num_out = 2 * conv3_num_out
+        self.conv4 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
+            num_in=conv3_num_out if i == 1 else conv4_num_out, num_mid=
+            num_mid, num_out=conv4_num_out, stride=(1, 2, 2) if i == 1 else
+            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
+            k_sec[4] + 1)]))
+        num_mid *= 2
+        conv5_num_out = 2 * conv4_num_out
+        self.conv5 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
+            num_in=conv4_num_out if i == 1 else conv5_num_out, num_mid=
+            num_mid, num_out=conv5_num_out, stride=(1, 2, 2) if i == 1 else
+            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
+            k_sec[5] + 1)]))
+        self.tail = nn.Sequential(OrderedDict([('bn', nn.BatchNorm3d(
+            conv5_num_out)), ('relu', nn.ReLU(inplace=True))]))
+        self.globalpool = nn.Sequential(OrderedDict([('avg', nn.AvgPool3d(
+            kernel_size=(8, 7, 7), stride=(1, 1, 1)))]))
+        self.classifier = nn.Linear(conv5_num_out, num_classes)
+        initializer.xavier(net=self)
+        if pretrained:
+            import torch
+            load_method = 'inflation'
+            pretrained_model = os.path.join(os.path.dirname(os.path.
+                realpath(__file__)), 'pretrained/MFNet2D_ImageNet1k-0000.pth')
+            logging.info(
+                "Network:: graph initialized, loading pretrained model: `{}'"
+                .format(pretrained_model))
+            assert os.path.exists(pretrained_model
+                ), "cannot locate: `{}'".format(pretrained_model)
+            state_dict_2d = torch.load(pretrained_model)
+            initializer.init_3d_from_2d_dict(net=self, state_dict=
+                state_dict_2d, method=load_method)
+        else:
+            logging.info('Network:: graph initialized, use random inilization!'
+                )
+
+    def forward(self, x):
+        assert x.shape[2] == 16
+        h = self.conv1(x)
+        h = self.maxpool(h)
+        h = self.conv2(h)
+        h = self.conv3(h)
+        h = self.conv4(h)
+        h = self.conv5(h)
+        h = self.tail(h)
+        h = self.globalpool(h)
+        h = h.view(h.shape[0], -1)
+        h = self.classifier(h)
+        return h
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cypw_PyTorch_MFNet(_paritybench_base):

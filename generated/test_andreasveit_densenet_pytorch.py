@@ -4,10 +4,13 @@ del sys
 densenet = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,6 +45,12 @@ import torch.optim
 
 
 import torch.utils.data
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
 
 
 class BasicBlock(nn.Module):
@@ -176,6 +185,7 @@ class DenseNet3(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_andreasveit_densenet_pytorch(_paritybench_base):
@@ -187,8 +197,11 @@ class Test_andreasveit_densenet_pytorch(_paritybench_base):
         self._check(BottleneckBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(DenseNet3(*[], **{'depth': 1, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(DenseBlock(*[], **{'nb_layers': 1, 'in_planes': 4, 'growth_rate': 4, 'block': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(DenseNet3(*[], **{'depth': 1, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
         self._check(TransitionBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

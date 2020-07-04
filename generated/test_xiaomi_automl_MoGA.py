@@ -9,10 +9,13 @@ MoGA_C = _module
 models = _module
 verify = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -471,6 +474,7 @@ class MoGaC(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xiaomi_automl_MoGA(_paritybench_base):
@@ -483,5 +487,13 @@ class Test_xiaomi_automl_MoGA(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(MoGaA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(MoGaB(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(MoGaC(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

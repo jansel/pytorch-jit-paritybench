@@ -65,10 +65,13 @@ evaluate_model_fg_ratios = _module
 predict_for_dir = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -96,6 +99,9 @@ import numpy as np
 from torch.utils.data import DataLoader
 
 
+from torchvision.transforms import Normalize
+
+
 from torch import nn as nn
 
 
@@ -109,6 +115,9 @@ import torch.nn.functional as F
 
 
 import math
+
+
+import numbers
 
 
 from torch import nn
@@ -1867,6 +1876,7 @@ class _BatchNorm(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_saic_vul_image_harmonization(_paritybench_base):
@@ -1894,54 +1904,78 @@ class Test_saic_vul_image_harmonization(_paritybench_base):
     def test_006(self):
         self._check(FeaturesConnector(*[], **{'mode': 4, 'in_channels': 4, 'feature_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_007(self):
+        self._check(GaussianSmoothing(*[], **{'channels': 4, 'kernel_size': 4, 'sigma': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(HRNetBB(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 64, 32, 32]), torch.rand([4, 64, 32, 32])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(ISEUNetV1(*[], **{'depth': 1}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_008(self):
+    def test_010(self):
         self._check(MaskedChannelAttention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_011(self):
         self._check(MaskedGlobalMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
         self._check(MaxPoolDownSize(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_013(self):
         self._check(ObjectAttentionBlock2D(*[], **{'in_channels': 4, 'key_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_014(self):
+        self._check(ResNetBackbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_015(self):
         self._check(SEDeconvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_016(self):
         self._check(SSAMImageHarmonization(*[], **{'depth': 1}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_014(self):
+    def test_017(self):
         self._check(ScaleLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_018(self):
         self._check(SimpleInputFusion(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_016(self):
+    def test_019(self):
         self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_020(self):
         self._check(SpatialOCR_Module(*[], **{'in_channels': 4, 'key_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_021(self):
+        self._check(UNetDoubleConv(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer, 'activation': _mock_layer, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
+        self._check(UNetDownBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer, 'activation': _mock_layer, 'pool': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_023(self):
         self._check(_ASPP(*[], **{'in_channels': 4, 'atrous_rates': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_024(self):
+        self._check(_AsppPooling(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_019(self):
+    def test_025(self):
         self._check(_BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    @_fails_compile()
+    def test_026(self):
+        self._check(_CustomDP(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    def test_027(self):
         self._check(_DeepLabHead(*[], **{'out_channels': 4, 'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_028(self):
         self._check(_SkipProject(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

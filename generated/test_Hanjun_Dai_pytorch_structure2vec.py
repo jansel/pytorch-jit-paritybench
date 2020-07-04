@@ -10,10 +10,13 @@ mlp = _module
 pytorch_util = _module
 s2v_lib = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -48,6 +51,48 @@ import torch.optim as optim
 
 
 cmd_opt = argparse.ArgumentParser(description='Argparser for harvard cep')
+
+
+class Classifier(nn.Module):
+
+    def __init__(self):
+        super(Classifier, self).__init__()
+        if cmd_args.gm == 'mean_field':
+            model = EmbedMeanField
+        elif cmd_args.gm == 'loopy_bp':
+            model = EmbedLoopyBP
+        else:
+            None
+            sys.exit()
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
+            cmd_args.out_dim, num_node_feats=cmd_args.feat_dim,
+            num_edge_feats=0, max_lv=cmd_args.max_lv)
+        out_dim = cmd_args.out_dim
+        if out_dim == 0:
+            out_dim = cmd_args.latent_dim
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
+            hidden, num_class=cmd_args.num_class)
+
+    def PrepareFeatureLabel(self, batch_graph):
+        labels = torch.LongTensor(len(batch_graph))
+        n_nodes = 0
+        concat_feat = []
+        for i in range(len(batch_graph)):
+            labels[i] = batch_graph[i].label
+            n_nodes += batch_graph[i].num_nodes
+            concat_feat += batch_graph[i].node_tags
+        concat_feat = torch.LongTensor(concat_feat).view(-1, 1)
+        node_feat = torch.zeros(n_nodes, cmd_args.feat_dim)
+        node_feat.scatter_(1, concat_feat, 1)
+        if cmd_args.mode == 'gpu':
+            node_feat = node_feat
+            labels = labels
+        return node_feat, labels
+
+    def forward(self, batch_graph):
+        node_feat, labels = self.PrepareFeatureLabel(batch_graph)
+        embed = self.s2v(batch_graph, node_feat, None)
+        return self.mlp(embed, labels)
 
 
 class Regressor(nn.Module):
@@ -317,6 +362,7 @@ class MLPClassifier(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Hanjun_Dai_pytorch_structure2vec(_paritybench_base):

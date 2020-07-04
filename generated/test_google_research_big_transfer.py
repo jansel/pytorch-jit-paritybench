@@ -17,10 +17,13 @@ bit_tf2 = _module
 normalization = _module
 input_pipeline_tf2_or_jax = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -46,6 +49,9 @@ import time
 
 
 import numpy as np
+
+
+import torchvision as tv
 
 
 def standardize(x, axis, eps):
@@ -76,6 +82,17 @@ def fixed_padding(x, kernel_size):
     x = jax.lax.pad(x, 0.0, ((0, 0, 0), (pad_beg, pad_end, 0), (pad_beg,
         pad_end, 0), (0, 0, 0)))
     return x
+
+
+class RootBlock(nn.Module):
+
+    def apply(self, x, width):
+        x = fixed_padding(x, 7)
+        x = StdConv(x, width, (7, 7), (2, 2), padding='VALID', bias=False,
+            name='conv_root')
+        x = fixed_padding(x, 3)
+        x = nn.max_pool(x, (3, 3), strides=(2, 2), padding='VALID')
+        return x
 
 
 class ResidualUnit(nn.Module):
@@ -275,10 +292,15 @@ class ResNetV2(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_google_research_big_transfer(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(ResNetV2(*[], **{'block_units': [4, 4, 4, 4], 'width_factor': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_001(self):
         self._check(StdConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

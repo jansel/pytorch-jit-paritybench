@@ -9,10 +9,13 @@ problem = _module
 train = _module
 convert = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -306,13 +309,14 @@ class AttentionAggregator(nn.Module, AggregatorMixin):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bkj_pytorch_graphsage(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(AttentionAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': ReLU()}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(AttentionAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -320,7 +324,7 @@ class Test_bkj_pytorch_graphsage(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
-        self._check(LSTMAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': ReLU()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(LSTMAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
@@ -328,7 +332,7 @@ class Test_bkj_pytorch_graphsage(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(MeanAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': ReLU()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(MeanAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
@@ -336,5 +340,5 @@ class Test_bkj_pytorch_graphsage(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
-        self._check(PoolAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'pool_fn': ReLU(), 'activation': ReLU()}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(PoolAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'pool_fn': _mock_layer(), 'activation': _mock_layer()}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

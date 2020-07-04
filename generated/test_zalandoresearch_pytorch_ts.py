@@ -95,10 +95,13 @@ test_feature = _module
 test_scaler = _module
 test_transform = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -229,6 +232,209 @@ from itertools import chain
 
 
 from itertools import combinations
+
+
+def fqname_for(cls: type) ->str:
+    """
+    Returns the fully qualified name of ``cls``.
+
+    Parameters
+    ----------
+    cls
+        The class we are interested in.
+
+    Returns
+    -------
+    str
+        The fully qualified name of ``cls``.
+    """
+    return f'{cls.__module__}.{cls.__qualname__}'
+
+
+kind_inst = 'instance'
+
+
+kind_type = 'type'
+
+
+def dump_code(o: Any) ->str:
+    """
+    Serializes an object to a Python code string.
+
+    Parameters
+    ----------
+    o
+        The object to serialize.
+
+    Returns
+    -------
+    str
+        A string representing the object as Python code.
+
+    See Also
+    --------
+    load_code
+        Inverse function.
+    """
+
+    def _dump_code(x: Any) ->str:
+        if type(x) == dict and x.get('__kind__') == kind_inst:
+            args = x.get('args', [])
+            kwargs = x.get('kwargs', {})
+            fqname = x['class']
+            bindings = ', '.join(itertools.chain(map(_dump_code, args), [
+                f'{k}={_dump_code(v)}' for k, v in kwargs.items()]))
+            return f'{fqname}({bindings})'
+        if type(x) == dict and x.get('__kind__') == kind_type:
+            return x['class']
+        if isinstance(x, dict):
+            inner = ', '.join(f'{_dump_code(k)}: {_dump_code(v)}' for k, v in
+                x.items())
+            return f'{{{inner}}}'
+        if isinstance(x, list):
+            inner = ', '.join(list(map(dump_code, x)))
+            return f'[{inner}]'
+        if isinstance(x, tuple):
+            inner = ', '.join(list(map(dump_code, x)))
+            if len(x) == 1:
+                inner += ','
+            return f'({inner})'
+        if isinstance(x, str):
+            return json.dumps(x)
+        if isinstance(x, float) or np.issubdtype(type(x), np.inexact):
+            if math.isfinite(x):
+                return str(x)
+            else:
+                return 'float("{x}")'
+        if isinstance(x, int) or np.issubdtype(type(x), np.integer):
+            return str(x)
+        if x is None:
+            return str(x)
+        raise RuntimeError(f'Unexpected element type {fqname_for(x.__class__)}'
+            )
+    return _dump_code(encode(o))
+
+
+def validated(base_model=None):
+    """
+    Decorates an ``__init__`` method with typed parameters with validation
+    and auto-conversion logic.
+
+    >>> class ComplexNumber:
+    ...     @validated()
+    ...     def __init__(self, x: float = 0.0, y: float = 0.0) -> None:
+    ...         self.x = x
+    ...         self.y = y
+
+    Classes with decorated initializers can be instantiated using arguments of
+    another type (e.g. an ``y`` argument of type ``str`` ). The decorator
+    handles the type conversion logic.
+
+    >>> c = ComplexNumber(y='42')
+    >>> (c.x, c.y)
+    (0.0, 42.0)
+
+    If the bound argument cannot be converted, the decorator throws an error.
+
+    >>> c = ComplexNumber(y=None)
+    Traceback (most recent call last):
+        ...
+    pydantic.error_wrappers.ValidationError: 1 validation error for ComplexNumberModel
+    y
+      none is not an allowed value (type=type_error.none.not_allowed)
+
+    Internally, the decorator delegates all validation and conversion logic to
+    `a Pydantic model <https://pydantic-docs.helpmanual.io/>`_, which can be
+    accessed through the ``Model`` attribute of the decorated initiazlier.
+
+    >>> ComplexNumber.__init__.Model
+    <class 'ComplexNumberModel'>
+
+    The Pydantic model is synthesized automatically from on the parameter
+    names and types of the decorated initializer. In the ``ComplexNumber``
+    example, the synthesized Pydantic model corresponds to the following
+    definition.
+
+    >>> class ComplexNumberModel(BaseValidatedInitializerModel):
+    ...     x: float = 0.0
+    ...     y: float = 0.0
+
+
+    Clients can optionally customize the base class of the synthesized
+    Pydantic model using the ``base_model`` decorator parameter. The default
+    behavior uses :class:`BaseValidatedInitializerModel` and its
+    `model config <https://pydantic-docs.helpmanual.io/#config>`_.
+
+    See Also
+    --------
+    BaseValidatedInitializerModel
+        Default base class for all synthesized Pydantic models.
+    """
+
+    def validator(init):
+        init_qualname = dict(inspect.getmembers(init))['__qualname__']
+        init_clsnme = init_qualname.split('.')[0]
+        init_params = inspect.signature(init).parameters
+        init_fields = {param.name: (param.annotation if param.annotation !=
+            inspect.Parameter.empty else Any, param.default if param.
+            default != inspect.Parameter.empty else ...) for param in
+            init_params.values() if param.name != 'self' and param.kind ==
+            inspect.Parameter.POSITIONAL_OR_KEYWORD}
+        if base_model is None:
+            PydanticModel = create_model(f'{init_clsnme}Model', __config__=
+                BaseValidatedInitializerModel.Config, **init_fields)
+        else:
+            PydanticModel = create_model(f'{init_clsnme}Model', __base__=
+                base_model, **init_fields)
+
+        def validated_repr(self) ->str:
+            return dump_code(self)
+
+        def validated_getnewargs_ex(self):
+            return (), self.__init_args__
+
+        @functools.wraps(init)
+        def init_wrapper(*args, **kwargs):
+            self, *args = args
+            nmargs = {name: arg for (name, param), arg in zip(list(
+                init_params.items()), [self] + args) if name != 'self'}
+            model = PydanticModel(**{**nmargs, **kwargs})
+            all_args = {**nmargs, **kwargs, **model.__dict__}
+            if not getattr(self, '__init_args__', {}):
+                self.__init_args__ = OrderedDict({name: arg for name, arg in
+                    sorted(all_args.items()) if type(arg) != torch.nn.
+                    ParameterDict})
+                self.__class__.__getnewargs_ex__ = validated_getnewargs_ex
+                self.__class__.__repr__ = validated_repr
+            return init(self, **all_args)
+        setattr(init_wrapper, 'Model', PydanticModel)
+        return init_wrapper
+    return validator
+
+
+def prod(xs):
+    p = 1
+    for x in xs:
+        p *= x
+    return p
+
+
+def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
+    None, dim=None):
+    if weights is not None:
+        weighted_tensor = tensor * weights
+        if dim is not None:
+            sum_weights = torch.sum(weights, dim)
+            sum_weighted_tensor = torch.sum(weighted_tensor, dim)
+        else:
+            sum_weights = weights.sum()
+            sum_weighted_tensor = weighted_tensor.sum()
+        sum_weights = torch.max(torch.ones_like(sum_weights), sum_weights)
+        return sum_weighted_tensor / sum_weights
+    elif dim is not None:
+        return torch.mean(tensor, dim=dim)
+    else:
+        return tensor.mean()
 
 
 class LSTNetBase(nn.Module):
@@ -510,13 +716,6 @@ class NBEATSNetwork(nn.Module):
         flag = seasonal_error == 0
         return torch.mean(torch.abs(future_target - forecast), dim=1
             ) * torch.logical_not(flag) / (seasonal_error + flag)
-
-
-def prod(xs):
-    p = 1
-    for x in xs:
-        p *= x
-    return p
 
 
 class ArgProj(nn.Module):
@@ -905,6 +1104,7 @@ class Scaler(ABC, nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zalandoresearch_pytorch_ts(_paritybench_base):
@@ -922,7 +1122,7 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(LambdaLayer(*[], **{'function': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaLayer(*[], **{'function': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):

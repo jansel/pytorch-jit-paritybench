@@ -104,10 +104,13 @@ search_rmac_modules = _module
 show_search_results = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -138,7 +141,13 @@ from typing import Dict
 from torch.nn import init
 
 
+from torchvision import models
+
+
 from torch.autograd import Variable
+
+
+from torchvision.models.utils import load_state_dict_from_url
 
 
 from torch.nn import Parameter
@@ -210,6 +219,23 @@ class ClassBlock(nn.Module):
         else:
             x = self.classifier(x)
             return x
+
+
+class ft_net_dense(nn.Module):
+
+    def __init__(self, class_num, droprate=0.5):
+        super().__init__()
+        model_ft = models.densenet121(pretrained=True)
+        model_ft.features.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        model_ft.fc = nn.Sequential()
+        self.model = model_ft
+        self.classifier = ClassBlock(1024, class_num, droprate)
+
+    def forward(self, x):
+        x = self.model.features(x)
+        x = x.view(x.size(0), x.size(1))
+        x = self.classifier(x)
+        return x
 
 
 class ft_net_middle(nn.Module):
@@ -423,6 +449,7 @@ class VGG(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_PyRetri_PyRetri(_paritybench_base):
@@ -433,4 +460,16 @@ class Test_PyRetri_PyRetri(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
 

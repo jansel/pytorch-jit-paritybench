@@ -7,10 +7,13 @@ model = _module
 train = _module
 vocab = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -27,6 +30,9 @@ import torch.nn as nn
 
 
 import torch.nn.init
+
+
+import torchvision.models as models
 
 
 from torch.autograd import Variable
@@ -240,7 +246,7 @@ class ContrastiveLoss(nn.Module):
         cost_im = (self.margin + scores - d2).clamp(min=0)
         mask = torch.eye(scores.size(0)) > 0.5
         I = Variable(mask)
-        if torch.cuda.is_available():
+        if torch.is_available():
             I = I
         cost_s = cost_s.masked_fill_(I, 0)
         cost_im = cost_im.masked_fill_(I, 0)
@@ -251,14 +257,19 @@ class ContrastiveLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_fartashf_vsepp(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(ContrastiveLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(EncoderImageFull(*[], **{'embed_size': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_001(self):
         self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(EncoderText(*[], **{'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

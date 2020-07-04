@@ -32,10 +32,13 @@ html = _module
 util = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -147,6 +150,149 @@ def _count_samples(x):
         if i != 1:
             count *= s
     return count
+
+
+class InPlaceABN(nn.Module):
+    """InPlace Activated Batch Normalization"""
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
+        activation='leaky_relu', slope=0.01):
+        """Creates an InPlace Activated Batch Normalization module
+
+        Parameters
+        ----------
+        num_features : int
+            Number of feature channels in the input and output.
+        eps : float
+            Small constant to prevent numerical issues.
+        momentum : float
+            Momentum factor applied to compute running statistics as.
+        affine : bool
+            If `True` apply learned scale and shift transformation after normalization.
+        activation : str
+            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+        """
+        super(InPlaceABN, self).__init__()
+        self.num_features = num_features
+        self.affine = affine
+        self.eps = eps
+        self.momentum = momentum
+        self.activation = activation
+        self.slope = slope
+        if self.affine:
+            self.weight = nn.Parameter(torch.Tensor(num_features))
+            self.bias = nn.Parameter(torch.Tensor(num_features))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+        if self.affine:
+            self.weight.data.fill_(1)
+            self.bias.data.zero_()
+
+    def forward(self, x):
+        return inplace_abn(x, self.weight, self.bias, autograd.Variable(
+            self.running_mean), autograd.Variable(self.running_var), self.
+            training, self.momentum, self.eps, self.activation, self.slope)
+
+    def __repr__(self):
+        rep = (
+            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
+            )
+        if self.activation == 'leaky_relu':
+            rep += ' slope={slope})'
+        else:
+            rep += ')'
+        return rep.format(name=self.__class__.__name__, **self.__dict__)
+
+
+class InPlaceABNSync(nn.Module):
+    """InPlace Activated Batch Normalization with cross-GPU synchronization
+
+    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
+    """
+
+    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1,
+        affine=True, activation='leaky_relu', slope=0.01):
+        """Creates a synchronized, InPlace Activated Batch Normalization module
+
+        Parameters
+        ----------
+        num_features : int
+            Number of feature channels in the input and output.
+        devices : list of int or None
+            IDs of the GPUs that will run the replicas of this module.
+        eps : float
+            Small constant to prevent numerical issues.
+        momentum : float
+            Momentum factor applied to compute running statistics as.
+        affine : bool
+            If `True` apply learned scale and shift transformation after normalization.
+        activation : str
+            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+        """
+        super(InPlaceABNSync, self).__init__()
+        self.num_features = num_features
+        self.devices = devices if devices else list(range(torch.device_count())
+            )
+        self.affine = affine
+        self.eps = eps
+        self.momentum = momentum
+        self.activation = activation
+        self.slope = slope
+        if self.affine:
+            self.weight = nn.Parameter(torch.Tensor(num_features))
+            self.bias = nn.Parameter(torch.Tensor(num_features))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+        self.reset_parameters()
+        self.worker_ids = self.devices[1:]
+        self.master_queue = Queue(len(self.worker_ids))
+        self.worker_queues = [Queue(1) for _ in self.worker_ids]
+
+    def reset_parameters(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+        if self.affine:
+            self.weight.data.fill_(1)
+            self.bias.data.zero_()
+
+    def forward(self, x):
+        if x.get_device() == self.devices[0]:
+            extra = {'is_master': True, 'master_queue': self.master_queue,
+                'worker_queues': self.worker_queues, 'worker_ids': self.
+                worker_ids}
+        else:
+            extra = {'is_master': False, 'master_queue': self.master_queue,
+                'worker_queue': self.worker_queues[self.worker_ids.index(x.
+                get_device())]}
+        return inplace_abn_sync(x, self.weight, self.bias, autograd.
+            Variable(self.running_mean), autograd.Variable(self.running_var
+            ), extra, self.training, self.momentum, self.eps, self.
+            activation, self.slope)
+
+    def __repr__(self):
+        rep = (
+            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
+            )
+        if self.activation == 'leaky_relu':
+            rep += ' slope={slope})'
+        else:
+            rep += ')'
+        return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -538,6 +684,46 @@ class DUpsampling(nn.Module):
         return x
 
 
+BatchNorm2d = functools.partial(InPlaceABNSync, activation='none')
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
+        None, fist_dilation=1, multi_grid=1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+            padding=dilation * multi_grid, dilation=dilation * multi_grid,
+            bias=False)
+        self.bn2 = BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=False)
+        self.relu_inplace = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.dilation = dilation
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out = out + residual
+        out = self.relu_inplace(out)
+        return out
+
+
 class ResNet(nn.Module):
 
     def __init__(self, block, layers):
@@ -729,6 +915,7 @@ class FocalLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_LinZhuoChen_DUpsampling(_paritybench_base):
@@ -736,13 +923,20 @@ class Test_LinZhuoChen_DUpsampling(_paritybench_base):
     def test_000(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
+        self._check(DUpsampling(*[], **{'inplanes': 4, 'scale': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    @_fails_compile()
+    def test_003(self):
+        self._check(FocalLoss(*[], **{'class_num': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {})
+
+    def test_004(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_005(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

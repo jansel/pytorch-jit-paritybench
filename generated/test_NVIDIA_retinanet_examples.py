@@ -18,10 +18,13 @@ model = _module
 train = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -35,6 +38,12 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torchvision.models import resnet as vrn
+
+
+from torchvision.models import mobilenet as vmn
 
 
 import torch
@@ -55,7 +64,121 @@ from torch.utils import data
 import math
 
 
+from torchvision.transforms.functional import adjust_brightness
+
+
+from torchvision.transforms.functional import adjust_contrast
+
+
+from torchvision.transforms.functional import adjust_hue
+
+
+from torchvision.transforms.functional import adjust_saturation
+
+
 import numpy as np
+
+
+class MobileNet(vmn.MobileNetV2):
+    """MobileNetV2: Inverted Residuals and Linear Bottlenecks - https://arxiv.org/abs/1801.04381"""
+
+    def __init__(self, outputs=[18], url=None):
+        self.stride = 128
+        self.url = url
+        super().__init__()
+        self.outputs = outputs
+
+    def initialize(self):
+        if self.url:
+            self.load_state_dict(model_zoo.load_url(self.url))
+
+    def forward(self, x):
+        outputs = []
+        for indx, feat in enumerate(self.features[:-1]):
+            x = feat(x)
+            if indx in self.outputs:
+                outputs.append(x)
+        return outputs
+
+
+class ResNet(vrn.ResNet):
+    """Deep Residual Network - https://arxiv.org/abs/1512.03385"""
+
+    def __init__(self, layers=[3, 4, 6, 3], bottleneck=vrn.Bottleneck,
+        outputs=[5], groups=1, width_per_group=64, url=None):
+        self.stride = 128
+        self.bottleneck = bottleneck
+        self.outputs = outputs
+        self.url = url
+        kwargs = {'block': bottleneck, 'layers': layers, 'groups': groups,
+            'width_per_group': width_per_group}
+        super().__init__(**kwargs)
+
+    def initialize(self):
+        if self.url:
+            self.load_state_dict(model_zoo.load_url(self.url))
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        outputs = []
+        for i, layer in enumerate([self.layer1, self.layer2, self.layer3,
+            self.layer4]):
+            level = i + 2
+            if level > max(self.outputs):
+                break
+            x = layer(x)
+            if level in self.outputs:
+                outputs.append(x)
+        return outputs
+
+
+class FPN(nn.Module):
+    """Feature Pyramid Network - https://arxiv.org/abs/1612.03144"""
+
+    def __init__(self, features):
+        super().__init__()
+        self.stride = 128
+        self.features = features
+        if isinstance(features, ResNet):
+            is_light = features.bottleneck == vrn.BasicBlock
+            channels = [128, 256, 512] if is_light else [512, 1024, 2048]
+        elif isinstance(features, MobileNet):
+            channels = [32, 96, 320]
+        self.lateral3 = nn.Conv2d(channels[0], 256, 1)
+        self.lateral4 = nn.Conv2d(channels[1], 256, 1)
+        self.lateral5 = nn.Conv2d(channels[2], 256, 1)
+        self.pyramid6 = nn.Conv2d(channels[2], 256, 3, stride=2, padding=1)
+        self.pyramid7 = nn.Conv2d(256, 256, 3, stride=2, padding=1)
+        self.smooth3 = nn.Conv2d(256, 256, 3, padding=1)
+        self.smooth4 = nn.Conv2d(256, 256, 3, padding=1)
+        self.smooth5 = nn.Conv2d(256, 256, 3, padding=1)
+
+    def initialize(self):
+
+        def init_layer(layer):
+            if isinstance(layer, nn.Conv2d):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.constant_(layer.bias, val=0)
+        self.apply(init_layer)
+        self.features.initialize()
+
+    def forward(self, x):
+        c3, c4, c5 = self.features(x)
+        p5 = self.lateral5(c5)
+        p4 = self.lateral4(c4)
+        p4 = F.interpolate(p5, scale_factor=2) + p4
+        p3 = self.lateral3(c3)
+        p3 = F.interpolate(p4, scale_factor=2) + p3
+        p6 = self.pyramid6(c5)
+        p7 = self.pyramid7(F.relu(p6))
+        p3 = self.smooth3(p3)
+        p4 = self.smooth4(p4)
+        p5 = self.smooth5(p5)
+        return [p3, p4, p5, p6, p7]
 
 
 class FixedBatchNorm2d(nn.Module):
@@ -388,7 +511,238 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes,
         num_anchors, 1, height, width)
 
 
+class Model(nn.Module):
+    """RetinaNet - https://arxiv.org/abs/1708.02002"""
+
+    def __init__(self, backbones='ResNet50FPN', classes=80, ratios=[1.0, 
+        2.0, 0.5], scales=[(4 * 2 ** (i / 3)) for i in range(3)], angles=
+        None, rotated_bbox=False, anchor_ious=[0.4, 0.5], config={}):
+        super().__init__()
+        if not isinstance(backbones, list):
+            backbones = [backbones]
+        self.backbones = nn.ModuleDict({b: getattr(backbones_mod, b)() for
+            b in backbones})
+        self.name = 'RetinaNet'
+        self.exporting = False
+        self.rotated_bbox = rotated_bbox
+        self.anchor_ious = anchor_ious
+        self.ratios = ratios
+        self.scales = scales
+        self.angles = angles if angles is not None else [-np.pi / 6, 0, np.
+            pi / 6] if self.rotated_bbox else None
+        self.anchors = {}
+        self.classes = classes
+        self.threshold = config.get('threshold', 0.05)
+        self.top_n = config.get('top_n', 1000)
+        self.nms = config.get('nms', 0.5)
+        self.detections = config.get('detections', 100)
+        self.stride = max([b.stride for _, b in self.backbones.items()])
+
+        def make_head(out_size):
+            layers = []
+            for _ in range(4):
+                layers += [nn.Conv2d(256, 256, 3, padding=1), nn.ReLU()]
+            layers += [nn.Conv2d(256, out_size, 3, padding=1)]
+            return nn.Sequential(*layers)
+        self.num_anchors = len(self.ratios) * len(self.scales)
+        self.num_anchors = (self.num_anchors if not self.rotated_bbox else 
+            self.num_anchors * len(self.angles))
+        self.cls_head = make_head(classes * self.num_anchors)
+        self.box_head = make_head(4 * self.num_anchors
+            ) if not self.rotated_bbox else make_head(6 * self.num_anchors)
+        self.cls_criterion = FocalLoss()
+        self.box_criterion = SmoothL1Loss(beta=0.11)
+
+    def __repr__(self):
+        return '\n'.join(['     model: {}'.format(self.name),
+            '  backbone: {}'.format(', '.join([k for k, _ in self.backbones
+            .items()])), '   classes: {}, anchors: {}'.format(self.classes,
+            self.num_anchors)])
+
+    def initialize(self, pre_trained):
+        if pre_trained:
+            if not os.path.isfile(pre_trained):
+                raise ValueError('No checkpoint {}'.format(pre_trained))
+            None
+            state_dict = self.state_dict()
+            chk = torch.load(pre_trained, map_location=lambda storage, loc:
+                storage)
+            ignored = ['cls_head.8.bias', 'cls_head.8.weight']
+            if self.rotated_bbox:
+                ignored += ['box_head.8.bias', 'box_head.8.weight']
+            weights = {k: v for k, v in chk['state_dict'].items() if k not in
+                ignored}
+            state_dict.update(weights)
+            self.load_state_dict(state_dict)
+            del chk, weights
+            torch.empty_cache()
+        else:
+            for _, backbone in self.backbones.items():
+                backbone.initialize()
+
+            def initialize_layer(layer):
+                if isinstance(layer, nn.Conv2d):
+                    nn.init.normal_(layer.weight, std=0.01)
+                    if layer.bias is not None:
+                        nn.init.constant_(layer.bias, val=0)
+            self.cls_head.apply(initialize_layer)
+            self.box_head.apply(initialize_layer)
+
+        def initialize_prior(layer):
+            pi = 0.01
+            b = -math.log((1 - pi) / pi)
+            nn.init.constant_(layer.bias, b)
+            nn.init.normal_(layer.weight, std=0.01)
+        self.cls_head[-1].apply(initialize_prior)
+        if self.rotated_bbox:
+            self.box_head[-1].apply(initialize_prior)
+
+    def forward(self, x, rotated_bbox=None):
+        if self.training:
+            x, targets = x
+        features = []
+        for _, backbone in self.backbones.items():
+            features.extend(backbone(x))
+        cls_heads = [self.cls_head(t) for t in features]
+        box_heads = [self.box_head(t) for t in features]
+        if self.training:
+            return self._compute_loss(x, cls_heads, box_heads, targets.float())
+        cls_heads = [cls_head.sigmoid() for cls_head in cls_heads]
+        if self.exporting:
+            self.strides = [(x.shape[-1] // cls_head.shape[-1]) for
+                cls_head in cls_heads]
+            return cls_heads, box_heads
+        global nms, generate_anchors
+        if self.rotated_bbox:
+            nms = nms_rotated
+            generate_anchors = generate_anchors_rotated
+        decoded = []
+        for cls_head, box_head in zip(cls_heads, box_heads):
+            stride = x.shape[-1] // cls_head.shape[-1]
+            if stride not in self.anchors:
+                self.anchors[stride] = generate_anchors(stride, self.ratios,
+                    self.scales, self.angles)
+            decoded.append(decode(cls_head, box_head, stride, self.
+                threshold, self.top_n, self.anchors[stride], self.rotated_bbox)
+                )
+        decoded = [torch.cat(tensors, 1) for tensors in zip(*decoded)]
+        return nms(*decoded, self.nms, self.detections)
+
+    def _extract_targets(self, targets, stride, size):
+        global generate_anchors, snap_to_anchors
+        if self.rotated_bbox:
+            generate_anchors = generate_anchors_rotated
+            snap_to_anchors = snap_to_anchors_rotated
+        cls_target, box_target, depth = [], [], []
+        for target in targets:
+            target = target[target[:, (-1)] > -1]
+            if stride not in self.anchors:
+                self.anchors[stride] = generate_anchors(stride, self.ratios,
+                    self.scales, self.angles)
+            anchors = self.anchors[stride]
+            if not self.rotated_bbox:
+                anchors = anchors
+            snapped = snap_to_anchors(target, [(s * stride) for s in size[:
+                :-1]], stride, anchors, self.classes, targets.device, self.
+                anchor_ious)
+            for l, s in zip((cls_target, box_target, depth), snapped):
+                l.append(s)
+        return torch.stack(cls_target), torch.stack(box_target), torch.stack(
+            depth)
+
+    def _compute_loss(self, x, cls_heads, box_heads, targets):
+        cls_losses, box_losses, fg_targets = [], [], []
+        for cls_head, box_head in zip(cls_heads, box_heads):
+            size = cls_head.shape[-2:]
+            stride = x.shape[-1] / cls_head.shape[-1]
+            cls_target, box_target, depth = self._extract_targets(targets,
+                stride, size)
+            fg_targets.append((depth > 0).sum().float().clamp(min=1))
+            cls_head = cls_head.view_as(cls_target).float()
+            cls_mask = (depth >= 0).expand_as(cls_target).float()
+            cls_loss = self.cls_criterion(cls_head, cls_target)
+            cls_loss = cls_mask * cls_loss
+            cls_losses.append(cls_loss.sum())
+            box_head = box_head.view_as(box_target).float()
+            box_mask = (depth > 0).expand_as(box_target).float()
+            box_loss = self.box_criterion(box_head, box_target)
+            box_loss = box_mask * box_loss
+            box_losses.append(box_loss.sum())
+        fg_targets = torch.stack(fg_targets).sum()
+        cls_loss = torch.stack(cls_losses).sum() / fg_targets
+        box_loss = torch.stack(box_losses).sum() / fg_targets
+        return cls_loss, box_loss
+
+    def save(self, state):
+        checkpoint = {'backbone': [k for k, _ in self.backbones.items()],
+            'classes': self.classes, 'state_dict': self.state_dict(),
+            'ratios': self.ratios, 'scales': self.scales}
+        if self.rotated_bbox and self.angles:
+            checkpoint['angles'] = self.angles
+        for key in ('iteration', 'optimizer', 'scheduler'):
+            if key in state:
+                checkpoint[key] = state[key]
+        torch.save(checkpoint, state['path'])
+
+    @classmethod
+    def load(cls, filename, rotated_bbox=False):
+        if not os.path.isfile(filename):
+            raise ValueError('No checkpoint {}'.format(filename))
+        checkpoint = torch.load(filename, map_location=lambda storage, loc:
+            storage)
+        kwargs = {}
+        for i in ['ratios', 'scales', 'angles']:
+            if i in checkpoint:
+                kwargs[i] = checkpoint[i]
+        if 'angles' in checkpoint or rotated_bbox:
+            kwargs['rotated_bbox'] = True
+        model = cls(backbones=checkpoint['backbone'], classes=checkpoint[
+            'classes'], **kwargs)
+        model.load_state_dict(checkpoint['state_dict'])
+        state = {}
+        for key in ('iteration', 'optimizer', 'scheduler'):
+            if key in checkpoint:
+                state[key] = checkpoint[key]
+        del checkpoint
+        torch.empty_cache()
+        return model, state
+
+    def export(self, size, batch, precision, calibration_files,
+        calibration_table, verbose, onnx_only=False):
+        import torch.onnx.symbolic_opset10 as onnx_symbolic
+
+        def upsample_nearest2d(g, input, output_size, *args):
+            scales = g.op('Constant', value_t=torch.tensor([1.0, 1.0, 2.0, 
+                2.0]))
+            return g.op('Resize', input, scales, mode_s='nearest')
+        onnx_symbolic.upsample_nearest2d = upsample_nearest2d
+        None
+        self.exporting = True
+        onnx_bytes = io.BytesIO()
+        zero_input = torch.zeros([1, 3, *size])
+        extra_args = {'opset_version': 10, 'verbose': verbose}
+        torch.onnx.export(self, zero_input, onnx_bytes, **extra_args)
+        self.exporting = False
+        if onnx_only:
+            return onnx_bytes.getvalue()
+        model_name = '_'.join([k for k, _ in self.backbones.items()])
+        anchors = []
+        if not self.rotated_bbox:
+            anchors = [generate_anchors(stride, self.ratios, self.scales,
+                self.angles).view(-1).tolist() for stride in self.strides]
+        else:
+            anchors = [generate_anchors_rotated(stride, self.ratios, self.
+                scales, self.angles)[0].view(-1).tolist() for stride in
+                self.strides]
+        batch = 1
+        return Engine(onnx_bytes.getvalue(), len(onnx_bytes.getvalue()),
+            batch, precision, self.threshold, self.top_n, anchors, self.
+            rotated_bbox, self.nms, self.detections, calibration_files,
+            model_name, calibration_table, verbose)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVIDIA_retinanet_examples(_paritybench_base):
@@ -399,6 +753,14 @@ class Test_NVIDIA_retinanet_examples(_paritybench_base):
     def test_001(self):
         self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_004(self):
         self._check(SmoothL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

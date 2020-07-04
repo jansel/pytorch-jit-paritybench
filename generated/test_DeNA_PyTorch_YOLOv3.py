@@ -11,10 +11,13 @@ parse_yolo_weights = _module
 utils = _module
 vis_bbox = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -133,7 +136,7 @@ class YOLOLayer(nn.Module):
         batchsize = output.shape[0]
         fsize = output.shape[2]
         n_ch = 5 + self.n_classes
-        dtype = torch.cuda.FloatTensor if xin.is_cuda else torch.FloatTensor
+        dtype = torch.FloatTensor if xin.is_cuda else torch.FloatTensor
         output = output.view(batchsize, self.n_anchors, n_ch, fsize, fsize)
         output = output.permute(0, 1, 3, 4, 2)
         output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(output[..., np.r_[:2,
@@ -391,6 +394,7 @@ class YOLOv3(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_DeNA_PyTorch_YOLOv3(_paritybench_base):

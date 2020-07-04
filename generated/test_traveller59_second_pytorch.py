@@ -105,10 +105,13 @@ learning_schedules = _module
 learning_schedules_fastai = _module
 optim = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -149,6 +152,9 @@ from enum import Enum
 
 
 from functools import reduce
+
+
+from torchvision.models import resnet
 
 
 import copy
@@ -1142,6 +1148,7 @@ class GroupNorm(torch.nn.GroupNorm):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_traveller59_second_pytorch(_paritybench_base):
@@ -1156,10 +1163,16 @@ class Test_traveller59_second_pytorch(_paritybench_base):
     def test_002(self):
         self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
+        self._check(PFNLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(SmallObjectHead(*[], **{'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(VFELayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
 

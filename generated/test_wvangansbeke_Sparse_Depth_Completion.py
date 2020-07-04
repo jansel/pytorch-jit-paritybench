@@ -13,10 +13,13 @@ test = _module
 utils = _module
 main = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,6 +44,9 @@ import torch.utils.data
 import numpy as np
 
 
+import torchvision.transforms as transforms
+
+
 import time
 
 
@@ -48,6 +54,9 @@ import torch.optim
 
 
 from torch.optim import lr_scheduler
+
+
+from torchvision import transforms
 
 
 import torch.nn.init as init
@@ -454,6 +463,7 @@ class hourglass_2(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_wvangansbeke_Sparse_Depth_Completion(_paritybench_base):
@@ -469,30 +479,45 @@ class Test_wvangansbeke_Sparse_Depth_Completion(_paritybench_base):
     def test_002(self):
         self._check(Disparity_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
+        self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_004(self):
         self._check(Huber_delta1_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(Huber_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(MAE_log_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(MAE_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(MSE_log_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(MSE_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    @_fails_compile()
+    def test_010(self):
+        self._check(Net(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    def test_011(self):
         self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_012(self):
+        self._check(hourglass_2(*[], **{'channels_in': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 8, 32, 32]), torch.rand([4, 16, 16, 16])], {})
+
+    def test_013(self):
         self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(uncertainty_net(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 

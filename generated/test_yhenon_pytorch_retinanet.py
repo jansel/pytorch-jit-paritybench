@@ -14,10 +14,13 @@ utils = _module
 train = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -28,6 +31,9 @@ __version__ = '1.0.0'
 
 
 import torch
+
+
+from torchvision import transforms
 
 
 import numpy as np
@@ -42,6 +48,9 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+from torchvision.ops import nms
+
+
 import collections
 
 
@@ -51,6 +60,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 
+import torchvision
+
+
 import time
 
 
@@ -58,6 +70,12 @@ import copy
 
 
 from torch.utils.data import Dataset
+
+
+from torchvision import datasets
+
+
+from torchvision import models
 
 
 def generate_anchors(base_size=16, ratios=None, scales=None):
@@ -124,7 +142,7 @@ class Anchors(nn.Module):
                 anchors)
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
         all_anchors = np.expand_dims(all_anchors, axis=0)
-        if torch.cuda.is_available():
+        if torch.is_available():
             return torch.from_numpy(all_anchors.astype(np.float32))
         else:
             return torch.from_numpy(all_anchors.astype(np.float32))
@@ -165,7 +183,7 @@ class FocalLoss(nn.Module):
             bbox_annotation = annotations[(j), :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
             if bbox_annotation.shape[0] == 0:
-                if torch.cuda.is_available():
+                if torch.is_available():
                     regression_losses.append(torch.tensor(0).float())
                     classification_losses.append(torch.tensor(0).float())
                 else:
@@ -176,7 +194,7 @@ class FocalLoss(nn.Module):
             IoU = calc_iou(anchors[(0), :, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones(classification.shape) * -1
-            if torch.cuda.is_available():
+            if torch.is_available():
                 targets = targets
             targets[(torch.lt(IoU_max, 0.4)), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
@@ -185,7 +203,7 @@ class FocalLoss(nn.Module):
             targets[(positive_indices), :] = 0
             targets[positive_indices, assigned_annotations[positive_indices,
                 4].long()] = 1
-            if torch.cuda.is_available():
+            if torch.is_available():
                 alpha_factor = torch.ones(targets.shape) * alpha
             else:
                 alpha_factor = torch.ones(targets.shape) * alpha
@@ -197,7 +215,7 @@ class FocalLoss(nn.Module):
             bce = -(targets * torch.log(classification) + (1.0 - targets) *
                 torch.log(1.0 - classification))
             cls_loss = focal_weight * bce
-            if torch.cuda.is_available():
+            if torch.is_available():
                 cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss,
                     torch.zeros(cls_loss.shape))
             else:
@@ -227,7 +245,7 @@ class FocalLoss(nn.Module):
                 targets = torch.stack((targets_dx, targets_dy, targets_dw,
                     targets_dh))
                 targets = targets.t()
-                if torch.cuda.is_available():
+                if torch.is_available():
                     targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
                 else:
                     targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
@@ -238,7 +256,7 @@ class FocalLoss(nn.Module):
                     9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), 
                     regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
-            elif torch.cuda.is_available():
+            elif torch.is_available():
                 regression_losses.append(torch.tensor(0).float())
             else:
                 regression_losses.append(torch.tensor(0).float())
@@ -540,7 +558,7 @@ class BBoxTransform(nn.Module):
     def __init__(self, mean=None, std=None):
         super(BBoxTransform, self).__init__()
         if mean is None:
-            if torch.cuda.is_available():
+            if torch.is_available():
                 self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(
                     np.float32))
             else:
@@ -549,7 +567,7 @@ class BBoxTransform(nn.Module):
         else:
             self.mean = mean
         if std is None:
-            if torch.cuda.is_available():
+            if torch.is_available():
                 self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).
                     astype(np.float32))
             else:
@@ -595,26 +613,20 @@ class ClipBoxes(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yhenon_pytorch_retinanet(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(ClassificationModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_003(self):
         self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
 

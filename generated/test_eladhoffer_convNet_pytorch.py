@@ -37,10 +37,13 @@ preprocess = _module
 probe = _module
 trainer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -75,6 +78,9 @@ import torch.utils.data
 
 
 import torch.distributed as dist
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -132,6 +138,30 @@ import numpy as np
 
 
 from torch.autograd.function import Function
+
+
+from torchvision.models.vgg import vgg11
+
+
+from torchvision.models.vgg import vgg11_bn
+
+
+from torchvision.models.vgg import vgg13
+
+
+from torchvision.models.vgg import vgg13_bn
+
+
+from torchvision.models.vgg import vgg16
+
+
+from torchvision.models.vgg import vgg16_bn
+
+
+from torchvision.models.vgg import vgg19
+
+
+from torchvision.models.vgg import vgg19_bn
 
 
 from torch.nn.utils import clip_grad_norm_
@@ -526,6 +556,18 @@ GENOTYPES = dict(NASNet=Genotype(normal=[('sep_conv_5x5', 1), (
     reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('skip_connect', 2),
     ('max_pool_3x3', 1), ('max_pool_3x3', 0), ('skip_connect', 2), (
     'skip_connect', 2), ('max_pool_3x3', 1)], reduce_concat=[2, 3, 4, 5]))
+
+
+def cosine_anneal_lr(epoch, base_lr=0.025, T_max=600.0, eta_min=0.0):
+    return eta_min + (base_lr - eta_min) * (1 + math.cos(math.pi * epoch /
+        T_max)) / 2
+
+
+def modify_drop_path_rate(model, value, log=True):
+    if log and model.drop_path != value:
+        logging.debug('Modified drop-path rate from %s to %s' % (model.
+            drop_path, value))
+    model.drop_path = value
 
 
 class Inception_v1_GoogLeNet(nn.Module):
@@ -2403,6 +2445,7 @@ class VGG(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_eladhoffer_convNet_pytorch(_paritybench_base):
@@ -2442,6 +2485,7 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
     def test_009(self):
         self._check(GhostTopkBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
         self._check(HadamardProj(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -2481,65 +2525,68 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
         self._check(MeanBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_021(self):
+        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_022(self):
         self._check(Proj(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_023(self):
         self._check(QConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(QLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(QuantMeasure(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_026(self):
         self._check(RangeBN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
         self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
+    def test_028(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_028(self):
+    def test_029(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_029(self):
+    def test_030(self):
         self._check(TopkBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_030(self):
+    def test_031(self):
         self._check(ZIConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_031(self):
+    def test_032(self):
         self._check(ZILinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_032(self):
+    def test_033(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_033(self):
+    def test_034(self):
         self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_034(self):
+    def test_035(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_035(self):
+    def test_036(self):
         self._check(block17(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_036(self):
+    def test_037(self):
         self._check(block35(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_037(self):
+    def test_038(self):
         self._check(block8(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_038(self):
+    def test_039(self):
         self._check(mnist_model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

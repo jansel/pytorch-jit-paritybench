@@ -13,10 +13,13 @@ numbers = _module
 symbols = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -296,6 +299,39 @@ class AttentionDecoder(nn.Module):
         return attn_hidden, gru1_hidden, gru2_hidden
 
 
+_characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? "
+
+
+_eos = '~'
+
+
+_pad = '_'
+
+
+class Encoder(nn.Module):
+    """
+    Encoder
+    """
+
+    def __init__(self, embedding_size):
+        """
+
+        :param embedding_size: dimension of embedding
+        """
+        super(Encoder, self).__init__()
+        self.embedding_size = embedding_size
+        self.embed = nn.Embedding(len(symbols), embedding_size)
+        self.prenet = Prenet(embedding_size, hp.hidden_size * 2, hp.hidden_size
+            )
+        self.cbhg = CBHG(hp.hidden_size)
+
+    def forward(self, input_):
+        input_ = torch.transpose(self.embed(input_), 1, 2)
+        prenet = self.prenet.forward(input_)
+        memory = self.cbhg.forward(prenet)
+        return memory
+
+
 class MelDecoder(nn.Module):
     """
     Decoder
@@ -376,6 +412,7 @@ class Tacotron(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_soobinseo_Tacotron_pytorch(_paritybench_base):
@@ -385,8 +422,11 @@ class Test_soobinseo_Tacotron_pytorch(_paritybench_base):
         self._check(CBHG(*[], **{'hidden_size': 4}), [torch.rand([4, 128, 64])], {})
 
     def test_001(self):
-        self._check(Prenet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Highwaynet(*[], **{'num_units': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_002(self):
+        self._check(Prenet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(SeqLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

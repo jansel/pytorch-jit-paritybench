@@ -54,10 +54,13 @@ setup = _module
 test_models = _module
 test_preprocessing = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,7 +94,28 @@ from collections import OrderedDict
 import re
 
 
+from torchvision.models.densenet import DenseNet
+
+
 import torch.nn.functional as F
+
+
+import torchvision
+
+
+from torchvision.models.resnet import ResNet
+
+
+from torchvision.models.resnet import BasicBlock
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.vgg import VGG
+
+
+from torchvision.models.vgg import make_layers
 
 
 from typing import Union
@@ -834,6 +858,7 @@ class BaseObject(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_qubvel_segmentation_models_pytorch(_paritybench_base):
@@ -860,28 +885,32 @@ class Test_qubvel_segmentation_models_pytorch(_paritybench_base):
     def test_006(self):
         self._check(ConvBnRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_007(self):
+        self._check(FPABlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_008(self):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(GAUBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(PSPBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(PSPModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(SCSEModule(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(SegmentationHead(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(TransposeX2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

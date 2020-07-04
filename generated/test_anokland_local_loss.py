@@ -3,10 +3,13 @@ _module = sys.modules[__name__]
 del sys
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -29,6 +32,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from torch.backends import cudnn
@@ -62,7 +71,7 @@ class LinearFAFunction(torch.autograd.Function):
         return grad_input, grad_weight, grad_weight_fa, grad_bias
 
 
-_global_config['cuda'] = 4
+_global_config['cuda'] = False
 
 
 class LinearFA(nn.Module):
@@ -127,37 +136,34 @@ def similarity_matrix(x):
     return R
 
 
-_global_config['weight_decay'] = 4
-
-
 _global_config['momentum'] = 4
 
 
-_global_config['bio'] = 4
-
-
-_global_config['target_proj_size'] = 4
+_global_config['optim'] = _mock_config()
 
 
 _global_config['dropout'] = 0.5
 
 
-_global_config['optim'] = 4
+_global_config['beta'] = 4
 
 
 _global_config['no_print_stats'] = 4
 
 
-_global_config['backprop'] = 4
-
-
 _global_config['no_batch_norm'] = 4
 
 
-_global_config['alpha'] = 4
+_global_config['backprop'] = 4
+
+
+_global_config['bio'] = 4
 
 
 _global_config['nonlin'] = 4
+
+
+_global_config['weight_decay'] = 4
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -268,7 +274,7 @@ class LocalLossBlockLinear(nn.Module):
                 x_hat = self.nonlin(self.decoder_x(h))
                 loss_unsup = F.mse_loss(x_hat, x.detach())
             elif args.cuda:
-                loss_unsup = torch.cuda.FloatTensor([0])
+                loss_unsup = torch.FloatTensor([0])
             else:
                 loss_unsup = torch.FloatTensor([0])
             if args.loss_sup == 'sim':
@@ -283,8 +289,8 @@ class LocalLossBlockLinear(nn.Module):
             elif args.loss_sup == 'pred':
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
-                    float_type = (torch.cuda.FloatTensor if args.cuda else
-                        torch.FloatTensor)
+                    float_type = (torch.FloatTensor if args.cuda else torch
+                        .FloatTensor)
                     y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
                         ).detach()
                     loss_sup = F.binary_cross_entropy_with_logits(y_hat_local,
@@ -299,8 +305,8 @@ class LocalLossBlockLinear(nn.Module):
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
                     Ry = similarity_matrix(self.proj_y(y_onehot)).detach()
-                    float_type = (torch.cuda.FloatTensor if args.cuda else
-                        torch.FloatTensor)
+                    float_type = (torch.FloatTensor if args.cuda else torch
+                        .FloatTensor)
                     y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
                         ).detach()
                     loss_pred = (1 - args.beta
@@ -328,9 +334,6 @@ class LocalLossBlockLinear(nn.Module):
         else:
             loss = 0.0
         return h_return, loss
-
-
-_global_config['dim_in_decoder'] = 4
 
 
 class LocalLossBlockConv(nn.Module):
@@ -494,7 +497,7 @@ class LocalLossBlockConv(nn.Module):
                 x_hat = self.nonlin(self.decoder_x(h))
                 loss_unsup = F.mse_loss(x_hat, x.detach())
             elif args.cuda:
-                loss_unsup = torch.cuda.FloatTensor([0])
+                loss_unsup = torch.FloatTensor([0])
             else:
                 loss_unsup = torch.FloatTensor([0])
             if args.loss_sup == 'sim':
@@ -511,8 +514,8 @@ class LocalLossBlockConv(nn.Module):
                     h = self.avg_pool(h)
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
-                    float_type = (torch.cuda.FloatTensor if args.cuda else
-                        torch.FloatTensor)
+                    float_type = (torch.FloatTensor if args.cuda else torch
+                        .FloatTensor)
                     y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
                         ).detach()
                     loss_sup = F.binary_cross_entropy_with_logits(y_hat_local,
@@ -529,8 +532,8 @@ class LocalLossBlockConv(nn.Module):
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
                     Ry = similarity_matrix(self.proj_y(y_onehot)).detach()
-                    float_type = (torch.cuda.FloatTensor if args.cuda else
-                        torch.FloatTensor)
+                    float_type = (torch.FloatTensor if args.cuda else torch
+                        .FloatTensor)
                     y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
                         ).detach()
                     loss_pred = (1 - args.beta
@@ -560,10 +563,10 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
-_global_config['pre_act'] = 4
-
-
 _global_config['no_detach'] = 4
+
+
+_global_config['pre_act'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -990,10 +993,10 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_hidden'] = 4
-
-
 _global_config['num_layers'] = 1
+
+
+_global_config['num_hidden'] = 4
 
 
 class VGGn(nn.Module):
@@ -1113,6 +1116,7 @@ class VGGn(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_anokland_local_loss(_paritybench_base):

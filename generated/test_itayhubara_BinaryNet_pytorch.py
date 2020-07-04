@@ -15,10 +15,13 @@ vgg_cifar10_binary = _module
 preprocess = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -55,10 +58,22 @@ import torch.utils.data
 from torch.autograd import Variable
 
 
+from torchvision.utils import save_image
+
+
 import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torchvision.transforms as transforms
 
 
 import math
@@ -353,6 +368,39 @@ def Binaryconv3x3(in_planes, out_planes, stride=1):
         stride, padding=1, bias=False)
 
 
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None,
+        do_bntan=True):
+        super(BasicBlock, self).__init__()
+        self.conv1 = Binaryconv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.tanh1 = nn.Hardtanh(inplace=True)
+        self.conv2 = Binaryconv3x3(planes, planes)
+        self.tanh2 = nn.Hardtanh(inplace=True)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.do_bntan = do_bntan
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x.clone()
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.tanh1(out)
+        out = self.conv2(out)
+        if self.downsample is not None:
+            if residual.data.max() > 1:
+                pdb.set_trace()
+            residual = self.downsample(residual)
+        out += residual
+        if self.do_bntan:
+            out = self.bn2(out)
+            out = self.tanh2(out)
+        return out
+
+
 class Bottleneck(nn.Module):
     expansion = 4
 
@@ -372,7 +420,7 @@ class Bottleneck(nn.Module):
         self.stride = stride
 
     def forward(self, x):
-        residual = xNone
+        residual = x
         pdb.set_trace()
         out = self.conv1(x)
         out = self.bn1(out)
@@ -469,10 +517,12 @@ class VGG_Cifar10(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_itayhubara_BinaryNet_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
@@ -484,10 +534,15 @@ class Test_itayhubara_BinaryNet_pytorch(_paritybench_base):
     def test_002(self):
         self._check(BinarizeLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
         self._check(HingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(Net(*[], **{}), [torch.rand([4, 784])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(VGG_Cifar10(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

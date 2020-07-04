@@ -61,10 +61,13 @@ cascade_pyramid_network_v9 = _module
 senet = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -96,6 +99,9 @@ import torch.nn.functional as F
 
 
 from torch import nn
+
+
+import torchvision
 
 
 import torch.nn as nn
@@ -3879,6 +3885,7 @@ class SENet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_gathierry_FashionAI_KeyPointsDetectionOfApparel(_paritybench_base):
@@ -3916,34 +3923,52 @@ class Test_gathierry_FashionAI_KeyPointsDetectionOfApparel(_paritybench_base):
     def test_010(self):
         self._check(DilatedBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InceptionResNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_012(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_014(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_015(self):
-        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_016(self):
-        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(NASNetALarge(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_017(self):
-        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_018(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_019(self):
+        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
+        self._check(RetinaNet(*[], **{'config': _mock_config(anchor_num=4), 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_021(self):
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_022(self):
         self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
-        self._check(VisErrorLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+    def test_023(self):
+        self._check(VisErrorLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 1])], {})
+
+    @_fails_compile()
+    def test_024(self):
+        self._check(VisErrorLossV13(*[], **{}), [torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 1])], {})
+
+    @_fails_compile()
+    def test_025(self):
+        self._check(VisErrorLossV3(*[], **{}), [torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 4]), torch.rand([4, 4, 1])], {})
 

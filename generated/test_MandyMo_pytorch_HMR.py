@@ -23,10 +23,13 @@ timer = _module
 trainer = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -55,6 +58,9 @@ import torch.optim as optim
 
 
 import math
+
+
+import torchvision
 
 
 import re
@@ -111,6 +117,81 @@ class PoseDiscriminator(nn.Module):
         for idx in range(23):
             o.append(self.fc_layer[idx](internal_outputs[:, :, (0), (idx)]))
         return torch.cat(o, 1), internal_outputs
+
+
+_global_config['beta_count'] = 4
+
+
+_global_config['feature_count'] = 4
+
+
+_global_config['joint_count'] = 4
+
+
+_global_config['total_theta_count'] = 4
+
+
+_global_config['smpl_mean_theta_path'] = 4
+
+
+_global_config['smpl_model'] = 4
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self._read_configs()
+        self._create_sub_modules()
+
+    def _read_configs(self):
+        self.beta_count = args.beta_count
+        self.smpl_model = args.smpl_model
+        self.smpl_mean_theta_path = args.smpl_mean_theta_path
+        self.total_theta_count = args.total_theta_count
+        self.joint_count = args.joint_count
+        self.feature_count = args.feature_count
+
+    def _create_sub_modules(self):
+        """
+            create theta discriminator for 23 joint
+        """
+        self.pose_discriminator = PoseDiscriminator([9, 32, 32, 1])
+        """
+            create full pose discriminator for total 23 joints
+        """
+        fc_layers = [23 * 32, 1024, 1024, 1]
+        use_dropout = [False, False, False]
+        drop_prob = [0.5, 0.5, 0.5]
+        use_ac_func = [True, True, False]
+        self.full_pose_discriminator = FullPoseDiscriminator(fc_layers,
+            use_dropout, drop_prob, use_ac_func)
+        """
+            shape discriminator for betas
+        """
+        fc_layers = [self.beta_count, 5, 1]
+        use_dropout = [False, False]
+        drop_prob = [0.5, 0.5]
+        use_ac_func = [True, False]
+        self.shape_discriminator = ShapeDiscriminator(fc_layers,
+            use_dropout, drop_prob, use_ac_func)
+        None
+    """
+        inputs is N x 85(3 + 72 + 10)
+    """
+
+    def forward(self, thetas):
+        batch_size = thetas.shape[0]
+        cams, poses, shapes = thetas[:, :3], thetas[:, 3:75], thetas[:, 75:]
+        shape_disc_value = self.shape_discriminator(shapes)
+        rotate_matrixs = util.batch_rodrigues(poses.contiguous().view(-1, 3)
+            ).view(-1, 24, 9)[:, 1:, :]
+        pose_disc_value, pose_inter_disc_value = self.pose_discriminator(
+            rotate_matrixs)
+        full_pose_disc_value = self.full_pose_discriminator(
+            pose_inter_disc_value.contiguous().view(batch_size, -1))
+        return torch.cat((pose_disc_value, full_pose_disc_value,
+            shape_disc_value), 1)
 
 
 class Residual(nn.Module):
@@ -602,13 +683,13 @@ def batch_rodrigues(theta):
     return quat2mat(quat)
 
 
-_global_config['batch_size'] = 4
+_global_config['eval_batch_size'] = 4
 
 
 _global_config['batch_3d_size'] = 4
 
 
-_global_config['eval_batch_size'] = 4
+_global_config['batch_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -963,37 +1044,19 @@ def load_denseNet(net_type):
         sys.exit(msg)
 
 
-_global_config['joint_count'] = 4
-
-
-_global_config['total_theta_count'] = 4
-
-
-_global_config['beta_count'] = 4
-
-
-_global_config['feature_count'] = 4
-
-
-_global_config['allowed_encoder_net'] = 4
-
-
 _global_config['enable_inter_supervision'] = 4
-
-
-_global_config['smpl_model'] = 4
-
-
-_global_config['encoder_network'] = 4
-
-
-_global_config['encoder_feature_count'] = 4
 
 
 _global_config['crop_size'] = 4
 
 
-_global_config['smpl_mean_theta_path'] = 4
+_global_config['allowed_encoder_net'] = 4
+
+
+_global_config['encoder_feature_count'] = 4
+
+
+_global_config['encoder_network'] = 4
 
 
 class HMRNetBase(nn.Module):
@@ -1118,6 +1181,7 @@ class HMRNetBase(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MandyMo_pytorch_HMR(_paritybench_base):
@@ -1127,20 +1191,32 @@ class Test_MandyMo_pytorch_HMR(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(HourGlassBlock(*[], **{'block_count': 1, 'residual_each_block': 1, 'input_channels': 4, 'mid_channels': 4, 'use_bn': 4, 'stack_index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Residual(*[], **{'use_bn': 4, 'input_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HourGlass(*[], **{'nStack': 4, 'nBlockCount': 4, 'nResidualEachBlock': 4, 'nMidChannels': 4, 'nChannels': 4, 'nJointCount': 4, 'bUseBn': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HourGlassBlock(*[], **{'block_count': 4, 'residual_each_block': 4, 'input_channels': 4, 'mid_channels': 4, 'use_bn': 4, 'stack_index': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(PRNetEncoder(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(Residual(*[], **{'use_bn': 4, 'input_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_008(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

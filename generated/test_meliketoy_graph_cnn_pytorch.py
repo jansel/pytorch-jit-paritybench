@@ -8,10 +8,13 @@ test = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -122,17 +125,15 @@ class GraphAttention(nn.Module):
         self.alpha = alpha
         self.concat = concat
         self.W = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            in_features, out_features).type(torch.cuda.FloatTensor if torch
-            .cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)
-            ), requires_grad=True)
+            in_features, out_features).type(torch.FloatTensor if torch.
+            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
+            requires_grad=True)
         self.a1 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            out_features, 1).type(torch.cuda.FloatTensor if torch.cuda.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
+            out_features, 1).type(torch.FloatTensor if torch.is_available()
+             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.a2 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            out_features, 1).type(torch.cuda.FloatTensor if torch.cuda.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
+            out_features, 1).type(torch.FloatTensor if torch.is_available()
+             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, input, adj):
@@ -214,6 +215,7 @@ class GAT(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_meliketoy_graph_cnn_pytorch(_paritybench_base):

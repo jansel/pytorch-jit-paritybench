@@ -49,10 +49,13 @@ squeezenet = _module
 squeezenext = _module
 vgg11 = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -89,6 +92,12 @@ import torch.nn.init as init
 from torch import nn
 
 
+from torchvision.models import ResNet
+
+
+import torchvision
+
+
 class LayerTest(nn.Module):
 
     def __init__(self, min_val, max_val):
@@ -98,6 +107,18 @@ class LayerTest(nn.Module):
     def forward(self, x):
         x = self.htanh(x)
         return x
+
+
+class FTest(nn.Module):
+
+    def __init__(self, min_val, max_val):
+        super(FTest, self).__init__()
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.hardtanh(x, min_val=self.min_val, max_val=self.max_val)
 
 
 class LayerTest(nn.Module):
@@ -111,6 +132,17 @@ class LayerTest(nn.Module):
         return x
 
 
+class FTest(nn.Module):
+
+    def __init__(self, negative_slope):
+        super(FTest, self).__init__()
+        self.negative_slope = negative_slope
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.leaky_relu(x, self.negative_slope)
+
+
 class LayerTest(nn.Module):
 
     def __init__(self):
@@ -120,6 +152,16 @@ class LayerTest(nn.Module):
     def forward(self, x):
         x = self.relu(x)
         return x
+
+
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.relu(x)
 
 
 class LayerTest(nn.Module):
@@ -133,6 +175,16 @@ class LayerTest(nn.Module):
         return x
 
 
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.selu(x)
+
+
 class LayerTest(nn.Module):
 
     def __init__(self):
@@ -142,6 +194,16 @@ class LayerTest(nn.Module):
     def forward(self, x):
         x = self.sigmoid(x)
         return x
+
+
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.sigmoid(x)
 
 
 class LayerTest(nn.Module):
@@ -155,6 +217,17 @@ class LayerTest(nn.Module):
         return x
 
 
+class FTest(nn.Module):
+
+    def __init__(self, dim):
+        super(FTest, self).__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.softmax(x, dim=self.dim)
+
+
 class LayerTest(nn.Module):
 
     def __init__(self):
@@ -164,6 +237,16 @@ class LayerTest(nn.Module):
     def forward(self, x):
         x = self.tanh(x)
         return x
+
+
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.tanh(x)
 
 
 class FTest(nn.Module):
@@ -277,6 +360,16 @@ class LayerTest(nn.Module):
         return x
 
 
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x, y, z):
+        from torch.nn import functional as F
+        return F.relu(x) + F.relu(y) + F.relu(z)
+
+
 class LayerTest(nn.Module):
 
     def __init__(self, out, eps, momentum):
@@ -384,6 +477,16 @@ class LayerTest(nn.Module):
         return x
 
 
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.upsample_bilinear(x, scale_factor=2)
+
+
 class LayerTest(nn.Module):
 
     def __init__(self, scale_factor=2):
@@ -393,6 +496,16 @@ class LayerTest(nn.Module):
     def forward(self, x):
         x = self.up(x)
         return x
+
+
+class FTest(nn.Module):
+
+    def __init__(self):
+        super(FTest, self).__init__()
+
+    def forward(self, x):
+        from torch.nn import functional as F
+        return F.upsample_nearest(x, scale_factor=2)
 
 
 BatchNorm = nn.BatchNorm2d
@@ -1587,6 +1700,7 @@ class SqueezeNext(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_nerox8664_pytorch2keras(_paritybench_base):
@@ -1595,8 +1709,9 @@ class Test_nerox8664_pytorch2keras(_paritybench_base):
     def test_000(self):
         self._check(ChannelShuffle(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(FTest(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(FTest(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -1608,38 +1723,41 @@ class Test_nerox8664_pytorch2keras(_paritybench_base):
         self._check(LayerTest(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_006(self):
-        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(PreResConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
+        self._check(PreResConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(PreResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(PreResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(ShuffleInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
         self._check(SqnxtConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(SqnxtInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(SqnxtUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(TestUpsampleNearest2d(*[], **{}), [torch.rand([4, 10, 64, 64])], {})
 

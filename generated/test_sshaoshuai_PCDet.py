@@ -52,10 +52,13 @@ fastai_optim = _module
 learning_schedules_fastai = _module
 train_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -211,6 +214,1071 @@ class AnchorGeneratorRange(object):
         return anchors
 
 
+def corners_nd(dims, origin=0.5):
+    """generate relative box corners based on length per dim and
+    origin point.
+
+    Args:
+        dims (float array, shape=[N, ndim]): array of length per dim
+        origin (list or array or float): origin point relate to smallest point.
+
+    Returns:
+        float array, shape=[N, 2 ** ndim, ndim]: returned corners.
+        point layout example: (2d) x0y0, x0y1, x1y0, x1y1;
+            (3d) x0y0z0, x0y0z1, x0y1z0, x0y1z1, x1y0z0, x1y0z1, x1y1z0, x1y1z1
+            where x0 < x1, y0 < y1, z0 < z1
+    """
+    ndim = int(dims.shape[1])
+    corners_norm = np.stack(np.unravel_index(np.arange(2 ** ndim), [2] *
+        ndim), axis=1).astype(dims.dtype)
+    if ndim == 2:
+        corners_norm = corners_norm[[0, 1, 3, 2]]
+    elif ndim == 3:
+        corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
+    corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
+    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2 **
+        ndim, ndim])
+    return corners
+
+
+def rotation_2d(points, angles):
+    """rotation 2d points based on origin point clockwise when angle positive.
+
+    Args:
+        points (float array, shape=[N, point_size, 2]): points to be rotated.
+        angles (float array, shape=[N]): rotation angle.
+
+    Returns:
+        float array: same shape as points
+    """
+    rot_sin = np.sin(angles)
+    rot_cos = np.cos(angles)
+    rot_mat_T = np.stack([[rot_cos, -rot_sin], [rot_sin, rot_cos]])
+    return np.einsum('aij,jka->aik', points, rot_mat_T)
+
+
+def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
+    """convert kitti locations, dimensions and angles to corners.
+    format: center(xy), dims(xy), angles(clockwise when positive)
+
+    Args:
+        centers (float array, shape=[N, 2]): locations in kitti label file.
+        dims (float array, shape=[N, 2]): dimensions in kitti label file.
+        angles (float array, shape=[N]): rotation_y in kitti label file.
+
+    Returns:
+        [type]: [description]
+    """
+    corners = corners_nd(dims, origin=origin)
+    if angles is not None:
+        corners = rotation_2d(corners, angles)
+    corners += centers.reshape([-1, 1, 2])
+    return corners
+
+
+def center_to_minmax_2d_0_5(centers, dims):
+    return np.concatenate([centers - dims / 2, centers + dims / 2], axis=-1)
+
+
+def center_to_minmax_2d(centers, dims, origin=0.5):
+    if origin == 0.5:
+        return center_to_minmax_2d_0_5(centers, dims)
+    corners = center_to_corner_box2d(centers, dims, origin=origin)
+    return corners[:, ([0, 2])].reshape([-1, 4])
+
+
+def rbbox2d_to_near_bbox(rbboxes):
+    """convert rotated bbox to nearest 'standing' or 'lying' bbox.
+    Args:
+        rbboxes: [N, 5(x, y, xdim, ydim, rad)] rotated bboxes
+    Returns:
+        bboxes: [N, 4(xmin, ymin, xmax, ymax)] bboxes
+    """
+    rots = rbboxes[..., -1]
+    rots_0_pi_div_2 = np.abs(common_utils.limit_period(rots, 0.5, np.pi))
+    cond = (rots_0_pi_div_2 > np.pi / 4)[..., np.newaxis]
+    bboxes_center = np.where(cond, rbboxes[:, ([0, 1, 3, 2])], rbboxes[:, :4])
+    bboxes = center_to_minmax_2d(bboxes_center[:, :2], bboxes_center[:, 2:])
+    return bboxes
+
+
+def unmap(data, count, inds, fill=0):
+    """Unmap a subset of item (data) back to the original set of items (of
+    size count)"""
+    if count == len(inds):
+        return data
+    if len(data.shape) == 1:
+        ret = np.empty((count,), dtype=data.dtype)
+        ret.fill(fill)
+        ret[inds] = data
+    else:
+        ret = np.empty((count,) + data.shape[1:], dtype=data.dtype)
+        ret.fill(fill)
+        ret[(inds), :] = data
+    return ret
+
+
+class TargetAssigner(object):
+
+    def __init__(self, anchor_generators, pos_fraction, sample_size,
+        region_similarity_fn_name, box_coder, logger=None):
+        super().__init__()
+        self.anchor_generators = anchor_generators
+        self.pos_fraction = pos_fraction if pos_fraction >= 0 else None
+        self.sample_size = sample_size
+        self.region_similarity_calculator = getattr(self,
+            region_similarity_fn_name)
+        self.box_coder = box_coder
+        self.logger = logger
+
+    def generate_anchors(self, feature_map_size=None, use_multi_head=False):
+        anchors_list = []
+        matched_thresholds = [a.match_threshold for a in self.anchor_generators
+            ]
+        unmatched_thresholds = [a.unmatch_threshold for a in self.
+            anchor_generators]
+        match_list, unmatch_list = [], []
+        for anchor_generator, match_thresh, unmatch_thresh in zip(self.
+            anchor_generators, matched_thresholds, unmatched_thresholds):
+            if use_multi_head:
+                anchors = anchor_generator.generate(anchor_generator.
+                    feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
+                    shape[-1]])
+                ndim = len(anchor_generator.feature_map_size)
+                anchors = anchors.transpose(ndim, *range(0, ndim), ndim + 1)
+                anchors = anchors.reshape(-1, anchors.shape[-1])
+            else:
+                anchors = anchor_generator.generate(feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
+                    shape[-1]])
+            anchors_list.append(anchors)
+            num_anchors = np.prod(anchors.shape[:-1])
+            match_list.append(np.full([num_anchors], match_thresh, anchors.
+                dtype))
+            unmatch_list.append(np.full([num_anchors], unmatch_thresh,
+                anchors.dtype))
+        anchors = np.concatenate(anchors_list, axis=-2)
+        matched_thresholds = np.concatenate(match_list, axis=0)
+        unmatched_thresholds = np.concatenate(unmatch_list, axis=0)
+        return {'anchors': anchors, 'matched_thresholds':
+            matched_thresholds, 'unmatched_thresholds': unmatched_thresholds}
+
+    def generate_anchors_dict(self, feature_map_size, use_multi_head=False):
+        anchors_list = []
+        matched_thresholds = [a.match_threshold for a in self.anchor_generators
+            ]
+        unmatched_thresholds = [a.unmatch_threshold for a in self.
+            anchor_generators]
+        match_list, unmatch_list = [], []
+        anchors_dict = {a.class_name: {} for a in self.anchor_generators}
+        for anchor_generator, match_thresh, unmatch_thresh in zip(self.
+            anchor_generators, matched_thresholds, unmatched_thresholds):
+            if use_multi_head:
+                anchors = anchor_generator.generate(anchor_generator.
+                    feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
+                    shape[-1]])
+                ndim = len(feature_map_size)
+                anchors = anchors.transpose(ndim, *range(0, ndim), ndim + 1)
+            else:
+                anchors = anchor_generator.generate(feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
+                    shape[-1]])
+            anchors_list.append(anchors)
+            num_anchors = np.prod(anchors.shape[:-1])
+            match_list.append(np.full([num_anchors], match_thresh, anchors.
+                dtype))
+            unmatch_list.append(np.full([num_anchors], unmatch_thresh,
+                anchors.dtype))
+            class_name = anchor_generator.class_name
+            anchors_dict[class_name]['anchors'] = anchors
+            anchors_dict[class_name]['matched_thresholds'] = match_list[-1]
+            anchors_dict[class_name]['unmatched_thresholds'] = unmatch_list[-1]
+        return anchors_dict
+
+    @staticmethod
+    def nearest_iou_similarity(boxes1, boxes2):
+        boxes1_bv = rbbox2d_to_near_bbox(boxes1)
+        boxes2_bv = rbbox2d_to_near_bbox(boxes2)
+        ret = iou_jit(boxes1_bv, boxes2_bv, eps=0.0)
+        return ret
+
+    def assign_v2(self, anchors_dict, gt_boxes, anchors_mask=None,
+        gt_classes=None, gt_names=None):
+        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(
+            anchors_mask)[0]
+
+        def similarity_fn(anchors, gt_boxes):
+            anchors_rbv = anchors[:, ([0, 1, 3, 4, 6])]
+            gt_boxes_rbv = gt_boxes[:, ([0, 1, 3, 4, 6])]
+            return self.region_similarity_calculator(anchors_rbv, gt_boxes_rbv)
+
+        def box_encoding_fn(boxes, anchors):
+            return self.box_coder.encode_np(boxes, anchors)
+        targets_list = []
+        for class_name, anchor_dict in anchors_dict.items():
+            mask = np.array([(c == class_name) for c in gt_names], dtype=np
+                .bool_)
+            targets = self.create_target_np(anchor_dict['anchors'].reshape(
+                -1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask],
+                similarity_fn, box_encoding_fn, prune_anchor_fn=
+                prune_anchor_fn, gt_classes=gt_classes[mask],
+                matched_threshold=anchor_dict['matched_thresholds'],
+                unmatched_threshold=anchor_dict['unmatched_thresholds'],
+                positive_fraction=self.pos_fraction, rpn_batch_size=self.
+                sample_size, norm_by_num_examples=False, box_code_size=self
+                .box_coder.code_size)
+            targets_list.append(targets)
+            feature_map_size = anchor_dict['anchors'].shape[:3]
+        targets_dict = {'labels': [t['labels'] for t in targets_list],
+            'bbox_targets': [t['bbox_targets'] for t in targets_list],
+            'bbox_src_targets': [t['bbox_src_targets'] for t in
+            targets_list], 'bbox_outside_weights': [t[
+            'bbox_outside_weights'] for t in targets_list]}
+        targets_dict['bbox_targets'] = np.concatenate([v.reshape(*
+            feature_map_size, -1, self.box_coder.code_size) for v in
+            targets_dict['bbox_targets']], axis=-2)
+        targets_dict['bbox_src_targets'] = np.concatenate([v.reshape(*
+            feature_map_size, -1, self.box_coder.code_size) for v in
+            targets_dict['bbox_src_targets']], axis=-2)
+        targets_dict['labels'] = np.concatenate([v.reshape(*
+            feature_map_size, -1) for v in targets_dict['labels']], axis=-1)
+        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(*
+            feature_map_size, -1) for v in targets_dict[
+            'bbox_outside_weights']], axis=-1)
+        targets_dict['bbox_targets'] = targets_dict['bbox_targets'].reshape(
+            -1, self.box_coder.code_size)
+        targets_dict['bbox_src_targets'] = targets_dict['bbox_src_targets'
+            ].reshape(-1, self.box_coder.code_size)
+        targets_dict['labels'] = targets_dict['labels'].reshape(-1)
+        targets_dict['bbox_outside_weights'] = targets_dict[
+            'bbox_outside_weights'].reshape(-1)
+        return targets_dict
+
+    def assign_multihead(self, anchors_dict, gt_boxes, anchors_mask=None,
+        gt_classes=None, gt_names=None):
+        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(
+            anchors_mask)[0]
+
+        def similarity_fn(anchors, gt_boxes):
+            anchors_rbv = anchors[:, ([0, 1, 3, 4, 6])]
+            gt_boxes_rbv = gt_boxes[:, ([0, 1, 3, 4, 6])]
+            return self.region_similarity_calculator(anchors_rbv, gt_boxes_rbv)
+
+        def box_encoding_fn(boxes, anchors):
+            return self.box_coder.encode_np(boxes, anchors)
+        targets_list = []
+        for class_name, anchor_dict in anchors_dict.items():
+            mask = np.array([(c == class_name) for c in gt_names], dtype=np
+                .bool_)
+            targets = self.create_target_np(anchor_dict['anchors'].reshape(
+                -1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask],
+                similarity_fn, box_encoding_fn, prune_anchor_fn=
+                prune_anchor_fn, gt_classes=gt_classes[mask],
+                matched_threshold=anchor_dict['matched_thresholds'],
+                unmatched_threshold=anchor_dict['unmatched_thresholds'],
+                positive_fraction=self.pos_fraction, rpn_batch_size=self.
+                sample_size, norm_by_num_examples=False, box_code_size=self
+                .box_coder.code_size)
+            targets_list.append(targets)
+        targets_dict = {'labels': [t['labels'] for t in targets_list],
+            'bbox_targets': [t['bbox_targets'] for t in targets_list],
+            'bbox_outside_weights': [t['bbox_outside_weights'] for t in
+            targets_list]}
+        targets_dict['bbox_targets'] = np.concatenate([v.reshape(-1, self.
+            box_coder.code_size) for v in targets_dict['bbox_targets']], axis=0
+            )
+        targets_dict['labels'] = np.concatenate([v.reshape(-1) for v in
+            targets_dict['labels']], axis=0)
+        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(-1
+            ) for v in targets_dict['bbox_outside_weights']], axis=0)
+        return targets_dict
+
+    def create_target_np(self, all_anchors, gt_boxes, similarity_fn,
+        box_encoding_fn, prune_anchor_fn=None, gt_classes=None,
+        matched_threshold=0.6, unmatched_threshold=0.45, bbox_inside_weight
+        =None, positive_fraction=None, rpn_batch_size=300,
+        norm_by_num_examples=False, box_code_size=7):
+        """Modified from FAIR detectron.
+        Args:
+            all_anchors: [num_of_anchors, box_ndim] float tensor.
+            gt_boxes: [num_gt_boxes, box_ndim] float tensor.
+            similarity_fn: a function, accept anchors and gt_boxes, return
+                similarity matrix(such as IoU).
+            box_encoding_fn: a function, accept gt_boxes and anchors, return
+                box encodings(offsets).
+            prune_anchor_fn: a function, accept anchors, return indices that
+                indicate valid anchors.
+            gt_classes: [num_gt_boxes] int tensor. indicate gt classes, must
+                start with 1.
+            matched_threshold: float, iou greater than matched_threshold will
+                be treated as positives.
+            unmatched_threshold: float, iou smaller than unmatched_threshold will
+                be treated as negatives.
+            bbox_inside_weight: unused
+            positive_fraction: [0-1] float or None. if not None, we will try to
+                keep ratio of pos/neg equal to positive_fraction when sample.
+                if there is not enough positives, it fills the rest with negatives
+            rpn_batch_size: int. sample size
+            norm_by_num_examples: bool. norm box_weight by number of examples, but
+                I recommend to do this outside.
+        Returns:
+            labels, bbox_targets, bbox_outside_weights
+        """
+        total_anchors = all_anchors.shape[0]
+        if prune_anchor_fn is not None:
+            inds_inside = prune_anchor_fn(all_anchors)
+            anchors = all_anchors[(inds_inside), :]
+            if not isinstance(matched_threshold, float):
+                matched_threshold = matched_threshold[inds_inside]
+            if not isinstance(unmatched_threshold, float):
+                unmatched_threshold = unmatched_threshold[inds_inside]
+        else:
+            anchors = all_anchors
+            inds_inside = None
+        num_inside = len(inds_inside
+            ) if inds_inside is not None else total_anchors
+        box_ndim = all_anchors.shape[1]
+        if self.logger is not None:
+            self.logger.info('total_anchors: {}'.format(total_anchors))
+            self.logger.info('inds_inside: {}'.format(num_inside))
+            self.logger.info('anchors.shape: {}'.format(anchors.shape))
+        if gt_classes is None:
+            gt_classes = np.ones([gt_boxes.shape[0]], dtype=np.int32)
+        labels = np.empty((num_inside,), dtype=np.int32)
+        gt_ids = np.empty((num_inside,), dtype=np.int32)
+        labels.fill(-1)
+        gt_ids.fill(-1)
+        if len(gt_boxes) > 0 and anchors.shape[0] > 0:
+            anchor_by_gt_overlap = similarity_fn(anchors, gt_boxes)
+            anchor_to_gt_argmax = anchor_by_gt_overlap.argmax(axis=1)
+            anchor_to_gt_max = anchor_by_gt_overlap[np.arange(num_inside),
+                anchor_to_gt_argmax]
+            gt_to_anchor_argmax = anchor_by_gt_overlap.argmax(axis=0)
+            gt_to_anchor_max = anchor_by_gt_overlap[gt_to_anchor_argmax, np
+                .arange(anchor_by_gt_overlap.shape[1])]
+            empty_gt_mask = gt_to_anchor_max == 0
+            gt_to_anchor_max[empty_gt_mask] = -1
+            anchors_with_max_overlap = np.where(anchor_by_gt_overlap ==
+                gt_to_anchor_max)[0]
+            gt_inds_force = anchor_to_gt_argmax[anchors_with_max_overlap]
+            labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
+            gt_ids[anchors_with_max_overlap] = gt_inds_force
+            pos_inds = anchor_to_gt_max >= matched_threshold
+            gt_inds = anchor_to_gt_argmax[pos_inds]
+            labels[pos_inds] = gt_classes[gt_inds]
+            gt_ids[pos_inds] = gt_inds
+            bg_inds = np.where(anchor_to_gt_max < unmatched_threshold)[0]
+        else:
+            bg_inds = np.arange(num_inside)
+        fg_inds = np.where(labels > 0)[0]
+        fg_max_overlap = None
+        if len(gt_boxes) > 0 and anchors.shape[0] > 0:
+            fg_max_overlap = anchor_to_gt_max[fg_inds]
+        gt_pos_ids = gt_ids[fg_inds]
+        if positive_fraction is not None:
+            num_fg = int(positive_fraction * rpn_batch_size)
+            if len(fg_inds) > num_fg:
+                disable_inds = npr.choice(fg_inds, size=len(fg_inds) -
+                    num_fg, replace=False)
+                labels[disable_inds] = -1
+                fg_inds = np.where(labels > 0)[0]
+            num_bg = rpn_batch_size - np.sum(labels > 0)
+            if len(bg_inds) > num_bg:
+                enable_inds = bg_inds[npr.randint(len(bg_inds), size=num_bg)]
+                labels[enable_inds] = 0
+            bg_inds = np.where(labels == 0)[0]
+        elif len(gt_boxes) == 0 or anchors.shape[0] == 0:
+            labels[:] = 0
+        else:
+            labels[bg_inds] = 0
+            labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
+        bbox_targets = np.zeros((num_inside, box_code_size), dtype=
+            all_anchors.dtype)
+        bbox_src_targets = np.zeros((num_inside, box_code_size), dtype=
+            all_anchors.dtype)
+        if len(gt_boxes) > 0 and anchors.shape[0] > 0:
+            fg_gt_boxes = gt_boxes[(anchor_to_gt_argmax[fg_inds]), :]
+            fg_anchors = anchors[(fg_inds), :]
+            bbox_targets[(fg_inds), :] = box_encoding_fn(fg_gt_boxes,
+                fg_anchors)
+            temp_src_gt_boxes = fg_gt_boxes.copy()
+            temp_src_gt_boxes[:, 0:3] = fg_gt_boxes[:, 0:3] - fg_anchors[:, 0:3
+                ]
+            bbox_src_targets[(fg_inds), :] = temp_src_gt_boxes
+        bbox_outside_weights = np.zeros((num_inside,), dtype=all_anchors.dtype)
+        if norm_by_num_examples:
+            num_examples = np.sum(labels >= 0)
+            num_examples = np.maximum(1.0, num_examples)
+            bbox_outside_weights[labels > 0] = 1.0 / num_examples
+        else:
+            bbox_outside_weights[labels > 0] = 1.0
+        if inds_inside is not None:
+            labels = unmap(labels, total_anchors, inds_inside, fill=-1)
+            bbox_targets = unmap(bbox_targets, total_anchors, inds_inside,
+                fill=0)
+            bbox_src_targets = unmap(bbox_src_targets, total_anchors,
+                inds_inside, fill=0)
+            bbox_outside_weights = unmap(bbox_outside_weights,
+                total_anchors, inds_inside, fill=0)
+        ret = {'labels': labels, 'bbox_targets': bbox_targets,
+            'bbox_outside_weights': bbox_outside_weights,
+            'assigned_anchors_overlap': fg_max_overlap, 'positive_gt_id':
+            gt_pos_ids, 'bbox_src_targets': bbox_src_targets}
+        if inds_inside is not None:
+            ret['assigned_anchors_inds'] = inds_inside[fg_inds]
+        else:
+            ret['assigned_anchors_inds'] = fg_inds
+        return ret
+
+    @property
+    def num_anchors_per_location(self):
+        num = 0
+        for a_generator in self.anchor_generators:
+            num += a_generator.num_anchors_per_localization
+        return num
+
+    def num_anchors_per_location_class(self, class_name):
+        if isinstance(class_name, int):
+            class_name = self.classes[class_name]
+        assert class_name in self.classes
+        class_idx = self.classes.index(class_name)
+        return self.anchor_generators[class_idx].num_anchors_per_localization
+
+    @property
+    def classes(self):
+        return [a.class_name for a in self.anchor_generators]
+
+
+_global_config['CLASS_NAMES'] = 4
+
+
+_global_config['MODEL'] = 4
+
+
+class AnchorHead(nn.Module):
+
+    def __init__(self, grid_size, anchor_target_cfg):
+        super().__init__()
+        anchor_cfg = anchor_target_cfg.ANCHOR_GENERATOR
+        anchor_generators = []
+        self.num_class = len(cfg.CLASS_NAMES)
+        for cur_name in cfg.CLASS_NAMES:
+            cur_cfg = None
+            for a_cfg in anchor_cfg:
+                if a_cfg['class_name'] == cur_name:
+                    cur_cfg = a_cfg
+                    break
+            assert cur_cfg is not None, 'Not found anchor config: %s' % cur_name
+            anchor_generator = AnchorGeneratorRange(anchor_ranges=cur_cfg[
+                'anchor_range'], sizes=cur_cfg['sizes'], rotations=cur_cfg[
+                'rotations'], class_name=cur_cfg['class_name'],
+                match_threshold=cur_cfg['matched_threshold'],
+                unmatch_threshold=cur_cfg['unmatched_threshold'])
+            anchor_generators.append(anchor_generator)
+        self.box_coder = getattr(box_coder_utils, anchor_target_cfg.BOX_CODER)(
+            )
+        self.target_assigner = TargetAssigner(anchor_generators=
+            anchor_generators, pos_fraction=anchor_target_cfg.
+            SAMPLE_POS_FRACTION, sample_size=anchor_target_cfg.SAMPLE_SIZE,
+            region_similarity_fn_name=anchor_target_cfg.
+            REGION_SIMILARITY_FN, box_coder=self.box_coder)
+        self.num_anchors_per_location = (self.target_assigner.
+            num_anchors_per_location)
+        self.box_code_size = self.box_coder.code_size
+        feature_map_size = grid_size[:2
+            ] // anchor_target_cfg.DOWNSAMPLED_FACTOR
+        feature_map_size = [*feature_map_size, 1][::-1]
+        ret = self.target_assigner.generate_anchors(feature_map_size)
+        anchors_dict = self.target_assigner.generate_anchors_dict(
+            feature_map_size)
+        anchors = ret['anchors'].reshape([-1, 7])
+        self.anchor_cache = {'anchors': anchors, 'anchors_dict': anchors_dict}
+        self.forward_ret_dict = None
+        self.build_losses(cfg.MODEL.LOSSES)
+
+    def build_losses(self, losses_cfg):
+        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha
+            =0.25, gamma=2.0)
+        code_weights = losses_cfg.LOSS_WEIGHTS['code_weights']
+        rpn_code_weights = code_weights[3:7
+            ] if losses_cfg.RPN_REG_LOSS == 'bin-based' else code_weights
+        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma
+            =3.0, code_weights=rpn_code_weights)
+        self.dir_loss_func = loss_utils.WeightedSoftmaxClassificationLoss()
+
+    def assign_targets(self, gt_boxes):
+        """
+        :param gt_boxes: (B, N, 8)
+        :return:
+        """
+        gt_boxes = gt_boxes.cpu().numpy()
+        batch_size = gt_boxes.shape[0]
+        gt_classes = gt_boxes[:, :, (7)]
+        gt_boxes = gt_boxes[:, :, :7]
+        targets_dict_list = []
+        for k in range(batch_size):
+            cur_gt = gt_boxes[k]
+            cnt = cur_gt.__len__() - 1
+            while cnt > 0 and cur_gt[cnt].sum() == 0:
+                cnt -= 1
+            cur_gt = cur_gt[:cnt + 1]
+            cur_gt_classes = gt_classes[k][:cnt + 1]
+            cur_gt_names = np.array(cfg.CLASS_NAMES)[cur_gt_classes.astype(
+                np.int32) - 1]
+            cur_target_dict = self.target_assigner.assign_v2(anchors_dict=
+                self.anchor_cache['anchors_dict'], gt_boxes=cur_gt,
+                gt_classes=cur_gt_classes, gt_names=cur_gt_names)
+            targets_dict_list.append(cur_target_dict)
+        targets_dict = {}
+        for key in targets_dict_list[0].keys():
+            val = np.stack([x[key] for x in targets_dict_list], axis=0)
+            targets_dict[key] = val
+        return targets_dict
+
+    @staticmethod
+    def add_sin_difference(boxes1, boxes2, dim=6):
+        assert dim != -1
+        rad_pred_encoding = torch.sin(boxes1[(...), dim:dim + 1]) * torch.cos(
+            boxes2[(...), dim:dim + 1])
+        rad_tg_encoding = torch.cos(boxes1[(...), dim:dim + 1]) * torch.sin(
+            boxes2[(...), dim:dim + 1])
+        boxes1 = torch.cat([boxes1[(...), :dim], rad_pred_encoding, boxes1[
+            (...), dim + 1:]], dim=-1)
+        boxes2 = torch.cat([boxes2[(...), :dim], rad_tg_encoding, boxes2[(
+            ...), dim + 1:]], dim=-1)
+        return boxes1, boxes2
+
+    @staticmethod
+    def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset
+        =0, num_bins=2):
+        batch_size = reg_targets.shape[0]
+        anchors = anchors.view(batch_size, -1, anchors.shape[-1])
+        rot_gt = reg_targets[..., 6] + anchors[..., 6]
+        offset_rot = common_utils.limit_period_torch(rot_gt - dir_offset, 0,
+            2 * np.pi)
+        dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)
+            ).long()
+        dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=num_bins - 1)
+        if one_hot:
+            dir_targets = torch.zeros(*list(dir_cls_targets.shape),
+                num_bins, dtype=anchors.dtype, device=dir_cls_targets.device)
+            dir_targets.scatter_(-1, dir_cls_targets.unsqueeze(dim=-1).long
+                (), 1.0)
+            dir_cls_targets = dir_targets
+        return dir_cls_targets
+
+    def get_loss(self, forward_ret_dict=None):
+        loss_cfgs = cfg.MODEL.LOSSES
+        forward_ret_dict = (self.forward_ret_dict if forward_ret_dict is
+            None else forward_ret_dict)
+        anchors = forward_ret_dict['anchors']
+        box_preds = forward_ret_dict['box_preds']
+        cls_preds = forward_ret_dict['cls_preds']
+        box_dir_cls_preds = forward_ret_dict['dir_cls_preds']
+        box_cls_labels = forward_ret_dict['box_cls_labels']
+        box_reg_targets = forward_ret_dict['box_reg_targets']
+        batch_size = int(box_preds.shape[0])
+        anchors = anchors.view(1, -1, anchors.shape[-1]).repeat(batch_size,
+            1, 1)
+        cared = box_cls_labels >= 0
+        positives = box_cls_labels > 0
+        negatives = box_cls_labels == 0
+        negative_cls_weights = negatives * 1.0
+        cls_weights = (negative_cls_weights + 1.0 * positives).float()
+        reg_weights = positives.float()
+        pos_normalizer = positives.sum(1, keepdim=True).float()
+        reg_weights /= torch.clamp(pos_normalizer, min=1.0)
+        cls_weights /= torch.clamp(pos_normalizer, min=1.0)
+        cls_targets = box_cls_labels * cared.type_as(box_cls_labels)
+        cls_targets = cls_targets.unsqueeze(dim=-1)
+        num_class = self.num_class
+        cls_targets = cls_targets.squeeze(dim=-1)
+        one_hot_targets = torch.zeros(*list(cls_targets.shape), num_class +
+            1, dtype=box_preds.dtype, device=cls_targets.device)
+        one_hot_targets.scatter_(-1, cls_targets.unsqueeze(dim=-1).long(), 1.0)
+        if cfg.MODEL.RPN.RPN_HEAD.ARGS['encode_background_as_zeros']:
+            cls_preds = cls_preds.view(batch_size, -1, num_class)
+            one_hot_targets = one_hot_targets[(...), 1:]
+        else:
+            cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
+        loss_weights_dict = loss_cfgs.LOSS_WEIGHTS
+        cls_loss = self.cls_loss_func(cls_preds, one_hot_targets, weights=
+            cls_weights)
+        cls_loss_reduced = cls_loss.sum() / batch_size
+        cls_loss_reduced = cls_loss_reduced * loss_weights_dict[
+            'rpn_cls_weight']
+        box_preds = box_preds.view(batch_size, -1, box_preds.shape[-1] //
+            self.num_anchors_per_location)
+        if loss_cfgs.RPN_REG_LOSS == 'smooth-l1':
+            box_preds_sin, reg_targets_sin = self.add_sin_difference(box_preds,
+                box_reg_targets)
+            loc_loss = self.reg_loss_func(box_preds_sin, reg_targets_sin,
+                weights=reg_weights)
+            loc_loss_reduced = loc_loss.sum() / batch_size
+        else:
+            raise NotImplementedError
+        loc_loss_reduced = loc_loss_reduced * loss_weights_dict[
+            'rpn_loc_weight']
+        rpn_loss = loc_loss_reduced + cls_loss_reduced
+        tb_dict = {'rpn_loss_loc': loc_loss_reduced.item(), 'rpn_loss_cls':
+            cls_loss_reduced.item()}
+        if box_dir_cls_preds is not None:
+            dir_targets = self.get_direction_target(anchors,
+                box_reg_targets, dir_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS[
+                'dir_offset'], num_bins=cfg.MODEL.RPN.RPN_HEAD.ARGS[
+                'num_direction_bins'])
+            dir_logits = box_dir_cls_preds.view(batch_size, -1, cfg.MODEL.
+                RPN.RPN_HEAD.ARGS['num_direction_bins'])
+            weights = positives.type_as(dir_logits)
+            weights /= torch.clamp(weights.sum(-1, keepdim=True), min=1.0)
+            dir_loss = self.dir_loss_func(dir_logits, dir_targets, weights=
+                weights)
+            dir_loss = dir_loss.sum() / batch_size
+            dir_loss = dir_loss * loss_weights_dict['rpn_dir_weight']
+            rpn_loss += dir_loss
+            tb_dict['rpn_loss_dir'] = dir_loss.item()
+        tb_dict['rpn_loss'] = rpn_loss.item()
+        return rpn_loss, tb_dict
+
+
+class RPNV2(AnchorHead):
+
+    def __init__(self, num_class, args, anchor_target_cfg, grid_size, **kwargs
+        ):
+        super().__init__(grid_size=grid_size, anchor_target_cfg=
+            anchor_target_cfg)
+        self._use_direction_classifier = args['use_direction_classifier']
+        self._concat_input = args['concat_input']
+        assert len(args['layer_strides']) == len(args['layer_nums'])
+        assert len(args['num_filters']) == len(args['layer_nums'])
+        assert len(args['num_upsample_filters']) == len(args['layer_nums'])
+        if args['use_norm']:
+            BatchNorm2d = partial(nn.BatchNorm2d, eps=0.001, momentum=0.01)
+            Conv2d = partial(nn.Conv2d, bias=False)
+            ConvTranspose2d = partial(nn.ConvTranspose2d, bias=False)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = partial(nn.Conv2d, bias=True)
+            ConvTranspose2d = partial(nn.ConvTranspose2d, bias=True)
+        in_filters = [args['num_input_features'], *args['num_filters'][:-1]]
+        blocks = []
+        deblocks = []
+        for i, layer_num in enumerate(args['layer_nums']):
+            block = Sequential(nn.ZeroPad2d(1), Conv2d(in_filters[i], args[
+                'num_filters'][i], 3, stride=args['layer_strides'][i]),
+                BatchNorm2d(args['num_filters'][i]), nn.ReLU())
+            for j in range(layer_num):
+                block.add(Conv2d(args['num_filters'][i], args['num_filters'
+                    ][i], 3, padding=1))
+                block.add(BatchNorm2d(args['num_filters'][i]))
+                block.add(nn.ReLU())
+            blocks.append(block)
+            deblock = Sequential(ConvTranspose2d(args['num_filters'][i],
+                args['num_upsample_filters'][i], args['upsample_strides'][i
+                ], stride=args['upsample_strides'][i]), BatchNorm2d(args[
+                'num_upsample_filters'][i]), nn.ReLU())
+            deblocks.append(deblock)
+        c_in = sum(args['num_upsample_filters'])
+        if self._concat_input:
+            c_in += args['num_input_features']
+        if len(args['upsample_strides']) > len(args['num_filters']):
+            deblock = Sequential(ConvTranspose2d(c_in, c_in, args[
+                'upsample_strides'][-1], stride=args['upsample_strides'][-1
+                ]), BatchNorm2d(c_in), nn.ReLU())
+            deblocks.append(deblock)
+        self.blocks = nn.ModuleList(blocks)
+        self.deblocks = nn.ModuleList(deblocks)
+        if args['encode_background_as_zeros']:
+            num_cls = self.num_anchors_per_location * num_class
+        else:
+            num_cls = self.num_anchors_per_location * (num_class + 1)
+        self.conv_cls = nn.Conv2d(c_in, num_cls, 1)
+        reg_channels = self.num_anchors_per_location * self.box_code_size
+        self.conv_box = nn.Conv2d(c_in, reg_channels, 1)
+        if args['use_direction_classifier']:
+            self.conv_dir_cls = nn.Conv2d(c_in, self.
+                num_anchors_per_location * args['num_direction_bins'], 1)
+        self.init_weights()
+
+    def init_weights(self):
+        pi = 0.01
+        nn.init.constant_(self.conv_cls.bias, -np.log((1 - pi) / pi))
+
+    def forward(self, x_in, bev=None, **kwargs):
+        ups = []
+        x = x_in
+        ret_dict = {}
+        for i in range(len(self.blocks)):
+            x = self.blocks[i](x)
+            stride = int(x_in.shape[2] / x.shape[2])
+            ret_dict['spatial_features_%dx' % stride] = x
+            ups.append(self.deblocks[i](x))
+        if self._concat_input:
+            ups.append(x_in)
+        if len(ups) > 1:
+            x = torch.cat(ups, dim=1)
+        else:
+            x = ups[0]
+        if len(self.deblocks) > len(self.blocks):
+            x = self.deblocks[-1](x)
+        ret_dict['spatial_features_last'] = x
+        box_preds = self.conv_box(x)
+        cls_preds = self.conv_cls(x)
+        box_preds = box_preds.permute(0, 2, 3, 1).contiguous()
+        cls_preds = cls_preds.permute(0, 2, 3, 1).contiguous()
+        ret_dict.update({'box_preds': box_preds, 'cls_preds': cls_preds})
+        if self._use_direction_classifier:
+            dir_cls_preds = self.conv_dir_cls(x)
+            dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).contiguous()
+            ret_dict['dir_cls_preds'] = dir_cls_preds
+        ret_dict['anchors'] = torch.from_numpy(self.anchor_cache['anchors']
+            ).cuda()
+        if self.training:
+            targets_dict = self.assign_targets(gt_boxes=kwargs['gt_boxes'])
+            ret_dict.update({'box_cls_labels': torch.from_numpy(
+                targets_dict['labels']).cuda(), 'box_reg_targets': torch.
+                from_numpy(targets_dict['bbox_targets']).cuda(),
+                'reg_src_targets': torch.from_numpy(targets_dict[
+                'bbox_src_targets']).cuda(), 'reg_weights': torch.
+                from_numpy(targets_dict['bbox_outside_weights']).cuda()})
+        self.forward_ret_dict = ret_dict
+        return ret_dict
+
+
+bbox_head_modules = {'RPNV2': RPNV2}
+
+
+_global_config['LOCAL_RANK'] = 4
+
+
+def conv3x3(in_planes, out_planes, stride=1, indice_key=None):
+    """3x3 convolution with padding"""
+    return spconv.SubMConv3d(in_planes, out_planes, kernel_size=3, stride=
+        stride, padding=1, bias=False, indice_key=indice_key)
+
+
+_global_config['DATA_CONFIG'] = 4
+
+
+def get_paddings_indicator(actual_num, max_num, axis=0):
+    """Create boolean mask by actually number of a padded tensor.
+    Args:
+        actual_num ([type]): [description]
+        max_num ([type]): [description]
+    Returns:
+        [type]: [description]
+    """
+    actual_num = torch.unsqueeze(actual_num, axis + 1)
+    max_num_shape = [1] * len(actual_num.shape)
+    max_num_shape[axis + 1] = -1
+    max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device
+        ).view(max_num_shape)
+    paddings_indicator = actual_num.int() > max_num
+    return paddings_indicator
+
+
+class Detector3D(nn.Module):
+
+    def __init__(self, num_class, dataset):
+        super().__init__()
+        self.num_class = num_class
+        self.dataset = dataset
+        self.grid_size = dataset.voxel_generator.grid_size
+        self.register_buffer('global_step', torch.LongTensor(1).zero_())
+        self.vfe = self.rpn_net = self.rpn_head = self.rcnn_net = None
+
+    @property
+    def mode(self):
+        return 'TRAIN' if self.training else 'TEST'
+
+    def build_networks(self, model_cfg):
+        vfe_cfg = model_cfg.VFE
+        self.vfe = vfe_modules[vfe_cfg.NAME](num_input_features=cfg.
+            DATA_CONFIG.NUM_POINT_FEATURES['use'], voxel_size=cfg.
+            DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE, pc_range=cfg.
+            DATA_CONFIG.POINT_CLOUD_RANGE, **vfe_cfg.ARGS)
+        voxel_feature_num = self.vfe.get_output_feature_dim()
+        rpn_cfg = model_cfg.RPN
+        self.rpn_net = rpn_modules[rpn_cfg.BACKBONE.NAME](input_channels=
+            voxel_feature_num, **rpn_cfg.BACKBONE.ARGS)
+        rpn_head_cfg = model_cfg.RPN.RPN_HEAD
+        self.rpn_head = bbox_head_modules[rpn_head_cfg.NAME](num_class=self
+            .num_class, args=rpn_head_cfg.ARGS, grid_size=self.grid_size,
+            anchor_target_cfg=rpn_head_cfg.TARGET_CONFIG)
+        rcnn_cfg = model_cfg.RCNN
+        if rcnn_cfg.ENABLED:
+            self.rcnn_net = rcnn_modules[rcnn_cfg.NAME](num_point_features=
+                cfg.MODEL.RCNN.NUM_POINT_FEATURES, rcnn_cfg=rcnn_cfg)
+
+    def update_global_step(self):
+        self.global_step += 1
+
+    def train(self, mode=True):
+        nn.Module.train(self, mode)
+        if mode:
+
+            def set_bn_eval(m):
+                classname = m.__class__.__name__
+                if classname.find('BatchNorm') != -1:
+                    m.eval()
+            pass
+
+    def forward(self, input_dict):
+        raise NotImplementedError
+
+    def predict_boxes(self, rpn_ret_dict, rcnn_ret_dict, input_dict):
+        batch_size = input_dict['batch_size']
+        if rcnn_ret_dict is None:
+            batch_anchors = rpn_ret_dict['anchors'].view(1, -1,
+                rpn_ret_dict['anchors'].shape[-1]).repeat(batch_size, 1, 1)
+            num_anchors = batch_anchors.shape[1]
+            batch_cls_preds = rpn_ret_dict['rpn_cls_preds'].view(batch_size,
+                num_anchors, -1).float()
+            batch_box_preds = (self.rpn_head.box_coder.
+                decode_with_head_direction_torch(box_preds=rpn_ret_dict[
+                'rpn_box_preds'].view(batch_size, num_anchors, -1), anchors
+                =batch_anchors, dir_cls_preds=rpn_ret_dict.get(
+                'rpn_dir_cls_preds', None), num_dir_bins=cfg.MODEL.RPN.
+                RPN_HEAD.ARGS.get('num_direction_bins', None), dir_offset=
+                cfg.MODEL.RPN.RPN_HEAD.ARGS.get('dir_offset', None),
+                dir_limit_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS.get(
+                'dir_limit_offset', None), use_binary_dir_classifier=cfg.
+                MODEL.RPN.RPN_HEAD.ARGS.get('use_binary_dir_classifier', 
+                False)))
+        else:
+            batch_rois = rcnn_ret_dict['rois']
+            code_size = self.rcnn_net.box_coder.code_size
+            batch_cls_preds = rcnn_ret_dict['rcnn_cls'].view(batch_size, -1)
+            if cfg.MODEL.LOSSES.RCNN_REG_LOSS == 'smooth-l1':
+                roi_ry = batch_rois[:, :, (6)].view(-1)
+                roi_xyz = batch_rois[:, :, 0:3].view(-1, 3)
+                local_rois = batch_rois.clone().detach()
+                local_rois[:, :, 0:3] = 0
+                rcnn_boxes3d = self.rcnn_net.box_coder.decode_torch(
+                    rcnn_ret_dict['rcnn_reg'].view(local_rois.shape[0], -1,
+                    code_size), local_rois).view(-1, code_size)
+                rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(
+                    rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(
+                    dim=1)
+                rcnn_boxes3d[:, 0:3] += roi_xyz
+                batch_box_preds = rcnn_boxes3d.view(batch_size, -1, code_size)
+            else:
+                raise NotImplementedError
+        pred_dicts, recall_dicts = self.post_processing(batch_cls_preds,
+            batch_box_preds, rcnn_ret_dict, input_dict)
+        return pred_dicts, recall_dicts
+
+    def post_processing(self, batch_cls_preds, batch_box_preds,
+        rcnn_ret_dict, input_dict):
+        recall_dict = {'gt': 0}
+        for cur_thresh in cfg.MODEL.TEST.RECALL_THRESH_LIST:
+            recall_dict['roi_%s' % str(cur_thresh)] = 0
+            recall_dict['rcnn_%s' % str(cur_thresh)] = 0
+        pred_dicts = []
+        batch_size = batch_cls_preds.shape[0]
+        batch_index = np.arange(batch_size)
+        batch_gt_boxes = input_dict.get('gt_boxes', None)
+        for index, cls_preds, box_preds in zip(batch_index, batch_cls_preds,
+            batch_box_preds):
+            if not cfg.MODEL.RPN.RPN_HEAD.ARGS['encode_background_as_zeros'
+                ] and rcnn_ret_dict is None:
+                cls_preds = cls_preds[(...), 1:]
+            normalized_scores = torch.sigmoid(cls_preds)
+            if rcnn_ret_dict is not None and batch_gt_boxes is not None:
+                self.generate_recall_record(box_preds, rcnn_ret_dict['rois'
+                    ][index], batch_gt_boxes[index], recall_dict,
+                    thresh_list=cfg.MODEL.TEST.RECALL_THRESH_LIST)
+            if cfg.MODEL.TEST.MULTI_CLASSES_NMS:
+                selected, final_labels = self.multi_classes_nms(rank_scores
+                    =cls_preds, normalized_scores=normalized_scores,
+                    box_preds=box_preds, score_thresh=cfg.MODEL.TEST.
+                    SCORE_THRESH, nms_thresh=cfg.MODEL.TEST.NMS_THRESH,
+                    nms_type=cfg.MODEL.TEST.NMS_TYPE)
+                final_boxes = box_preds[selected]
+                final_scores = cls_preds[selected
+                    ] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[
+                    selected]
+            else:
+                if len(cls_preds.shape) > 1 and cls_preds.shape[1] > 1:
+                    rank_scores, class_labels = torch.max(cls_preds, dim=-1)
+                    normalized_scores = torch.sigmoid(rank_scores)
+                    class_labels = class_labels + 1
+                else:
+                    if rcnn_ret_dict is not None:
+                        class_labels = rcnn_ret_dict['roi_labels'][index]
+                    else:
+                        class_labels = cls_preds.new_ones(cls_preds.shape[0])
+                    rank_scores = cls_preds.view(-1)
+                    normalized_scores = normalized_scores.view(-1)
+                selected = self.class_agnostic_nms(rank_scores=rank_scores,
+                    normalized_scores=normalized_scores, box_preds=
+                    box_preds, score_thresh=cfg.MODEL.TEST.SCORE_THRESH,
+                    nms_thresh=cfg.MODEL.TEST.NMS_THRESH, nms_type=cfg.
+                    MODEL.TEST.NMS_TYPE)
+                final_labels = class_labels[selected]
+                final_scores = rank_scores[selected
+                    ] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[
+                    selected]
+                final_boxes = box_preds[selected]
+            record_dict = {'boxes': final_boxes, 'scores': final_scores,
+                'labels': final_labels}
+            if rcnn_ret_dict is not None:
+                record_dict['roi_raw_scores'] = rcnn_ret_dict['roi_raw_scores'
+                    ][index][selected]
+                record_dict['rois'] = rcnn_ret_dict['rois'][index][selected]
+                mask = record_dict['rois'][:, 3:6].sum(dim=1) > 0
+                if mask.sum() != record_dict['rois'].shape[0]:
+                    common_utils.dict_select(record_dict, mask)
+            cur_pred_dict = self.dataset.generate_prediction_dict(input_dict,
+                index, record_dict)
+            pred_dicts.append(cur_pred_dict)
+        return pred_dicts, recall_dict
+
+    @staticmethod
+    def multi_classes_nms(rank_scores, normalized_scores, box_preds,
+        score_thresh, nms_thresh, nms_type='nms_gpu'):
+        """
+        :param rank_scores: (N, num_classes)
+        :param box_preds: (N, 7) [x, y, z, w, l, h, ry] in LiDAR coords
+        :param score_thresh: (N) or float
+        :param nms_thresh: (N) or float
+        :param nms_type:
+        :return:
+        """
+        assert rank_scores.shape[1] == len(cfg.CLASS_NAMES
+            ), 'Rank_score shape: %s' % str(rank_scores.shape)
+        selected_list = []
+        selected_labels = []
+        num_classes = rank_scores.shape[1]
+        boxes_for_nms = box_utils.boxes3d_to_bevboxes_lidar_torch(box_preds)
+        score_thresh = score_thresh if isinstance(score_thresh, list) else [
+            score_thresh for x in range(num_classes)]
+        nms_thresh = nms_thresh if isinstance(nms_thresh, list) else [
+            nms_thresh for x in range(num_classes)]
+        for k in range(0, num_classes):
+            class_scores_keep = normalized_scores[:, (k)] >= score_thresh[k]
+            if class_scores_keep.int().sum() > 0:
+                original_idxs = class_scores_keep.nonzero().view(-1)
+                cur_boxes_for_nms = boxes_for_nms[class_scores_keep]
+                cur_rank_scores = rank_scores[class_scores_keep, k]
+                cur_selected = getattr(iou3d_nms_utils, nms_type)(
+                    cur_boxes_for_nms, cur_rank_scores, nms_thresh[k])
+                if cur_selected.shape[0] == 0:
+                    continue
+                selected_list.append(original_idxs[cur_selected])
+                selected_labels.append(torch.full([cur_selected.shape[0]], 
+                    k + 1, dtype=torch.int64, device=box_preds.device))
+        selected = torch.cat(selected_list, dim=0) if selected_list.__len__(
+            ) > 0 else []
+        return selected, selected_labels
+
+    @staticmethod
+    def class_agnostic_nms(rank_scores, normalized_scores, box_preds,
+        score_thresh, nms_thresh, nms_type='nms_gpu'):
+        scores_mask = normalized_scores >= score_thresh
+        rank_scores_masked = rank_scores[scores_mask]
+        cur_selected = []
+        if rank_scores_masked.shape[0] > 0:
+            box_preds = box_preds[scores_mask]
+            rank_scores_nms, indices = torch.topk(rank_scores_masked, k=min
+                (cfg.MODEL.TEST.NMS_PRE_MAXSIZE_LAST, rank_scores_masked.
+                shape[0]))
+            box_preds_nms = box_preds[indices]
+            boxes_for_nms = box_utils.boxes3d_to_bevboxes_lidar_torch(
+                box_preds_nms)
+            keep_idx = getattr(iou3d_nms_utils, nms_type)(boxes_for_nms,
+                rank_scores_nms, nms_thresh)
+            cur_selected = indices[keep_idx[:cfg.MODEL.TEST.
+                NMS_POST_MAXSIZE_LAST]]
+        original_idxs = scores_mask.nonzero().view(-1)
+        selected = original_idxs[cur_selected]
+        return selected
+
+    def generate_recall_record(self, box_preds, rois, gt_boxes, recall_dict,
+        thresh_list=(0.5, 0.7)):
+        cur_gt = gt_boxes
+        k = cur_gt.__len__() - 1
+        while k > 0 and cur_gt[k].sum() == 0:
+            k -= 1
+        cur_gt = cur_gt[:k + 1]
+        if cur_gt.sum() > 0:
+            iou3d_roi = iou3d_nms_utils.boxes_iou3d_gpu(rois, cur_gt)
+            iou3d_rcnn = iou3d_nms_utils.boxes_iou3d_gpu(box_preds, cur_gt)
+            for cur_thresh in thresh_list:
+                roi_recalled = (iou3d_roi.max(dim=0)[0] > cur_thresh).sum(
+                    ).item()
+                rcnn_recalled = (iou3d_rcnn.max(dim=0)[0] > cur_thresh).sum(
+                    ).item()
+                recall_dict['roi_%s' % str(cur_thresh)] += roi_recalled
+                recall_dict['rcnn_%s' % str(cur_thresh)] += rcnn_recalled
+            recall_dict['gt'] += cur_gt.shape[0]
+            iou3d_rcnn = iou3d_rcnn.max(dim=1)[0]
+            gt_iou = iou3d_rcnn
+        else:
+            gt_iou = box_preds.new_zeros(box_preds.shape[0])
+        return gt_iou
+
+    def load_params_from_file(self, filename, logger, to_cpu=False):
+        if not os.path.isfile(filename):
+            raise FileNotFoundError
+        logger.info('==> Loading parameters from checkpoint %s to %s' % (
+            filename, 'CPU' if to_cpu else 'GPU'))
+        loc_type = torch.device('cpu') if to_cpu else None
+        checkpoint = torch.load(filename, map_location=loc_type)
+        model_state_disk = checkpoint['model_state']
+        if 'version' in checkpoint:
+            logger.info('==> Checkpoint trained from version: %s' %
+                checkpoint['version'])
+        update_model_state = {}
+        for key, val in model_state_disk.items():
+            if key in self.state_dict() and self.state_dict()[key
+                ].shape == model_state_disk[key].shape:
+                update_model_state[key] = val
+        state_dict = self.state_dict()
+        state_dict.update(update_model_state)
+        self.load_state_dict(state_dict)
+        for key in state_dict:
+            if key not in update_model_state:
+                logger.info('Not updated weight %s: %s' % (key, str(
+                    state_dict[key].shape)))
+        logger.info('==> Done (loaded %d/%d)' % (len(update_model_state),
+            len(self.state_dict())))
+
+    def load_params_with_optimizer(self, filename, to_cpu=False, optimizer=
+        None, logger=None):
+        if not os.path.isfile(filename):
+            raise FileNotFoundError
+        logger.info('==> Loading parameters from checkpoint %s to %s' % (
+            filename, 'CPU' if to_cpu else 'GPU'))
+        loc_type = torch.device('cpu') if to_cpu else None
+        checkpoint = torch.load(filename, map_location=loc_type)
+        epoch = checkpoint.get('epoch', -1)
+        it = checkpoint.get('it', 0.0)
+        self.load_state_dict(checkpoint['model_state'])
+        if optimizer is not None:
+            if 'optimizer_state' in checkpoint and checkpoint['optimizer_state'
+                ] is not None:
+                logger.info(
+                    '==> Loading optimizer parameters from checkpoint %s to %s'
+                     % (filename, 'CPU' if to_cpu else 'GPU'))
+                optimizer.load_state_dict(checkpoint['optimizer_state'])
+            else:
+                assert filename[-4] == '.', filename
+                src_file, ext = filename[:-4], filename[-3:]
+                optimizer_filename = '%s_optim.%s' % (src_file, ext)
+                if os.path.exists(optimizer_filename):
+                    optimizer_ckpt = torch.load(optimizer_filename,
+                        map_location=loc_type)
+                    optimizer.load_state_dict(optimizer_ckpt['optimizer_state']
+                        )
+        if 'version' in checkpoint:
+            None
+        logger.info('==> Done')
+        return it, epoch
+
+
 class Empty(torch.nn.Module):
 
     def __init__(self, *args, **kwargs):
@@ -295,6 +1363,19 @@ class Sequential(torch.nn.Module):
         for module in self._modules.values():
             input = module(input)
         return input
+
+
+class SharedMLP(nn.Sequential):
+
+    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.
+        ReLU(inplace=True), preact: bool=False, first: bool=False, name:
+        str='', instance_norm: bool=False):
+        super().__init__()
+        for i in range(len(args) - 1):
+            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i],
+                args[i + 1], bn=(not first or not preact or i != 0) and bn,
+                activation=activation if not first or not preact or i != 0 else
+                None, preact=preact, instance_norm=instance_norm))
 
 
 class _ConvBase(nn.Sequential):
@@ -426,9 +1507,6 @@ def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image,
     else:
         raise NotImplementedError
     return bg_inds
-
-
-_global_config['CLASS_NAMES'] = 4
 
 
 def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores,
@@ -569,9 +1647,6 @@ def proposal_target_layer(input_dict, roi_sampler_cfg):
         batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois,
         'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
     return output_dict
-
-
-_global_config['MODEL'] = 4
 
 
 class RCNNHead(nn.Module):
@@ -724,9 +1799,6 @@ class PointPillarsScatter(nn.Module):
         batch_canvas = batch_canvas.view(batch_size, self.nchannels * nz,
             ny, nx)
         return batch_canvas
-
-
-_global_config['DATA_CONFIG'] = 4
 
 
 class BackBone8x(nn.Module):
@@ -1042,6 +2114,7 @@ class RoIAwarePool3d(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_sshaoshuai_PCDet(_paritybench_base):

@@ -20,10 +20,13 @@ utils = _module
 losses = _module
 train_util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -37,6 +40,21 @@ import torch
 
 
 import torch.utils.data as torchdata
+
+
+from torchvision import datasets
+
+
+from torchvision import models
+
+
+from torchvision import transforms
+
+
+from torchvision.models import resnet50
+
+
+from torchvision.models import resnet101
 
 
 import torch.optim as optim
@@ -777,6 +795,7 @@ class SoftmaxCrossEntropy(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_OdingdongO_pytorch_classification(_paritybench_base):
@@ -796,45 +815,56 @@ class Test_OdingdongO_pytorch_classification(_paritybench_base):
     def test_004(self):
         self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(InceptionResNetV2(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
     def test_006(self):
-        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(InceptionV4(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
     def test_007(self):
-        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(Inception_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
     def test_008(self):
-        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Inception_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_009(self):
-        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(Inception_C(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
 
     def test_010(self):
-        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
 
     def test_011(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(Mixed_4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
 
     def test_012(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(Mixed_5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_013(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
 
     def test_014(self):
-        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
 
     def test_015(self):
-        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
 
     def test_016(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Reduction_A(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
 
     def test_017(self):
-        self._check(SoftmaxCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Reduction_B(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
 
     def test_018(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_019(self):
+        self._check(SoftmaxCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_020(self):
         self._check(Xception(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_021(self):
+        self._check(multiscale_resnet(*[], **{'num_class': 4}), [torch.rand([4, 3, 64, 64])], {})
 

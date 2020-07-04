@@ -46,10 +46,13 @@ cocoeval = _module
 mask = _module
 timer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -84,6 +87,9 @@ import torch.optim as optim
 
 
 import torch.backends.cudnn as cudnn
+
+
+import torchvision.transforms as transforms
 
 
 import numpy as np
@@ -706,6 +712,108 @@ def mobilenet_1():
     """
     model = MobileNet(widen_factor=1.0, num_classes=1000)
     return model
+
+
+class FSSD(nn.Module):
+    """Single Shot Multibox Architecture
+    The network is composed of a base VGG network followed by the
+    added multibox conv layers.  Each multibox layer branches into
+        1) conv2d for class conf scores
+        2) conv2d for localization predictions
+        3) associated priorbox layer to produce default bounding
+           boxes specific to the layer's feature map size.
+    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
+
+    Args:
+        phase: (string) Can be "test" or "train"
+        base: VGG16 layers for input, size of either 300 or 500
+        extras: extra layers that feed to multibox loc and conf layers
+        head: "multibox head" consists of loc and conf conv layers
+    """
+
+    def __init__(self, size, head, ft_module, pyramid_ext, num_classes):
+        super(FSSD, self).__init__()
+        self.num_classes = num_classes
+        self.size = size
+        self.base = mobilenet_1()
+        self.ft_module = nn.ModuleList(ft_module)
+        self.pyramid_ext = nn.ModuleList(pyramid_ext)
+        self.loc = nn.ModuleList(head[0])
+        self.conf = nn.ModuleList(head[1])
+        self.fea_bn = nn.BatchNorm2d(256 * len(self.ft_module), affine=True)
+        self.softmax = nn.Softmax()
+
+    def forward(self, x, test=False):
+        """Applies network layers and ops on input image(s) x.
+
+        Args:
+            x: input image or batch of images. Shape: [batch,3*batch,300,300].
+
+        Return:
+            Depending on phase:
+            test:
+                Variable(tensor) of output class label predictions,
+                confidence score, and corresponding location predictions for
+                each object detected. Shape: [batch,topk,7]
+
+            train:
+                list of concat outputs from:
+                    1: confidence layers, Shape: [batch*num_priors,num_classes]
+                    2: localization layers, Shape: [batch,num_priors*4]
+                    3: priorbox layers, Shape: [2,num_priors*4]
+        """
+        source_features = list()
+        transformed_features = list()
+        loc = list()
+        conf = list()
+        base_out = self.base(x)
+        source_features.append(base_out[0])
+        source_features.append(base_out[1])
+        source_features.append(base_out[2])
+        assert len(self.ft_module) == len(source_features)
+        for k, v in enumerate(self.ft_module):
+            transformed_features.append(v(source_features[k]))
+        concat_fea = torch.cat(transformed_features, 1)
+        x = self.fea_bn(concat_fea)
+        fea_bn = x
+        pyramid_fea = list()
+        for k, v in enumerate(self.pyramid_ext):
+            x = v(x)
+            pyramid_fea.append(x)
+        for x, l, c in zip(pyramid_fea, self.loc, self.conf):
+            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
+            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
+        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
+        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
+        if test:
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
+                1, self.num_classes))
+            features = ()
+        else:
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
+                -1, self.num_classes)
+            features = fea_bn
+        return output
+
+    def load_weights(self, base_file):
+        other, ext = os.path.splitext(base_file)
+        if ext == '.pkl' or '.pth':
+            None
+            state_dict = torch.load(base_file, map_location=lambda storage,
+                loc: storage)
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                head = k[:7]
+                if head == 'module.':
+                    name = k[7:]
+                else:
+                    name = k
+                new_state_dict[name] = v
+            self.base.load_state_dict(new_state_dict)
+            None
+        else:
+            None
 
 
 class BasicConv(nn.Module):
@@ -3177,6 +3285,7 @@ class MobileNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lzx1413_PytorchSSD(_paritybench_base):

@@ -89,10 +89,13 @@ main_srresnet = _module
 srresnet = _module
 super_resolution = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -120,10 +123,28 @@ import numpy as np
 import torch.nn.functional as F
 
 
+from torchvision import models
+
+
 import copy
 
 
+from torchvision.models import resnet50
+
+
+from torchvision.models import densenet121
+
+
+from torchvision.models import densenet201
+
+
 import torch.autograd as autograd
+
+
+import torchvision.models as models
+
+
+import torchvision.transforms as transforms
 
 
 import math
@@ -153,6 +174,9 @@ import torch.utils.data
 from torch.nn import Sequential
 
 
+import torchvision
+
+
 from torch.nn import functional as F
 
 
@@ -177,7 +201,13 @@ import torch.nn.functional as functional
 import torch.utils.model_zoo as modelzoo
 
 
+from torchvision import transforms
+
+
 import torch.utils.model_zoo as model_zoo
+
+
+from torchvision import datasets
 
 
 import torch.optim as optim
@@ -193,6 +223,91 @@ import random
 
 
 import torch.backends.cudnn as cudnn
+
+
+class BaseModel(torch.nn.Module):
+
+    def name(self):
+        return 'BaseModel'
+
+    def initialize(self, opt):
+        self.opt = opt
+        self.gpu_ids = opt.gpu_ids
+        self.isTrain = opt.isTrain
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+
+    def set_input(self, input):
+        self.input = input
+
+    def forward(self):
+        pass
+
+    def test(self):
+        pass
+
+    def get_image_paths(self):
+        pass
+
+    def optimize_parameters(self):
+        pass
+
+    def get_current_visuals(self):
+        return self.input
+
+    def get_current_errors(self):
+        return {}
+
+    def save(self, label):
+        pass
+
+    def save_network(self, network, network_label, epoch_label, gpu_ids):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(network.cpu().state_dict(), save_path)
+        if len(gpu_ids) and torch.is_available():
+            network
+
+    def load_network(self, network, network_label, epoch_label, save_dir=''):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        None
+        if not save_dir:
+            save_dir = self.save_dir
+        save_path = os.path.join(save_dir, save_filename)
+        if not os.path.isfile(save_path):
+            None
+            if network_label == 'G':
+                raise 'Generator must exist!'
+        else:
+            try:
+                network.load_state_dict(torch.load(save_path))
+            except:
+                pretrained_dict = torch.load(save_path)
+                model_dict = network.state_dict()
+                try:
+                    pretrained_dict = {k: v for k, v in pretrained_dict.
+                        items() if k in model_dict}
+                    network.load_state_dict(pretrained_dict)
+                    if self.opt.verbose:
+                        None
+                except:
+                    None
+                    for k, v in pretrained_dict.items():
+                        if v.size() == model_dict[k].size():
+                            model_dict[k] = v
+                    if sys.version_info >= (3, 0):
+                        not_initialized = set()
+                    else:
+                        not_initialized = Set()
+                    for k, v in model_dict.items():
+                        if k not in pretrained_dict or v.size(
+                            ) != pretrained_dict[k].size():
+                            not_initialized.add(k.split('.')[0])
+                    None
+                    network.load_state_dict(model_dict)
+
+    def update_learning_rate():
+        pass
 
 
 class GANLoss(nn.Module):
@@ -538,7 +653,7 @@ class VAE(nn.Module):
 
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        eps = torch.cuda.FloatTensor(std.size()).normal_()
+        eps = torch.FloatTensor(std.size()).normal_()
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
 
@@ -3127,6 +3242,88 @@ class PoseDecoder(nn.Module):
         return axisangle, translation
 
 
+class ResNetMultiImageInput(models.ResNet):
+    """Constructs a resnet model with varying number of input images.
+    Adapted from https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
+    """
+
+    def __init__(self, block, layers, num_classes=1000, num_input_images=1):
+        super(ResNetMultiImageInput, self).__init__(block, layers)
+        self.inplanes = 64
+        self.conv1 = nn.Conv2d(num_input_images * 3, 64, kernel_size=7,
+            stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+
+def resnet_multiimage_input(num_layers, pretrained=False, num_input_images=1):
+    """Constructs a ResNet model.
+    Args:
+        num_layers (int): Number of resnet layers. Must be 18 or 50
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        num_input_images (int): Number of frames stacked as input
+    """
+    assert num_layers in [18, 50], 'Can only run with 18 or 50 layer resnet'
+    blocks = {(18): [2, 2, 2, 2], (50): [3, 4, 6, 3]}[num_layers]
+    block_type = {(18): models.resnet.BasicBlock, (50): models.resnet.
+        Bottleneck}[num_layers]
+    model = ResNetMultiImageInput(block_type, blocks, num_input_images=
+        num_input_images)
+    if pretrained:
+        loaded = model_zoo.load_url(models.resnet.model_urls['resnet{}'.
+            format(num_layers)])
+        loaded['conv1.weight'] = torch.cat([loaded['conv1.weight']] *
+            num_input_images, 1) / num_input_images
+        model.load_state_dict(loaded)
+    return model
+
+
+class ResnetEncoder(nn.Module):
+    """Pytorch module for a resnet encoder
+    """
+
+    def __init__(self, num_layers, pretrained, num_input_images=1):
+        super(ResnetEncoder, self).__init__()
+        self.num_ch_enc = np.array([64, 64, 128, 256, 512])
+        resnets = {(18): models.resnet18, (34): models.resnet34, (50):
+            models.resnet50, (101): models.resnet101, (152): models.resnet152}
+        if num_layers not in resnets:
+            raise ValueError('{} is not a valid number of resnet layers'.
+                format(num_layers))
+        if num_input_images > 1:
+            self.encoder = resnet_multiimage_input(num_layers, pretrained,
+                num_input_images)
+        else:
+            self.encoder = resnets[num_layers](pretrained)
+        if num_layers > 34:
+            self.num_ch_enc[1:] *= 4
+
+    def forward(self, input_image):
+        self.features = []
+        x = (input_image - 0.45) / 0.225
+        x = self.encoder.conv1(x)
+        x = self.encoder.bn1(x)
+        self.features.append(self.encoder.relu(x))
+        self.features.append(self.encoder.layer1(self.encoder.maxpool(self.
+            features[-1])))
+        self.features.append(self.encoder.layer2(self.features[-1]))
+        self.features.append(self.encoder.layer3(self.features[-1]))
+        self.features.append(self.encoder.layer4(self.features[-1]))
+        return self.features
+
+
 class shave_block(nn.Module):
 
     def __init__(self, s):
@@ -3259,6 +3456,7 @@ class _NetD(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kritiksoman_GIMP_ML(_paritybench_base):
@@ -3274,117 +3472,139 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
         self._check(BackprojectDepth(*[], **{'batch_size': 4, 'height': 4, 'width': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseModel(*[], **{}), [], {})
 
     def test_004(self):
-        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_006(self):
-        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(Conv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_008(self):
-        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Conv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(DecoderBlockV(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
+        self._check(DecoderBlockV(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
         self._check(DecoderCenter(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(DicsriminatorTail(*[], **{'nf_mult': 4, 'n_layers': 1}), [torch.rand([4, 256, 64, 64])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(FPNHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(FPNSegHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
-    def test_020(self):
+    def test_021(self):
         self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_022(self):
         self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_024(self):
         self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_026(self):
         self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_027(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_028(self):
         self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_027(self):
+    def test_029(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_028(self):
+    def test_030(self):
         self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_029(self):
+    def test_031(self):
         self._check(PoseCNN(*[], **{'num_input_frames': 4}), [torch.rand([4, 12, 64, 64])], {})
 
-    def test_030(self):
+    def test_032(self):
         self._check(Project3D(*[], **{'batch_size': 4, 'height': 4, 'width': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_031(self):
+    def test_033(self):
         self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_032(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_033(self):
-        self._check(SFTLayer(*[], **{}), [torch.rand([4, 4, 64, 64, 64])], {})
-
     def test_034(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(ResnetGenerator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_035(self):
-        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_036(self):
-        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(SFTLayer(*[], **{}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_037(self):
-        self._check(_Residual_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_038(self):
+        self._check(SingleGPU(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_039(self):
+        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_040(self):
+        self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_041(self):
+        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_042(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_043(self):
+        self._check(_NetG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_044(self):
+        self._check(_Residual_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_045(self):
         self._check(shave_block(*[], **{'s': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -13,10 +13,13 @@ group = _module
 img = _module
 misc = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -237,6 +240,7 @@ class Trainer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
@@ -248,12 +252,18 @@ class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
         self._check(HeatmapLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Hourglass(*[], **{'n': 4, 'f': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
+        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(Residual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
-        self._check(Trainer(*[], **{'model': ReLU(), 'inference_keys': 4}), [torch.rand([4, 4, 4, 4])], {})
+    def test_005(self):
+        self._check(Trainer(*[], **{'model': _mock_layer(), 'inference_keys': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(UnFlatten(*[], **{}), [torch.rand([4, 256, 4, 4])], {})
 

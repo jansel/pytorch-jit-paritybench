@@ -147,10 +147,13 @@ test_runnable = _module
 test_args = _module
 test_base = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -353,6 +356,242 @@ class LogisticRegression(Module):
         """
         encoding = self.encoder(data)
         return (encoding, target.float()) if target is not None else encoding
+
+
+class Embedder(Module):
+    """Implements an Embedder module.
+
+    An Embedder takes as input a sequence of index tokens,
+    and computes the corresponding embedded representations, and
+    padding mask. The encoder may be initialized using a pretrained
+    embedding matrix.
+
+    Attributes
+    ----------
+    embeddings: Module
+        The embedding module
+    encoder: Module
+        The sub-encoder that this object is wrapping
+    pooling: Module
+        An optional pooling module
+    drop: nn.Dropout
+        The dropout layer
+
+    """
+
+    def __init__(self, embedding: Module, encoder: Module, pooling:
+        Optional[Module]=None, embedding_dropout: float=0, padding_idx:
+        Optional[int]=0, return_mask: bool=False) ->None:
+        """Initializes the TextEncoder module.
+
+        Extra arguments are passed to the nn.Embedding module.
+
+        Parameters
+        ----------
+        embedding: nn.Embedding
+            The embedding layer
+        encoder: Module
+            The encoder
+        pooling: Module, optional
+            An optioonal pooling module, takes a sequence of Tensor and
+            reduces them to a single Tensor.
+        embedding_dropout: float, optional
+            Amount of dropout between the embeddings and the encoder
+        padding_idx: int, optional
+            Passed the nn.Embedding object. See pytorch documentation.
+        return_mask: bool
+            If enabled, the forward call returns a tuple of
+            (encoding, mask)
+
+        """
+        super().__init__()
+        self.embedding = embedding
+        self.dropout = nn.Dropout(embedding_dropout)
+        self.encoder = encoder
+        self.pooling = pooling
+        self.padding_idx = padding_idx
+        self.return_mask = return_mask
+
+    def forward(self, data: Tensor) ->Union[Tensor, Tuple[Tensor, Tensor],
+        Tuple[Tuple[Tensor, Tensor], Tensor]]:
+        """Performs a forward pass through the network.
+
+        Parameters
+        ----------
+        data : torch.Tensor
+            The input data, as a float tensor of shape [S x B]
+
+        Returns
+        -------
+        Union[Tensor, Tuple[Tensor, Tensor],
+                Tuple[Tuple[Tensor, Tensor], Tensor]
+            The encoded output, as a float tensor. May return a state
+            if the encoder is an RNN and no pooling is provided.
+            May also return a tuple if `return_mask` was passed in as
+            a constructor argument.
+
+        """
+        embedded = self.embedding(data)
+        embedded = self.dropout(embedded)
+        padding_mask: Optional[Tensor]
+        if self.padding_idx is not None:
+            padding_mask = data != self.padding_idx
+            encoding = self.encoder(embedded, padding_mask=padding_mask)
+        else:
+            padding_mask = None
+            encoding = self.encoder(embedded)
+        if self.pooling is not None:
+            encoding = encoding[0] if isinstance(encoding, tuple) else encoding
+            encoding = self.pooling(encoding, padding_mask)
+        if self.return_mask:
+            return encoding, padding_mask
+        else:
+            return encoding
+
+
+class TextClassifier(Module):
+    """Implements a standard classifier.
+
+    The classifier is composed of an encoder module, followed by
+    a fully connected output layer, with a dropout layer in between.
+
+    Attributes
+    ----------
+    embedder: Embedder
+        The embedder layer
+    output_layer : Module
+        The output layer, yields a probability distribution over targets
+    drop: nn.Dropout
+        the dropout layer
+    loss: Metric
+        the loss function to optimize the model with
+    metric: Metric
+        the dev metric to evaluate the model on
+
+    """
+
+    def __init__(self, embedder: Embedder, output_layer: Module, dropout:
+        float=0) ->None:
+        """Initialize the TextClassifier model.
+
+        Parameters
+        ----------
+        embedder: Embedder
+            The embedder layer
+        output_layer : Module
+            The output layer, yields a probability distribution
+        dropout : float, optional
+            Amount of dropout to include between layers (defaults to 0)
+
+        """
+        super().__init__()
+        self.embedder = embedder
+        self.output_layer = output_layer
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[
+        Tensor, Tuple[Tensor, Tensor]]:
+        """Run a forward pass through the network.
+
+        Parameters
+        ----------
+        data: Tensor
+            The input data
+        target: Tensor, optional
+            The input targets, optional
+
+        Returns
+        -------
+        Union[Tensor, Tuple[Tensor, Tensor]
+            The output predictions, and optionally the targets
+
+        """
+        outputs = self.embedder(data)
+        if isinstance(outputs, tuple):
+            encoding = outputs[0]
+        else:
+            encoding = outputs
+        pred = self.output_layer(self.drop(encoding))
+        return (pred, target) if target is not None else pred
+
+
+class LanguageModel(Module):
+    """Implement an LanguageModel model for sequential classification.
+
+    This model can be used to language modeling, as well as other
+    sequential classification tasks. The full sequence predictions
+    are produced by the model, effectively making the number of
+    examples the batch size multiplied by the sequence length.
+
+    """
+
+    def __init__(self, embedder: Embedder, output_layer: Module, dropout:
+        float=0, pad_index: int=0, tie_weights: bool=False, tie_weight_attr:
+        str='embedding') ->None:
+        """Initialize the LanguageModel model.
+
+        Parameters
+        ----------
+        embedder: Embedder
+            The embedder layer
+        output_layer : Decoder
+            Output layer to use
+        dropout : float, optional
+            Amount of droput between the encoder and decoder,
+            defaults to 0.
+        pad_index: int, optional
+            Index used for padding, defaults to 0
+        tie_weights : bool, optional
+            If true, the input and output layers share the same weights
+        tie_weight_attr: str, optional
+            The attribute to call on the embedder to get the weight
+            to tie. Only used if tie_weights is ``True``. Defaults
+            to ``embedding``. Multiple attributes can also be called
+            by adding another dot: ``embeddings.word_embedding``.
+
+        """
+        super().__init__()
+        self.embedder = embedder
+        self.output_layer = output_layer
+        self.drop = nn.Dropout(dropout)
+        self.pad_index = pad_index
+        self.tie_weights = tie_weights
+        if tie_weights:
+            module = self.embedder
+            for attr in tie_weight_attr.split('.'):
+                module = getattr(module, attr)
+            self.output_layer.weight = module.weight
+
+    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[
+        Tensor, Tuple[Tensor, Tensor]]:
+        """Run a forward pass through the network.
+
+        Parameters
+        ----------
+        data: Tensor
+            The input data
+
+        Returns
+        -------
+        Union[Tensor, Tuple[Tensor, Tensor]]
+            The output predictions of shape seq_len x batch_size x n_out
+
+        """
+        outputs = self.embedder(data)
+        if isinstance(outputs, tuple):
+            encoding = outputs[0]
+        else:
+            encoding = outputs
+        if target is not None:
+            mask = (target != self.pad_index).float()
+            flat_mask = mask.view(-1).bool()
+            flat_encodings = encoding.view(-1, encoding.size(2))[flat_mask]
+            flat_targets = target.contiguous().view(-1)[flat_mask]
+            flat_pred = self.output_layer(self.drop(flat_encodings))
+            return flat_pred, flat_targets
+        else:
+            pred = self.output_layer(self.drop(encoding))
+            return pred
 
 
 def conv_block(conv_mod: nn.Module, activation: nn.Module, pooling: nn.
@@ -572,6 +811,12 @@ FLAMBE_STASH_KEY = '_flambe_stash'
 KEEP_VARS_KEY = 'keep_vars'
 
 
+R = TypeVar('R', bound='Registrable')
+
+
+RT = TypeVar('RT', bound=Type['Registrable'])
+
+
 class RegistrationError(Exception):
     """Error thrown when acessing yaml tag on a non-registered class
 
@@ -606,6 +851,426 @@ def make_to_yaml_with_metadata(to_yaml_fn: Callable[..., Any]) ->Callable[
             tag = Registrable.get_default_tag(type(node))
         return to_yaml_fn(representer, node, tag=tag)
     return wrapped
+
+
+def alias(tag: str, tag_namespace: Optional[str]=None) ->Callable[[RT], RT]:
+    """Decorate a Registrable subclass with a new tag
+
+    Can be added multiple times to give a class multiple aliases,
+    however the top most alias tag will be the default tag which means
+    it will be used when representing the class in YAML
+
+    """
+
+    def decorator(cls: RT) ->RT:
+        Registrable.register_tag(cls, tag, tag_namespace)
+        return cls
+    return decorator
+
+
+class LinkError(Exception):
+    pass
+
+
+class UnpreparedLinkError(LinkError):
+    pass
+
+
+class MalformedLinkError(LinkError):
+    pass
+
+
+def create_link_str(schematic_path: Sequence[str], attr_path: Optional[
+    Sequence[str]]=None) ->str:
+    """Create a string representation of the specified link
+
+    Performs the reverse operation of
+    :func:`~flambe.compile.component.parse_link_str`
+
+    Parameters
+    ----------
+    schematic_path : Sequence[str]
+        List of entries corresponding to dictionary keys in a nested
+        :class:`~flambe.compile.Schema`
+    attr_path : Optional[Sequence[str]]
+        List of attributes to access on the target object
+        (the default is None).
+
+    Returns
+    -------
+    str
+        The string representation of the schematic + attribute paths
+
+    Raises
+    -------
+    MalformedLinkError
+        If the schematic_path is empty
+
+    Examples
+    -------
+    Examples should be written in doctest format, and
+    should illustrate how to use the function/class.
+    >>> create_link_str(['obj', 'key1', 'key2'], ['attr1', 'attr2'])
+    'obj[key1][key2].attr1.attr2'
+
+    """
+    if len(schematic_path) == 0:
+        raise MalformedLinkError("Can't create link without schematic path")
+    root, schematic_path = schematic_path[0], schematic_path[1:]
+    schematic_str = ''
+    attr_str = ''
+    if len(schematic_path) > 0:
+        schematic_str = '[' + ']['.join(schematic_path) + ']'
+    if attr_path is not None and len(attr_path) > 0:
+        attr_str = '.' + '.'.join(attr_path)
+    return root + schematic_str + attr_str
+
+
+def parse_link_str(link_str: str) ->Tuple[Sequence[str], Sequence[str]]:
+    """Parse link to extract schematic and attribute paths
+
+    Links should be of the format ``obj[key1][key2].attr1.attr2`` where
+    obj is the entry point; in a pipeline, obj would be the stage name,
+    in a single-object config obj would be the target keyword at the
+    top level. The following keys surrounded in brackets traverse
+    the nested dictionary structure that appears in the config; this
+    is intentonally analagous to how you would access properties in the
+    dictionary when loaded into python. Then, you can use the dot
+    notation to access the runtime instance attributes of the object
+    at that location.
+
+    Parameters
+    ----------
+    link_str : str
+        Link to earlier object in the config of the format
+        ``obj[key1][key2].attr1.attr2``
+
+    Returns
+    -------
+    Tuple[Sequence[str], Sequence[str]]
+        Tuple of the schematic and attribute paths respectively
+
+    Raises
+    -------
+    MalformedLinkError
+        If the link is written incorrectly
+
+    Examples
+    -------
+    Examples should be written in doctest format, and
+    should illustrate how to use the function/class.
+    >>> parse_link_str('obj[key1][key2].attr1.attr2')
+    (['obj', 'key1', 'key2'], ['attr1', 'attr2'])
+
+    """
+    schematic_path: List[str] = []
+    attr_path: List[str] = []
+    temp: List[str] = []
+    x = link_str
+    bracket_open = False
+    root_extracted = False
+    while '[' in x or ']' in x:
+        if bracket_open:
+            temp = x.split(']', 1)
+            if '[' in temp[0]:
+                raise MalformedLinkError(
+                    f'Previous bracket unclosed in {link_str}')
+            if len(temp) != 2:
+                raise MalformedLinkError(
+                    f"Open bracket '[' not closed in {link_str}")
+            schematic_path.append(temp[0])
+            bracket_open = False
+        else:
+            temp = x.split('[', 1)
+            if ']' in temp[0]:
+                raise MalformedLinkError(f"Close ']' before open in {link_str}"
+                    )
+            if len(temp) != 2:
+                raise MalformedLinkError(
+                    f"']' encountered before '[' in {link_str}")
+            if len(temp[0]) != 0:
+                if len(schematic_path) != 0:
+                    raise MalformedLinkError(
+                        f'Text between brackets in {link_str}')
+                schematic_path.append(temp[0])
+                root_extracted = True
+            elif len(schematic_path) == 0:
+                raise MalformedLinkError(f'No top level object in {link_str}')
+            bracket_open = True
+        x = temp[1]
+    attr_path = x.split('.')
+    if not root_extracted:
+        if len(attr_path[0]) == 0:
+            raise MalformedLinkError(f'No top level object in {link_str}')
+        schematic_path.append(attr_path[0])
+    elif len(attr_path) > 1:
+        if attr_path[0] != '':
+            raise MalformedLinkError(
+                f'Attribute without preceeding dot notation in {link_str}')
+        if attr_path[-1] == '':
+            raise MalformedLinkError(f'Trailing dot in {link_str}')
+    attr_path = attr_path[1:]
+    return schematic_path, attr_path
+
+
+class LoadError(Exception):
+    """Error thrown because of fatal error when loading"""
+
+
+STATE_DICT_DELIMETER = '.'
+
+
+class State(OrderedDict):
+    """A state object for Flambe."""
+    _metadata: Dict[str, Any]
+
+
+VERSION_KEY = '_flambe_version'
+
+
+class contextualized_linking:
+    """Context manager used to change the representation of links
+
+    Links are always defined in relation to some root object and an
+    attribute path, so when representing some piece of a larger object
+    all the links need to be redefined in relation to the target object
+
+    """
+
+    def __init__(self, root_obj: Any, prefix: str) ->None:
+        self.root_obj = root_obj
+        self.prefix = prefix
+        self.old_root: Optional['Component'] = None
+        self.old_active = False
+        self.old_stash: Dict[str, Any] = {}
+
+    def __enter__(self) ->'contextualized_linking':
+        global _link_root_obj
+        global _link_context_active
+        global _link_obj_stash
+        self.old_root = _link_root_obj
+        self.old_active = _link_context_active
+        self.old_stash = _link_obj_stash
+        _link_root_obj = self.root_obj
+        _link_context_active = True
+        _link_obj_stash = {}
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) ->None:
+        global _link_root_obj
+        global _link_context_active
+        global _link_obj_stash
+        _link_root_obj = self.old_root
+        _link_context_active = self.old_active
+        _link_obj_stash = self.old_stash
+
+
+_EMPTY = inspect.Parameter.empty
+
+
+def fill_defaults(kwargs: Dict[str, Any], function: Callable[..., Any]) ->Dict[
+    str, Any]:
+    """Use function signature to add missing kwargs to a dictionary"""
+    signature = inspect.signature(function)
+    kwargs_with_defaults = kwargs.copy()
+    for name, param in signature.parameters.items():
+        if name == 'self':
+            continue
+        default = param.default
+        if name not in kwargs and default != _EMPTY:
+            kwargs_with_defaults[name] = default
+    return kwargs_with_defaults
+
+
+CONFIG_FILE_NAME = 'config.yaml'
+
+
+HIGHEST_SERIALIZATION_PROTOCOL_VERSION = 1
+
+
+PROTOCOL_VERSION_FILE_NAME = 'protocol_version.txt'
+
+
+SOURCE_FILE_NAME = 'source.py'
+
+
+STASH_FILE_NAME = 'stash.pkl'
+
+
+STATE_FILE_NAME = 'state.pt'
+
+
+VERSION_FILE_NAME = 'version.txt'
+
+
+def _extract_prefix(root, directory):
+    if directory.startswith(root):
+        return directory[len(root):].lstrip(os.sep).replace(os.sep,
+            STATE_DICT_DELIMETER)
+    else:
+        raise Exception()
+
+
+def _prefix_keys(state, prefix):
+    for key in set(state.keys()):
+        val = state[key]
+        del state[key]
+        state[prefix + key] = val
+    return state
+
+
+def download_http_file(url: str, destination: str) ->None:
+    """Download an HTTP/HTTPS file.
+
+    Parameters
+    ----------
+    url: str
+        The HTTP/HTTPS URL.
+    destination: str
+        The output file where to copy the content. Needs to support
+        binary writing.
+
+    """
+    r = requests.get(url, allow_redirects=True)
+    with open(destination, 'wb') as f:
+        f.write(r.content)
+
+
+def download_s3_file(url: str, destination: str) ->None:
+    """Download an S3 file.
+
+    Parameters
+    ----------
+    url: str
+        The S3 URL. Should follow the format:
+        's3://<bucket-name>[/path/to/file]'
+    destination: str
+        The output file where to copy the content
+
+    """
+    try:
+        parsed_url = urlparse(url)
+        s3 = boto3.client('s3')
+        s3.download_file(parsed_url.netloc, parsed_url.path[1:], destination)
+    except botocore.client.ClientError:
+        raise ValueError(f'Error downlaoding artifact from s3.')
+
+
+def download_s3_folder(url: str, destination: str) ->None:
+    """Download an S3 folder.
+
+    Parameters
+    ----------
+    url: str
+        The S3 URL. Should follow the format:
+        's3://<bucket-name>[/path/to/folder]'
+    destination: str
+        The output folder where to copy the content
+
+    """
+    try:
+        subprocess.check_output(f'aws s3 cp --recursive {url} {destination}'
+            .split(), stderr=subprocess.STDOUT, universal_newlines=True)
+    except subprocess.CalledProcessError as exc:
+        logger.debug(exc.output)
+        raise ValueError(f'Error downlaoding artifacts from s3. ' +
+            'Check logs for more information')
+
+
+def http_exists(url: str) ->bool:
+    """Check if an HTTP/HTTPS file exists.
+
+    Parameters
+    ----------
+    url: str
+        The HTTP/HTTPS URL.
+
+    Returns
+    -------
+    bool
+        True if the HTTP file exists
+
+    """
+    try:
+        r = requests.head(url, allow_redirects=True)
+        return r.status_code != 404
+    except requests.ConnectionError:
+        return False
+
+
+class CompilationError(Exception):
+    pass
+
+
+def merge_kwargs(kwargs: Dict[str, Any], compiled_kwargs: Dict[str, Any]
+    ) ->Dict[str, Any]:
+    """Replace non links in kwargs with corresponding compiled values
+
+    For every key in `kwargs` if the value is NOT a link and IS a
+    Schema, replace with the corresponding value in `compiled_kwargs`
+
+    Parameters
+    ----------
+    kwargs : Dict[str, Any]
+        Original kwargs containing Links and Schemas
+    compiled_kwargs : Dict[str, Any]
+        Processes kwargs containing no links and no Schemas
+
+    Returns
+    -------
+    Dict[str, Any]
+        kwargs with links, but with Schemas replaced by compiled
+        objects
+
+    """
+    merged_kwargs = {}
+    for kw in kwargs:
+        if not isinstance(kwargs[kw], Link) and isinstance(kwargs[kw], Schema):
+            if kw not in compiled_kwargs:
+                raise CompilationError(
+                    'Non matching kwargs and compiled_kwargs')
+            merged_kwargs[kw] = compiled_kwargs[kw]
+        else:
+            merged_kwargs[kw] = kwargs[kw]
+    return merged_kwargs
+
+
+class registrable_factory:
+    """Decorate Registrable factory method for use in the config
+
+    This Descriptor class will set properties that allow the factory
+    method to be specified directly in the config as a suffix to the
+    tag; for example:
+
+    .. code-block:: python
+
+        class MyModel(Component):
+
+            @registrable_factory
+            def from_file(cls, path):
+                # load instance from path
+                ...
+                return instance
+
+    defines the factory, which can then be used in yaml:
+
+    .. code-block:: yaml
+
+        model: !MyModel.from_file
+            path: some/path/to/file.pt
+
+    """
+
+    def __init__(self, fn: Any) ->None:
+        self.fn = fn
+
+    def __set_name__(self, owner: type, name: str) ->None:
+        if not hasattr(owner, '_yaml_registered_factories'):
+            raise RegistrationError(
+                f"class {owner} doesn't have property _yaml_registered_factories; {owner} should subclass Registrable or Component"
+                )
+        owner._yaml_registered_factories.add(name)
+        setattr(owner, name, self.fn)
 
 
 class MixtureOfSoftmax(Module):
@@ -914,6 +1579,127 @@ class StructuredSelfAttentivePooling(Module):
         attention = self._compute_attention(data, mask)
         attended = torch.bmm(attention.transpose(1, 2), data)
         return attended.mean(dim=1)
+
+
+class RNNEncoder(Module):
+    """Implements a multi-layer RNN.
+
+    This module can be used to create multi-layer RNN models, and
+    provides a way to reduce to output of the RNN to a single hidden
+    state by pooling the encoder states either by taking the maximum,
+    average, or by taking the last hidden state before padding.
+
+    Padding is dealt with by using torch's PackedSequence.
+
+    Attributes
+    ----------
+    rnn: nn.Module
+        The rnn submodule
+
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, n_layers: int=1,
+        rnn_type: str='lstm', dropout: float=0, bidirectional: bool=False,
+        layer_norm: bool=False, highway_bias: float=0, rescale: bool=True,
+        enforce_sorted: bool=False, **kwargs) ->None:
+        """Initializes the RNNEncoder object.
+
+        Parameters
+        ----------
+        input_size : int
+            The dimension the input data
+        hidden_size : int
+            The hidden dimension to encode the data in
+        n_layers : int, optional
+            The number of rnn layers, defaults to 1
+        rnn_type : str, optional
+           The type of rnn cell, one of: `lstm`, `gru`, `sru`
+           defaults to `lstm`
+        dropout : float, optional
+            Amount of dropout to use between RNN layers, defaults to 0
+        bidirectional : bool, optional
+            Set to use a bidrectional encoder, defaults to False
+        layer_norm : bool, optional
+            [SRU only] whether to use layer norm
+        highway_bias : float, optional
+            [SRU only] value to use for the highway bias
+        rescale : bool, optional
+            [SRU only] whether to use rescaling
+        enforce_sorted: bool
+            Whether rnn should enforce that sequences are ordered by
+            length. Requires True for ONNX support. Defaults to False.
+        kwargs
+            Additional parameters to be passed to SRU when building
+            the rnn.
+
+        Raises
+        ------
+        ValueError
+            The rnn type should be one of: `lstm`, `gru`, `sru`
+
+        """
+        super().__init__()
+        self.rnn_type = rnn_type
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.enforce_sorted = enforce_sorted
+        self.output_size = 2 * hidden_size if bidirectional else hidden_size
+        if rnn_type in ['lstm', 'gru']:
+            if kwargs:
+                logger.warn(f"The following '{kwargs}' will be ignored " +
+                    "as they are only considered when using 'sru' as " +
+                    "'rnn_type'")
+            rnn_fn = nn.LSTM if rnn_type == 'lstm' else nn.GRU
+            self.rnn = rnn_fn(input_size=input_size, hidden_size=
+                hidden_size, num_layers=n_layers, dropout=dropout,
+                bidirectional=bidirectional)
+        elif rnn_type == 'sru':
+            try:
+                self.rnn = SRU(input_size, hidden_size, num_layers=n_layers,
+                    dropout=dropout, bidirectional=bidirectional,
+                    layer_norm=layer_norm, rescale=rescale, highway_bias=
+                    highway_bias, **kwargs)
+            except TypeError:
+                raise ValueError(f'Unkown kwargs passed to SRU: {kwargs}')
+        else:
+            raise ValueError(
+                f'Unkown rnn type: {rnn_type}, use of of: gru, sru, lstm')
+
+    def forward(self, data: Tensor, state: Optional[Tensor]=None,
+        padding_mask: Optional[Tensor]=None) ->Tuple[Tensor, Tensor]:
+        """Performs a forward pass through the network.
+
+        Parameters
+        ----------
+        data : Tensor
+            The input data, as a float tensor of shape [B x S x E]
+        state: Tensor
+            An optional previous state of shape [L x B x H]
+        padding_mask: Tensor, optional
+            The padding mask of shape [B x S], dtype should be bool
+
+        Returns
+        -------
+        Tensor
+            The encoded output, as a float tensor of shape [B x S x H]
+        Tensor
+            The encoded state, as a float tensor of shape [L x B x H]
+
+        """
+        data = data.transpose(0, 1)
+        if padding_mask is not None:
+            padding_mask = padding_mask.transpose(0, 1)
+        if padding_mask is None:
+            output, state = self.rnn(data, state)
+        elif self.rnn_type == 'sru':
+            output, state = self.rnn(data, state, mask_pad=~padding_mask)
+        else:
+            lengths = padding_mask.long().sum(dim=0)
+            packed = nn.utils.rnn.pack_padded_sequence(data, lengths,
+                enforce_sorted=self.enforce_sorted)
+            output, state = self.rnn(packed, state)
+            output, _ = nn.utils.rnn.pad_packed_sequence(output)
+        return output.transpose(0, 1).contiguous(), state
 
 
 class PooledRNNEncoder(Module):
@@ -2039,6 +2825,7 @@ class DummyModel(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_asappresearch_flambe(_paritybench_base):
@@ -2053,38 +2840,54 @@ class Test_asappresearch_flambe(_paritybench_base):
     def test_002(self):
         self._check(FirstPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_003(self):
+        self._check(LanguageModel(*[], **{'embedder': _mock_layer(), 'output_layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
         self._check(LastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(LogisticRegression(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(MLPEncoder(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
-        self._check(MixtureOfSoftmax(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_007(self):
-        self._check(SoftmaxLayer(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MixtureOfSoftmax(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(PooledRNNEncoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(RNNEncoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(SoftmaxLayer(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(StructuredSelfAttentivePooling(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_009(self):
+    def test_012(self):
         self._check(SumPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_013(self):
+        self._check(TextClassifier(*[], **{'embedder': _mock_layer(), 'output_layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
         self._check(TransformerDecoder(*[], **{'input_size': 4, 'd_model': 4, 'nhead': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_011(self):
+    def test_015(self):
         self._check(TransformerDecoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_016(self):
         self._check(TransformerEncoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4])], {})
 

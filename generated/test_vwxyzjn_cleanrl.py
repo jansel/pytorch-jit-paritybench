@@ -39,10 +39,13 @@ gae_test = _module
 understand_vector_env = _module
 utils_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,7 +94,7 @@ from collections import deque
 import copy
 
 
-_global_config['cuda'] = 4
+_global_config['cuda'] = False
 
 
 device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else
@@ -99,6 +102,55 @@ device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else
 
 
 _global_config['gym_id'] = 4
+
+
+class Policy(nn.Module):
+
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.fc1 = nn.Linear(input_shape, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, output_shape)
+
+    def forward(self, x):
+        x = preprocess_obs_fn(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+class Value(nn.Module):
+
+    def __init__(self):
+        super(Value, self).__init__()
+        self.fc1 = nn.Linear(input_shape, 64)
+        self.fc2 = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = preprocess_obs_fn(x)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class Policy(nn.Module):
+
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.fc1 = nn.Linear(input_shape, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.mean = nn.Linear(84, output_shape)
+        self.logstd = nn.Linear(output_shape, output_shape)
+
+    def forward(self, x):
+        x = preprocess_obs_fn(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        action_mean = self.mean(x)
+        zeros = torch.zeros(action_mean.size(), device=device)
+        action_logstd = self.logstd(zeros)
+        return action_mean, action_logstd.exp()
 
 
 class Value(nn.Module):
@@ -326,10 +378,10 @@ class QNetwork(nn.Module):
         return self.network(x)
 
 
-_global_config['weights_init'] = 4
-
-
 _global_config['pol_layer_norm'] = 1
+
+
+_global_config['weights_init'] = 4
 
 
 class Policy(nn.Module):
@@ -617,6 +669,103 @@ class Scale(nn.Module):
         return x * self.scale
 
 
+def update_mean_var_count_from_moments(mean, var, count, batch_mean,
+    batch_var, batch_count):
+    delta = batch_mean - mean
+    tot_count = count + batch_count
+    new_mean = mean + delta * batch_count / tot_count
+    m_a = var * count
+    m_b = batch_var * batch_count
+    M2 = m_a + m_b + np.square(delta) * count * batch_count / tot_count
+    new_var = M2 / tot_count
+    new_count = tot_count
+    return new_mean, new_var, new_count
+
+
+class RunningMeanStd(object):
+
+    def __init__(self, epsilon=0.0001, shape=()):
+        self.mean = np.zeros(shape, 'float64')
+        self.var = np.ones(shape, 'float64')
+        self.count = epsilon
+
+    def update(self, x):
+        batch_mean = np.mean([x], axis=0)
+        batch_var = np.var([x], axis=0)
+        batch_count = 1
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        self.mean, self.var, self.count = update_mean_var_count_from_moments(
+            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
+            )
+
+
+_global_config['exp_name'] = 4
+
+
+_global_config['seed'] = 4
+
+
+experiment_name = (
+    f'{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}')
+
+
+_global_config['capture_video'] = 4
+
+
+def make_env(gym_id, seed, idx):
+
+    def thunk():
+        env = gym.make(gym_id)
+        env = ClipActionsWrapper(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        if args.capture_video:
+            if idx == 0:
+                env = Monitor(env, f'videos/{experiment_name}')
+        env = NormalizedEnv(env)
+        env.seed(seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
+    return thunk
+
+
+_global_config['num_envs'] = 4
+
+
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class Agent(nn.Module):
+
+    def __init__(self, frames=4):
+        super(Agent, self).__init__()
+        self.network = nn.Sequential(Scale(1 / 255), layer_init(nn.Conv2d(
+            frames, 32, 8, stride=4)), nn.ReLU(), layer_init(nn.Conv2d(32, 
+            64, 4, stride=2)), nn.ReLU(), layer_init(nn.Conv2d(64, 64, 3,
+            stride=1)), nn.ReLU(), nn.Flatten(), layer_init(nn.Linear(3136,
+            512)), nn.ReLU())
+        self.actor = layer_init(nn.Linear(512, envs.action_space.n), std=0.01)
+        self.critic = layer_init(nn.Linear(512, 1), std=1)
+
+    def forward(self, x):
+        return self.network(x)
+
+    def get_action(self, x, action=None):
+        logits = self.actor(self.forward(x))
+        probs = Categorical(logits=logits)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action), probs.entropy()
+
+    def get_value(self, x):
+        return self.critic(self.forward(x))
+
+
 class Scale(nn.Module):
 
     def __init__(self, scale):
@@ -625,12 +774,6 @@ class Scale(nn.Module):
 
     def forward(self, x):
         return x * self.scale
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 
 class Agent(nn.Module):
@@ -906,6 +1049,7 @@ class Actor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_vwxyzjn_cleanrl(_paritybench_base):

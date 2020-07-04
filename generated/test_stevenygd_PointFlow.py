@@ -21,10 +21,13 @@ test = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -343,6 +346,54 @@ class Encoder(nn.Module):
         return m, v
 
 
+def build_model(args, input_dim, hidden_dims, context_dim, num_blocks,
+    conditional):
+
+    def build_cnf():
+        diffeq = ODEnet(hidden_dims=hidden_dims, input_shape=(input_dim,),
+            context_dim=context_dim, layer_type=args.layer_type,
+            nonlinearity=args.nonlinearity)
+        odefunc = ODEfunc(diffeq=diffeq)
+        cnf = CNF(odefunc=odefunc, T=args.time_length, train_T=args.train_T,
+            conditional=conditional, solver=args.solver, use_adjoint=args.
+            use_adjoint, atol=args.atol, rtol=args.rtol)
+        return cnf
+    chain = [build_cnf() for _ in range(num_blocks)]
+    if args.batch_norm:
+        bn_layers = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=
+            args.sync_bn) for _ in range(num_blocks)]
+        bn_chain = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=
+            args.sync_bn)]
+        for a, b in zip(chain, bn_layers):
+            bn_chain.append(a)
+            bn_chain.append(b)
+        chain = bn_chain
+    model = SequentialFlow(chain)
+    return model
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def get_latent_cnf(args):
+    dims = tuple(map(int, args.latent_dims.split('-')))
+    model = build_model(args, args.zdim, dims, 0, args.latent_num_blocks, False
+        ).cuda()
+    print('Number of trainable parameters of Latent CNF: {}'.format(
+        count_parameters(model)))
+    return model
+
+
+def get_point_cnf(args):
+    dims = tuple(map(int, args.dims.split('-')))
+    model = build_model(args, args.input_dim, dims, args.zdim, args.
+        num_blocks, True).cuda()
+    print('Number of trainable parameters of Point CNF: {}'.format(
+        count_parameters(model)))
+    return model
+
+
 def reduce_tensor(tensor, world_size=None):
     rt = tensor.clone()
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
@@ -350,6 +401,169 @@ def reduce_tensor(tensor, world_size=None):
         world_size = dist.get_world_size()
     rt /= world_size
     return rt
+
+
+def standard_normal_logprob(z):
+    dim = z.size(-1)
+    log_z = -0.5 * dim * log(2 * pi)
+    return log_z - z.pow(2) / 2
+
+
+def truncated_normal(tensor, mean=0, std=1, trunc_std=2):
+    size = tensor.shape
+    tmp = tensor.new_empty(size + (4,)).normal_()
+    valid = (tmp < trunc_std) & (tmp > -trunc_std)
+    ind = valid.max(-1, keepdim=True)[1]
+    tensor.data.copy_(tmp.gather(-1, ind).squeeze(-1))
+    tensor.data.mul_(std).add_(mean)
+    return tensor
+
+
+class PointFlow(nn.Module):
+
+    def __init__(self, args):
+        super(PointFlow, self).__init__()
+        self.input_dim = args.input_dim
+        self.zdim = args.zdim
+        self.use_latent_flow = args.use_latent_flow
+        self.use_deterministic_encoder = args.use_deterministic_encoder
+        self.prior_weight = args.prior_weight
+        self.recon_weight = args.recon_weight
+        self.entropy_weight = args.entropy_weight
+        self.distributed = args.distributed
+        self.truncate_std = None
+        self.encoder = Encoder(zdim=args.zdim, input_dim=args.input_dim,
+            use_deterministic_encoder=args.use_deterministic_encoder)
+        self.point_cnf = get_point_cnf(args)
+        self.latent_cnf = get_latent_cnf(args
+            ) if args.use_latent_flow else nn.Sequential()
+
+    @staticmethod
+    def sample_gaussian(size, truncate_std=None, gpu=None):
+        y = torch.randn(*size).float()
+        y = y if gpu is None else y
+        if truncate_std is not None:
+            truncated_normal(y, mean=0, std=1, trunc_std=truncate_std)
+        return y
+
+    @staticmethod
+    def reparameterize_gaussian(mean, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn(std.size())
+        return mean + std * eps
+
+    @staticmethod
+    def gaussian_entropy(logvar):
+        const = 0.5 * float(logvar.size(1)) * (1.0 + np.log(np.pi * 2))
+        ent = 0.5 * logvar.sum(dim=1, keepdim=False) + const
+        return ent
+
+    def multi_gpu_wrapper(self, f):
+        self.encoder = f(self.encoder)
+        self.point_cnf = f(self.point_cnf)
+        self.latent_cnf = f(self.latent_cnf)
+
+    def make_optimizer(self, args):
+
+        def _get_opt_(params):
+            if args.optimizer == 'adam':
+                optimizer = optim.Adam(params, lr=args.lr, betas=(args.
+                    beta1, args.beta2), weight_decay=args.weight_decay)
+            elif args.optimizer == 'sgd':
+                optimizer = torch.optim.SGD(params, lr=args.lr, momentum=
+                    args.momentum)
+            else:
+                assert 0, "args.optimizer should be either 'adam' or 'sgd'"
+            return optimizer
+        opt = _get_opt_(list(self.encoder.parameters()) + list(self.
+            point_cnf.parameters()) + list(list(self.latent_cnf.parameters())))
+        return opt
+
+    def forward(self, x, opt, step, writer=None):
+        opt.zero_grad()
+        batch_size = x.size(0)
+        num_points = x.size(1)
+        z_mu, z_sigma = self.encoder(x)
+        if self.use_deterministic_encoder:
+            z = z_mu + 0 * z_sigma
+        else:
+            z = self.reparameterize_gaussian(z_mu, z_sigma)
+        if self.use_deterministic_encoder:
+            entropy = torch.zeros(batch_size)
+        else:
+            entropy = self.gaussian_entropy(z_sigma)
+        if self.use_latent_flow:
+            w, delta_log_pw = self.latent_cnf(z, None, torch.zeros(
+                batch_size, 1))
+            log_pw = standard_normal_logprob(w).view(batch_size, -1).sum(1,
+                keepdim=True)
+            delta_log_pw = delta_log_pw.view(batch_size, 1)
+            log_pz = log_pw - delta_log_pw
+        else:
+            log_pz = torch.zeros(batch_size, 1)
+        z_new = z.view(*z.size())
+        z_new = z_new + (log_pz * 0.0).mean()
+        y, delta_log_py = self.point_cnf(x, z_new, torch.zeros(batch_size,
+            num_points, 1))
+        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1,
+            keepdim=True)
+        delta_log_py = delta_log_py.view(batch_size, num_points, 1).sum(1)
+        log_px = log_py - delta_log_py
+        entropy_loss = -entropy.mean() * self.entropy_weight
+        recon_loss = -log_px.mean() * self.recon_weight
+        prior_loss = -log_pz.mean() * self.prior_weight
+        loss = entropy_loss + prior_loss + recon_loss
+        loss.backward()
+        opt.step()
+        if self.distributed:
+            entropy_log = reduce_tensor(entropy.mean())
+            recon = reduce_tensor(-log_px.mean())
+            prior = reduce_tensor(-log_pz.mean())
+        else:
+            entropy_log = entropy.mean()
+            recon = -log_px.mean()
+            prior = -log_pz.mean()
+        recon_nats = recon / float(x.size(1) * x.size(2))
+        prior_nats = prior / float(self.zdim)
+        if writer is not None:
+            writer.add_scalar('train/entropy', entropy_log, step)
+            writer.add_scalar('train/prior', prior, step)
+            writer.add_scalar('train/prior(nats)', prior_nats, step)
+            writer.add_scalar('train/recon', recon, step)
+            writer.add_scalar('train/recon(nats)', recon_nats, step)
+        return {'entropy': entropy_log.cpu().detach().item() if not
+            isinstance(entropy_log, float) else entropy_log, 'prior_nats':
+            prior_nats, 'recon_nats': recon_nats}
+
+    def encode(self, x):
+        z_mu, z_sigma = self.encoder(x)
+        if self.use_deterministic_encoder:
+            return z_mu
+        else:
+            return self.reparameterize_gaussian(z_mu, z_sigma)
+
+    def decode(self, z, num_points, truncate_std=None):
+        y = self.sample_gaussian((z.size(0), num_points, self.input_dim),
+            truncate_std)
+        x = self.point_cnf(y, z, reverse=True).view(*y.size())
+        return y, x
+
+    def sample(self, batch_size, num_points, truncate_std=None,
+        truncate_std_latent=None, gpu=None):
+        assert self.use_latent_flow, 'Sampling requires `self.use_latent_flow` to be True.'
+        w = self.sample_gaussian((batch_size, self.zdim),
+            truncate_std_latent, gpu=gpu)
+        z = self.latent_cnf(w, None, reverse=True).view(*w.size())
+        y = self.sample_gaussian((batch_size, num_points, self.input_dim),
+            truncate_std, gpu=gpu)
+        x = self.point_cnf(y, z, reverse=True).view(*y.size())
+        return z, x
+
+    def reconstruct(self, x, num_points=None, truncate_std=None):
+        num_points = x.size(1) if num_points is None else num_points
+        z = self.encode(x)
+        _, x = self.decode(z, num_points, truncate_std)
+        return x
 
 
 class MovingBatchNormNd(nn.Module):
@@ -574,6 +788,7 @@ class ODEfunc(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_stevenygd_PointFlow(_paritybench_base):
@@ -598,7 +813,7 @@ class Test_stevenygd_PointFlow(_paritybench_base):
         self._check(IgnoreLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(Lambda(*[], **{'f': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(ScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})

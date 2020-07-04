@@ -44,10 +44,13 @@ rank_test = _module
 util = _module
 move_valid = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -96,6 +99,9 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 
+import torchvision
+
+
 import time
 
 
@@ -103,6 +109,9 @@ import random
 
 
 import numpy as np
+
+
+from torchvision.utils import make_grid
 
 
 class ResidualDenseBlock_5C(nn.Module):
@@ -867,6 +876,7 @@ class mmsrSRResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_WenlongZhang0724_RankSRGAN(_paritybench_base):
@@ -875,7 +885,7 @@ class Test_WenlongZhang0724_RankSRGAN(_paritybench_base):
         self._check(CharbonnierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ConcatBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
         self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -890,5 +900,8 @@ class Test_WenlongZhang0724_RankSRGAN(_paritybench_base):
         self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(ShortcutBlock(*[], **{'submodule': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_007(self):
+        self._check(VGGFeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

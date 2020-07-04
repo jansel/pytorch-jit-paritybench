@@ -11,10 +11,13 @@ test_dataset = _module
 test_video = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -33,10 +36,16 @@ import torch.nn as nn
 import math
 
 
+from torchvision.ops.boxes import nms as nms_torch
+
+
 import numpy as np
 
 
 from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
 
 
 def calc_iou(a, b):
@@ -77,7 +86,7 @@ class FocalLoss(nn.Module):
             bbox_annotation = annotations[(j), :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
             if bbox_annotation.shape[0] == 0:
-                if torch.cuda.is_available():
+                if torch.is_available():
                     regression_losses.append(torch.tensor(0).float())
                     classification_losses.append(torch.tensor(0).float())
                 else:
@@ -88,7 +97,7 @@ class FocalLoss(nn.Module):
             IoU = calc_iou(anchors[(0), :, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones(classification.shape) * -1
-            if torch.cuda.is_available():
+            if torch.is_available():
                 targets = targets
             targets[(torch.lt(IoU_max, 0.4)), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
@@ -98,7 +107,7 @@ class FocalLoss(nn.Module):
             targets[positive_indices, assigned_annotations[positive_indices,
                 4].long()] = 1
             alpha_factor = torch.ones(targets.shape) * alpha
-            if torch.cuda.is_available():
+            if torch.is_available():
                 alpha_factor = alpha_factor
             alpha_factor = torch.where(torch.eq(targets, 1.0), alpha_factor,
                 1.0 - alpha_factor)
@@ -109,7 +118,7 @@ class FocalLoss(nn.Module):
                 torch.log(1.0 - classification))
             cls_loss = focal_weight * bce
             zeros = torch.zeros(cls_loss.shape)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 zeros = zeros
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
             classification_losses.append(cls_loss.sum() / torch.clamp(
@@ -137,7 +146,7 @@ class FocalLoss(nn.Module):
                     targets_dh))
                 targets = targets.t()
                 norm = torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
-                if torch.cuda.is_available():
+                if torch.is_available():
                     norm = norm
                 targets = targets / norm
                 regression_diff = torch.abs(targets - regression[(
@@ -146,7 +155,7 @@ class FocalLoss(nn.Module):
                     9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), 
                     regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
-            elif torch.cuda.is_available():
+            elif torch.is_available():
                 regression_losses.append(torch.tensor(0).float())
             else:
                 regression_losses.append(torch.tensor(0).float())
@@ -435,7 +444,7 @@ class BBoxTransform(nn.Module):
                 astype(np.float32))
         else:
             self.std = std
-        if torch.cuda.is_available():
+        if torch.is_available():
             self.mean = self.mean
             self.std = self.std
 
@@ -536,32 +545,26 @@ class Anchors(nn.Module):
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
         all_anchors = np.expand_dims(all_anchors, axis=0)
         anchors = torch.from_numpy(all_anchors.astype(np.float32))
-        if torch.cuda.is_available():
+        if torch.is_available():
             anchors = anchors
         return anchors
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_signatrix_efficientdet(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Anchors(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_001(self):
-        self._check(BBoxTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
         self._check(Classifier(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_classes': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_001(self):
         self._check(ClipBoxes(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_002(self):
         self._check(ConvBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_003(self):
         self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
 

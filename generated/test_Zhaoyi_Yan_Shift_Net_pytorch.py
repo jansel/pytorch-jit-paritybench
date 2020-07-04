@@ -58,10 +58,13 @@ poisson_blending = _module
 util = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -81,6 +84,9 @@ from torch.nn import functional as F
 
 
 import time
+
+
+import torchvision.transforms as transforms
 
 
 import numpy as np
@@ -108,6 +114,9 @@ from torch.nn import init
 
 
 from torch.optim import lr_scheduler
+
+
+from torchvision import models
 
 
 import numpy as numpy
@@ -317,7 +326,7 @@ class InnerFaceShiftTriple(nn.Module):
         self.mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
 
     def _split_mask(self, cur_bsize):
-        cur_device = torch.cuda.current_device()
+        cur_device = torch.current_device()
         self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
             1) * cur_bsize, :, :, :]
 
@@ -1508,8 +1517,8 @@ class InnerPatchSoftShiftTripleModule(nn.Module):
         self.mask_thred = mask_thred
         self.show_flow = show_flow
         self.bz, self.c, self.h, self.w = input.size()
-        self.Tensor = (torch.cuda.FloatTensor if torch.cuda.is_available else
-            torch.FloatTensor)
+        self.Tensor = (torch.FloatTensor if torch.is_available else torch.
+            FloatTensor)
         self.ind_lst = self.Tensor(self.bz, self.h * self.w, self.h * self.w
             ).zero_()
         former_all = input.narrow(1, 0, self.c // 2)
@@ -1853,7 +1862,7 @@ class InnerCos(nn.Module):
         self.mask_all = mask_all.float()
 
     def _split_mask(self, cur_bsize):
-        cur_device = torch.cuda.current_device()
+        cur_device = torch.current_device()
         self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
             1) * cur_bsize, :, :, :]
 
@@ -1897,7 +1906,7 @@ class InnerShiftTriple(nn.Module):
         self.mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
 
     def _split_mask(self, cur_bsize):
-        cur_device = torch.cuda.current_device()
+        cur_device = torch.current_device()
         self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
             1) * cur_bsize, :, :, :]
 
@@ -1950,35 +1959,52 @@ class VGG16FeatureExtractor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Zhaoyi_Yan_Shift_Net_pytorch(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
     @_fails_compile()
     def test_001(self):
+        self._check(DenseNetDiscrimator(*[], **{'input_nc': 4}), [torch.rand([4, 3, 128, 128])], {})
+
+    def test_002(self):
+        self._check(EasyUnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 256, 256])], {})
+
+    def test_003(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_002(self):
-        self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
-
-    @_fails_compile()
     def test_005(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(VGG16FeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
 

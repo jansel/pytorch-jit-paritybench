@@ -8,10 +8,13 @@ irnn = _module
 main = _module
 randomcrop = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -79,6 +82,150 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         out = self.group1(x)
         return out
+
+
+class irnn(torch.autograd.Function):
+
+    def __init__(self):
+        super(irnn, self).__init__()
+
+    def forward(self, input_feature, weight_up, weight_right, weight_down,
+        weight_left, bias_up, bias_right, bias_down, bias_left):
+        assert input_feature.is_contiguous() == True
+        assert weight_left.is_contiguous() == True
+        assert weight_right.is_contiguous() == True
+        assert weight_down.is_contiguous() == True
+        assert weight_up.is_contiguous() == True
+        assert bias_left.is_contiguous() == True
+        assert bias_right.is_contiguous() == True
+        assert bias_up.is_contiguous() == True
+        assert bias_down.is_contiguous() == True
+        output_left = input_feature.clone()
+        output_right = input_feature.clone()
+        output_up = input_feature.clone()
+        output_down = input_feature.clone()
+        if input_feature.is_cuda == True:
+            n = input_feature.nelement()
+            cuda_num_threads = 1024
+            cunnex('IRNNForward')(grid=tuple([int((n + cuda_num_threads - 1
+                ) / cuda_num_threads), 1, 1]), block=tuple([
+                cuda_num_threads, 1, 1]), args=[input_feature.data_ptr(),
+                weight_up.data_ptr(), weight_right.data_ptr(), weight_down.
+                data_ptr(), weight_left.data_ptr(), bias_up.data_ptr(),
+                bias_right.data_ptr(), bias_down.data_ptr(), bias_left.
+                data_ptr(), output_up.data_ptr(), output_right.data_ptr(),
+                output_down.data_ptr(), output_left.data_ptr(),
+                input_feature.size(1), input_feature.size(2), input_feature
+                .size(3), n], stream=Stream)
+        elif input_feature.is_cuda == False:
+            raise NotImplementedError()
+        self.save_for_backward(input_feature, weight_up, weight_right,
+            weight_down, weight_left, output_up, output_right, output_down,
+            output_left)
+        return output_up, output_right, output_down, output_left
+
+    def backward(self, grad_output_up, grad_output_right, grad_output_down,
+        grad_output_left):
+        (input_feature, weight_up, weight_right, weight_down, weight_left,
+            output_up, output_right, output_down, output_left
+            ) = self.saved_tensors
+        if grad_output_up.is_contiguous() != True:
+            grad_output_up = grad_output_up.contiguous()
+        if grad_output_right.is_contiguous() != True:
+            grad_output_right = grad_output_right.contiguous()
+        if grad_output_down.is_contiguous() != True:
+            grad_output_down = grad_output_down.contiguous()
+        if grad_output_left.is_contiguous() != True:
+            grad_output_left = grad_output_left.contiguous()
+        grad_input = torch.zeros_like(input_feature)
+        grad_weight_up_map = torch.zeros_like(input_feature)
+        grad_weight_right_map = torch.zeros_like(input_feature)
+        grad_weight_down_map = torch.zeros_like(input_feature)
+        grad_weight_left_map = torch.zeros_like(input_feature)
+        grad_weight_left = torch.zeros_like(weight_left)
+        grad_weight_right = torch.zeros_like(weight_left)
+        grad_weight_up = torch.zeros_like(weight_left)
+        grad_weight_down = torch.zeros_like(weight_left)
+        grad_bias_up_map = torch.zeros_like(input_feature)
+        grad_bias_right_map = torch.zeros_like(input_feature)
+        grad_bias_down_map = torch.zeros_like(input_feature)
+        grad_bias_left_map = torch.zeros_like(input_feature)
+        if input_feature.is_cuda == True:
+            n = grad_input.nelement()
+            cuda_num_threads = 1024
+            cunnex('IRNNBackward')(grid=tuple([int((n + cuda_num_threads - 
+                1) / cuda_num_threads), 1, 1]), block=tuple([
+                cuda_num_threads, 1, 1]), args=[grad_input.data_ptr(),
+                grad_weight_up_map.data_ptr(), grad_weight_right_map.
+                data_ptr(), grad_weight_down_map.data_ptr(),
+                grad_weight_left_map.data_ptr(), grad_bias_up_map.data_ptr(
+                ), grad_bias_right_map.data_ptr(), grad_bias_down_map.
+                data_ptr(), grad_bias_left_map.data_ptr(), weight_up.
+                data_ptr(), weight_right.data_ptr(), weight_down.data_ptr(),
+                weight_left.data_ptr(), grad_output_up.data_ptr(),
+                grad_output_right.data_ptr(), grad_output_down.data_ptr(),
+                grad_output_left.data_ptr(), output_up.data_ptr(),
+                output_right.data_ptr(), output_down.data_ptr(),
+                output_left.data_ptr(), input_feature.size(1),
+                input_feature.size(2), input_feature.size(3), n], stream=Stream
+                )
+            grad_bias_up = torch.zeros_like(weight_left).reshape(weight_left
+                .size(0))
+            grad_bias_right = torch.zeros_like(weight_left).reshape(weight_left
+                .size(0))
+            grad_bias_down = torch.zeros_like(weight_left).reshape(weight_left
+                .size(0))
+            grad_bias_left = torch.zeros_like(weight_left).reshape(weight_left
+                .size(0))
+            grad_weight_left = grad_weight_left_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_weight_left)
+            grad_weight_right = grad_weight_right_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_weight_left)
+            grad_weight_up = grad_weight_up_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_weight_left)
+            grad_weight_down = grad_weight_down_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_weight_left)
+            grad_bias_up = grad_bias_up_map.sum(2).sum(2).sum(0).resize_as_(
+                grad_bias_up)
+            grad_bias_right = grad_bias_right_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_bias_up)
+            grad_bias_down = grad_bias_down_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_bias_up)
+            grad_bias_left = grad_bias_left_map.sum(2).sum(2).sum(0
+                ).resize_as_(grad_bias_up)
+        elif input_feature.is_cuda == False:
+            raise NotImplementedError()
+        return (grad_input, grad_weight_up, grad_weight_right,
+            grad_weight_down, grad_weight_left, grad_bias_up,
+            grad_bias_right, grad_bias_down, grad_bias_left)
+
+
+class Spacial_IRNN(nn.Module):
+
+    def __init__(self, in_channels, alpha=0.2):
+        super(Spacial_IRNN, self).__init__()
+        self.left_weight = nn.Conv2d(in_channels, in_channels, kernel_size=
+            1, stride=1, groups=in_channels, padding=0)
+        self.right_weight = nn.Conv2d(in_channels, in_channels, kernel_size
+            =1, stride=1, groups=in_channels, padding=0)
+        self.up_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1,
+            stride=1, groups=in_channels, padding=0)
+        self.down_weight = nn.Conv2d(in_channels, in_channels, kernel_size=
+            1, stride=1, groups=in_channels, padding=0)
+        self.left_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
+            in_channels))
+        self.right_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
+            in_channels))
+        self.up_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
+            in_channels))
+        self.down_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
+            in_channels))
+
+    def forward(self, input):
+        return irnn()(input, self.up_weight.weight, self.right_weight.
+            weight, self.down_weight.weight, self.left_weight.weight, self.
+            up_weight.bias, self.right_weight.bias, self.down_weight.bias,
+            self.left_weight.bias)
 
 
 class Attention(nn.Module):
@@ -273,6 +420,7 @@ class SSIM(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_stevewongv_SPANet(_paritybench_base):

@@ -23,10 +23,13 @@ shared_dict = _module
 unet_demo = _module
 weighted_sampling = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -51,13 +54,34 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torchvision.models as models
+
+
 from torch.utils.data import Dataset
+
+
+from torchvision import models
 
 
 from torch.utils.data import DataLoader
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
 import numpy as np
+
+
+from torchvision.utils import make_grid
 
 
 class LocallyConnected2d(nn.Module):
@@ -366,6 +390,7 @@ class UNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ptrblck_pytorch_misc(_paritybench_base):
@@ -388,11 +413,8 @@ class Test_ptrblck_pytorch_misc(_paritybench_base):
         self._check(MyBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(MyModel(*[], **{}), [torch.rand([64, 64]), 0], {})
-
-    def test_006(self):
         self._check(SubModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(UpConv(*[], **{'in_channels': 4, 'in_channels_skip': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
 

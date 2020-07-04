@@ -25,10 +25,13 @@ model = _module
 optimization = _module
 storage = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,9 @@ import numpy as np
 from torch.nn import functional as F
 
 
+from torchvision import transforms
+
+
 import time
 
 
@@ -66,6 +72,9 @@ from collections import deque
 
 
 import logging
+
+
+import torchvision.models as models
 
 
 from torch import nn
@@ -282,6 +291,64 @@ class Neural_SLAM_Module(nn.Module):
             current_poses)
 
 
+class RL_Policy(nn.Module):
+
+    def __init__(self, obs_shape, action_space, model_type=0, base_kwargs=None
+        ):
+        super(RL_Policy, self).__init__()
+        if base_kwargs is None:
+            base_kwargs = {}
+        if model_type == 0:
+            self.network = Global_Policy(obs_shape, **base_kwargs)
+        else:
+            raise NotImplementedError
+        if action_space.__class__.__name__ == 'Discrete':
+            num_outputs = action_space.n
+            self.dist = Categorical(self.network.output_size, num_outputs)
+        elif action_space.__class__.__name__ == 'Box':
+            num_outputs = action_space.shape[0]
+            self.dist = DiagGaussian(self.network.output_size, num_outputs)
+        else:
+            raise NotImplementedError
+        self.model_type = model_type
+
+    @property
+    def is_recurrent(self):
+        return self.network.is_recurrent
+
+    @property
+    def rec_state_size(self):
+        """Size of rnn_hx."""
+        return self.network.rec_state_size
+
+    def forward(self, inputs, rnn_hxs, masks, extras):
+        if extras is None:
+            return self.network(inputs, rnn_hxs, masks)
+        else:
+            return self.network(inputs, rnn_hxs, masks, extras)
+
+    def act(self, inputs, rnn_hxs, masks, extras=None, deterministic=False):
+        value, actor_features, rnn_hxs = self(inputs, rnn_hxs, masks, extras)
+        dist = self.dist(actor_features)
+        if deterministic:
+            action = dist.mode()
+        else:
+            action = dist.sample()
+        action_log_probs = dist.log_probs(action)
+        return value, action, action_log_probs, rnn_hxs
+
+    def get_value(self, inputs, rnn_hxs, masks, extras=None):
+        value, _, _ = self(inputs, rnn_hxs, masks, extras)
+        return value
+
+    def evaluate_actions(self, inputs, rnn_hxs, masks, action, extras=None):
+        value, actor_features, rnn_hxs = self(inputs, rnn_hxs, masks, extras)
+        dist = self.dist(actor_features)
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+        return value, action_log_probs, dist_entropy, rnn_hxs
+
+
 FixedCategorical = torch.distributions.Categorical
 
 
@@ -392,6 +459,7 @@ class NNBase(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_devendrachaplot_Neural_SLAM(_paritybench_base):

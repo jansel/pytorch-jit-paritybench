@@ -27,10 +27,13 @@ test_audio = _module
 test_text = _module
 generate_vocab_file = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -56,6 +59,9 @@ import torch.nn.functional as F
 
 
 from torch.distributions.categorical import Categorical
+
+
+import torchaudio
 
 
 from functools import partial
@@ -293,6 +299,78 @@ class Decoder(nn.Module):
         x = x.squeeze(1)
         char = self.char_trans(self.final_dropout(x))
         return char, x
+
+
+class Attention(nn.Module):
+    """ Attention mechanism
+        please refer to http://www.aclweb.org/anthology/D15-1166 section 3.1 for more details about Attention implementation
+        Input : Decoder state                      with shape [batch size, decoder hidden dimension]
+                Compressed feature from Encoder    with shape [batch size, T, encoder feature dimension]
+        Output: Attention score                    with shape [batch size, num head, T (attention score of each time step)]
+                Context vector                     with shape [batch size, encoder feature dimension]
+                (i.e. weighted (by attention score) sum of all timesteps T's feature) """
+
+    def __init__(self, v_dim, q_dim, mode, dim, num_head, temperature,
+        v_proj, loc_kernel_size, loc_kernel_num):
+        super(Attention, self).__init__()
+        self.v_dim = v_dim
+        self.dim = dim
+        self.mode = mode.lower()
+        self.num_head = num_head
+        self.proj_q = nn.Linear(q_dim, dim * num_head)
+        self.proj_k = nn.Linear(v_dim, dim * num_head)
+        self.v_proj = v_proj
+        if v_proj:
+            self.proj_v = nn.Linear(v_dim, v_dim * num_head)
+        if self.mode == 'dot':
+            self.att_layer = ScaleDotAttention(temperature, self.num_head)
+        elif self.mode == 'loc':
+            self.att_layer = LocationAwareAttention(loc_kernel_size,
+                loc_kernel_num, dim, num_head, temperature)
+        else:
+            raise NotImplementedError
+        if self.num_head > 1:
+            self.merge_head = nn.Linear(v_dim * num_head, v_dim)
+        self.key = None
+        self.value = None
+        self.mask = None
+
+    def reset_mem(self):
+        self.key = None
+        self.value = None
+        self.mask = None
+        self.att_layer.reset_mem()
+
+    def set_mem(self, prev_attn):
+        self.att_layer.set_mem(prev_attn)
+
+    def forward(self, dec_state, enc_feat, enc_len):
+        bs, ts, _ = enc_feat.shape
+        query = torch.tanh(self.proj_q(dec_state))
+        query = query.view(bs, self.num_head, self.dim).view(bs * self.
+            num_head, self.dim)
+        if self.key is None:
+            self.att_layer.compute_mask(enc_feat, enc_len)
+            self.key = torch.tanh(self.proj_k(enc_feat))
+            self.value = torch.tanh(self.proj_v(enc_feat)
+                ) if self.v_proj else enc_feat
+            if self.num_head > 1:
+                self.key = self.key.view(bs, ts, self.num_head, self.dim
+                    ).permute(0, 2, 1, 3)
+                self.key = self.key.contiguous().view(bs * self.num_head,
+                    ts, self.dim)
+                if self.v_proj:
+                    self.value = self.value.view(bs, ts, self.num_head,
+                        self.v_dim).permute(0, 2, 1, 3)
+                    self.value = self.value.contiguous().view(bs * self.
+                        num_head, ts, self.v_dim)
+                else:
+                    self.value = self.value.repeat(self.num_head, 1, 1)
+        context, attn = self.att_layer(query, self.key, self.value)
+        if self.num_head > 1:
+            context = context.view(bs, self.num_head * self.v_dim)
+            context = self.merge_head(context)
+        return attn, context
 
 
 class Encoder(nn.Module):
@@ -1136,14 +1214,11 @@ class EmbeddingRegularizer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Alexander_H_Liu_End_to_end_ASR_Pytorch(_paritybench_base):
     pass
     def test_000(self):
         self._check(CNNExtractor(*[], **{'input_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_001(self):
-        self._check(Decoder(*[], **{'input_dim': 4, 'vocab_size': 4, 'module': LSTM, 'dim': 4, 'layer': 1, 'dropout': 0.5}), [torch.rand([4, 4])], {})
 

@@ -27,10 +27,13 @@ data_utils = _module
 eval = _module
 generate_list = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -330,6 +333,42 @@ class Xception(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
+        None, bn_momentum=0.1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+            padding=dilation, dilation=dilation, bias=False)
+        self.bn2 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
+            =1, bias=False)
+        self.bn3 = SynchronizedBatchNorm2d(planes * self.expansion,
+            momentum=bn_momentum)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 model_urls = {'resnet18':
@@ -993,6 +1032,7 @@ class DataParallelWithCallback(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hualin95_Deeplab_v3plus(_paritybench_base):
@@ -1000,9 +1040,13 @@ class Test_hualin95_Deeplab_v3plus(_paritybench_base):
     def test_000(self):
         self._check(Block(*[], **{'in_filters': 4, 'out_filters': 4, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_002(self):
+        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(Xception(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 

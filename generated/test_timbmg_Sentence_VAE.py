@@ -7,10 +7,13 @@ ptb = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,7 +60,7 @@ class SentenceVAE(nn.Module):
         pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=
         False):
         super().__init__()
-        self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available(
+        self.tensor = torch.FloatTensor if torch.is_available(
             ) else torch.Tensor
         self.max_sequence_length = max_sequence_length
         self.sos_idx = sos_idx
@@ -118,7 +121,7 @@ class SentenceVAE(nn.Module):
             hidden = hidden.unsqueeze(0)
         if self.word_dropout_rate > 0:
             prob = torch.rand(input_sequence.size())
-            if torch.cuda.is_available():
+            if torch.is_available():
                 prob = prob
             prob[(input_sequence.data - self.sos_idx) * (input_sequence.
                 data - self.pad_idx) == 0] = 1
@@ -198,6 +201,7 @@ class SentenceVAE(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_timbmg_Sentence_VAE(_paritybench_base):

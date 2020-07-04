@@ -22,10 +22,13 @@ facealignment_test = _module
 smoke_test = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -391,6 +394,7 @@ class ResNetDepth(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_1adrianb_face_alignment(_paritybench_base):
@@ -400,11 +404,18 @@ class Test_1adrianb_face_alignment(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(HourGlass(*[], **{'num_modules': 4, 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FAN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HourGlass(*[], **{'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(ResNetDepth(*[], **{}), [torch.rand([4, 71, 256, 256])], {})
+
+    def test_005(self):
         self._check(s3fd(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

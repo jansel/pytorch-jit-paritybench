@@ -32,10 +32,13 @@ model = _module
 mydatasets = _module
 text_classification = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -69,6 +72,12 @@ from torch.optim import SGD
 import torch.nn as nn
 
 
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
+
+
 import torch.utils.data as Data
 
 
@@ -81,7 +90,25 @@ from torch import optim
 from torch.utils.data import DataLoader
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torchvision
+
+
+from torchvision.datasets import MNIST
+
+
+from torchvision.utils import save_image
+
+
 import torch.utils as utils
+
+
+import torchvision.datasets as dset
 
 
 import torch.autograd as autograd
@@ -96,7 +123,13 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset
 
 
+from torchvision import models
+
+
 import random
+
+
+import torchtext.data as data
 
 
 class Net(torch.nn.Module):
@@ -525,17 +558,22 @@ class CNN_Text(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xiaobaoonline_pytorch_in_action(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(Decoder(*[], **{}), [torch.rand([4, 256, 7, 7])], {})
+
+    @_fails_compile()
+    def test_001(self):
         self._check(Encoder(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_001(self):
+    def test_002(self):
         self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(autoencoder(*[], **{}), [torch.rand([784, 784])], {})
 

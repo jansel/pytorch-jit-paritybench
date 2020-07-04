@@ -9,10 +9,13 @@ misc = _module
 network = _module
 solver = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,6 +41,9 @@ import numpy as np
 
 
 import time
+
+
+import torchvision
 
 
 from torch import optim
@@ -347,30 +353,42 @@ class R2AttU_Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_LeeJunHyun_Image_Segmentation(_paritybench_base):
     pass
     def test_000(self):
+        self._check(AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_001(self):
         self._check(Attention_block(*[], **{'F_g': 4, 'F_l': 4, 'F_int': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
+        self._check(R2AttU_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(R2U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(RRCNN_block(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_005(self):
         self._check(Recurrent_block(*[], **{'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_006(self):
         self._check(U_Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_004(self):
+    def test_007(self):
         self._check(conv_block(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_008(self):
         self._check(single_conv(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_006(self):
+    def test_009(self):
         self._check(up_conv(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 

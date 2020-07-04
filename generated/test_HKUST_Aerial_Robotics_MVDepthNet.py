@@ -6,10 +6,13 @@ example = _module
 example2 = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -131,13 +134,13 @@ class depthNet(nn.Module):
     def getVolume(self, left_image, right_image, KRKiUV_T, KT_T):
         idepth_base = 1.0 / 50.0
         idepth_step = (1.0 / 0.5 - 1.0 / 50.0) / 63.0
-        costvolume = Variable(torch.cuda.FloatTensor(left_image.shape[0], 
-            64, left_image.shape[2], left_image.shape[3]))
+        costvolume = Variable(torch.FloatTensor(left_image.shape[0], 64,
+            left_image.shape[2], left_image.shape[3]))
         image_height = 256
         image_width = 320
         batch_number = left_image.shape[0]
-        normalize_base = torch.cuda.FloatTensor([image_width / 2.0, 
-            image_height / 2.0])
+        normalize_base = torch.FloatTensor([image_width / 2.0, image_height /
+            2.0])
         normalize_base = normalize_base.unsqueeze(0).unsqueeze(-1)
         for depth_i in range(64):
             this_depth = 1.0 / (idepth_base + depth_i * idepth_step)
@@ -182,6 +185,7 @@ class depthNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_HKUST_Aerial_Robotics_MVDepthNet(_paritybench_base):

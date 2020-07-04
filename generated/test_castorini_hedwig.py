@@ -76,10 +76,13 @@ utils = _module
 optimization = _module
 preprocessing = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -166,8 +169,8 @@ class CharCNN(nn.Module):
         self.fc3 = nn.Linear(num_affine_neurons, target_class)
 
     def forward(self, x, **kwargs):
-        if torch.cuda.is_available() and self.is_cuda_enabled:
-            x = x.transpose(1, 2).type(torch.cuda.FloatTensor)
+        if torch.is_available() and self.is_cuda_enabled:
+            x = x.transpose(1, 2).type(torch.FloatTensor)
         else:
             x = x.transpose(1, 2).type(torch.FloatTensor)
         x = F.max_pool1d(F.relu(self.conv1(x)), 3)
@@ -321,6 +324,55 @@ class WordLevelRNN(nn.Module):
         x = torch.mul(h.permute(2, 0, 1), x.transpose(1, 0))
         x = torch.sum(x, dim=1).transpose(1, 0).unsqueeze(0)
         return x
+
+
+class HierarchicalBert(nn.Module):
+
+    def __init__(self, args, **kwargs):
+        super().__init__()
+        self.args = args
+        input_channels = 1
+        ks = 3
+        self.sentence_encoder = BertSentenceEncoder.from_pretrained(args.
+            pretrained_model_path, num_labels=args.num_labels)
+        self.conv1 = nn.Conv2d(input_channels, args.output_channel, (3,
+            self.sentence_encoder.config.hidden_size), padding=(2, 0))
+        self.conv2 = nn.Conv2d(input_channels, args.output_channel, (4,
+            self.sentence_encoder.config.hidden_size), padding=(3, 0))
+        self.conv3 = nn.Conv2d(input_channels, args.output_channel, (5,
+            self.sentence_encoder.config.hidden_size), padding=(4, 0))
+        self.dropout = nn.Dropout(args.dropout)
+        self.fc1 = nn.Linear(ks * args.output_channel, args.num_labels)
+
+    def forward(self, input_ids, segment_ids=None, input_mask=None):
+        """
+        a batch is a tensor of shape [batch_size, #file_in_commit, #line_in_file]
+        and each element is a line, i.e., a bert_batch,
+        which consists of input_ids, input_mask, segment_ids, label_ids
+        """
+        input_ids = input_ids.permute(1, 0, 2)
+        segment_ids = segment_ids.permute(1, 0, 2)
+        input_mask = input_mask.permute(1, 0, 2)
+        x_encoded = []
+        for i0 in range(len(input_ids)):
+            x_encoded.append(self.sentence_encoder(input_ids[i0],
+                input_mask[i0], segment_ids[i0]))
+        x = torch.stack(x_encoded)
+        x = x.permute(1, 0, 2)
+        x = x.unsqueeze(1)
+        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).
+            squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
+        if self.args.dynamic_pool:
+            x = [self.dynamic_pool(i).squeeze(2) for i in x]
+            x = torch.cat(x, 1)
+            x = x.view(-1, self.filter_widths * self.output_channel * self.
+                dynamic_pool_length)
+        else:
+            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+            x = torch.cat(x, 1)
+        x = self.dropout(x)
+        logits = self.fc1(x)
+        return logits, x
 
 
 class KimCNN(nn.Module):
@@ -485,7 +537,7 @@ class RegLSTM(nn.Module):
             self.fc1 = nn.Linear(config.hidden_dim, target_class)
         if self.beta_ema > 0:
             self.avg_param = deepcopy(list(p.data for p in self.parameters()))
-            if torch.cuda.is_available():
+            if torch.is_available():
                 self.avg_param = [a for a in self.avg_param]
             self.steps_ema = 0.0
 
@@ -663,6 +715,7 @@ class XmlCNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_castorini_hedwig(_paritybench_base):
@@ -674,4 +727,7 @@ class Test_castorini_hedwig(_paritybench_base):
     @_fails_compile()
     def test_001(self):
         self._check(LogisticRegression(*[], **{'config': _mock_config(dropout=0.5, vocab_size=4, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(SentLevelRNN(*[], **{'config': _mock_config(sentence_num_hidden=4, word_num_hidden=4, target_class=4)}), [torch.rand([4, 4, 8])], {})
 

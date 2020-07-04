@@ -29,10 +29,13 @@ tokenizer = _module
 vocab = _module
 ubuntu_preprocess = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -565,6 +568,186 @@ def normal_logpdf(x, mean, var):
         mean).pow(2) / var, dim=1)
 
 
+def to_bow(sentence, vocab_size):
+    """  Convert a sentence into a bag of words representation
+    Args
+        - sentence: a list of token ids
+        - vocab_size: V
+    Returns
+        - bow: a integer vector of size V
+    """
+    bow = Counter(sentence)
+    bow[PAD_ID] = 0
+    bow[EOS_ID] = 0
+    x = np.zeros(vocab_size, dtype=np.int64)
+    x[list(bow.keys())] = list(bow.values())
+    return x
+
+
+class VHRED(nn.Module):
+
+    def __init__(self, config):
+        super(VHRED, self).__init__()
+        self.config = config
+        self.encoder = layers.EncoderRNN(config.vocab_size, config.
+            embedding_size, config.encoder_hidden_size, config.rnn, config.
+            num_layers, config.bidirectional, config.dropout)
+        context_input_size = (config.num_layers * config.
+            encoder_hidden_size * self.encoder.num_directions)
+        self.context_encoder = layers.ContextRNN(context_input_size, config
+            .context_size, config.rnn, config.num_layers, config.dropout)
+        self.decoder = layers.DecoderRNN(config.vocab_size, config.
+            embedding_size, config.decoder_hidden_size, config.rnncell,
+            config.num_layers, config.dropout, config.word_drop, config.
+            max_unroll, config.sample, config.temperature, config.beam_size)
+        self.context2decoder = layers.FeedForward(config.context_size +
+            config.z_sent_size, config.num_layers * config.
+            decoder_hidden_size, num_layers=1, activation=config.activation)
+        self.softplus = nn.Softplus()
+        self.prior_h = layers.FeedForward(config.context_size, config.
+            context_size, num_layers=2, hidden_size=config.context_size,
+            activation=config.activation)
+        self.prior_mu = nn.Linear(config.context_size, config.z_sent_size)
+        self.prior_var = nn.Linear(config.context_size, config.z_sent_size)
+        self.posterior_h = layers.FeedForward(config.encoder_hidden_size *
+            self.encoder.num_directions * config.num_layers + config.
+            context_size, config.context_size, num_layers=2, hidden_size=
+            config.context_size, activation=config.activation)
+        self.posterior_mu = nn.Linear(config.context_size, config.z_sent_size)
+        self.posterior_var = nn.Linear(config.context_size, config.z_sent_size)
+        if config.tie_embedding:
+            self.decoder.embedding = self.encoder.embedding
+        if config.bow:
+            self.bow_h = layers.FeedForward(config.z_sent_size, config.
+                decoder_hidden_size, num_layers=1, hidden_size=config.
+                decoder_hidden_size, activation=config.activation)
+            self.bow_predict = nn.Linear(config.decoder_hidden_size, config
+                .vocab_size)
+
+    def prior(self, context_outputs):
+        h_prior = self.prior_h(context_outputs)
+        mu_prior = self.prior_mu(h_prior)
+        var_prior = self.softplus(self.prior_var(h_prior))
+        return mu_prior, var_prior
+
+    def posterior(self, context_outputs, encoder_hidden):
+        h_posterior = self.posterior_h(torch.cat([context_outputs,
+            encoder_hidden], 1))
+        mu_posterior = self.posterior_mu(h_posterior)
+        var_posterior = self.softplus(self.posterior_var(h_posterior))
+        return mu_posterior, var_posterior
+
+    def compute_bow_loss(self, target_conversations):
+        target_bow = np.stack([to_bow(sent, self.config.vocab_size) for
+            conv in target_conversations for sent in conv], axis=0)
+        target_bow = to_var(torch.FloatTensor(target_bow))
+        bow_logits = self.bow_predict(self.bow_h(self.z_sent))
+        bow_loss = bag_of_words_loss(bow_logits, target_bow)
+        return bow_loss
+
+    def forward(self, sentences, sentence_length, input_conversation_length,
+        target_sentences, decode=False):
+        """
+        Args:
+            sentences: (Variable, LongTensor) [num_sentences + batch_size, seq_len]
+            target_sentences: (Variable, LongTensor) [num_sentences, seq_len]
+        Return:
+            decoder_outputs: (Variable, FloatTensor)
+                - train: [batch_size, seq_len, vocab_size]
+                - eval: [batch_size, seq_len]
+        """
+        batch_size = input_conversation_length.size(0)
+        num_sentences = sentences.size(0) - batch_size
+        max_len = input_conversation_length.data.max().item()
+        encoder_outputs, encoder_hidden = self.encoder(sentences,
+            sentence_length)
+        encoder_hidden = encoder_hidden.transpose(1, 0).contiguous().view(
+            num_sentences + batch_size, -1)
+        start = torch.cumsum(torch.cat((to_var(input_conversation_length.
+            data.new(1).zero_()), input_conversation_length[:-1] + 1)), 0)
+        encoder_hidden = torch.stack([pad(encoder_hidden.narrow(0, s, l + 1
+            ), max_len + 1) for s, l in zip(start.data.tolist(),
+            input_conversation_length.data.tolist())], 0)
+        encoder_hidden_inference = encoder_hidden[:, 1:, :]
+        encoder_hidden_inference_flat = torch.cat([encoder_hidden_inference
+            [(i), :l, :] for i, l in enumerate(input_conversation_length.data)]
+            )
+        encoder_hidden_input = encoder_hidden[:, :-1, :]
+        context_outputs, context_last_hidden = self.context_encoder(
+            encoder_hidden_input, input_conversation_length)
+        context_outputs = torch.cat([context_outputs[(i), :l, :] for i, l in
+            enumerate(input_conversation_length.data)])
+        mu_prior, var_prior = self.prior(context_outputs)
+        eps = to_var(torch.randn((num_sentences, self.config.z_sent_size)))
+        if not decode:
+            mu_posterior, var_posterior = self.posterior(context_outputs,
+                encoder_hidden_inference_flat)
+            z_sent = mu_posterior + torch.sqrt(var_posterior) * eps
+            log_q_zx = normal_logpdf(z_sent, mu_posterior, var_posterior).sum()
+            log_p_z = normal_logpdf(z_sent, mu_prior, var_prior).sum()
+            kl_div = normal_kl_div(mu_posterior, var_posterior, mu_prior,
+                var_prior)
+            kl_div = torch.sum(kl_div)
+        else:
+            z_sent = mu_prior + torch.sqrt(var_prior) * eps
+            kl_div = None
+            log_p_z = normal_logpdf(z_sent, mu_prior, var_prior).sum()
+            log_q_zx = None
+        self.z_sent = z_sent
+        latent_context = torch.cat([context_outputs, z_sent], 1)
+        decoder_init = self.context2decoder(latent_context)
+        decoder_init = decoder_init.view(-1, self.decoder.num_layers, self.
+            decoder.hidden_size)
+        decoder_init = decoder_init.transpose(1, 0).contiguous()
+        if not decode:
+            decoder_outputs = self.decoder(target_sentences, init_h=
+                decoder_init, decode=decode)
+            return decoder_outputs, kl_div, log_p_z, log_q_zx
+        else:
+            prediction, final_score, length = self.decoder.beam_decode(init_h
+                =decoder_init)
+            return prediction, kl_div, log_p_z, log_q_zx
+
+    def generate(self, context, sentence_length, n_context):
+        batch_size = context.size(0)
+        samples = []
+        context_hidden = None
+        for i in range(n_context):
+            encoder_outputs, encoder_hidden = self.encoder(context[:, (i),
+                :], sentence_length[:, (i)])
+            encoder_hidden = encoder_hidden.transpose(1, 0).contiguous().view(
+                batch_size, -1)
+            context_outputs, context_hidden = self.context_encoder.step(
+                encoder_hidden, context_hidden)
+        for j in range(self.config.n_sample_step):
+            context_outputs = context_outputs.squeeze(1)
+            mu_prior, var_prior = self.prior(context_outputs)
+            eps = to_var(torch.randn((batch_size, self.config.z_sent_size)))
+            z_sent = mu_prior + torch.sqrt(var_prior) * eps
+            latent_context = torch.cat([context_outputs, z_sent], 1)
+            decoder_init = self.context2decoder(latent_context)
+            decoder_init = decoder_init.view(self.decoder.num_layers, -1,
+                self.decoder.hidden_size)
+            if self.config.sample:
+                prediction = self.decoder(None, decoder_init)
+                p = prediction.data.cpu().numpy()
+                length = torch.from_numpy(np.where(p == EOS_ID)[1])
+            else:
+                prediction, final_score, length = self.decoder.beam_decode(
+                    init_h=decoder_init)
+                prediction = prediction[:, (0), :]
+                length = [l[0] for l in length]
+                length = to_var(torch.LongTensor(length))
+            samples.append(prediction)
+            encoder_outputs, encoder_hidden = self.encoder(prediction, length)
+            encoder_hidden = encoder_hidden.transpose(1, 0).contiguous().view(
+                batch_size, -1)
+            context_outputs, context_hidden = self.context_encoder.step(
+                encoder_hidden, context_hidden)
+        samples = torch.stack(samples, 1)
+        return samples
+
+
 class VHCR(nn.Module):
 
     def __init__(self, config):
@@ -824,10 +1007,14 @@ class VHCR(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ctr4si_A_Hierarchical_Latent_Structure_for_Variational_Conversation_Modeling(_paritybench_base):
     pass
     def test_000(self):
         self._check(FeedForward(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(StackedGRUCell(*[], **{'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
 

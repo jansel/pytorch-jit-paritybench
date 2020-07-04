@@ -72,10 +72,13 @@ fgvc_aircraft_test = _module
 tiered_imagenet_test_notravis = _module
 vgg_flowers_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -133,7 +136,16 @@ from torch.distributions import Categorical
 from torch.nn import functional as F
 
 
+import torchvision as tv
+
+
 from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+from torchvision.datasets import MNIST
 
 
 import torch.nn as nn
@@ -550,6 +562,7 @@ class Model(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_learnables_learn2learn(_paritybench_base):
@@ -569,7 +582,7 @@ class Test_learnables_learn2learn(_paritybench_base):
         self._check(DiagNormalPolicy(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Lambda(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
         self._check(LinearBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
@@ -579,5 +592,9 @@ class Test_learnables_learn2learn(_paritybench_base):
 
     @_fails_compile()
     def test_007(self):
+        self._check(OmniglotCNN(*[], **{}), [torch.rand([4, 1, 28, 28])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(OmniglotFC(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

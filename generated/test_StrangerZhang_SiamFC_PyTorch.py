@@ -16,10 +16,13 @@ tracker = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,6 +41,12 @@ import numpy as np
 import torch.nn.functional as F
 
 
+import torchvision.transforms as transforms
+
+
+from torchvision.models import alexnet
+
+
 from torch.autograd import Variable
 
 
@@ -53,25 +62,28 @@ import warnings
 import torch.optim as optim
 
 
+import torchvision
+
+
 from torch.optim.lr_scheduler import StepLR
 
 
 from torch.utils.data import DataLoader
 
 
-_global_config['train_response_sz'] = False
-
-
-_global_config['response_sz'] = 4
+_global_config['train_batch_size'] = False
 
 
 _global_config['radius'] = 4
 
 
-_global_config['train_batch_size'] = False
+_global_config['response_sz'] = 4
 
 
 _global_config['response_scale'] = 1.0
+
+
+_global_config['train_response_sz'] = False
 
 
 _global_config['total_stride'] = 1
@@ -92,12 +104,12 @@ class SiameseAlexNet(nn.Module):
         if train:
             gt, weight = self._create_gt_mask((config.train_response_sz,
                 config.train_response_sz))
-            with torch.cuda.device(gpu_id):
+            with torch.device(gpu_id):
                 self.train_gt = torch.from_numpy(gt)
                 self.train_weight = torch.from_numpy(weight)
             gt, weight = self._create_gt_mask((config.response_sz, config.
                 response_sz))
-            with torch.cuda.device(gpu_id):
+            with torch.device(gpu_id):
                 self.valid_gt = torch.from_numpy(gt)
                 self.valid_weight = torch.from_numpy(weight)
         self.exemplar = None
@@ -163,6 +175,7 @@ class SiameseAlexNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_StrangerZhang_SiamFC_PyTorch(_paritybench_base):

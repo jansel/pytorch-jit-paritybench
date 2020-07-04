@@ -25,10 +25,13 @@ test_control_flow = _module
 test_functions = _module
 test_rnns = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,6 +45,12 @@ import torch
 
 
 from torch import nn
+
+
+from torchtext import data
+
+
+from torchtext import datasets
 
 
 import math
@@ -266,7 +275,140 @@ class Transformer(nn.Module):
         return F.cross_entropy(logits, batch.trg[:, 1:], reduce=reduce)
 
 
+def any_active(mask_expr):
+    return gast.Call(gast.Attribute(mask_expr, gast.Name('any', gast.Load(),
+        None), gast.Load()), [], [])
+
+
+def pushmask(mask_expr):
+    return gast.Expr(gast.Call(gast.Attribute(gast.Name('matchbox', gast.
+        Load(), None), gast.Name('push_execution_mask', gast.Load(), None),
+        gast.Load()), [mask_expr], []))
+
+
+class CodeToAst(object):
+    """Given a module, or a function that was compiled as part
+    of a module, re-compile the module into an AST and extract
+    the sub-AST for the function.  Allow caching to reduce
+    number of compiles.
+    Also contains static helper utility functions to
+    look for python files, to parse python files, and to extract
+    the file/line information from a code object.
+    """
+
+    @staticmethod
+    def parse_file(fname):
+        """Parse a python file into an AST.
+        This is a very thin wrapper around ast.parse
+            TODO: Handle encodings other than the default (issue #26)
+        """
+        try:
+            with open(fname, 'r') as f:
+                fstr = f.read()
+        except IOError:
+            if fname != 'stdin':
+                raise
+            sys.stdout.write('\nReading from stdin:\n\n')
+            fstr = sys.stdin.read()
+        fstr = fstr.replace('\r\n', '\n').replace('\r', '\n')
+        if not fstr.endswith('\n'):
+            fstr += '\n'
+        return ast.parse(fstr, filename=fname)
+
+    @staticmethod
+    def get_file_info(codeobj):
+        """Returns the file and line number of a code object.
+            If the code object has a __file__ attribute (e.g. if
+            it is a module), then the returned line number will
+            be 0
+        """
+        fname = getattr(codeobj, '__file__', None)
+        linenum = 0
+        if fname is None:
+            func_code = codeobj.__code__
+            fname = func_code.co_filename
+            linenum = func_code.co_firstlineno
+        fname = fname.replace('.pyc', '.py')
+        return fname, linenum
+
+    def __init__(self, cache=None):
+        self.cache = cache or {}
+
+    def __call__(self, codeobj):
+        cache = self.cache
+        key = self.get_file_info(codeobj)
+        result = cache.get(key)
+        if result is not None:
+            return result
+        fname = key[0]
+        cache[fname, 0] = mod_ast = gast.ast_to_gast(self.parse_file(fname))
+        for obj in gast.walk(mod_ast):
+            if isinstance(obj, gast.FunctionDef):
+                cache[fname, obj.lineno] = obj
+        return cache[key]
+
+
+code_to_ast = CodeToAst()
+
+
+def compile_file(source, globals_=None):
+    """Compile by saving to file and importing that.
+    Compiling the AST/source code this way ensures that the source code is
+    readable by e.g. `pdb` or `inspect`.
+    Args:
+    source: The code to compile, either as a string or as an AST.
+    globals_: A dictionary of variables that should be available as globals in
+        the compiled module. They will be monkey patched after importing the
+        module.
+    Returns:
+    A module object containing the compiled source code.
+    """
+    if isinstance(source, gast.AST):
+        source = astor.to_source(gast.gast_to_ast(source))
+    tempdir = tempfile.mkdtemp()
+    uuid = str(uuid4().hex[:4])
+    tmpname = os.path.join(tempdir, 'matchbox_%s.py' % uuid)
+    with open(tmpname, 'w') as f:
+        f.write(source)
+    module_name = 'matchbox_%s' % uuid
+    if six.PY3:
+        spec = util.spec_from_file_location(module_name, tmpname)
+        m = util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+    else:
+        m = imp.load_source(module_name, tmpname)
+    if globals_:
+        m.__dict__.update(globals_)
+    return m
+
+
+def compile_function(node, globals_=None):
+    """Convert an AST into a function with inspectable source.
+    This function uses `compile_file` internally, but instead of returning the
+    entire module it will return the function only.
+    Args:
+    node: A `FunctionDef` node or a `Module` node which contains at least one
+        `FunctionDef` node. If a module contains multiple functions, a handle
+        to the first one will be returned.
+    globals_: See `compile_file`
+    Returns:
+    A handle to the compiled function.
+    Raises:
+    TypeError: If the input is not a string or AST.
+    ValueError: If no function can be found.
+    """
+    module = compile_file(node, globals_)
+    return getattr(module, node.name)
+
+
+def batch(fn):
+    node = code_to_ast(fn)
+    node = ExecutionMasking().visit(node)
+    return compile_function(node, fn.__globals__)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_salesforce_matchbox(_paritybench_base):

@@ -157,10 +157,13 @@ test_transition_masks = _module
 test_utils = _module
 test_vectorizers = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -355,6 +358,16 @@ class TwoHeadConcat(nn.Module):
         return x
 
 
+def TRAIN_FLAG():
+    """Create a global training flag on first use"""
+    global BASELINE_TF_TRAIN_FLAG
+    if BASELINE_TF_TRAIN_FLAG is not None:
+        return BASELINE_TF_TRAIN_FLAG
+    BASELINE_TF_TRAIN_FLAG = tf.compat.v1.placeholder_with_default(False,
+        shape=(), name='TRAIN_FLAG')
+    return BASELINE_TF_TRAIN_FLAG
+
+
 __all__ = []
 
 
@@ -367,7 +380,221 @@ def parameterize(func):
     return decorator
 
 
+class ConveRTFFN(nn.Module):
+    """Implementation of the FFN layer from the convert paper (https://arxiv.org/pdf/1911.03688.pdf)"""
+
+    def __init__(self, insz, hszs, outsz, pdrop):
+        """
+        :param insz: input dim
+        :param hszs: list of hidden sizes
+        :param outsz: output dim
+        :param pdrop: dropout of each hidden layer
+        """
+        super().__init__()
+        self.dense_stack = DenseStack(insz, hszs, activation='gelu',
+            pdrop_value=pdrop, skip_connect=True, layer_norm=True)
+        self.final = Dense(hszs[-1], outsz)
+        self.proj = Dense(insz, outsz) if insz != outsz else nn.Identity()
+        self.ln1 = nn.LayerNorm(insz, eps=1e-06)
+        self.ln2 = nn.LayerNorm(outsz, eps=1e-06)
+
+    def forward(self, inputs):
+        x = self.ln1(inputs)
+        x = self.dense_stack(x)
+        x = self.final(x)
+        x = x + self.proj(inputs)
+        return self.ln2(x)
+
+
+TransformerEncoderOutput = namedtuple('TransformerEncoderOutput', ('output',
+    'src_mask'))
+
+
+def get_shape_as_list(x):
+    """
+    This function makes sure we get a number whenever possible, and otherwise, gives us back
+    a graph operation, but in both cases, presents as a list.  This makes it suitable for a
+    bunch of different operations within TF, and hides away some details that we really dont care about, but are
+    a PITA to get right...
+
+    Borrowed from Alec Radford:
+    https://github.com/openai/finetune-transformer-lm/blob/master/utils.py#L38
+    """
+    try:
+        ps = x.get_shape().as_list()
+    except:
+        ps = x.shape
+    ts = tf.shape(x)
+    return [(ts[i] if ps[i] is None else ps[i]) for i in range(len(ps))]
+
+
+BASELINE_SEQ2SEQ_ENCODERS = {}
+
+
+def optional_params(func):
+    """Allow a decorator to be called without parentheses if no kwargs are given.
+
+    parameterize is a decorator, function is also a decorator.
+    """
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        """If a decorator is called with only the wrapping function just execute the real decorator.
+           Otherwise return a lambda that has the args and kwargs partially applied and read to take a function as an argument.
+
+        *args, **kwargs are the arguments that the decorator we are parameterizing is called with.
+
+        the first argument of *args is the actual function that will be wrapped
+        """
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            return func(args[0])
+        return lambda x: func(x, *args, **kwargs)
+    return wrapped
+
+
+class PairedModel(nn.Module):
+
+    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads,
+        num_layers, stacking_layers=None, d_out=512, d_k=None, weight_std=
+        0.02, rpr_k=None, reduction_d_k=64, ff_pdrop=0.1):
+        super().__init__()
+        if stacking_layers is None:
+            stacking_layers = [d_model] * 3
+        self.weight_std = weight_std
+        stacking_layers = listify(stacking_layers)
+        transformer = TransformerEncoderStack(num_heads=num_heads, d_model=
+            d_model, pdrop=dropout, layers=num_layers, activation='gelu',
+            d_ff=d_ff, d_k=d_k, rpr_k=rpr_k)
+        self.attention_layer = TwoHeadConcat(d_model, dropout, scale=False,
+            d_k=reduction_d_k)
+        self.transformer_layers = transformer
+        self.embedding_layers = embeddings
+        self.ff1 = ConveRTFFN(2 * d_model, stacking_layers, d_out, ff_pdrop)
+        self.ff2 = ConveRTFFN(2 * d_model, stacking_layers, d_out, ff_pdrop)
+        self.apply(self.init_layer_weights)
+
+    def init_layer_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
+            module.weight.data.normal_(mean=0.0, std=self.weight_std)
+        if isinstance(module, (nn.Linear, nn.LayerNorm)
+            ) and module.bias is not None:
+            module.bias.data.zero_()
+
+    def encode_query(self, query):
+        query_mask = query != Offsets.PAD
+        att_mask = query_mask.unsqueeze(1).unsqueeze(1)
+        embedded = self.embedding_layers(query)
+        encoded_query = self.transformer_layers((embedded, att_mask))
+        encoded_query = self.attention_layer((encoded_query, encoded_query,
+            encoded_query, att_mask))
+        encoded_query = self.ff1(encoded_query)
+        return encoded_query
+
+    def encode_response(self, response):
+        response_mask = response != Offsets.PAD
+        att_mask = response_mask.unsqueeze(1).unsqueeze(1)
+        embedded = self.embedding_layers(response)
+        encoded_response = self.transformer_layers((embedded, att_mask))
+        encoded_response = self.attention_layer((encoded_response,
+            encoded_response, encoded_response, att_mask))
+        encoded_response = self.ff2(encoded_response)
+        return encoded_response
+
+    def forward(self, query, response):
+        encoded_query = self.encode_query(query)
+        encoded_response = self.encode_response(response)
+        return encoded_query, encoded_response
+
+    def create_loss(self, loss_type='all'):
+        if loss_type == 'all':
+            return AllLoss(self)
+        return TripletLoss(self)
+
+
+def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
+    =None, bias: bool=True):
+    """Utility function that wraps a linear (AKA dense) layer creation, with options for weight init and bias"""
+    l = nn.Linear(in_sz, out_sz, bias=bias)
+    if unif > 0:
+        l.weight.data.uniform_(-unif, unif)
+    elif initializer == 'ortho':
+        nn.init.orthogonal(l.weight)
+    elif initializer == 'he' or initializer == 'kaiming':
+        nn.init.kaiming_uniform(l.weight)
+    else:
+        nn.init.xavier_uniform_(l.weight)
+    if bias:
+        l.bias.data.zero_()
+    return l
+
+
+class TransformerDiscriminator(nn.Module):
+
+    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads,
+        num_layers, rpr_k, d_k, **kwargs):
+        super().__init__()
+        self.embeddings = EmbeddingsStack(embeddings, dropout)
+        self.weight_std = kwargs.get('weight_std', 0.02)
+        assert self.embeddings.dsz == d_model
+        self.transformer = TransformerEncoderStack(num_heads, d_model=
+            d_model, pdrop=dropout, scale=True, layers=num_layers, d_ff=
+            d_ff, rpr_k=rpr_k, d_k=d_k)
+        self.proj_to_output = pytorch_linear(d_model, 1)
+        self.apply(self.init_layer_weights)
+        self.lengths_feature = kwargs.get('lengths_feature', self.
+            embeddings.keys()[0])
+
+    def init_layer_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
+            module.weight.data.normal_(mean=0.0, std=self.weight_std)
+        if isinstance(module, (nn.Linear, nn.LayerNorm)
+            ) and module.bias is not None:
+            module.bias.data.zero_()
+
+    def forward(self, features):
+        embedded = self.embeddings(features)
+        x = features[self.lengths_feature]
+        input_mask = torch.zeros(x.shape, device=x.device, dtype=torch.long
+            ).masked_fill(x != 0, 1).unsqueeze(1).unsqueeze(1)
+        transformer_out = self.transformer((embedded, input_mask))
+        binary = self.proj_to_output(transformer_out)
+        return torch.sigmoid(binary)
+
+    def create_loss(self):
+
+
+        class Loss(nn.Module):
+
+            def __init__(self):
+                super().__init__()
+                self.loss = nn.BCELoss()
+
+            def forward(self, input, target):
+                fake_loss = self.loss(input[target == 0], target[target == 0])
+                real_loss = self.loss(input[target != 0], target[target != 0])
+                return real_loss + fake_loss
+        return Loss()
+
+
 logger = logging.getLogger('mead')
+
+
+TensorDef = torch.Tensor
+
+
+def unsort_batch(batch: torch.Tensor, perm_idx: torch.Tensor) ->torch.Tensor:
+    """Undo the sort on a batch of tensors done for packing the data in the RNN.
+
+    :param batch: The batch of data batch first `[B, ...]`
+    :param perm_idx: The permutation index returned from the torch.sort.
+
+    :returns: The batch in the original order.
+    """
+    perm_idx = perm_idx.to(batch.device)
+    diff = len(batch.shape) - len(perm_idx.shape)
+    extra_dims = [1] * diff
+    perm_idx = perm_idx.view([-1] + extra_dims)
+    return batch.scatter_(0, perm_idx.expand_as(batch), batch)
 
 
 class ArcPolicy(torch.nn.Module):
@@ -521,6 +748,97 @@ class BeamSearchBase:
         return paths, lengths, best_scores
 
 
+BASELINE_SEQ2SEQ_ARC_POLICY = {}
+
+
+def gnmt_length_penalty(lengths, alpha=0.8):
+    """Calculate a length penalty from https://arxiv.org/pdf/1609.08144.pdf
+
+    The paper states the penalty as (5 + |Y|)^a / (5 + 1)^a. This is implemented
+    as ((5 + |Y|) / 6)^a for a (very) tiny performance boost
+
+    :param lengths: `torch.LongTensor`: [B, K] The lengths of the beams.
+    :param alpha: `float`: A hyperparameter. See Table 2 for a search on this
+        parameter.
+
+    :returns:
+        `torch.FloatTensor`: [B, K, 1] The penalties.
+    """
+    lengths = lengths.to(torch.float)
+    penalty = torch.pow((5 + lengths) / 6, alpha)
+    return penalty.unsqueeze(-1)
+
+
+BASELINE_SEQ2SEQ_DECODERS = {}
+
+
+def repeat_batch(t, K, dim=0):
+    """Repeat a tensor while keeping the concept of a batch.
+
+    :param t: `torch.Tensor`: The tensor to repeat.
+    :param K: `int`: The number of times to repeat the tensor.
+    :param dim: `int`: The dimension to repeat in. This should be the
+        batch dimension.
+
+    :returns: `torch.Tensor`: The repeated tensor. The new shape will be
+        batch size * K at dim, the rest of the shapes will be the same.
+
+    Example::
+
+        >>> a = torch.arange(10).view(2, -1)
+        >>> a
+	tensor([[0, 1, 2, 3, 4],
+		[5, 6, 7, 8, 9]])
+	>>> a.repeat(2, 1)
+	tensor([[0, 1, 2, 3, 4],
+		[5, 6, 7, 8, 9],
+		[0, 1, 2, 3, 4],
+		[5, 6, 7, 8, 9]])
+	>>> repeat_batch(a, 2)
+	tensor([[0, 1, 2, 3, 4],
+		[0, 1, 2, 3, 4],
+		[5, 6, 7, 8, 9],
+		[5, 6, 7, 8, 9]])
+    """
+    shape = t.shape
+    tiling = [1] * (len(shape) + 1)
+    tiling[dim + 1] = K
+    tiled = t.unsqueeze(dim + 1).repeat(tiling)
+    old_bsz = shape[dim]
+    new_bsz = old_bsz * K
+    new_shape = list(shape[:dim]) + [new_bsz] + list(shape[dim + 1:])
+    return tiled.view(new_shape)
+
+
+def rnn_cell(insz: int, hsz: int, rnntype: str, nlayers: int, dropout: float):
+    """This is a wrapper function around a stacked RNN cell
+
+    :param insz: The input dimensions
+    :param hsz: The hidden dimensions
+    :param rnntype: An RNN type `gru` or `lstm`
+    :param nlayers: The number of layers to stack
+    :param dropout: The amount of dropout
+    :return:
+    """
+    if rnntype == 'gru':
+        rnn = StackedGRUCell(nlayers, insz, hsz, dropout)
+    else:
+        rnn = StackedLSTMCell(nlayers, insz, hsz, dropout)
+    return rnn
+
+
+def subsequent_mask(size: int):
+    """
+    Creates a lower triangular mask to mask future
+
+    :param size: Temporal length
+    :return: A tensor of type `uint8` that is 1s along diagonals and below, zero  o.w
+    """
+    attn_shape = 1, 1, size, size
+    sub_mask = np.tril(np.ones(attn_shape)).astype('uint8')
+    return torch.from_numpy(sub_mask)
+
+
 def _cat_dir(h: torch.Tensor) ->torch.Tensor:
     """Concat forward and backword state vectors.
 
@@ -544,8 +862,32 @@ def concat_state_dirs(state):
     return _cat_dir(state)
 
 
-TransformerEncoderOutput = namedtuple('TransformerEncoderOutput', ('output',
+RNNEncoderOutput = namedtuple('RNNEncoderOutput', ('output', 'hidden',
     'src_mask'))
+
+
+def sequence_mask(lengths: torch.Tensor, max_len: int=-1) ->torch.Tensor:
+    """Generate a sequence mask of shape `BxT` based on the given lengths
+
+    :param lengths: A `B` tensor containing the lengths of each example
+    :param max_len: The maximum width (length) allowed in this mask (default to None)
+    :return: A mask
+    """
+    lens = lengths.cpu()
+    if max_len < 0:
+        max_len_v = torch.max(lens)
+    else:
+        max_len_v = max_len
+    row = torch.arange(0, max_len_v).type_as(lens).view(1, -1)
+    col = lens.view(-1, 1)
+    mask = row < col
+    return mask
+
+
+def _make_src_mask(output, lengths):
+    T = output.shape[1]
+    src_mask = sequence_mask(lengths, T).type_as(lengths.data)
+    return src_mask
 
 
 class SequenceCriterion(nn.Module):
@@ -739,24 +1081,6 @@ MASK_FALSE = False
 def bth2tbh(t: torch.Tensor) ->torch.Tensor:
     """Transpose the first 2 dims"""
     return t.transpose(0, 1).contiguous()
-
-
-def sequence_mask(lengths: torch.Tensor, max_len: int=-1) ->torch.Tensor:
-    """Generate a sequence mask of shape `BxT` based on the given lengths
-
-    :param lengths: A `B` tensor containing the lengths of each example
-    :param max_len: The maximum width (length) allowed in this mask (default to None)
-    :return: A mask
-    """
-    lens = lengths.cpu()
-    if max_len < 0:
-        max_len_v = torch.max(lens)
-    else:
-        max_len_v = max_len
-    row = torch.arange(0, max_len_v).type_as(lens).view(1, -1)
-    col = lens.view(-1, 1)
-    mask = row < col
-    return mask
 
 
 class MaxPool1D(nn.Module):
@@ -1177,23 +1501,6 @@ class StackedGRUCell(nn.Module):
         return input, hs
 
 
-def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
-    =None, bias: bool=True):
-    """Utility function that wraps a linear (AKA dense) layer creation, with options for weight init and bias"""
-    l = nn.Linear(in_sz, out_sz, bias=bias)
-    if unif > 0:
-        l.weight.data.uniform_(-unif, unif)
-    elif initializer == 'ortho':
-        nn.init.orthogonal(l.weight)
-    elif initializer == 'he' or initializer == 'kaiming':
-        nn.init.kaiming_uniform(l.weight)
-    else:
-        nn.init.xavier_uniform_(l.weight)
-    if bias:
-        l.bias.data.zero_()
-    return l
-
-
 class Dense(nn.Module):
     """Dense (Linear) layer with optional activation given
 
@@ -1587,28 +1894,6 @@ class Reduction(nn.Module):
         pass
 
 
-class SumLayerNormReduction(Reduction):
-
-    def __init__(self, output_dims: List[int], layer_norm_eps: float=1e-12):
-        super().__init__()
-        self.output_dim = output_dims[0]
-        self.ln = nn.LayerNorm(self.output_dim, eps=layer_norm_eps)
-
-    def forward(self, inputs: List[torch.Tensor]) ->torch.Tensor:
-        output = sum(inputs)
-        return self.ln(output)
-
-
-class SumReduction(Reduction):
-
-    def __init__(self, output_dims: List[int]):
-        super().__init__()
-        self.output_dim = output_dims[0]
-
-    def forward(self, inputs: List[torch.Tensor]) ->torch.Tensor:
-        return sum(inputs)
-
-
 class EmbeddingsStack(nn.Module):
 
     def __init__(self, embeddings_dict: Dict[str, nn.Embedding],
@@ -1675,14 +1960,62 @@ class EmbeddingsStack(nn.Module):
             yield k, v
 
 
-def TRAIN_FLAG():
-    """Create a global training flag on first use"""
-    global BASELINE_TF_TRAIN_FLAG
-    if BASELINE_TF_TRAIN_FLAG is not None:
-        return BASELINE_TF_TRAIN_FLAG
-    BASELINE_TF_TRAIN_FLAG = tf.compat.v1.placeholder_with_default(False,
-        shape=(), name='TRAIN_FLAG')
-    return BASELINE_TF_TRAIN_FLAG
+class DenseStack(nn.Module):
+    """A stack of one or more hidden layers
+    """
+
+    def __init__(self, insz: int, hsz: Union[int, List[int]], activation:
+        Union[str, List[str]]='relu', pdrop_value: float=0.5, init=None,
+        skip_connect=False, layer_norm=False, **kwargs):
+        """Stack 1 or more hidden layers, optionally (forming an MLP)
+
+        :param insz: The number of input units
+        :param hsz: The number of hidden units
+        :param activation: The name of the activation function to use
+        :param pdrop_value: The dropout probability
+        :param init: The initializer
+        :param skip_connect: whether use skip connection when insz is equal to outsz for a layer
+        :param layer_norm: whether use layer norm in each layer
+
+        """
+        super().__init__()
+        hszs = listify(hsz)
+        self.output_dim = hsz[-1]
+        activations = listify(activation)
+        if len(activations) == 1:
+            activations = activations * len(hszs)
+        if len(activations) != len(hszs):
+            raise ValueError(
+                'Number of activations must match number of hidden sizes in a stack!'
+                )
+        current = insz
+        layer_stack = []
+        if layer_norm:
+            layer_norm_eps = kwargs.get('layer_norm_eps', 1e-06)
+        for hsz, activation in zip(hszs, activations):
+            if skip_connect and current == hsz:
+                layer = SkipConnection(current, activation)
+            else:
+                layer = Dense(current, hsz, activation)
+            if layer_norm:
+                layer = nn.Sequential(layer, nn.LayerNorm(hsz, eps=
+                    layer_norm_eps))
+            layer_stack.append(WithDropout(layer, pdrop_value))
+            current = hsz
+        self.layer_stack = nn.Sequential(*layer_stack)
+        self.requires_length = False
+
+    def forward(self, inputs: torch.Tensor) ->torch.Tensor:
+        """Stack 1 or more hidden layers, optionally (forming an MLP)
+
+        :param inputs: The fixed representation of the model
+
+        :Keyword Arguments:
+        * *hsz* -- (``int``) The number of hidden units (defaults to `100`)
+
+        :return: The final layer
+        """
+        return self.layer_stack(inputs)
 
 
 class VectorSequenceAttention(nn.Module):
@@ -2554,6 +2887,34 @@ class TransformerDecoder(nn.Module):
         return x
 
 
+class TransformerEncoderStack(nn.Module):
+
+    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
+        bool=True, layers: int=1, activation: str='relu', d_ff: Optional[
+        int]=None, d_k: Optional[int]=None, rpr_k: Optional[Union[int, List
+        [int]]]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after:
+        bool=False, layer_norm_eps: float=1e-06, **kwargs):
+        super().__init__()
+        self.encoders = nn.ModuleList()
+        self.ln = nn.Identity() if layer_norms_after else nn.LayerNorm(d_model,
+            eps=layer_norm_eps)
+        self.output_dim = d_model
+        if not is_sequence(rpr_k):
+            rpr_k = [rpr_k] * layers
+        for i in range(layers):
+            self.encoders.append(TransformerEncoder(num_heads, d_model,
+                pdrop, scale, activation, d_ff, d_k, rpr_k=rpr_k[i],
+                ffn_pdrop=ffn_pdrop, layer_norms_after=layer_norms_after,
+                layer_norm_eps=layer_norm_eps))
+
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]
+        ) ->torch.Tensor:
+        x, mask = inputs
+        for layer in self.encoders:
+            x = layer((x, mask))
+        return self.ln(x)
+
+
 class TransformerDecoderStack(nn.Module):
 
     def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
@@ -2650,6 +3011,7 @@ class TiedWeights(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dpressel_mead_baseline(_paritybench_base):
@@ -2719,41 +3081,36 @@ class Test_dpressel_mead_baseline(_paritybench_base):
     def test_018(self):
         self._check(SingleHeadReduction(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_019(self):
-        self._check(SumLayerNormReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(StackedGRUCell(*[], **{'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_020(self):
-        self._check(SumReduction(*[], **{'output_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_021(self):
         self._check(TBH2BHT(*[], **{}), [torch.rand([4, 4, 4])], {})
 
-    def test_022(self):
+    def test_021(self):
         self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_022(self):
         self._check(TiedWeights(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_023(self):
         self._check(TransformerDecoder(*[], **{'num_heads': 4, 'd_model': 4, 'pdrop': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_025(self):
+    def test_024(self):
         self._check(TwoHeadConcat(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_026(self):
+    def test_025(self):
         self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_027(self):
-        self._check(WithDropout(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+    def test_026(self):
+        self._check(WithDropout(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_028(self):
-        self._check(WithDropoutOnFirst(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+    def test_027(self):
+        self._check(WithDropoutOnFirst(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_029(self):
-        self._check(WithoutLength(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+    def test_028(self):
+        self._check(WithoutLength(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

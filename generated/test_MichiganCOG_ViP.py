@@ -43,10 +43,13 @@ multibox_loss = _module
 parse_args = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1584,6 +1587,7 @@ class MultiBoxLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MichiganCOG_ViP(_paritybench_base):
@@ -1594,27 +1598,35 @@ class Test_MichiganCOG_ViP(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
+        self._check(Encoder(*[], **{'d_model': 4, 'd_hidden': 4, 'n_vocab': 4, 'n_layers': 1, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(EncoderLayer(*[], **{'d_model': 4, 'd_hidden': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_004(self):
         self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_005(self):
         self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_007(self):
         self._check(MultiHead(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_008(self):
         self._check(Transformer(*[], **{'d_model': 4, 'n_vocab_src': 4, 'vocab_trg': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_009(self):
         self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 

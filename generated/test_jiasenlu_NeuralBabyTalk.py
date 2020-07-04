@@ -48,10 +48,13 @@ ptbtokenizer = _module
 sentence_gen_tools = _module
 coco_eval = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -82,6 +85,9 @@ import time
 import torch.backends.cudnn as cudnn
 
 
+import torchvision.transforms as transforms
+
+
 import torch.nn.functional as F
 
 
@@ -100,6 +106,9 @@ import random
 import string
 
 
+import torchvision.models as models
+
+
 import torch.utils.model_zoo as model_zoo
 
 
@@ -107,6 +116,9 @@ from collections import OrderedDict
 
 
 import collections
+
+
+import numbers
 
 
 import types
@@ -1920,18 +1932,14 @@ class CiderScorer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jiasenlu_NeuralBabyTalk(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BNCriterion(*[], **{'opt': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(Attention(*[], **{'opt': _mock_config(rnn_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_001(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_002(self):
-        self._check(FGCriterion(*[], **{'opt': 4}), [torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

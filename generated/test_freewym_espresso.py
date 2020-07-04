@@ -403,10 +403,13 @@ test_train = _module
 test_utils = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -648,6 +651,161 @@ class BaseAttention(nn.Module):
 
     def forward(self, query, value, key_padding_mask=None, state=None):
         raise NotImplementedError
+
+
+class GenerateLogProbsForDecoding(nn.Module):
+
+    def __init__(self, models, retain_dropout=False, apply_log_softmax=False):
+        """Generate the neural network's output intepreted as log probabilities
+        for decoding with Kaldi.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models,
+                currently support fairseq.models.TransformerModel for scripting
+            retain_dropout (bool, optional): use dropout when generating
+                (default: False)
+            apply_log_softmax (bool, optional): apply log-softmax on top of the
+                network's output (default: False)
+        """
+        super().__init__()
+        if isinstance(models, EnsembleModel):
+            self.model = models
+        else:
+            self.model = EnsembleModel(models)
+        self.retain_dropout = retain_dropout
+        self.apply_log_softmax = apply_log_softmax
+        if not self.retain_dropout:
+            self.model.eval()
+
+    def cuda(self):
+        self.model
+        return self
+
+    @torch.no_grad()
+    def generate(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        """Generate a batch of translations.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models
+            sample (dict): batch
+        """
+        self.model.reset_incremental_state()
+        return self._generate(sample, **kwargs)
+
+    def _generate(self, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        net_input = sample['net_input']
+        src_tokens = net_input['src_tokens']
+        bsz = src_tokens.size(0)
+        encoder_outs = self.model.forward_encoder(net_input)
+        logits = encoder_outs[0].encoder_out.transpose(0, 1).float()
+        assert logits.size(0) == bsz
+        padding_mask = encoder_outs[0].encoder_padding_mask.t(
+            ) if encoder_outs[0].encoder_padding_mask is not None else None
+        if self.apply_log_softmax:
+            return F.log_softmax(logits, dim=-1), padding_mask
+        return logits, padding_mask
+
+
+class SimpleGreedyDecoder(nn.Module):
+
+    def __init__(self, models, dictionary, max_len_a=0, max_len_b=200,
+        retain_dropout=False, temperature=1.0, for_validation=True):
+        """Decode given speech audios with the simple greedy search.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models,
+                currently support fairseq.models.TransformerModel for scripting
+            dictionary (~fairseq.data.Dictionary): dictionary
+            max_len_a/b (int, optional): generate sequences of maximum length
+                ax + b, where x is the source length
+            retain_dropout (bool, optional): use dropout when generating
+                (default: False)
+            temperature (float, optional): temperature, where values
+                >1.0 produce more uniform samples and values <1.0 produce
+                sharper samples (default: 1.0)
+            for_validation (bool, optional): indicate whether the decoder is
+                used for validation. It affects how max_len is determined, and
+                whether a tensor of lprobs is returned. If true, target should be
+                not None
+        """
+        super().__init__()
+        if isinstance(models, EnsembleModel):
+            self.model = models
+        else:
+            self.model = EnsembleModel(models)
+        self.pad = dictionary.pad()
+        self.unk = dictionary.unk()
+        self.eos = dictionary.eos()
+        self.vocab_size = len(dictionary)
+        self.max_len_a = max_len_a
+        self.max_len_b = max_len_b
+        self.retain_dropout = retain_dropout
+        self.temperature = temperature
+        assert temperature > 0, '--temperature must be greater than 0'
+        if not self.retain_dropout:
+            self.model.eval()
+        self.for_validation = for_validation
+
+    def cuda(self):
+        self.model
+        return self
+
+    @torch.no_grad()
+    def decode(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        """Generate a batch of translations. Match the api of other fairseq generators.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models
+            sample (dict): batch
+            bos_token (int, optional): beginning of sentence token
+                (default: self.eos)
+        """
+        self.model.reset_incremental_state()
+        return self._decode(sample, **kwargs)
+
+    @torch.no_grad()
+    def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token:
+        Optional[int]=None):
+        net_input = sample['net_input']
+        src_tokens = net_input['src_tokens']
+        input_size = src_tokens.size()
+        bsz, src_len = input_size[0], input_size[1]
+        encoder_outs = self.model.forward_encoder(net_input)
+        target = sample['target']
+        assert target is not None or not self.for_validation
+        max_encoder_output_length = encoder_outs[0].encoder_out.size(0)
+        max_len = max(max_encoder_output_length, target.size(1)
+            ) if self.for_validation else min(int(self.max_len_a * src_len +
+            self.max_len_b), self.model.max_decoder_positions() - 1)
+        tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
+        tokens[:, (0)] = self.eos if bos_token is None else bos_token
+        lprobs = encoder_outs[0].encoder_out.new_full((bsz, target.size(1),
+            self.vocab_size), -np.log(self.vocab_size)
+            ) if self.for_validation else None
+        attn = None
+        for step in range(max_len + 1):
+            is_eos = tokens[:, (step)].eq(self.eos)
+            if step > 0 and is_eos.sum() == is_eos.size(0):
+                tokens = tokens[:, :step + 1]
+                if attn is not None:
+                    attn = attn[:, :, :step + 1]
+                break
+            log_probs, avg_attn_scores = self.model.forward_decoder(tokens[
+                :, :step + 1], encoder_outs, temperature=self.temperature)
+            tokens[:, (step + 1)] = log_probs.argmax(-1)
+            if step > 0:
+                log_probs[(is_eos), :] = -np.log(log_probs.size(1))
+                tokens[is_eos, step + 1] = self.eos
+            if self.for_validation and step < target.size(1):
+                lprobs[:, (step), :] = log_probs
+            if type(avg_attn_scores) is list:
+                avg_attn_scores = avg_attn_scores[0]
+            if avg_attn_scores is not None:
+                if attn is None:
+                    attn = avg_attn_scores.new(bsz,
+                        max_encoder_output_length, max_len + 2)
+                attn[:, :, (step + 1)].copy_(avg_attn_scores)
+        return tokens, lprobs, attn
 
 
 def safe_cumprod(tensor, dim: int, eps: float=1e-10):
@@ -1031,6 +1189,61 @@ def register_model_architecture(model_name, arch_name):
     return register_model_arch_fn
 
 
+logger = logging.getLogger(__name__)
+
+
+def register_model(name):
+    """
+    New model types can be added to fairseq with the :func:`register_model`
+    function decorator.
+
+    For example::
+
+        @register_model('lstm')
+        class LSTM(FairseqEncoderDecoderModel):
+            (...)
+
+    .. note:: All models must implement the :class:`BaseFairseqModel` interface.
+        Typically you will extend :class:`FairseqEncoderDecoderModel` for
+        sequence-to-sequence tasks or :class:`FairseqLanguageModel` for
+        language modeling tasks.
+
+    Args:
+        name (str): the name of the model
+    """
+
+    def register_model_cls(cls):
+        if name in MODEL_REGISTRY:
+            raise ValueError('Cannot register duplicate model ({})'.format(
+                name))
+        if not issubclass(cls, BaseFairseqModel):
+            raise ValueError('Model ({}: {}) must extend BaseFairseqModel'.
+                format(name, cls.__name__))
+        MODEL_REGISTRY[name] = cls
+        return cls
+    return register_model_cls
+
+
+class PretrainedWav2VecModel(nn.Module):
+
+    def __init__(self, fname):
+        super().__init__()
+        checkpoint = torch.load(fname)
+        self.args = checkpoint['args']
+        model = Wav2VecModel.build_model(self.args, None)
+        model.load_state_dict(checkpoint['model'])
+        model.eval()
+        self.model = model
+
+    def forward(self, x):
+        with torch.no_grad():
+            z = self.model.feature_extractor(x)
+            if isinstance(z, tuple):
+                z = z[0]
+            c = self.model.feature_aggregator(z)
+        return z, c
+
+
 class FairseqCriterion(_Loss):
 
     def __init__(self, task):
@@ -1105,9 +1318,6 @@ class FairseqCriterion(_Loss):
         to True will improves distributed training speed.
         """
         return False
-
-
-logger = logging.getLogger(__name__)
 
 
 class GeneratorHubInterface(nn.Module):
@@ -1839,6 +2049,186 @@ def prune_state_dict(state_dict, args):
     return new_state_dict
 
 
+class BaseFairseqModel(nn.Module):
+    """Base class for fairseq models."""
+
+    def __init__(self):
+        super().__init__()
+        self._is_generation_fast = False
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        pass
+
+    @classmethod
+    def build_model(cls, args, task):
+        """Build a new model instance."""
+        raise NotImplementedError('Model must implement the build_model method'
+            )
+
+    def get_targets(self, sample, net_output):
+        """Get targets from either the sample or the net's output."""
+        return sample['target']
+
+    def get_normalized_probs(self, net_output: Tuple[Tensor, Optional[Dict[
+        str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[
+        Dict[str, Tensor]]=None):
+        """Get normalized probabilities (or log probs) from a net's output."""
+        return self.get_normalized_probs_scriptable(net_output, log_probs,
+            sample)
+
+    def get_normalized_probs_scriptable(self, net_output: Tuple[Tensor,
+        Optional[Dict[str, List[Optional[Tensor]]]]], log_probs: bool,
+        sample: Optional[Dict[str, Tensor]]=None):
+        """Scriptable helper function for get_normalized_probs in ~BaseFairseqModel"""
+        if hasattr(self, 'decoder'):
+            return self.decoder.get_normalized_probs(net_output, log_probs,
+                sample)
+        elif torch.is_tensor(net_output):
+            logits = net_output.float()
+            if log_probs:
+                return F.log_softmax(logits, dim=-1)
+            else:
+                return F.softmax(logits, dim=-1)
+        raise NotImplementedError
+
+    def extract_features(self, *args, **kwargs):
+        """Similar to *forward* but only return features."""
+        return self(*args, **kwargs)
+
+    def max_positions(self):
+        """Maximum length supported by the model."""
+        return None
+
+    def load_state_dict(self, state_dict, strict=True, args=None):
+        """Copies parameters and buffers from *state_dict* into this module and
+        its descendants.
+
+        Overrides the method in :class:`nn.Module`. Compared with that method
+        this additionally "upgrades" *state_dicts* from old checkpoints.
+        """
+        self.upgrade_state_dict(state_dict)
+        new_state_dict = prune_state_dict(state_dict, args)
+        return super().load_state_dict(new_state_dict, strict)
+
+    def upgrade_state_dict(self, state_dict):
+        """Upgrade old state dicts to work with newer code."""
+        self.upgrade_state_dict_named(state_dict, '')
+
+    def upgrade_state_dict_named(self, state_dict, name):
+        """Upgrade old state dicts to work with newer code.
+
+        Args:
+            state_dict (dict): state dictionary to upgrade, in place
+            name (str): the state dict key corresponding to the current module
+        """
+        assert state_dict is not None
+
+        def do_upgrade(m, prefix):
+            if len(prefix) > 0:
+                prefix += '.'
+            for n, c in m.named_children():
+                name = prefix + n
+                if hasattr(c, 'upgrade_state_dict_named'):
+                    c.upgrade_state_dict_named(state_dict, name)
+                elif hasattr(c, 'upgrade_state_dict'):
+                    c.upgrade_state_dict(state_dict)
+                do_upgrade(c, name)
+        do_upgrade(self, name)
+
+    def set_num_updates(self, num_updates):
+        """ State from trainer to pass along to model at every update """
+
+        def _apply(m):
+            if hasattr(m, 'set_num_updates') and m != self:
+                m.set_num_updates(num_updates)
+        self.apply(_apply)
+
+    def make_generation_fast_(self, **kwargs):
+        """Optimize model for faster generation."""
+        if self._is_generation_fast:
+            return
+        self._is_generation_fast = True
+
+        def apply_remove_weight_norm(module):
+            try:
+                nn.utils.remove_weight_norm(module)
+            except ValueError:
+                return
+        self.apply(apply_remove_weight_norm)
+        seen = set()
+
+        def apply_make_generation_fast_(module):
+            if module != self and hasattr(module, 'make_generation_fast_'
+                ) and module not in seen:
+                seen.add(module)
+                module.make_generation_fast_(**kwargs)
+        self.apply(apply_make_generation_fast_)
+
+        def train(mode=True):
+            if mode:
+                raise RuntimeError('cannot train after make_generation_fast')
+        self.eval()
+        self.train = train
+
+    def prepare_for_onnx_export_(self, **kwargs):
+        """Make model exportable via ONNX trace."""
+        seen = set()
+
+        def apply_prepare_for_onnx_export_(module):
+            if module != self and hasattr(module, 'prepare_for_onnx_export_'
+                ) and module not in seen:
+                seen.add(module)
+                module.prepare_for_onnx_export_(**kwargs)
+        self.apply(apply_prepare_for_onnx_export_)
+
+    def prepare_for_tpu_(self, **kwargs):
+        """Optionally modify model for use on TPUs."""
+        seen = set()
+
+        def apply_prepare_for_tpu_(module):
+            if module != self and hasattr(module, 'prepare_for_tpu_'
+                ) and module not in seen:
+                seen.add(module)
+                module.prepare_for_tpu_(**kwargs)
+        self.apply(apply_prepare_for_tpu_)
+
+    @classmethod
+    def from_pretrained(cls, model_name_or_path, checkpoint_file='model.pt',
+        data_name_or_path='.', **kwargs):
+        """
+        Load a :class:`~fairseq.models.FairseqModel` from a pre-trained model
+        file. Downloads and caches the pre-trained model file if needed.
+
+        The base implementation returns a
+        :class:`~fairseq.hub_utils.GeneratorHubInterface`, which can be used to
+        generate translations or sample from language models. The underlying
+        :class:`~fairseq.models.FairseqModel` can be accessed via the
+        *generator.models* attribute.
+
+        Other models may override this to implement custom hub interfaces.
+
+        Args:
+            model_name_or_path (str): either the name of a pre-trained model to
+                load or a path/URL to a pre-trained model state dict
+            checkpoint_file (str, optional): colon-separated list of checkpoint
+                files in the model archive to ensemble (default: 'model.pt')
+            data_name_or_path (str, optional): point args.data to the archive
+                at the given path/URL. Can start with '.' or './' to reuse the
+                model archive path.
+        """
+        x = hub_utils.from_pretrained(model_name_or_path, checkpoint_file,
+            data_name_or_path, archive_map=cls.hub_models(), **kwargs)
+        logger.info(x['args'])
+        return hub_utils.GeneratorHubInterface(x['args'], x['task'], x[
+            'models'])
+
+    @classmethod
+    def hub_models(cls):
+        return {}
+
+
 def Linear(in_features, out_features, bias=True):
     m = nn.Linear(in_features, out_features, bias)
     nn.init.xavier_uniform_(m.weight)
@@ -2223,6 +2613,173 @@ class BasicEnsembleModel(torch.nn.Module):
 
     def initialize_output_tokens(self, *inputs):
         raise NotImplementedError
+
+
+class RobertaHubInterface(nn.Module):
+    """A simple PyTorch Hub interface to RoBERTa.
+
+    Usage: https://github.com/pytorch/fairseq/tree/master/examples/roberta
+    """
+
+    def __init__(self, args, task, model):
+        super().__init__()
+        self.args = args
+        self.task = task
+        self.model = model
+        self.bpe = encoders.build_bpe(args)
+        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch
+            .float))
+
+    @property
+    def device(self):
+        return self._float_tensor.device
+
+    def encode(self, sentence: str, *addl_sentences, no_separator=False
+        ) ->torch.LongTensor:
+        """
+        BPE-encode a sentence (or multiple sentences).
+
+        Every sequence begins with a beginning-of-sentence (`<s>`) symbol.
+        Every sentence ends with an end-of-sentence (`</s>`) and we use an
+        extra end-of-sentence (`</s>`) as a separator.
+
+        Example (single sentence): `<s> a b c </s>`
+        Example (sentence pair): `<s> d e f </s> </s> 1 2 3 </s>`
+
+        The BPE encoding follows GPT-2. One subtle detail is that the GPT-2 BPE
+        requires leading spaces. For example::
+
+            >>> roberta.encode('Hello world').tolist()
+            [0, 31414, 232, 2]
+            >>> roberta.encode(' world').tolist()
+            [0, 232, 2]
+            >>> roberta.encode('world').tolist()
+            [0, 8331, 2]
+        """
+        bpe_sentence = '<s> ' + self.bpe.encode(sentence) + ' </s>'
+        for s in addl_sentences:
+            bpe_sentence += ' </s>' if not no_separator else ''
+            bpe_sentence += ' ' + self.bpe.encode(s) + ' </s>'
+        tokens = self.task.source_dictionary.encode_line(bpe_sentence,
+            append_eos=False, add_if_not_exist=False)
+        return tokens.long()
+
+    def decode(self, tokens: torch.LongTensor):
+        assert tokens.dim() == 1
+        tokens = tokens.numpy()
+        if tokens[0] == self.task.source_dictionary.bos():
+            tokens = tokens[1:]
+        eos_mask = tokens == self.task.source_dictionary.eos()
+        doc_mask = eos_mask[1:] & eos_mask[:-1]
+        sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
+        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for
+            s in sentences]
+        if len(sentences) == 1:
+            return sentences[0]
+        return sentences
+
+    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens:
+        bool=False) ->torch.Tensor:
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+        if tokens.size(-1) > self.model.max_positions():
+            raise ValueError('tokens exceeds maximum length: {} > {}'.
+                format(tokens.size(-1), self.model.max_positions()))
+        features, extra = self.model(tokens, features_only=True,
+            return_all_hiddens=return_all_hiddens)
+        if return_all_hiddens:
+            inner_states = extra['inner_states']
+            return [inner_state.transpose(0, 1) for inner_state in inner_states
+                ]
+        else:
+            return features
+
+    def register_classification_head(self, name: str, num_classes: int=None,
+        embedding_size: int=None, **kwargs):
+        self.model.register_classification_head(name, num_classes=
+            num_classes, embedding_size=embedding_size, **kwargs)
+
+    def predict(self, head: str, tokens: torch.LongTensor, return_logits:
+        bool=False):
+        features = self.extract_features(tokens)
+        logits = self.model.classification_heads[head](features)
+        if return_logits:
+            return logits
+        return F.log_softmax(logits, dim=-1)
+
+    def extract_features_aligned_to_words(self, sentence: str,
+        return_all_hiddens: bool=False) ->torch.Tensor:
+        """Extract RoBERTa features, aligned to spaCy's word-level tokenizer."""
+        nlp = alignment_utils.spacy_nlp()
+        tokenizer = alignment_utils.spacy_tokenizer()
+        bpe_toks = self.encode(sentence)
+        spacy_toks = tokenizer(sentence)
+        spacy_toks_ws = [t.text_with_ws for t in tokenizer(sentence)]
+        alignment = alignment_utils.align_bpe_to_words(self, bpe_toks,
+            spacy_toks_ws)
+        features = self.extract_features(bpe_toks, return_all_hiddens=
+            return_all_hiddens)
+        features = features.squeeze(0)
+        aligned_feats = alignment_utils.align_features_to_words(self,
+            features, alignment)
+        doc = Doc(nlp.vocab, words=['<s>'] + [x.text for x in spacy_toks] +
+            ['</s>'], spaces=[True] + [x.endswith(' ') for x in
+            spacy_toks_ws[:-1]] + [True, False])
+        assert len(doc) == aligned_feats.size(0)
+        doc.user_token_hooks['vector'] = lambda token: aligned_feats[token.i]
+        return doc
+
+    def fill_mask(self, masked_input: str, topk: int=5):
+        masked_token = '<mask>'
+        assert masked_token in masked_input and masked_input.count(masked_token
+            ) == 1, "Please add one {0} token for the input, eg: 'He is a {0} guy'".format(
+            masked_token)
+        text_spans = masked_input.split(masked_token)
+        text_spans_bpe = ' {0} '.format(masked_token).join([self.bpe.encode
+            (text_span.rstrip()) for text_span in text_spans]).strip()
+        tokens = self.task.source_dictionary.encode_line('<s> ' +
+            text_spans_bpe + ' </s>', append_eos=False, add_if_not_exist=False)
+        masked_index = (tokens == self.task.mask_idx).nonzero()
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+        with utils.eval(self.model):
+            features, extra = self.model(tokens.long(), features_only=False,
+                return_all_hiddens=False)
+        logits = features[(0), (masked_index), :].squeeze()
+        prob = logits.softmax(dim=0)
+        values, index = prob.topk(k=topk, dim=0)
+        topk_predicted_token_bpe = self.task.source_dictionary.string(index)
+        topk_filled_outputs = []
+        for index, predicted_token_bpe in enumerate(topk_predicted_token_bpe
+            .split(' ')):
+            predicted_token = self.bpe.decode(predicted_token_bpe)
+            if predicted_token_bpe.startswith('▁'):
+                predicted_token = ' ' + predicted_token
+            if ' {0}'.format(masked_token) in masked_input:
+                topk_filled_outputs.append((masked_input.replace(' {0}'.
+                    format(masked_token), predicted_token), values[index].
+                    item(), predicted_token))
+            else:
+                topk_filled_outputs.append((masked_input.replace(
+                    masked_token, predicted_token), values[index].item(),
+                    predicted_token))
+        return topk_filled_outputs
+
+    def disambiguate_pronoun(self, sentence: str) ->bool:
+        """
+        Usage::
+
+            >>> disambiguate_pronoun('The _trophy_ would not fit in the brown suitcase because [it] was too big.')
+            True
+
+            >>> disambiguate_pronoun('The trophy would not fit in the brown suitcase because [it] was too big.')
+            'The trophy'
+        """
+        assert hasattr(self.task, 'disambiguate_pronoun'
+            ), 'roberta.disambiguate_pronoun() requires a model trained with the WSC task.'
+        with utils.eval(self.model):
+            return self.task.disambiguate_pronoun(self.model, sentence,
+                use_cuda=self.device.type == 'cuda')
 
 
 class RobertaLMHead(nn.Module):
@@ -4156,6 +4713,120 @@ class Fp32GroupNorm(nn.GroupNorm):
             float() if self.weight is not None else None, self.bias.float() if
             self.bias is not None else None, self.eps)
         return output.type_as(input)
+
+
+class GumbelVectorQuantizer(nn.Module):
+
+    def __init__(self, dim, num_vars, temp, groups, combine_groups, vq_dim,
+        time_first, activation=nn.GELU(), weight_proj_depth=1,
+        weight_proj_factor=1):
+        """Vector quantization using gumbel softmax
+
+        Args:
+            dim: input dimension (channels)
+            num_vars: number of quantized vectors per group
+            temp: temperature for training. this should be a tuple of 3 elements: (start, stop, decay factor)
+            groups: number of groups for vector quantization
+            combine_groups: whether to use the vectors for all groups
+            vq_dim: dimensionality of the resulting quantized vector
+            time_first: if true, expect input in BxTxC format, otherwise in BxCxT
+            activation: what activation to use (should be a module). this is only used if weight_proj_depth is > 1
+            weight_proj_depth: number of layers (with activation in between) to project input before computing logits
+            weight_proj_factor: this is used only if weight_proj_depth is > 1. scales the inner dimensionality of
+                                projections by this factor
+        """
+        super().__init__()
+        self.groups = groups
+        self.combine_groups = combine_groups
+        self.input_dim = dim
+        self.num_vars = num_vars
+        self.time_first = time_first
+        assert vq_dim % groups == 0, f'dim {vq_dim} must be divisible by groups {groups} for concatenation'
+        var_dim = vq_dim // groups
+        num_groups = groups if not combine_groups else 1
+        self.vars = nn.Parameter(torch.FloatTensor(1, num_groups * num_vars,
+            var_dim))
+        nn.init.xavier_normal_(self.vars)
+        if weight_proj_depth > 1:
+
+            def block(input_dim, output_dim):
+                return nn.Sequential(nn.Linear(input_dim, output_dim),
+                    activation)
+            inner_dim = self.input_dim * weight_proj_factor
+            self.weight_proj = nn.Sequential(*[block(self.input_dim if i ==
+                0 else inner_dim, inner_dim) for i in range(
+                weight_proj_depth - 1)], nn.Linear(inner_dim, groups *
+                num_vars))
+        else:
+            self.weight_proj = nn.Linear(self.input_dim, groups * num_vars)
+        assert len(temp) == 3, temp
+        self.max_temp, self.min_temp, self.temp_decay = temp
+        self.curr_temp = self.max_temp
+        self.codebook_indices = None
+
+    def set_num_updates(self, num_updates):
+        self.curr_temp = max(self.max_temp * self.temp_decay ** num_updates,
+            self.min_temp)
+
+    def codebook(self):
+        if self.codebook_indices is None:
+            from itertools import product
+            p = [range(self.num_vars)] * self.groups
+            inds = list(product(*p))
+            self.codebook_indices = torch.tensor(inds, dtype=torch.long,
+                device=self.vars.device).flatten()
+            if not self.combine_groups:
+                self.codebook_indices = self.codebook_indices.view(self.
+                    num_vars ** self.groups, -1)
+                for b in range(1, self.groups):
+                    self.codebook_indices[:, (b)] += self.num_vars * b
+                self.codebook_indices = self.codebook_indices.flatten()
+        return self.vars.squeeze(0).index_select(0, self.codebook_indices
+            ).view(self.num_vars ** self.groups, -1)
+
+    def forward_idx(self, x):
+        res = self.forward(x, produce_targets=True)
+        return res['x'], res['targets']
+
+    def forward(self, x, produce_targets=False):
+        result = {'num_vars': self.num_vars * self.groups}
+        if not self.time_first:
+            x = x.transpose(1, 2)
+        bsz, tsz, fsz = x.shape
+        x = x.reshape(-1, fsz)
+        x = self.weight_proj(x)
+        x = x.view(bsz * tsz * self.groups, -1)
+        _, k = x.max(-1)
+        hard_x = x.new_zeros(*x.shape).scatter_(-1, k.view(-1, 1), 1.0).view(
+            bsz * tsz, self.groups, -1)
+        hard_probs = torch.mean(hard_x.float(), dim=0)
+        result['code_perplexity'] = torch.exp(-torch.sum(hard_probs * torch
+            .log(hard_probs + 1e-07), dim=-1)).sum()
+        avg_probs = torch.softmax(x.view(bsz * tsz, self.groups, -1).float(
+            ), dim=-1).mean(dim=0)
+        result['prob_perplexity'] = torch.exp(-torch.sum(avg_probs * torch.
+            log(avg_probs + 1e-07), dim=-1)).sum()
+        result['temp'] = self.curr_temp
+        if self.training:
+            x = F.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True
+                ).type_as(x)
+        else:
+            x = hard_x
+        x = x.view(bsz * tsz, -1)
+        vars = self.vars
+        if self.combine_groups:
+            vars = vars.repeat(1, self.groups, 1)
+        if produce_targets:
+            result['targets'] = x.view(bsz * tsz * self.groups, -1).argmax(dim
+                =-1).view(bsz, tsz, self.groups).detach()
+        x = x.unsqueeze(-1) * vars
+        x = x.view(bsz * tsz, self.groups, self.num_vars, -1)
+        x = x.sum(-2)
+        x = x.view(bsz, tsz, -1)
+        if not self.time_first:
+            x = x.transpose(1, 2)
+        result['x'] = x
+        return result
 
 
 class KmeansVectorQuantizer(nn.Module):
@@ -6150,6 +6821,495 @@ EncoderOut = NamedTuple('EncoderOut', [('encoder_out', Tensor), (
     Tensor]), ('src_lengths', Optional[Tensor])])
 
 
+class FairseqLanguageModel(BaseFairseqModel):
+    """Base class for decoder-only models.
+
+    Args:
+        decoder (FairseqDecoder): the decoder
+    """
+
+    def __init__(self, decoder):
+        super().__init__()
+        self.decoder = decoder
+        assert isinstance(self.decoder, FairseqDecoder)
+
+    def forward(self, src_tokens, **kwargs):
+        """
+        Run the forward pass for a decoder-only model.
+
+        Feeds a batch of tokens through the decoder to predict the next tokens.
+
+        Args:
+            src_tokens (LongTensor): tokens on which to condition the decoder,
+                of shape `(batch, tgt_len)`
+            src_lengths (LongTensor): source sentence lengths of shape `(batch)`
+
+        Returns:
+            tuple:
+                - the decoder's output of shape `(batch, seq_len, vocab)`
+                - a dictionary with any model-specific outputs
+        """
+        return self.decoder(src_tokens, **kwargs)
+
+    def forward_decoder(self, prev_output_tokens, **kwargs):
+        return self.decoder(prev_output_tokens, **kwargs)
+
+    def extract_features(self, src_tokens, **kwargs):
+        """
+        Similar to *forward* but only return features.
+
+        Returns:
+            tuple:
+                - the decoder's features of shape `(batch, seq_len, embed_dim)`
+                - a dictionary with any model-specific outputs
+        """
+        return self.decoder.extract_features(src_tokens, **kwargs)
+
+    def output_layer(self, features, **kwargs):
+        """Project features to the default output size (typically vocabulary size)."""
+        return self.decoder.output_layer(features, **kwargs)
+
+    def max_positions(self):
+        """Maximum length supported by the model."""
+        return self.decoder.max_positions()
+
+    def max_decoder_positions(self):
+        """Maximum length supported by the decoder."""
+        return self.decoder.max_positions()
+
+    @property
+    def supported_targets(self):
+        return {'future'}
+
+
+class RawOutExternalLanguageModelBase(FairseqLanguageModel):
+    """Base class for all external language models for ASR whose raw forward output
+    will be directly used by the caller (rather than, for example, doing normalization
+    by the caller).
+    """
+
+    def __init__(self, decoder):
+        super().__init__(decoder)
+
+
+class SequenceGenerator(nn.Module):
+
+    def __init__(self, models, tgt_dict, beam_size=1, max_len_a=0,
+        max_len_b=200, min_len=1, normalize_scores=True, len_penalty=1.0,
+        unk_penalty=0.0, retain_dropout=False, temperature=1.0,
+        match_source_len=False, no_repeat_ngram_size=0, search_strategy=
+        None, eos=None, lm_weight=0.0, eos_factor=None):
+        """Generates translations of a given source sentence.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models,
+                currently support fairseq.models.TransformerModel for scripting
+            beam_size (int, optional): beam width (default: 1)
+            max_len_a/b (int, optional): generate sequences of maximum length
+                ax + b, where x is the source length
+            min_len (int, optional): the minimum length of the generated output
+                (not including end-of-sentence)
+            normalize_scores (bool, optional): normalize scores by the length
+                of the output (default: True)
+            len_penalty (float, optional): length penalty, where <1.0 favors
+                shorter, >1.0 favors longer sentences (default: 1.0)
+            unk_penalty (float, optional): unknown word penalty, where <0
+                produces more unks, >0 produces fewer (default: 0.0)
+            retain_dropout (bool, optional): use dropout when generating
+                (default: False)
+            temperature (float, optional): temperature, where values
+                >1.0 produce more uniform samples and values <1.0 produce
+                sharper samples (default: 1.0)
+            match_source_len (bool, optional): outputs should match the source
+                length (default: False)
+        """
+        super().__init__()
+        if isinstance(models, EnsembleModel):
+            self.model = models
+        else:
+            self.model = EnsembleModel(models
+                ) if lm_weight == 0.0 else LMFusionModel(models, lm_weight)
+        self.pad = tgt_dict.pad()
+        self.unk = tgt_dict.unk()
+        self.eos = tgt_dict.eos() if eos is None else eos
+        self.vocab_size = len(tgt_dict)
+        self.beam_size = beam_size
+        self.beam_size = min(beam_size, self.vocab_size - 1)
+        self.max_len_a = max_len_a
+        self.max_len_b = max_len_b
+        self.min_len = min_len
+        self.normalize_scores = normalize_scores
+        self.len_penalty = len_penalty
+        self.unk_penalty = unk_penalty
+        self.retain_dropout = retain_dropout
+        self.temperature = temperature
+        self.match_source_len = match_source_len
+        self.no_repeat_ngram_size = no_repeat_ngram_size
+        self.eos_factor = eos_factor
+        assert temperature > 0, '--temperature must be greater than 0'
+        assert eos_factor is None or eos_factor >= 1.0, '--eos-factor must be >= 1.0 if set'
+        self.search = search.BeamSearch(tgt_dict
+            ) if search_strategy is None else search_strategy
+        if not self.retain_dropout:
+            self.model.eval()
+
+    def cuda(self):
+        self.model
+        return self
+
+    @torch.no_grad()
+    def forward(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens:
+        Optional[Tensor]=None, bos_token: Optional[int]=None):
+        """Generate a batch of translations.
+
+        Args:
+            sample (dict): batch
+            prefix_tokens (torch.LongTensor, optional): force decoder to begin
+                with these tokens
+            bos_token (int, optional): beginning of sentence token
+                (default: self.eos)
+        """
+        self.model.reset_incremental_state()
+        return self._generate(sample, prefix_tokens, bos_token)
+
+    def generate_batched_itr(self, data_itr, beam_size=None, cuda=False,
+        timer=None):
+        """Iterate over a batched dataset and yield individual translations.
+        Args:
+            cuda (bool, optional): use GPU for generation
+            timer (StopwatchMeter, optional): time generations
+        """
+        for sample in data_itr:
+            s = utils.move_to_cuda(sample) if cuda else sample
+            if 'net_input' not in s:
+                continue
+            input = s['net_input']
+            encoder_input = {k: v for k, v in input.items() if k !=
+                'prev_output_tokens'}
+            if timer is not None:
+                timer.start()
+            with torch.no_grad():
+                hypos = self.generate(encoder_input)
+            if timer is not None:
+                timer.stop(sum(len(h[0]['tokens']) for h in hypos))
+            for i, id in enumerate(s['id'].data):
+                src = utils.strip_pad(input['src_tokens'].data[(i), :],
+                    self.pad)
+                ref = utils.strip_pad(s['target'].data[(i), :], self.pad) if s[
+                    'target'] is not None else None
+                yield id, src, ref, hypos[i]
+
+    @torch.no_grad()
+    def generate(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        """Generate translations. Match the api of other fairseq generators.
+
+        Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models
+            sample (dict): batch
+            prefix_tokens (torch.LongTensor, optional): force decoder to begin
+                with these tokens
+            bos_token (int, optional): beginning of sentence token
+                (default: self.eos)
+        """
+        self.model.reset_incremental_state()
+        return self._generate(sample, **kwargs)
+
+    def _generate(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens:
+        Optional[Tensor]=None, bos_token: Optional[int]=None):
+        net_input = sample['net_input']
+        src_tokens = net_input['src_tokens']
+        if src_tokens.dim() > 2:
+            src_lengths = net_input['src_lengths']
+        else:
+            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)
+                ).long().sum(dim=1)
+        input_size = src_tokens.size()
+        bsz, src_len = input_size[0], input_size[1]
+        beam_size = self.beam_size
+        max_len: int = -1
+        if self.match_source_len:
+            max_len = src_lengths.max().item()
+        else:
+            max_len = min(int(self.max_len_a * src_len + self.max_len_b), 
+                self.model.max_decoder_positions() - 1)
+        assert self.min_len <= max_len, 'min_len cannot be larger than max_len, please adjust these!'
+        encoder_outs = self.model.forward_encoder(net_input)
+        new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
+        new_order = new_order.long()
+        encoder_outs = self.model.reorder_encoder_out(encoder_outs, new_order)
+        assert encoder_outs is not None
+        scores = torch.zeros(bsz * beam_size, max_len + 1).float()
+        tokens = torch.zeros(bsz * beam_size, max_len + 2).long().fill_(self
+            .pad)
+        tokens[:, (0)] = self.eos if bos_token is None else bos_token
+        attn: Optional[Tensor] = None
+        blacklist = torch.zeros(bsz, beam_size).eq(-1)
+        finalized = torch.jit.annotate(List[List[Dict[str, Tensor]]], [
+            torch.jit.annotate(List[Dict[str, Tensor]], []) for i in range(
+            bsz)])
+        finished = [(False) for i in range(bsz)]
+        num_remaining_sent = bsz
+        cand_size = 2 * beam_size
+        bbsz_offsets = (torch.arange(0, bsz) * beam_size).unsqueeze(1).type_as(
+            tokens)
+        cand_offsets = torch.arange(0, cand_size).type_as(tokens)
+        reorder_state: Optional[Tensor] = None
+        batch_idxs: Optional[Tensor] = None
+        for step in range(max_len + 1):
+            if reorder_state is not None:
+                if batch_idxs is not None:
+                    corr = batch_idxs - torch.arange(batch_idxs.numel()
+                        ).type_as(batch_idxs)
+                    reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-
+                        1) * beam_size)
+                self.model.reorder_incremental_state(reorder_state)
+                encoder_outs = self.model.reorder_encoder_out(encoder_outs,
+                    reorder_state)
+            lprobs, avg_attn_scores = self.model.forward_decoder(tokens[:,
+                :step + 1], encoder_outs, self.temperature)
+            lprobs[lprobs != lprobs] = torch.tensor(-math.inf)
+            lprobs[:, (self.pad)] = -math.inf
+            lprobs[:, (self.unk)] -= self.unk_penalty
+            if step >= max_len:
+                lprobs[:, :self.eos] = -math.inf
+                lprobs[:, self.eos + 1:] = -math.inf
+            elif self.eos_factor is not None:
+                disallow_eos_mask = lprobs[:, (self.eos)
+                    ] < self.eos_factor * lprobs.max(dim=1)[0]
+                lprobs[disallow_eos_mask, self.eos] = -math.inf
+            if prefix_tokens is not None and step < prefix_tokens.size(1
+                ) and step < max_len:
+                lprobs, tokens, scores = self._prefix_tokens(step, lprobs,
+                    scores, tokens, prefix_tokens, beam_size)
+            elif step < self.min_len:
+                lprobs[:, (self.eos)] = -math.inf
+            if avg_attn_scores is not None:
+                if attn is None:
+                    attn = torch.empty(bsz * beam_size, avg_attn_scores.
+                        size(1), max_len + 2)
+                attn[:, :, (step + 1)].copy_(avg_attn_scores)
+            scores = scores.type_as(lprobs)
+            eos_bbsz_idx = torch.empty(0)
+            eos_scores = torch.empty(0)
+            self.search.set_src_lengths(src_lengths)
+            if self.no_repeat_ngram_size > 0:
+                lprobs = self._no_repeat_ngram(tokens, lprobs, bsz,
+                    beam_size, step)
+            cand_scores, cand_indices, cand_beams = self.search.step(step,
+                lprobs.view(bsz, -1, self.vocab_size), scores.view(bsz,
+                beam_size, -1)[:, :, :step])
+            cand_bbsz_idx = cand_beams.add(bbsz_offsets)
+            eos_mask = cand_indices.eq(self.eos) & cand_scores.ne(-math.inf)
+            eos_mask[:, :beam_size][blacklist] = torch.tensor(0)
+            eos_bbsz_idx = torch.masked_select(cand_bbsz_idx[:, :beam_size],
+                mask=eos_mask[:, :beam_size])
+            finalized_sents: List[int] = []
+            if eos_bbsz_idx.numel() > 0:
+                eos_scores = torch.masked_select(cand_scores[:, :beam_size],
+                    mask=eos_mask[:, :beam_size])
+                finalized_sents = self.finalize_hypos(step, eos_bbsz_idx,
+                    eos_scores, tokens, scores, finalized, finished,
+                    beam_size, attn, src_lengths, max_len)
+                num_remaining_sent -= len(finalized_sents)
+            assert num_remaining_sent >= 0
+            if num_remaining_sent == 0:
+                break
+            assert step < max_len
+            if len(finalized_sents) > 0:
+                new_bsz = bsz - len(finalized_sents)
+                batch_mask = torch.ones(bsz)
+                batch_mask[torch.tensor(finalized_sents)] = torch.tensor(0)
+                batch_idxs = batch_mask.nonzero().squeeze(-1)
+                eos_mask = eos_mask[batch_idxs]
+                cand_beams = cand_beams[batch_idxs]
+                bbsz_offsets.resize_(new_bsz, 1)
+                cand_bbsz_idx = cand_beams.add(bbsz_offsets)
+                cand_scores = cand_scores[batch_idxs]
+                cand_indices = cand_indices[batch_idxs]
+                if prefix_tokens is not None:
+                    prefix_tokens = prefix_tokens[batch_idxs]
+                src_lengths = src_lengths[batch_idxs]
+                blacklist = blacklist[batch_idxs]
+                scores = scores.view(bsz, -1)[batch_idxs].view(new_bsz *
+                    beam_size, -1)
+                tokens = tokens.view(bsz, -1)[batch_idxs].view(new_bsz *
+                    beam_size, -1)
+                if attn is not None:
+                    attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz *
+                        beam_size, attn.size(1), -1)
+                bsz = new_bsz
+            else:
+                batch_idxs = None
+            eos_mask[:, :beam_size] = ~(~blacklist & ~eos_mask[:, :beam_size])
+            active_mask = torch.add(eos_mask.type_as(cand_offsets) *
+                cand_size, cand_offsets[:eos_mask.size(1)])
+            new_blacklist, active_hypos = torch.topk(active_mask, k=
+                beam_size, dim=1, largest=False)
+            blacklist = new_blacklist.ge(cand_size)[:, :beam_size]
+            assert (~blacklist).any(dim=1).all()
+            active_bbsz_idx = torch.gather(cand_bbsz_idx, dim=1, index=
+                active_hypos)
+            active_scores = torch.gather(cand_scores, dim=1, index=active_hypos
+                )
+            active_bbsz_idx = active_bbsz_idx.view(-1)
+            active_scores = active_scores.view(-1)
+            tokens[:, :step + 1] = torch.index_select(tokens[:, :step + 1],
+                dim=0, index=active_bbsz_idx)
+            tokens.view(bsz, beam_size, -1)[:, :, (step + 1)] = torch.gather(
+                cand_indices, dim=1, index=active_hypos)
+            if step > 0:
+                scores[:, :step] = torch.index_select(scores[:, :step], dim
+                    =0, index=active_bbsz_idx)
+            scores.view(bsz, beam_size, -1)[:, :, (step)] = torch.gather(
+                cand_scores, dim=1, index=active_hypos)
+            if attn is not None:
+                attn[:, :, :step + 2] = torch.index_select(attn[:, :, :step +
+                    2], dim=0, index=active_bbsz_idx)
+            reorder_state = active_bbsz_idx
+        for sent in range(len(finalized)):
+            BCList = [BeamContainer(elem['score'].item(), elem) for elem in
+                finalized[sent]]
+            BCList.sort()
+            BCList.reverse()
+            finalized[sent] = torch.jit.annotate(List[Dict[str, Tensor]], [
+                x.elem for x in BCList])
+        return finalized
+
+    def _prefix_tokens(self, step: int, lprobs, scores, tokens,
+        prefix_tokens, beam_size: int):
+        """Handle prefix tokens"""
+        prefix_toks = prefix_tokens[:, (step)].unsqueeze(-1).repeat(1,
+            beam_size).view(-1)
+        prefix_lprobs = lprobs.gather(-1, prefix_toks.unsqueeze(-1))
+        prefix_mask = prefix_toks.ne(self.pad)
+        lprobs[prefix_mask] = torch.tensor(-math.inf)
+        lprobs[prefix_mask] = lprobs[prefix_mask].scatter(-1, prefix_toks[
+            prefix_mask].unsqueeze(-1), prefix_lprobs[prefix_mask])
+        eos_mask = prefix_toks.eq(self.eos)
+        if eos_mask.any():
+            first_beam = tokens[eos_mask].view(-1, beam_size, tokens.size(-1))[
+                :, (0), 1:step + 1]
+            eos_mask_batch_dim = eos_mask.view(-1, beam_size)[:, (0)]
+            target_prefix = prefix_tokens[eos_mask_batch_dim][:, :step]
+            assert (first_beam == target_prefix).all()
+            tokens = self.replicate_first_beam(tokens, eos_mask_batch_dim,
+                beam_size)
+            scores = self.replicate_first_beam(scores, eos_mask_batch_dim,
+                beam_size)
+            lprobs = self.replicate_first_beam(lprobs, eos_mask_batch_dim,
+                beam_size)
+        return lprobs, tokens, scores
+
+    def replicate_first_beam(self, tensor, mask, beam_size: int):
+        tensor = tensor.view(-1, beam_size, tensor.size(-1))
+        tensor[mask] = tensor[mask][:, :1, :]
+        return tensor.view(-1, tensor.size(-1))
+
+    def finalize_hypos(self, step: int, bbsz_idx, eos_scores, tokens,
+        scores, finalized: List[List[Dict[str, Tensor]]], finished: List[
+        bool], beam_size: int, attn: Optional[Tensor], src_lengths, max_len:
+        int):
+        """Finalize hypothesis, store finalized information in `finalized`, and change `finished` accordingly.
+        Returns number of sentences being finalized.
+        Args:
+            bbsz_idx (Tensor):
+        """
+        assert bbsz_idx.numel() == eos_scores.numel()
+        tokens_clone = tokens.index_select(0, bbsz_idx)[:, 1:step + 2]
+        tokens_clone[:, (step)] = self.eos
+        attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2
+            ] if attn is not None else None
+        pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
+        pos_scores[:, (step)] = eos_scores
+        pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
+        if self.normalize_scores:
+            eos_scores /= (step + 1) ** self.len_penalty
+        cum_unfin: List[int] = []
+        prev = 0
+        for f in finished:
+            if f:
+                prev += 1
+            else:
+                cum_unfin.append(prev)
+        sents_seen: Dict[str, Optional[Tensor]] = {}
+        for i in range(bbsz_idx.size()[0]):
+            idx = bbsz_idx[i]
+            score = eos_scores[i]
+            unfin_idx = idx // beam_size
+            sent = unfin_idx + cum_unfin[unfin_idx]
+            seen = str(sent.item()) + '_' + str(unfin_idx.item())
+            if seen not in sents_seen:
+                sents_seen[seen] = None
+            if self.match_source_len and step > src_lengths[unfin_idx]:
+                score = torch.tensor(-math.inf)
+            if len(finalized[sent]) < beam_size:
+                if attn_clone is not None:
+                    hypo_attn = attn_clone[i]
+                else:
+                    hypo_attn = torch.empty(0)
+                finalized[sent].append({'tokens': tokens_clone[i], 'score':
+                    score, 'attention': hypo_attn, 'alignment': torch.empty
+                    (0), 'positional_scores': pos_scores[i]})
+        newly_finished: List[int] = []
+        for seen in sents_seen.keys():
+            sent: int = int(float(seen.split('_')[0]))
+            unfin_idx: int = int(float(seen.split('_')[1]))
+            if not finished[sent] and self.is_finished(step, unfin_idx,
+                max_len, len(finalized[sent]), beam_size):
+                finished[sent] = True
+                newly_finished.append(unfin_idx)
+        return newly_finished
+
+    def is_finished(self, step: int, unfin_idx: int, max_len: int,
+        finalized_sent_len: int, beam_size: int):
+        """
+        Check whether we've finished generation for a given sentence, by
+        comparing the worst score among finalized hypotheses to the best
+        possible score among unfinalized hypotheses.
+        """
+        assert finalized_sent_len <= beam_size
+        if finalized_sent_len == beam_size or step == max_len:
+            return True
+        return False
+
+    def calculate_banned_tokens(self, tokens, step: int, gen_ngrams: List[
+        Dict[str, List[int]]], no_repeat_ngram_size: int, bbsz_idx: int):
+        tokens_list: List[int] = tokens[(bbsz_idx), step + 2 -
+            no_repeat_ngram_size:step + 1].tolist()
+        ngram_index = ','.join([str(x) for x in tokens_list])
+        return gen_ngrams[bbsz_idx].get(ngram_index, torch.jit.annotate(
+            List[int], []))
+
+    def transpose_list(self, l: List[List[int]]):
+        min_len = min([len(x) for x in l])
+        l2 = [[row[i] for row in l] for i in range(min_len)]
+        return l2
+
+    def _no_repeat_ngram(self, tokens, lprobs, bsz: int, beam_size: int,
+        step: int):
+        gen_ngrams: List[Dict[str, List[int]]] = [torch.jit.annotate(Dict[
+            str, List[int]], {}) for bbsz_idx in range(bsz * beam_size)]
+        cpu_tokens = tokens.cpu()
+        for bbsz_idx in range(bsz * beam_size):
+            gen_tokens: List[int] = cpu_tokens[bbsz_idx].tolist()
+            for ngram in self.transpose_list([gen_tokens[i:] for i in range
+                (self.no_repeat_ngram_size)]):
+                key = ','.join([str(x) for x in ngram[:-1]])
+                gen_ngrams[bbsz_idx][key] = gen_ngrams[bbsz_idx].get(key,
+                    torch.jit.annotate(List[int], [])) + [ngram[-1]]
+        if step + 2 - self.no_repeat_ngram_size >= 0:
+            banned_tokens = [self.calculate_banned_tokens(tokens, step,
+                gen_ngrams, self.no_repeat_ngram_size, bbsz_idx) for
+                bbsz_idx in range(bsz * beam_size)]
+        else:
+            banned_tokens = [torch.jit.annotate(List[int], []) for bbsz_idx in
+                range(bsz * beam_size)]
+        for bbsz_idx in range(bsz * beam_size):
+            lprobs[bbsz_idx][torch.tensor(banned_tokens[bbsz_idx]).long()
+                ] = torch.tensor(-math.inf, dtype=torch.float)
+        return lprobs
+
+
 @with_incremental_state
 class FairseqIncrementalDecoder(FairseqDecoder):
     """Base class for incremental decoders.
@@ -6385,6 +7545,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_freewym_espresso(_paritybench_base):
@@ -6393,6 +7554,7 @@ class Test_freewym_espresso(_paritybench_base):
     def test_000(self):
         self._check(AdaptiveSoftmax(*[], **{'vocab_size': 4, 'input_dim': 4, 'cutoff': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
         self._check(BeamableMM(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
@@ -6432,19 +7594,23 @@ class Test_freewym_espresso(_paritybench_base):
 
     @_fails_compile()
     def test_012(self):
+        self._check(SelfAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
         self._check(SingleHeadAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'head_dim': 4, 'head_index': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(TransposeLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(VGGBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'conv_kernel_size': 4, 'pooling_kernel_size': 4, 'num_conv_layers': 1, 'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_015(self):
+    def test_016(self):
         self._check(Wav2VecPredictionsModel(*[], **{'in_dim': 4, 'out_dim': 4, 'prediction_steps': 4, 'n_negatives': 4, 'cross_sample_negatives': 4, 'sample_distance': 4, 'dropout': 0.5, 'offset': 4, 'balanced_classes': 4, 'infonce': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(ZeroPad1d(*[], **{'pad_left': 4, 'pad_right': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -13,10 +13,13 @@ utils_Ent_kvr = _module
 utils_general = _module
 utils_temp = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -166,22 +169,22 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     return bleu_score
 
 
+_global_config['addName'] = 4
+
+
+_global_config['batch'] = 4
+
+
 _global_config['genSample'] = 4
-
-
-_global_config['unk_mask'] = 4
-
-
-_global_config['teacher_forcing_ratio'] = 4
 
 
 _global_config['dataset'] = torch.rand([4, 4, 4, 4])
 
 
-_global_config['addName'] = 4
+_global_config['teacher_forcing_ratio'] = 4
 
 
-_global_config['batch'] = 4
+_global_config['unk_mask'] = 4
 
 
 class GLMP(nn.Module):
@@ -565,10 +568,10 @@ class AttrProxy(object):
         return getattr(self.module, self.prefix + str(i))
 
 
-_global_config['ablationG'] = 4
-
-
 _global_config['ablationH'] = 4
+
+
+_global_config['ablationG'] = 4
 
 
 class ExternalKnowledge(nn.Module):
@@ -729,6 +732,7 @@ class LocalMemoryDecoder(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jasonwu0731_GLMP(_paritybench_base):

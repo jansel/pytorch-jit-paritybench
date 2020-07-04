@@ -46,10 +46,13 @@ trainer = _module
 setup = _module
 translate = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -95,6 +98,12 @@ import torch
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
 import torch.nn.functional as F
 
 
@@ -105,6 +114,21 @@ import math
 
 
 from torch.nn.utils.rnn import PackedSequence
+
+
+from torchvision.models import resnet
+
+
+from torchvision.models import densenet
+
+
+from torchvision.models import vgg
+
+
+from torchvision.models import alexnet
+
+
+from torchvision.models import squeezenet
 
 
 from torch.nn import Parameter
@@ -191,6 +215,32 @@ class ByteNet(nn.Sequential):
             for r in dilation_rates:
                 self.add_module('block%s_%s' % (s, r), block(num_channels,
                     kernel_size=kernel_size, dilation=r, causal=causal))
+
+
+class StackedConv(nn.Module):
+
+    def __init__(self, input_size, hidden_size, kernel_size=3, num_layers=4,
+        bias=True, dropout=0, causal=True):
+        super(StackedConv, self).__init__()
+        self.convs = nn.ModuleList()
+        size = input_size
+        for l in range(num_layers):
+            self.convs.append(GatedConv1d(size, hidden_size, 1, bias=bias,
+                causal=False))
+            self.convs.append(nn.BatchNorm1d(hidden_size))
+            self.convs.append(MaskedConv1d(hidden_size, hidden_size,
+                kernel_size, bias=bias, groups=hidden_size, causal=causal))
+            self.convs.append(nn.BatchNorm1d(hidden_size))
+            size = hidden_size
+
+    def forward(self, x):
+        res = None
+        for conv in self.convs:
+            x = conv(x)
+            if res is not None:
+                x = x + res
+            res = x
+        return x
 
 
 class ConvEncoder(nn.Module):
@@ -2681,6 +2731,7 @@ class AddLossModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):

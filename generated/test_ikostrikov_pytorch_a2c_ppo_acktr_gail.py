@@ -20,10 +20,13 @@ generate_tmux_yaml = _module
 main = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -247,6 +250,67 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
+class Policy(nn.Module):
+
+    def __init__(self, obs_shape, action_space, base=None, base_kwargs=None):
+        super(Policy, self).__init__()
+        if base_kwargs is None:
+            base_kwargs = {}
+        if base is None:
+            if len(obs_shape) == 3:
+                base = CNNBase
+            elif len(obs_shape) == 1:
+                base = MLPBase
+            else:
+                raise NotImplementedError
+        self.base = base(obs_shape[0], **base_kwargs)
+        if action_space.__class__.__name__ == 'Discrete':
+            num_outputs = action_space.n
+            self.dist = Categorical(self.base.output_size, num_outputs)
+        elif action_space.__class__.__name__ == 'Box':
+            num_outputs = action_space.shape[0]
+            self.dist = DiagGaussian(self.base.output_size, num_outputs)
+        elif action_space.__class__.__name__ == 'MultiBinary':
+            num_outputs = action_space.shape[0]
+            self.dist = Bernoulli(self.base.output_size, num_outputs)
+        else:
+            raise NotImplementedError
+
+    @property
+    def is_recurrent(self):
+        return self.base.is_recurrent
+
+    @property
+    def recurrent_hidden_state_size(self):
+        """Size of rnn_hx."""
+        return self.base.recurrent_hidden_state_size
+
+    def forward(self, inputs, rnn_hxs, masks):
+        raise NotImplementedError
+
+    def act(self, inputs, rnn_hxs, masks, deterministic=False):
+        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        dist = self.dist(actor_features)
+        if deterministic:
+            action = dist.mode()
+        else:
+            action = dist.sample()
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+        return value, action, action_log_probs, rnn_hxs
+
+    def get_value(self, inputs, rnn_hxs, masks):
+        value, _, _ = self.base(inputs, rnn_hxs, masks)
+        return value
+
+    def evaluate_actions(self, inputs, rnn_hxs, masks, action):
+        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        dist = self.dist(actor_features)
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+        return value, action_log_probs, dist_entropy, rnn_hxs
+
+
 class NNBase(nn.Module):
 
     def __init__(self, recurrent, recurrent_input_size, hidden_size):
@@ -321,6 +385,7 @@ class AddBias(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ikostrikov_pytorch_a2c_ppo_acktr_gail(_paritybench_base):

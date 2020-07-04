@@ -27,10 +27,13 @@ evaluate = _module
 logger = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -41,6 +44,9 @@ __version__ = '1.0.0'
 
 
 import math
+
+
+import numbers
 
 
 import random
@@ -59,6 +65,9 @@ from torch.utils.data import Dataset
 
 
 from torch.nn import functional as F
+
+
+from torchvision import transforms
 
 
 import torch.nn as nn
@@ -247,6 +256,90 @@ class BasicBlock(nn.Module):
         out += identity
         out = self.activation(out)
         return out
+
+
+class ResNet_D(nn.Module):
+    """
+    Implement and pre-train on ImageNet with the tricks from
+    https://arxiv.org/abs/1812.01187
+    without the mix-up part.
+    """
+
+    def __init__(self, block, layers, norm_layer=None, late_downsample=False):
+        super(ResNet_D, self).__init__()
+        self.logger = logging.getLogger('Logger')
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+        self.inplanes = 64
+        self.late_downsample = late_downsample
+        self.midplanes = 64 if late_downsample else 32
+        self.start_stride = [1, 2, 1, 2] if late_downsample else [2, 1, 2, 1]
+        self.conv1 = SpectralNorm(nn.Conv2d(3 + CONFIG.model.trimap_channel,
+            32, kernel_size=3, stride=self.start_stride[0], padding=1, bias
+            =False))
+        self.conv2 = SpectralNorm(nn.Conv2d(32, self.midplanes, kernel_size
+            =3, stride=self.start_stride[1], padding=1, bias=False))
+        self.conv3 = SpectralNorm(nn.Conv2d(self.midplanes, self.inplanes,
+            kernel_size=3, stride=self.start_stride[2], padding=1, bias=False))
+        self.bn1 = norm_layer(32)
+        self.bn2 = norm_layer(self.midplanes)
+        self.bn3 = norm_layer(self.inplanes)
+        self.activation = nn.ReLU(inplace=True)
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=self.
+            start_stride[3])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer_bottleneck = self._make_layer(block, 512, layers[3],
+            stride=2)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight_bar)
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        for m in self.modules():
+            if isinstance(m, BasicBlock):
+                nn.init.constant_(m.bn2.weight, 0)
+        self.logger.debug('encoder conv1 weight shape: {}'.format(str(self.
+            conv1.module.weight_bar.data.shape)))
+        self.conv1.module.weight_bar.data[:, 3:, :, :] = 0
+        self.logger.debug(self)
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        if blocks == 0:
+            return nn.Sequential(nn.Identity())
+        norm_layer = self._norm_layer
+        downsample = None
+        if stride != 1:
+            downsample = nn.Sequential(nn.AvgPool2d(2, stride),
+                SpectralNorm(conv1x1(self.inplanes, planes * block.
+                expansion)), norm_layer(planes * block.expansion))
+        elif self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(SpectralNorm(conv1x1(self.inplanes, 
+                planes * block.expansion, stride)), norm_layer(planes *
+                block.expansion))
+        layers = [block(self.inplanes, planes, stride, downsample, norm_layer)]
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes, norm_layer=norm_layer))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.activation(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x1 = self.activation(x)
+        x = self.conv3(x1)
+        x = self.bn3(x)
+        x2 = self.activation(x)
+        x3 = self.layer1(x2)
+        x4 = self.layer2(x3)
+        x5 = self.layer3(x4)
+        x = self.layer_bottleneck(x5)
+        return x, (x1, x2, x3, x4, x5)
 
 
 class Generator(nn.Module):
@@ -483,6 +576,7 @@ class GuidedCxtAtten(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Yaoyi_Li_GCA_Matting(_paritybench_base):

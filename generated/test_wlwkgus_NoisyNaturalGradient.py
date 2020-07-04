@@ -20,10 +20,13 @@ utils = _module
 html = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -113,7 +116,7 @@ class BayesianLinear(nn.Module):
             raise Exception('option should be FFG or MVG.')
 
     def forward(self, x):
-        if self.gpu_ids and isinstance(x.data, torch.cuda.FloatTensor):
+        if self.gpu_ids and isinstance(x.data, torch.FloatTensor):
             return nn.parallel.data_parallel(F.linear, (x, self.weight,
                 self.bias), self.gpu_ids)
         return F.linear(x, self.weight, self.bias)
@@ -181,7 +184,7 @@ class BayesianMultilayer(nn.Module):
     def forward(self, x, is_test=False):
         if not is_test:
             self.sample_parameters()
-        if self.gpu_ids and isinstance(x.data, torch.cuda.FloatTensor):
+        if self.gpu_ids and isinstance(x.data, torch.FloatTensor):
             return nn.parallel.data_parallel(self.model, x, self.gpu_ids)
         return self.model(x)
 
@@ -214,6 +217,7 @@ class BayesianMultilayer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_wlwkgus_NoisyNaturalGradient(_paritybench_base):

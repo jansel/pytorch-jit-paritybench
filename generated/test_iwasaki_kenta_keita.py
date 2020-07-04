@@ -20,10 +20,13 @@ encoders = _module
 encoders = _module
 meta = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -464,7 +467,7 @@ class MahalanobisMetricLoss(nn.Module):
         :return: Loss and accuracy. Loss is a variable which may have a backward pass performed.
         """
         loss = torch.zeros(1)
-        if torch.cuda.is_available():
+        if torch.is_available():
             loss = loss
         loss = torch.autograd.Variable(loss)
         batch_size = outputs.size(0)
@@ -680,6 +683,7 @@ class TCML(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_iwasaki_kenta_keita(_paritybench_base):
@@ -713,5 +717,9 @@ class Test_iwasaki_kenta_keita(_paritybench_base):
 
     @_fails_compile()
     def test_008(self):
+        self._check(TCML(*[], **{'feature_dim': 4}), [torch.rand([4, 4, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(TemporalDenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64])], {})
 

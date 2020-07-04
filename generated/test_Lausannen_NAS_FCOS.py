@@ -118,10 +118,13 @@ instances2dict_with_polygons = _module
 test_net = _module
 train_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -209,6 +212,73 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+
+class _DCNv2(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, mask, weight, bias, stride, padding,
+        dilation, deformable_groups):
+        ctx.stride = _pair(stride)
+        ctx.padding = _pair(padding)
+        ctx.dilation = _pair(dilation)
+        ctx.kernel_size = _pair(weight.shape[2:4])
+        ctx.deformable_groups = deformable_groups
+        output = _C.dcn_v2_forward(input, weight, bias, offset, mask, ctx.
+            kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.stride[1
+            ], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx.
+            dilation[1], ctx.deformable_groups)
+        ctx.save_for_backward(input, offset, mask, weight, bias)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, offset, mask, weight, bias = ctx.saved_tensors
+        grad_input, grad_offset, grad_mask, grad_weight, grad_bias = (_C.
+            dcn_v2_backward(input, weight, bias, offset, mask, grad_output,
+            ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.
+            stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx
+            .dilation[1], ctx.deformable_groups))
+        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
+            None, None, None, None)
+
+
+dcn_v2_conv = _DCNv2.apply
+
+
+class DCNv2(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride,
+        padding, dilation=1, deformable_groups=1):
+        super(DCNv2, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.deformable_groups = deformable_groups
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
+            *self.kernel_size))
+        self.bias = nn.Parameter(torch.Tensor(out_channels))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        self.bias.data.zero_()
+
+    def forward(self, input, offset, mask):
+        assert 2 * self.deformable_groups * self.kernel_size[0
+            ] * self.kernel_size[1] == offset.shape[1]
+        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[
+            1] == mask.shape[1]
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias,
+            self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
 class _DCNv2Pooling(Function):
@@ -1227,6 +1297,133 @@ StageSpec = namedtuple('StageSpec', ['index', 'block_count',
     'return_features', 'deformable'])
 
 
+def get_group_gn(dim, dim_per_gp, num_groups):
+    """get number of groups used by GroupNorm, based on number of channels."""
+    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
+    if dim_per_gp > 0:
+        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
+            dim_per_gp)
+        group_gn = dim // dim_per_gp
+    else:
+        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
+            num_groups)
+        group_gn = num_groups
+    return group_gn
+
+
+_global_config['MODEL'] = 4
+
+
+def group_norm(out_channels, affine=True, divisor=1):
+    out_channels = out_channels // divisor
+    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
+    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
+    eps = cfg.MODEL.GROUP_NORM.EPSILON
+    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
+        num_groups), out_channels, eps, affine)
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride,
+    dilation=1, deformable=False):
+    blocks = []
+    stride = first_stride
+    for _ in range(block_count):
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride, dilation=dilation))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1)
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+
+    def _freeze_backbone(self, freeze_at):
+        if freeze_at < 0:
+            return
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256,
+        dilation=1):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride, dilation=
+                dilation)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
+
+
 class Bottleneck(nn.Module):
 
     def __init__(self, in_channels, bottleneck_channels, out_channels,
@@ -2076,6 +2273,52 @@ def make_roi_box_post_processor(cfg):
     return postprocessor
 
 
+def make_roi_box_predictor(cfg):
+    func = _ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+class ROIBoxHead(torch.nn.Module):
+    """
+    Generic Box Head class.
+    """
+
+    def __init__(self, cfg):
+        super(ROIBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg)
+        self.predictor = make_roi_box_predictor(cfg)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression),
+                proposals)
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits],
+            [box_regression])
+        return x, proposals, dict(loss_classifier=loss_classifier,
+            loss_box_reg=loss_box_reg)
+
+
 FLIP_LEFT_RIGHT = 0
 
 
@@ -2492,32 +2735,6 @@ class PostProcessor(nn.Module):
         return result
 
 
-def get_group_gn(dim, dim_per_gp, num_groups):
-    """get number of groups used by GroupNorm, based on number of channels."""
-    assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
-    if dim_per_gp > 0:
-        assert dim % dim_per_gp == 0, 'dim: {}, dim_per_gp: {}'.format(dim,
-            dim_per_gp)
-        group_gn = dim // dim_per_gp
-    else:
-        assert dim % num_groups == 0, 'dim: {}, num_groups: {}'.format(dim,
-            num_groups)
-        group_gn = num_groups
-    return group_gn
-
-
-_global_config['MODEL'] = 4
-
-
-def group_norm(out_channels, affine=True, divisor=1):
-    out_channels = out_channels // divisor
-    dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
-    num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
-    eps = cfg.MODEL.GROUP_NORM.EPSILON
-    return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp,
-        num_groups), out_channels, eps, affine)
-
-
 def make_fc(dim_in, hidden_dim, use_gn=False):
     """
         Caffe2 implementation uses XavierFill, which in fact
@@ -2644,6 +2861,257 @@ def keep_only_positive_boxes(boxes):
         positive_boxes.append(boxes_per_image[inds])
         positive_inds.append(inds_mask)
     return positive_boxes, positive_inds
+
+
+def make_roi_mask_feature_extractor(cfg):
+    func = _ROI_MASK_FEATURE_EXTRACTORS[cfg.MODEL.ROI_MASK_HEAD.
+        FEATURE_EXTRACTOR]
+    return func(cfg)
+
+
+def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+
+    Arguments:
+        segmentation_masks: an instance of SegmentationMask
+        proposals: an instance of BoxList
+    """
+    masks = []
+    M = discretization_size
+    device = proposals.bbox.device
+    proposals = proposals.convert('xyxy')
+    assert segmentation_masks.size == proposals.size, '{}, {}'.format(
+        segmentation_masks, proposals)
+    proposals = proposals.bbox.to(torch.device('cpu'))
+    for segmentation_mask, proposal in zip(segmentation_masks, proposals):
+        cropped_mask = segmentation_mask.crop(proposal)
+        scaled_mask = cropped_mask.resize((M, M))
+        mask = scaled_mask.convert(mode='mask')
+        masks.append(mask)
+    if len(masks) == 0:
+        return torch.empty(0, dtype=torch.float32, device=device)
+    return torch.stack(masks, dim=0).to(device, dtype=torch.float32)
+
+
+class MaskRCNNLossComputation(object):
+
+    def __init__(self, proposal_matcher, discretization_size):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            discretization_size (int)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.discretization_size = discretization_size
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'masks'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        masks = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(
+                proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
+            segmentation_masks = matched_targets.get_field('masks')
+            segmentation_masks = segmentation_masks[positive_inds]
+            positive_proposals = proposals_per_image[positive_inds]
+            masks_per_image = project_masks_on_boxes(segmentation_masks,
+                positive_proposals, self.discretization_size)
+            labels.append(labels_per_image)
+            masks.append(masks_per_image)
+        return labels, masks
+
+    def __call__(self, proposals, mask_logits, targets):
+        """
+        Arguments:
+            proposals (list[BoxList])
+            mask_logits (Tensor)
+            targets (list[BoxList])
+
+        Return:
+            mask_loss (Tensor): scalar tensor containing the loss
+        """
+        labels, mask_targets = self.prepare_targets(proposals, targets)
+        labels = cat(labels, dim=0)
+        mask_targets = cat(mask_targets, dim=0)
+        positive_inds = torch.nonzero(labels > 0).squeeze(1)
+        labels_pos = labels[positive_inds]
+        if mask_targets.numel() == 0:
+            return mask_logits.sum() * 0
+        mask_loss = F.binary_cross_entropy_with_logits(mask_logits[
+            positive_inds, labels_pos], mask_targets)
+        return mask_loss
+
+
+def make_roi_mask_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
+        ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    loss_evaluator = MaskRCNNLossComputation(matcher, cfg.MODEL.
+        ROI_MASK_HEAD.RESOLUTION)
+    return loss_evaluator
+
+
+def expand_boxes(boxes, scale):
+    w_half = (boxes[:, (2)] - boxes[:, (0)]) * 0.5
+    h_half = (boxes[:, (3)] - boxes[:, (1)]) * 0.5
+    x_c = (boxes[:, (2)] + boxes[:, (0)]) * 0.5
+    y_c = (boxes[:, (3)] + boxes[:, (1)]) * 0.5
+    w_half *= scale
+    h_half *= scale
+    boxes_exp = torch.zeros_like(boxes)
+    boxes_exp[:, (0)] = x_c - w_half
+    boxes_exp[:, (2)] = x_c + w_half
+    boxes_exp[:, (1)] = y_c - h_half
+    boxes_exp[:, (3)] = y_c + h_half
+    return boxes_exp
+
+
+def expand_masks(mask, padding):
+    N = mask.shape[0]
+    M = mask.shape[-1]
+    pad2 = 2 * padding
+    scale = float(M + pad2) / M
+    padded_mask = mask.new_zeros((N, 1, M + pad2, M + pad2))
+    padded_mask[:, :, padding:-padding, padding:-padding] = mask
+    return padded_mask, scale
+
+
+def paste_mask_in_image(mask, box, im_h, im_w, thresh=0.5, padding=1):
+    padded_mask, scale = expand_masks(mask[None], padding=padding)
+    mask = padded_mask[0, 0]
+    box = expand_boxes(box[None], scale)[0]
+    box = box.to(dtype=torch.int32)
+    TO_REMOVE = 1
+    w = int(box[2] - box[0] + TO_REMOVE)
+    h = int(box[3] - box[1] + TO_REMOVE)
+    w = max(w, 1)
+    h = max(h, 1)
+    mask = mask.expand((1, 1, -1, -1))
+    mask = mask.to(torch.float32)
+    mask = F.interpolate(mask, size=(h, w), mode='bilinear', align_corners=
+        False)
+    mask = mask[0][0]
+    if thresh >= 0:
+        mask = mask > thresh
+    else:
+        mask = (mask * 255).to(torch.uint8)
+    im_mask = torch.zeros((im_h, im_w), dtype=torch.uint8)
+    x_0 = max(box[0], 0)
+    x_1 = min(box[2] + 1, im_w)
+    y_0 = max(box[1], 0)
+    y_1 = min(box[3] + 1, im_h)
+    im_mask[y_0:y_1, x_0:x_1] = mask[y_0 - box[1]:y_1 - box[1], x_0 - box[0
+        ]:x_1 - box[0]]
+    return im_mask
+
+
+class Masker(object):
+    """
+    Projects a set of masks in an image on the locations
+    specified by the bounding boxes
+    """
+
+    def __init__(self, threshold=0.5, padding=1):
+        self.threshold = threshold
+        self.padding = padding
+
+    def forward_single_image(self, masks, boxes):
+        boxes = boxes.convert('xyxy')
+        im_w, im_h = boxes.size
+        res = [paste_mask_in_image(mask, box, im_h, im_w, self.threshold,
+            self.padding) for mask, box in zip(masks, boxes.bbox)]
+        if len(res) > 0:
+            res = torch.stack(res, dim=0)[:, (None)]
+        else:
+            res = masks.new_empty((0, 1, masks.shape[-2], masks.shape[-1]))
+        return res
+
+    def __call__(self, masks, boxes):
+        if isinstance(boxes, BoxList):
+            boxes = [boxes]
+        assert len(boxes) == len(masks
+            ), 'Masks and boxes should have the same length.'
+        results = []
+        for mask, box in zip(masks, boxes):
+            assert mask.shape[0] == len(box
+                ), 'Number of objects should be the same.'
+            result = self.forward_single_image(mask, box)
+            results.append(result)
+        return results
+
+
+def make_roi_mask_post_processor(cfg):
+    if cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS:
+        mask_threshold = cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS_THRESHOLD
+        masker = Masker(threshold=mask_threshold, padding=1)
+    else:
+        masker = None
+    mask_post_processor = MaskPostProcessor(masker)
+    return mask_post_processor
+
+
+def make_roi_mask_predictor(cfg):
+    func = _ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+class ROIMaskHead(torch.nn.Module):
+
+    def __init__(self, cfg):
+        super(ROIMaskHead, self).__init__()
+        self.cfg = cfg.clone()
+        self.feature_extractor = make_roi_mask_feature_extractor(cfg)
+        self.predictor = make_roi_mask_predictor(cfg)
+        self.post_processor = make_roi_mask_post_processor(cfg)
+        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the original proposals
+                are returned. During testing, the predicted boxlists are returned
+                with the `mask` field set
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            all_proposals = proposals
+            proposals, positive_inds = keep_only_positive_boxes(proposals)
+        if (self.training and self.cfg.MODEL.ROI_MASK_HEAD.
+            SHARE_BOX_FEATURE_EXTRACTOR):
+            x = features
+            x = x[torch.cat(positive_inds, dim=0)]
+        else:
+            x = self.feature_extractor(features, proposals)
+        mask_logits = self.predictor(x)
+        if not self.training:
+            result = self.post_processor(mask_logits, proposals)
+            return x, result, {}
+        loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
+        return x, all_proposals, dict(loss_mask=loss_mask)
 
 
 def make_conv3x3(in_channels, out_channels, dilation=1, stride=1, use_gn=
@@ -3597,11 +4065,10 @@ class NasHeadModule(torch.nn.Module):
         l_b = [center - step, center + step]
         r_b = [center + step, center + step]
         if self.dense_points == 4:
-            points = torch.cuda.FloatTensor([l_t, r_t, l_b, r_b], device=device
-                )
+            points = torch.FloatTensor([l_t, r_t, l_b, r_b], device=device)
         elif self.dense_points == 5:
-            points = torch.cuda.FloatTensor([l_t, r_t, [center, center],
-                l_b, r_b], device=device)
+            points = torch.FloatTensor([l_t, r_t, [center, center], l_b,
+                r_b], device=device)
         else:
             None
         points.reshape(1, -1, 2)
@@ -4353,6 +4820,44 @@ class GN_FactorizedReduce(nn.Module):
         return out
 
 
+class DCN(DCNv2):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride,
+        padding, dilation=1, deformable_groups=1):
+        super(DCN, self).__init__(in_channels, out_channels, kernel_size,
+            stride, padding, dilation, deformable_groups)
+        channels_ = self.deformable_groups * 3 * self.kernel_size[0
+            ] * self.kernel_size[1]
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_,
+            kernel_size=self.kernel_size, stride=self.stride, padding=self.
+            padding, bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias,
+            self.stride, self.padding, self.dilation, self.deformable_groups)
+
+
+class DefConv(nn.Module):
+
+    def __init__(self, C_in, C_out, ksize):
+        super(DefConv, self).__init__()
+        self.dcn = nn.Sequential(DCN(C_in, C_out, ksize, stride=1, padding=
+            ksize // 2, deformable_groups=2), nn.BatchNorm2d(C_out), nn.
+            ReLU(inplace=True))
+
+    def forward(self, x):
+        return self.dcn(x)
+
+
 class GN_DefConv(nn.Module):
 
     def __init__(self, C_in, C_out, ksize):
@@ -4757,6 +5262,7 @@ class MicroHead_v2_retinanet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Lausannen_NAS_FCOS(_paritybench_base):
@@ -4770,84 +5276,88 @@ class Test_Lausannen_NAS_FCOS(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(Bottleneck(*[], **{'in_channels': 4, 'bottleneck_channels': 4, 'out_channels': 4, 'num_groups': 1, 'stride_in_1x1': 1, 'stride': 1, 'dilation': 1, 'norm_func': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(CascadeConv3x3(*[], **{'C_in': 4, 'C_out': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(ConcatReduce(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
-        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': relu, 'bn_type': bn}), [torch.rand([4, 1, 64, 64])], {})
+    def test_007(self):
+        self._check(ConvBNRelu(*[], **{'input_depth': 1, 'output_depth': 1, 'kernel': 4, 'stride': 1, 'pad': 4, 'no_bias': 4, 'use_relu': 'relu', 'bn_type': 'bn'}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(ConvTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(FrozenBatchNorm2d(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(GAPConv1x1(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(IOULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(IRFBlock(*[], **{'input_depth': 1, 'output_depth': 1, 'expansion': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(InnerBlock(*[], **{'in_c': 4, 'out_c': 4, 'rates': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(LastLevelMaxPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(LastLevelP6P7(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_019(self):
+    def test_020(self):
         self._check(ParamSum(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_020(self):
+    def test_021(self):
         self._check(SEModule(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_023(self):
         self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_023(self):
+    def test_024(self):
         self._check(Shift(*[], **{'C': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_024(self):
+    def test_025(self):
         self._check(ShiftBlock5x5(*[], **{'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_025(self):
+    def test_026(self):
         self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 

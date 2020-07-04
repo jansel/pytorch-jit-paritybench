@@ -53,10 +53,13 @@ test_ppo = _module
 test_randomly = _module
 test_seq2seq = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -135,6 +138,147 @@ def check_intentional_override(class_name, fn_name, override_bool_name, obj,
                 override_bool_name), file=sys.stderr)
         except:
             pass
+
+
+class DynamicFeatures(nn.Module):
+    """`DynamicFeatures` are any function that map an `Env` to a
+    tensor. The dimension of the feature representation tensor should
+    be (1, N, `dim`), where `N` is the length of the input, and
+    `dim()` returns the dimensionality.
+
+    The `forward` function computes the features."""
+    OVERRIDE_FORWARD = False
+
+    def __init__(self, dim):
+        nn.Module.__init__(self)
+        self.dim = dim
+        self._current_env = None
+        self._features = None
+        self._batched_features = None
+        self._batched_lengths = None
+        self._my_id = '%s #%d' % (type(self), id(self))
+        self._recompute_always = True
+        self._typememory = TypeMemory()
+        check_intentional_override('DynamicFeatures', '_forward',
+            'OVERRIDE_FORWARD', self, None)
+
+    def _forward(self, env):
+        raise NotImplementedError('abstract')
+
+    def forward(self, env):
+        if self._batched_features is not None and hasattr(env,
+            '_stored_batch_features'
+            ) and self._my_id in env._stored_batch_features:
+            i = env._stored_batch_features[self._my_id]
+            assert 0 <= i and i < self._batched_features.shape[0]
+            assert self._batched_lengths[i] <= self._batched_features.shape[1]
+            l = self._batched_lengths[i]
+            self._features = self._batched_features[(i), :l, :].unsqueeze(0)
+        if self._features is None or self._recompute_always:
+            self._features = self._forward(env)
+            assert self._features.dim() == 3
+            assert self._features.shape[0] == 1
+            assert self._features.shape[2] == self.dim
+        assert self._features is not None
+        return self._features
+
+    def _forward_batch(self, envs):
+        raise NotImplementedError('abstract')
+
+    def forward_batch(self, envs):
+        if self._batched_features is not None:
+            return self._batched_features, self._batched_lengths
+        try:
+            res = self._forward_batch(envs)
+            assert isinstance(res, tuple)
+            self._batched_features, self._batched_lengths = res
+            if self._batched_features.shape[0] != len(envs):
+                ipdb.set_trace()
+        except NotImplementedError:
+            pass
+        if self._batched_features is None:
+            bf = [self._forward(env) for env in envs]
+            for x in bf:
+                assert x.dim() == 3
+                assert x.shape[0] == 1
+                assert x.shape[2] == self.dim
+            max_len = max(x.shape[1] for x in bf)
+            self._batched_features = Var(self._typememory.param.data.new(
+                len(envs), max_len, self.dim).zero_())
+            self._batched_lengths = []
+            for i, x in enumerate(bf):
+                self._batched_features[(i), :x.shape[1], :] = x
+                self._batched_lengths.append(x.shape[1])
+        assert self._batched_features.shape[0] == len(envs)
+        for i, env in enumerate(envs):
+            if not hasattr(env, '_stored_batch_features'):
+                env._stored_batch_features = dict()
+            env._stored_batch_features[self._my_id] = i
+        return self._batched_features, self._batched_lengths
+
+
+class Actor(nn.Module):
+    """An `Actor` is a module that computes features dynamically as a policy runs."""
+    OVERRIDE_FORWARD = False
+
+    def __init__(self, n_actions, dim, attention):
+        nn.Module.__init__(self)
+        self._current_env = None
+        self._features = None
+        self.n_actions = n_actions
+        self.dim = dim
+        self.attention = nn.ModuleList(attention)
+        self._T = None
+        self._last_t = 0
+        for att in attention:
+            if att.actor_dependent:
+                att.set_actor(self)
+        self._typememory = TypeMemory()
+        check_intentional_override('Actor', '_forward', 'OVERRIDE_FORWARD',
+            self, None)
+
+    def reset(self):
+        self._last_t = 0
+        self._T = None
+        self._features = None
+        self._reset()
+
+    def _reset(self):
+        pass
+
+    def _forward(self, state, x):
+        raise NotImplementedError('abstract')
+
+    def hidden(self):
+        raise NotImplementedError('abstract')
+
+    def forward(self, env):
+        if self._features is None or self._T is None:
+            self._T = env.horizon()
+            self._features = [None] * self._T
+            self._last_t = 0
+        t = env.timestep()
+        if t > self._last_t + 1:
+            ipdb.set_trace()
+        assert t <= self._last_t + 1, '%d <= %d+1' % (t, self._last_t)
+        assert t >= self._last_t, '%d >= %d' % (t, self._last_t)
+        self._last_t = t
+        assert self._features is not None
+        assert t >= 0, 'expect t>=0, bug?'
+        assert t < self._T, '%d=t < T=%d' % (t, self._T)
+        assert t < len(self._features)
+        if self._features[t] is not None:
+            return self._features[t]
+        assert t == 0 or self._features[t - 1] is not None
+        x = []
+        for att in self.attention:
+            x += att(env)
+        ft = self._forward(env, x)
+        assert ft.dim() == 2
+        assert ft.shape[0] == 1
+        assert ft.shape[1] == self.dim
+        self._features[t] = ft
+        return self._features[t]
 
 
 class Policy(nn.Module):
@@ -364,10 +508,11 @@ def delegate_with_poisson(params, functions, greedy_update):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hal3_macarico(_paritybench_base):
     pass
     def test_000(self):
-        self._check(Torch(*[], **{'features': ReLU(), 'dim': 4, 'layers': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Torch(*[], **{'features': _mock_layer(), 'dim': 4, 'layers': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

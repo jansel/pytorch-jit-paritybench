@@ -108,10 +108,13 @@ map2phone = _module
 text2dict = _module
 trn2ctm = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -207,11 +210,11 @@ class ModelBase(nn.Module):
 
     @property
     def use_cuda(self):
-        return torch.cuda.is_available()
+        return torch.is_available()
 
     @property
     def device_id(self):
-        return torch.cuda.device_of(next(self.parameters())).idx
+        return torch.device_of(next(self.parameters())).idx
 
     def init_forget_gate_bias_with_one(self):
         """Initialize bias in forget gate with 1. See detail in
@@ -665,7 +668,7 @@ class GMMAttention(nn.Module):
         self.myu = myu
         js = torch.arange(klen).unsqueeze(0).unsqueeze(2).repeat([bs, 1,
             self.n_mix]).float()
-        device_id = torch.cuda.device_of(next(self.parameters())).idx
+        device_id = torch.device_of(next(self.parameters())).idx
         if device_id >= 0:
             js = js.float()
         numerator = torch.exp(-torch.pow(js - myu, 2) / (2 * v + self.vfloor))
@@ -1933,7 +1936,7 @@ class TransformerDecoderBlock(nn.Module):
         if src_tgt_attention:
             self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps)
             if 'mocha' in atype:
-                self.n_heads = mocha_n_heads_monoNone
+                self.n_heads = mocha_n_heads_mono
                 self.src_attn = MoChA(kdim=d_model, qdim=d_model, adim=
                     d_model, atype='scaled_dot', chunk_size=
                     mocha_chunk_size, n_heads_mono=mocha_n_heads_mono,
@@ -2041,6 +2044,103 @@ class TransformerDecoderBlock(nn.Module):
         if cache is not None:
             out = torch.cat([cache, out], dim=1)
         return out, yy_aws, xy_aws, xy_aws_beta, yy_aws_lm
+
+
+class SyncBidirTransformerDecoderBlock(nn.Module):
+    """A single layer of the synchronous bidirectional Transformer decoder.
+
+        Args:
+            d_model (int): input dimension of MultiheadAttentionMechanism and PositionwiseFeedForward
+            d_ff (int): hidden dimension of PositionwiseFeedForward
+            n_heads (int): number of heads for multi-head attention
+            dropout (float): dropout probabilities for linear layers
+            dropout_att (float): dropout probabilities for attention probabilities
+            dropout_layer (float): LayerDrop probabilities for layers
+            layer_norm_eps (float): epsilon parameter for layer normalization
+            ffn_activation (str): nonolinear function for PositionwiseFeedForward
+            param_init (str): parameter initialization method
+
+    """
+
+    def __init__(self, d_model, d_ff, n_heads, dropout, dropout_att,
+        dropout_layer, layer_norm_eps, ffn_activation, param_init):
+        super(SyncBidirTransformerDecoderBlock, self).__init__()
+        self.n_heads = n_heads
+        self.norm1 = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.self_attn = SyncBidirMHA(kdim=d_model, qdim=d_model, adim=
+            d_model, n_heads=n_heads, dropout=dropout_att, param_init=
+            param_init)
+        self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.src_attn = MHA(kdim=d_model, qdim=d_model, adim=d_model,
+            n_heads=n_heads, dropout=dropout_att, param_init=param_init)
+        self.norm3 = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.feed_forward = FFN(d_model, d_ff, dropout, ffn_activation,
+            param_init)
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, ys, ys_bwd, yy_mask, identity_mask, xs, xy_mask,
+        cache=None, cache_bwd=None):
+        """Synchronous bidirectional Transformer decoder forward pass.
+
+        Args:
+            ys (FloatTensor): `[B, L, d_model]`
+            ys_bwd (FloatTensor): `[B, L, d_model]`
+            yy_mask (ByteTensor): `[B, L, L]`
+            identity_mask (ByteTensor): `[B, L, L]`
+            xs (FloatTensor): encoder outputs. `[B, T, d_model]`
+            xy_mask (ByteTensor): `[B, L, T]`
+            cache (FloatTensor): `[B, L-1, d_model]`
+            cache_bwd (FloatTensor): `[B, L-1, d_model]`
+        Returns:
+            out (FloatTensor): `[B, L, d_model]`
+            yy_aws_h (FloatTensor)`[B, L, L]`
+            yy_aws_f (FloatTensor)`[B, L, L]`
+            yy_aws_bwd_h (FloatTensor)`[B, L, L]`
+            yy_aws_bwd_f (FloatTensor)`[B, L, L]`
+            xy_aws (FloatTensor): `[B, L, T]`
+            xy_aws_bwd (FloatTensor): `[B, L, T]`
+
+        """
+        residual = ys
+        residual_bwd = ys_bwd
+        ys = self.norm1(ys)
+        ys_bwd = self.norm1(ys_bwd)
+        if cache is not None:
+            assert cache_bwd is not None
+            ys_q = ys[:, -1:]
+            ys_bwd_q = ys_bwd[:, -1:]
+            residual = residual[:, -1:]
+            residual_bwd = residual_bwd[:, -1:]
+            yy_mask = yy_mask[:, -1:]
+        else:
+            ys_q = ys
+            ys_bwd_q = ys_bwd
+        out, out_bwd, yy_aws_h, yy_aws_f, yy_aws_bwd_h, yy_aws_bwd_f = (self
+            .self_attn(ys, ys, ys_q, ys_bwd, ys_bwd, ys_bwd_q, tgt_mask=
+            yy_mask, identity_mask=identity_mask))
+        out = self.dropout(out) + residual
+        out_bwd = self.dropout(out_bwd) + residual_bwd
+        residual = out
+        out = self.norm2(out)
+        out, xy_aws, _ = self.src_attn(xs, xs, out, mask=xy_mask)
+        out = self.dropout(out) + residual
+        residual_bwd = out_bwd
+        out_bwd = self.norm2(out_bwd)
+        out_bwd, xy_aws_bwd, _ = self.src_attn(xs, xs, out_bwd, mask=xy_mask)
+        out_bwd = self.dropout(out_bwd) + residual_bwd
+        residual = out
+        out = self.norm3(out)
+        out = self.feed_forward(out)
+        out = self.dropout(out) + residual
+        residual_bwd = out_bwd
+        out_bwd = self.norm3(out_bwd)
+        out_bwd = self.feed_forward(out_bwd)
+        out_bwd = self.dropout(out_bwd) + residual_bwd
+        if cache is not None:
+            out = torch.cat([cache, out], dim=1)
+            out_bwd = torch.cat([cache_bwd, out_bwd], dim=1)
+        return (out, out_bwd, yy_aws_h, yy_aws_f, yy_aws_bwd_h,
+            yy_aws_bwd_f, xy_aws, xy_aws_bwd)
 
 
 class ZoneoutCell(nn.Module):
@@ -2371,7 +2471,7 @@ class SequenceSummaryNetwork(nn.Module):
         for l in range(self.n_layers - 1):
             s = torch.tanh(self.ssn[l](s))
         s = self.ssn[self.n_layers - 1](s)
-        device_id = torch.cuda.device_of(next(self.parameters())).idx
+        device_id = torch.device_of(next(self.parameters())).idx
         mask = make_pad_mask(xlens, device_id).unsqueeze(2)
         s = s.masked_fill_(mask == 0, 0)
         s = s.sum(1) / xlens.float().unsqueeze(1)
@@ -2380,6 +2480,7 @@ class SequenceSummaryNetwork(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hirofumi0810_neural_sp(_paritybench_base):
@@ -2397,7 +2498,7 @@ class Test_hirofumi0810_neural_sp(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(DropSubsampler(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4]), [4, 4]], {})
+        self._check(CustomDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_004(self):
         self._check(LinearGLUBlock(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})

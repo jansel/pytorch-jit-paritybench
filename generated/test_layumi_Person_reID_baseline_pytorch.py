@@ -14,10 +14,13 @@ re_ranking = _module
 test = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -36,6 +39,9 @@ import torch.nn as nn
 from torch.nn import init
 
 
+from torchvision import models
+
+
 from torch.autograd import Variable
 
 
@@ -49,6 +55,15 @@ import torch.backends.cudnn as cudnn
 
 
 import numpy as np
+
+
+import torchvision
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import time
@@ -272,6 +287,7 @@ class PCB_test(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_layumi_Person_reID_baseline_pytorch(_paritybench_base):
@@ -279,4 +295,20 @@ class Test_layumi_Person_reID_baseline_pytorch(_paritybench_base):
     @_fails_compile()
     def test_000(self):
         self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ft_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
 

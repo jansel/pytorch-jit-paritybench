@@ -112,10 +112,13 @@ test_train = _module
 testprint_mnist = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -185,6 +188,15 @@ from torch import spmm
 import torch.sparse as ts
 
 
+import torchvision.models as models
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
 import torch.utils.data as data_utils
 
 
@@ -206,6 +218,12 @@ import scipy.optimize as so
 import torch.backends.cudnn as cudnn
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 from torch.nn.modules.loss import _Loss
 
 
@@ -225,6 +243,9 @@ from torch.utils.data import DataLoader
 
 
 from torch.utils.data import Dataset
+
+
+from torchvision import models
 
 
 class GraphConvolution(Module):
@@ -1591,6 +1612,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_DSE_MSU_DeepRobust(_paritybench_base):
@@ -1618,7 +1640,7 @@ class Test_DSE_MSU_DeepRobust(_paritybench_base):
         self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_006(self):
-        self._check(Hamiltonian(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Hamiltonian(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):

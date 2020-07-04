@@ -77,10 +77,13 @@ util = _module
 wavenet = _module
 global_conditioning_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -2259,6 +2262,7 @@ class WaveNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_swasun_VQ_VAE_Speech(_paritybench_base):
@@ -2279,7 +2283,7 @@ class Test_swasun_VQ_VAE_Speech(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(ConvolutionalEncoder(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4, 'input_features_type': 4, 'features_filters': 4, 'sampling_rate': 4, 'device': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(ConvolutionalEncoder(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4, 'input_features_type': 4, 'features_filters': 4, 'sampling_rate': 4, 'device': 0}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
     def test_005(self):
@@ -2298,12 +2302,16 @@ class Test_swasun_VQ_VAE_Speech(_paritybench_base):
 
     @_fails_compile()
     def test_009(self):
-        self._check(VectorQuantizer(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'device': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(STFT(*[], **{}), [torch.rand([4, 1, 64])], {})
 
     @_fails_compile()
     def test_010(self):
-        self._check(VectorQuantizerEMA(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'decay': 4, 'device': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(VectorQuantizer(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'device': 0}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
+        self._check(VectorQuantizerEMA(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'decay': 4, 'device': 0}), [torch.rand([4, 4, 4])], {})
+
+    def test_012(self):
         self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
 

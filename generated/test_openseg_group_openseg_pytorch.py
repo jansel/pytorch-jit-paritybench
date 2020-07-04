@@ -153,10 +153,13 @@ module_runner = _module
 optim_scheduler = _module
 trainer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -215,6 +218,9 @@ import torch.nn.functional as functional
 
 
 import torch.distributed as dist
+
+
+from numbers import Number
 
 
 from itertools import repeat
@@ -583,6 +589,93 @@ class DeformConv(Module):
     def forward(self, input, offset):
         return deform_conv_function(input, offset, self.weight, self.stride,
             self.padding, self.dilation, self.num_deformable_groups)
+
+
+class ModulatedDeformConvFunction(Function):
+
+    def __init__(self, stride, padding, dilation=1, deformable_groups=1):
+        super(ModulatedDeformConvFunction, self).__init__()
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.deformable_groups = deformable_groups
+
+    def forward(self, input, offset, mask, weight, bias):
+        if not input.is_cuda:
+            raise NotImplementedError
+        if (weight.requires_grad or mask.requires_grad or offset.
+            requires_grad or input.requires_grad):
+            self.save_for_backward(input, offset, mask, weight, bias)
+        output = input.new(*self._infer_shape(input, weight))
+        self._bufs = [input.new(), input.new()]
+        _backend.modulated_deform_conv_cuda_forward(input, weight, bias,
+            self._bufs[0], offset, mask, output, self._bufs[1], weight.
+            shape[2], weight.shape[3], self.stride, self.stride, self.
+            padding, self.padding, self.dilation, self.dilation, self.
+            deformable_groups)
+        return output
+
+    def backward(self, grad_output):
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        input, offset, mask, weight, bias = self.saved_tensors
+        grad_input = input.new(*input.size()).zero_()
+        grad_offset = offset.new(*offset.size()).zero_()
+        grad_mask = mask.new(*mask.size()).zero_()
+        grad_weight = weight.new(*weight.size()).zero_()
+        grad_bias = bias.new(*bias.size()).zero_()
+        _backend.modulated_deform_conv_cuda_backward(input, weight, bias,
+            self._bufs[0], offset, mask, self._bufs[1], grad_input,
+            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
+            weight.shape[2], weight.shape[3], self.stride, self.stride,
+            self.padding, self.padding, self.dilation, self.dilation, self.
+            deformable_groups)
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias
+
+    def _infer_shape(self, input, weight):
+        n = input.size(0)
+        channels_out = weight.size(0)
+        height, width = input.shape[2:4]
+        kernel_h, kernel_w = weight.shape[2:4]
+        height_out = (height + 2 * self.padding - (self.dilation * (
+            kernel_h - 1) + 1)) // self.stride + 1
+        width_out = (width + 2 * self.padding - (self.dilation * (kernel_w -
+            1) + 1)) // self.stride + 1
+        return n, channels_out, height_out, width_out
+
+
+class ModulatedDeformConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride,
+        padding, dilation=1, deformable_groups=1, no_bias=True):
+        super(ModulatedDeformConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.deformable_groups = deformable_groups
+        self.no_bias = no_bias
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
+            *self.kernel_size))
+        self.bias = nn.Parameter(torch.zeros(out_channels))
+        self.reset_parameters()
+        if self.no_bias:
+            self.bias.requires_grad = False
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        self.bias.data.zero_()
+
+    def forward(self, input, offset, mask):
+        func = ModulatedDeformConvFunction(self.stride, self.padding, self.
+            dilation, self.deformable_groups)
+        return func(input, offset, mask, self.weight, self.bias)
 
 
 class DeformRoIPoolingFunction(Function):
@@ -1708,8 +1801,7 @@ class MMDistributedDataParallel(nn.Module):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def forward(self, *inputs, **kwargs):
-        inputs, kwargs = self.scatter(inputs, kwargs, [torch.cuda.
-            current_device()])
+        inputs, kwargs = self.scatter(inputs, kwargs, [torch.current_device()])
         return self.module(*inputs[0], **kwargs[0])
 
 
@@ -2049,6 +2141,138 @@ _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
 
 
 build_path = '/tmp/bulid/syncbn'
+
+
+class _batchnormtrain(Function):
+
+    @staticmethod
+    def forward(ctx, input, mean, std, gamma, beta):
+        ctx.save_for_backward(input, mean, std, gamma, beta)
+        if input.is_cuda:
+            output = syncbn.batchnorm_forward(input, mean, std, gamma, beta)
+        else:
+            raise NotImplemented
+        return output
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        input, mean, std, gamma, beta = ctx.saved_variables
+        if gradOutput.is_cuda:
+            gradInput, gradMean, gradStd, gradGamma, gradBeta = (syncbn.
+                batchnorm_backward(gradOutput, input, mean, std, gamma,
+                beta, True))
+        else:
+            raise NotImplemented
+        return gradInput, gradMean, gradStd, gradGamma, gradBeta
+
+
+def batchnormtrain(input, mean, std, gamma, beta):
+    """Applies Batch Normalization over a 3d input that is seen as a
+    mini-batch.
+
+    .. _encoding.batchnormtrain:
+
+    .. math::
+
+        y = \\frac{x - \\mu[x]}{ \\sqrt{var[x] + \\epsilon}} * \\gamma + \\beta
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    """
+    return _batchnormtrain.apply(input, mean, std, gamma, beta)
+
+
+class _sum_square(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        if input.is_cuda:
+            xsum, xsqusum = syncbn.sumsquare_forward(input)
+        else:
+            raise NotImplemented
+        return xsum, xsqusum
+
+    @staticmethod
+    def backward(ctx, gradSum, gradSquare):
+        input, = ctx.saved_variables
+        if input.is_cuda:
+            gradInput = syncbn.sumsquare_backward(input, gradSum, gradSquare)
+        else:
+            raise NotImplemented
+        return gradInput
+
+
+def sum_square(input):
+    """Calculate sum of elements and sum of squares for Batch Normalization"""
+    return _sum_square.apply(input)
+
+
+class _SyncBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(_SyncBatchNorm, self).__init__(num_features, eps=eps,
+            momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not self.training:
+            return batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input_shape[0], self.num_features, -1)
+        N = input.size(0) * input.size(2)
+        xsum, xsqsum = sum_square(input)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(xsum,
+                xsqsum, N))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(xsum,
+                xsqsum, N))
+        return batchnormtrain(input, mean, 1.0 / inv_std, self.weight, self
+            .bias).view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
+            get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
+                2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        self.running_mean = (1 - self.momentum
+            ) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum
+            ) * self.running_var + self.momentum * unbias_var.data
+        return mean, (bias_var + self.eps) ** -0.5
 
 
 class WeightedFSOhemCELoss(nn.Module):
@@ -2939,8 +3163,8 @@ class Bottleneck(nn.Module):
                 else:
                     offset = self.conv2_offset(out)
                     dilation = self.conv2.dilation[0]
-                    bias_w = torch.cuda.FloatTensor([[-1, 0, 1], [-1, 0, 1],
-                        [-1, 0, 1]]) * (dilation - 1)
+                    bias_w = torch.FloatTensor([[-1, 0, 1], [-1, 0, 1], [-1,
+                        0, 1]]) * (dilation - 1)
                     bias_h = bias_w.permute(1, 0)
                     bias_w.requires_grad = False
                     bias_h.requires_grad = False
@@ -3061,6 +3285,70 @@ class DropBlock2D(object):
         raise NotImplementedError
 
 
+class SplAtConv2d(Module):
+    """Split-Attention Conv2d
+    """
+
+    def __init__(self, in_channels, channels, kernel_size, stride=(1, 1),
+        padding=(0, 0), dilation=(1, 1), groups=1, bias=True, radix=2,
+        reduction_factor=4, rectify=False, rectify_avg=False, bn_type=None,
+        dropblock_prob=0.0, **kwargs):
+        super(SplAtConv2d, self).__init__()
+        padding = _pair(padding)
+        self.rectify = rectify and (padding[0] > 0 or padding[1] > 0)
+        self.rectify_avg = rectify_avg
+        inter_channels = max(in_channels * radix // reduction_factor, 32)
+        self.radix = radix
+        self.cardinality = groups
+        self.channels = channels
+        self.dropblock_prob = dropblock_prob
+        if self.rectify:
+            self.conv = RFConv2d(in_channels, channels * radix, kernel_size,
+                stride, padding, dilation, groups=groups * radix, bias=bias,
+                average_mode=rectify_avg, **kwargs)
+        else:
+            self.conv = Conv2d(in_channels, channels * radix, kernel_size,
+                stride, padding, dilation, groups=groups * radix, bias=bias,
+                **kwargs)
+        self.use_bn = bn_type is not None
+        self.bn0 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(channels * radix)
+        self.relu = ReLU(inplace=False)
+        self.fc1 = Conv2d(channels, inter_channels, 1, groups=self.cardinality)
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(inter_channels)
+        self.fc2 = Conv2d(inter_channels, channels * radix, 1, groups=self.
+            cardinality)
+        if dropblock_prob > 0.0:
+            self.dropblock = DropBlock2D(dropblock_prob, 3)
+        self.rsoftmax = rSoftMax(radix, groups)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.use_bn:
+            x = self.bn0(x)
+        if self.dropblock_prob > 0.0:
+            x = self.dropblock(x)
+        x = self.relu(x)
+        batch, rchannel = x.shape[:2]
+        if self.radix > 1:
+            splited = torch.split(x, rchannel // self.radix, dim=1)
+            gap = sum(splited)
+        else:
+            gap = x
+        gap = F.adaptive_avg_pool2d(gap, 1)
+        gap = self.fc1(gap)
+        if self.use_bn:
+            gap = self.bn1(gap)
+        gap = self.relu(gap)
+        atten = self.fc2(gap)
+        atten = self.rsoftmax(atten).view(batch, -1, 1, 1)
+        if self.radix > 1:
+            attens = torch.split(atten, rchannel // self.radix, dim=1)
+            out = sum([(att * split) for att, split in zip(attens, splited)])
+        else:
+            out = atten * x
+        return out.contiguous()
+
+
 class rSoftMax(nn.Module):
 
     def __init__(self, radix, cardinality):
@@ -3089,6 +3377,228 @@ class GlobalAvgPool2d(nn.Module):
         return F.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
 
+class Bottleneck(nn.Module):
+    """ResNet Bottleneck
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, radix=1,
+        cardinality=1, bottleneck_width=64, avd=False, avd_first=False,
+        dilation=1, is_first=False, rectified_conv=False, rectify_avg=False,
+        bn_type=None, dropblock_prob=0.0, last_gamma=False):
+        super(Bottleneck, self).__init__()
+        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
+        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False
+            )
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
+        self.dropblock_prob = dropblock_prob
+        self.radix = radix
+        self.avd = avd and (stride > 1 or is_first)
+        self.avd_first = avd_first
+        if self.avd:
+            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
+            stride = 1
+        if dropblock_prob > 0.0:
+            self.dropblock1 = DropBlock2D(dropblock_prob, 3)
+            if radix == 1:
+                self.dropblock2 = DropBlock2D(dropblock_prob, 3)
+            self.dropblock3 = DropBlock2D(dropblock_prob, 3)
+        if radix > 1:
+            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=
+                3, stride=stride, padding=dilation, dilation=dilation,
+                groups=cardinality, bias=False, radix=radix, rectify=
+                rectified_conv, rectify_avg=rectify_avg, bn_type=bn_type,
+                dropblock_prob=dropblock_prob)
+        elif rectified_conv:
+            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False, average_mode=rectify_avg)
+            self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
+        else:
+            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False)
+            self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
+        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias
+            =False)
+        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * 4)
+        if last_gamma:
+            from torch.nn.init import zeros_
+            zeros_(self.bn3.weight)
+        self.relu = nn.ReLU(inplace=False)
+        self.relu_in = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.dilation = dilation
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock1(out)
+        out = self.relu(out)
+        if self.avd and self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv2(out)
+        if self.radix == 1:
+            out = self.bn2(out)
+            if self.dropblock_prob > 0.0:
+                out = self.dropblock2(out)
+            out = self.relu(out)
+        if self.avd and not self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out = out + residual
+        out = self.relu_in(out)
+        return out
+
+
+class ResNeSt(nn.Module):
+
+    def __init__(self, block, layers, radix=1, groups=1, bottleneck_width=
+        64, num_classes=1000, dilated=False, dilation=1, deep_stem=False,
+        stem_width=64, avg_down=False, rectified_conv=False, rectify_avg=
+        False, avd=False, avd_first=False, final_drop=0.0, dropblock_prob=0,
+        last_gamma=False, bn_type=None):
+        self.cardinality = groups
+        self.bottleneck_width = bottleneck_width
+        self.inplanes = stem_width * 2 if deep_stem else 64
+        self.avg_down = avg_down
+        self.last_gamma = last_gamma
+        self.radix = radix
+        self.avd = avd
+        self.avd_first = avd_first
+        super(ResNeSt, self).__init__()
+        self.rectified_conv = rectified_conv
+        self.rectify_avg = rectify_avg
+        if rectified_conv:
+            conv_layer = RFConv2d
+        else:
+            conv_layer = nn.Conv2d
+        conv_kwargs = {'average_mode': rectify_avg} if rectified_conv else {}
+        if deep_stem:
+            self.conv1 = nn.Sequential(conv_layer(3, stem_width,
+                kernel_size=3, stride=2, padding=1, bias=False, **
+                conv_kwargs), ModuleHelper.BatchNorm2d(bn_type=bn_type)(
+                stem_width), nn.ReLU(inplace=False), conv_layer(stem_width,
+                stem_width, kernel_size=3, stride=1, padding=1, bias=False,
+                **conv_kwargs), ModuleHelper.BatchNorm2d(bn_type=bn_type)(
+                stem_width), nn.ReLU(inplace=False), conv_layer(stem_width,
+                stem_width * 2, kernel_size=3, stride=1, padding=1, bias=
+                False, **conv_kwargs))
+        else:
+            self.conv1 = conv_layer(3, 64, kernel_size=7, stride=2, padding
+                =3, bias=False, **conv_kwargs)
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(self.inplanes)
+        self.relu = nn.ReLU(inplace=False)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
+            ceil_mode=True)
+        self.layer1 = self._make_layer(block, 64, layers[0], bn_type=
+            bn_type, is_first=False)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+            bn_type=bn_type)
+        if dilated or dilation == 4:
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
+                dilation=2, bn_type=bn_type, dropblock_prob=dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
+                dilation=4, bn_type=bn_type, dropblock_prob=dropblock_prob)
+        elif dilation == 2:
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+                dilation=1, bn_type=bn_type, dropblock_prob=dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
+                dilation=2, bn_type=bn_type, dropblock_prob=dropblock_prob)
+        else:
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+                bn_type=bn_type, dropblock_prob=dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+                bn_type=bn_type, dropblock_prob=dropblock_prob)
+        self.avgpool = GlobalAvgPool2d()
+        self.drop = nn.Dropout(final_drop) if final_drop > 0.0 else None
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, ModuleHelper.BatchNorm2d(bn_type=bn_type,
+                ret_cls=True)):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
+        bn_type=None, dropblock_prob=0.0, is_first=True):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            down_layers = []
+            if self.avg_down:
+                if dilation == 1:
+                    down_layers.append(nn.AvgPool2d(kernel_size=stride,
+                        stride=stride, ceil_mode=True, count_include_pad=False)
+                        )
+                else:
+                    down_layers.append(nn.AvgPool2d(kernel_size=1, stride=1,
+                        ceil_mode=True, count_include_pad=False))
+                down_layers.append(nn.Conv2d(self.inplanes, planes * block.
+                    expansion, kernel_size=1, stride=1, bias=False))
+            else:
+                down_layers.append(nn.Conv2d(self.inplanes, planes * block.
+                    expansion, kernel_size=1, stride=stride, bias=False))
+            down_layers.append(ModuleHelper.BatchNorm2d(bn_type=bn_type)(
+                planes * block.expansion))
+            downsample = nn.Sequential(*down_layers)
+        layers = []
+        if dilation == 1 or dilation == 2:
+            layers.append(block(self.inplanes, planes, stride, downsample=
+                downsample, radix=self.radix, cardinality=self.cardinality,
+                bottleneck_width=self.bottleneck_width, avd=self.avd,
+                avd_first=self.avd_first, dilation=1, is_first=is_first,
+                rectified_conv=self.rectified_conv, rectify_avg=self.
+                rectify_avg, bn_type=bn_type, dropblock_prob=dropblock_prob,
+                last_gamma=self.last_gamma))
+        elif dilation == 4:
+            layers.append(block(self.inplanes, planes, stride, downsample=
+                downsample, radix=self.radix, cardinality=self.cardinality,
+                bottleneck_width=self.bottleneck_width, avd=self.avd,
+                avd_first=self.avd_first, dilation=2, is_first=is_first,
+                rectified_conv=self.rectified_conv, rectify_avg=self.
+                rectify_avg, bn_type=bn_type, dropblock_prob=dropblock_prob,
+                last_gamma=self.last_gamma))
+        else:
+            raise RuntimeError('=> unknown dilation size: {}'.format(dilation))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, radix=self.radix,
+                cardinality=self.cardinality, bottleneck_width=self.
+                bottleneck_width, avd=self.avd, avd_first=self.avd_first,
+                dilation=dilation, rectified_conv=self.rectified_conv,
+                rectify_avg=self.rectify_avg, bn_type=bn_type,
+                dropblock_prob=dropblock_prob, last_gamma=self.last_gamma))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        tuple_features = list()
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        tuple_features.append(x)
+        x = self.maxpool(x)
+        tuple_features.append(x)
+        x = self.layer1(x)
+        tuple_features.append(x)
+        x = self.layer2(x)
+        tuple_features.append(x)
+        x = self.layer3(x)
+        tuple_features.append(x)
+        x = self.layer4(x)
+        tuple_features.append(x)
+        return tuple_features
+
+
 class NormalResnetBackbone(nn.Module):
 
     def __init__(self, orig_resnet):
@@ -3100,6 +3610,68 @@ class NormalResnetBackbone(nn.Module):
         self.layer2 = orig_resnet.layer2
         self.layer3 = orig_resnet.layer3
         self.layer4 = orig_resnet.layer4
+
+    def get_num_features(self):
+        return self.num_features
+
+    def forward(self, x):
+        tuple_features = list()
+        x = self.resinit(x)
+        tuple_features.append(x)
+        x = self.maxpool(x)
+        tuple_features.append(x)
+        x = self.layer1(x)
+        tuple_features.append(x)
+        x = self.layer2(x)
+        tuple_features.append(x)
+        x = self.layer3(x)
+        tuple_features.append(x)
+        x = self.layer4(x)
+        tuple_features.append(x)
+        return tuple_features
+
+
+class DilatedResnetBackbone(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8, multi_grid=(1, 2, 4)):
+        super(DilatedResnetBackbone, self).__init__()
+        self.num_features = 2048
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            if multi_grid is None:
+                orig_resnet.layer4.apply(partial(self._nostride_dilate,
+                    dilate=4))
+            else:
+                for i, r in enumerate(multi_grid):
+                    orig_resnet.layer4[i].apply(partial(self.
+                        _nostride_dilate, dilate=int(4 * r)))
+        elif dilate_scale == 16:
+            if multi_grid is None:
+                orig_resnet.layer4.apply(partial(self._nostride_dilate,
+                    dilate=2))
+            else:
+                for i, r in enumerate(multi_grid):
+                    orig_resnet.layer4[i].apply(partial(self.
+                        _nostride_dilate, dilate=int(2 * r)))
+        self.resinit = orig_resnet.resinit
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
 
     def get_num_features(self):
         return self.num_features
@@ -4022,8 +4594,7 @@ class OffsetBlock(nn.Module):
         if self.coord_map is None or self.coord_map[0].size(
             ) != offset_map.size()[2:]:
             self.coord_map = self._gen_coord_map(h, w)
-            self.norm_factor = torch.cuda.FloatTensor([(w - 1) / 2, (h - 1) /
-                2])
+            self.norm_factor = torch.FloatTensor([(w - 1) / 2, (h - 1) / 2])
         grid_h = offset_map[:, (0)] + self.coord_map[0]
         grid_w = offset_map[:, (1)] + self.coord_map[1]
         grid = torch.stack([grid_w, grid_h], dim=-1) / self.norm_factor - 1.0
@@ -4070,7 +4641,7 @@ class SpatialGather_Module(nn.Module):
 
     def forward(self, feats, probs, gt_probs=None):
         if self.use_gt and gt_probs is not None:
-            gt_probs = label_to_onehot(gt_probs.squeeze(1).type(torch.cuda.
+            gt_probs = label_to_onehot(gt_probs.squeeze(1).type(torch.
                 LongTensor), probs.size(1))
             batch_size, c, h, w = gt_probs.size(0), gt_probs.size(1
                 ), gt_probs.size(2), gt_probs.size(3)
@@ -4195,7 +4766,7 @@ class _ObjectAttentionBlock(nn.Module):
         value = self.f_down(proxy).view(batch_size, self.key_channels, -1)
         value = value.permute(0, 2, 1)
         if self.use_gt and gt_label is not None:
-            gt_label = label_to_onehot(gt_label.squeeze(1).type(torch.cuda.
+            gt_label = label_to_onehot(gt_label.squeeze(1).type(torch.
                 LongTensor), proxy.size(2) - 1)
             sim_map = gt_label[:, :, :, :].permute(0, 2, 3, 1).view(batch_size,
                 h * w, -1)
@@ -4311,6 +4882,67 @@ class SpatialOCR_Context(nn.Module):
     def forward(self, feats, proxy_feats):
         context = self.object_context_block(feats, proxy_feats)
         return context
+
+
+class SpatialOCR_ASP_Module(nn.Module):
+
+    def __init__(self, features, hidden_features=256, out_features=512,
+        dilations=(12, 24, 36), num_classes=19, bn_type=None, dropout=0.1):
+        super(SpatialOCR_ASP_Module, self).__init__()
+        self.context = nn.Sequential(nn.Conv2d(features, hidden_features,
+            kernel_size=3, padding=1, dilation=1, bias=True), ModuleHelper.
+            BNReLU(hidden_features, bn_type=bn_type), SpatialOCR_Context(
+            in_channels=hidden_features, key_channels=hidden_features // 2,
+            scale=1, bn_type=bn_type))
+        self.conv2 = nn.Sequential(nn.Conv2d(features, hidden_features,
+            kernel_size=1, padding=0, dilation=1, bias=True), ModuleHelper.
+            BNReLU(hidden_features, bn_type=bn_type))
+        self.conv3 = nn.Sequential(nn.Conv2d(features, hidden_features,
+            kernel_size=3, padding=dilations[0], dilation=dilations[0],
+            bias=True), ModuleHelper.BNReLU(hidden_features, bn_type=bn_type))
+        self.conv4 = nn.Sequential(nn.Conv2d(features, hidden_features,
+            kernel_size=3, padding=dilations[1], dilation=dilations[1],
+            bias=True), ModuleHelper.BNReLU(hidden_features, bn_type=bn_type))
+        self.conv5 = nn.Sequential(nn.Conv2d(features, hidden_features,
+            kernel_size=3, padding=dilations[2], dilation=dilations[2],
+            bias=True), ModuleHelper.BNReLU(hidden_features, bn_type=bn_type))
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(hidden_features * 5,
+            out_features, kernel_size=1, padding=0, dilation=1, bias=True),
+            ModuleHelper.BNReLU(out_features, bn_type=bn_type), nn.
+            Dropout2d(dropout))
+        self.object_head = SpatialGather_Module(num_classes)
+
+    def _cat_each(self, feat1, feat2, feat3, feat4, feat5):
+        assert len(feat1) == len(feat2)
+        z = []
+        for i in range(len(feat1)):
+            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i],
+                feat5[i]), 1))
+        return z
+
+    def forward(self, x, probs):
+        if isinstance(x, Variable):
+            _, _, h, w = x.size()
+        elif isinstance(x, tuple) or isinstance(x, list):
+            _, _, h, w = x[0].size()
+        else:
+            raise RuntimeError('unknown input type')
+        feat1 = self.context[0](x)
+        feat1 = self.context[1](feat1)
+        proxy_feats = self.object_head(feat1, probs)
+        feat1 = self.context[2](feat1, proxy_feats)
+        feat2 = self.conv2(x)
+        feat3 = self.conv3(x)
+        feat4 = self.conv4(x)
+        feat5 = self.conv5(x)
+        if isinstance(x, Variable):
+            out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
+        elif isinstance(x, tuple) or isinstance(x, list):
+            out = self._cat_each(feat1, feat2, feat3, feat4, feat5)
+        else:
+            raise RuntimeError('unknown input type')
+        output = self.conv_bn_dropout(out)
+        return output
 
 
 class HRNetBackbone(object):
@@ -4803,6 +5435,179 @@ class BackboneSelector(object):
         return model
 
 
+class CE2P_ASPOCR(nn.Module):
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(CE2P_ASPOCR, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=2)
+            self.decoder = CE2P_Decoder_Module(self.num_classes, dropout=
+                0.1, bn_type=self.configer.get('network', 'bn_type'),
+                inplane1=512, inplane2=512)
+        else:
+            in_channels = [1024, 2048]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=1)
+            self.decoder = CE2P_Decoder_Module(self.num_classes, dropout=
+                0.1, bn_type=self.configer.get('network', 'bn_type'),
+                inplane1=512, inplane2=256)
+        self.asp_ocr_head = SpatialOCR_ASP_Module(features=2048,
+            hidden_features=256, out_features=512, dilations=(6, 12, 18),
+            num_classes=self.num_classes, bn_type=self.configer.get(
+            'network', 'bn_type'))
+        self.cls = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
+            padding=0, dilation=1, bias=False), ModuleHelper.BNReLU(256,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(256,
+            self.num_classes, kernel_size=1, padding=0, dilation=1, bias=True))
+        self.dsn = nn.Sequential(nn.Conv2d(in_channels[0], 512, kernel_size
+            =3, stride=1, padding=1, bias=False), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.1), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        seg_dsn = self.dsn(x[-2])
+        edge_out, edge_fea = self.edgelayer(x[-4], x[-3], x[-2])
+        x5 = x[-1]
+        x_hr = self.asp_ocr_head(x5, seg_dsn)
+        seg_out1, x_hr = self.decoder(x_hr, x[-4])
+        x_hr = torch.cat([x_hr, edge_fea], dim=1)
+        seg_out2 = self.cls(x_hr)
+        seg_dsn = F.interpolate(seg_dsn, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out2 = F.interpolate(seg_out2, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out1 = F.interpolate(seg_out1, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        edge_out = F.interpolate(edge_out, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        return seg_out1, edge_out, seg_dsn, seg_out2
+
+
+class CE2P_OCRNet(nn.Module):
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(CE2P_OCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=2)
+            self.decoder = Decoder_Module(self.num_classes, dropout=0.1,
+                bn_type=self.configer.get('network', 'bn_type'), inplane1=
+                512, inplane2=512)
+        else:
+            in_channels = [1024, 2048]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=1)
+            self.decoder = Decoder_Module(self.num_classes, dropout=0.1,
+                bn_type=self.configer.get('network', 'bn_type'), inplane1=
+                512, inplane2=256)
+        self.spatial_context_head = SpatialGather_Module(self.num_classes)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=2048,
+            key_channels=256, out_channels=512, scale=1, dropout=0, bn_type
+            =self.configer.get('network', 'bn_type'))
+        self.cls = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
+            padding=0, dilation=1, bias=False), ModuleHelper.BNReLU(256,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(256,
+            self.num_classes, kernel_size=1, padding=0, dilation=1, bias=True))
+        self.dsn = nn.Sequential(nn.Conv2d(in_channels[0], 512, kernel_size
+            =3, stride=1, padding=1, bias=False), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.1), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        seg_dsn = self.dsn(x[-2])
+        edge_out, edge_fea = self.edgelayer(x[-4], x[-3], x[-2])
+        x5 = x[-1]
+        context = self.spatial_context_head(x5, seg_dsn)
+        x_hr = self.spatial_ocr_head(x5, context)
+        seg_out1, x_hr = self.decoder(x_hr, x[-4])
+        x_hr = torch.cat([x_hr, edge_fea], dim=1)
+        seg_out2 = self.cls(x_hr)
+        seg_dsn = F.interpolate(seg_dsn, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out2 = F.interpolate(seg_out2, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out1 = F.interpolate(seg_out1, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        edge_out = F.interpolate(edge_out, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        return seg_out1, edge_out, seg_dsn, seg_out2
+
+
+class CE2P_IdealOCRNet(nn.Module):
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(CE2P_IdealOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=2)
+            self.decoder = Decoder_Module(self.num_classes, dropout=0.1,
+                bn_type=self.configer.get('network', 'bn_type'), inplane1=
+                512, inplane2=512)
+        else:
+            in_channels = [1024, 2048]
+            self.edgelayer = Edge_Module(256, 2, bn_type=self.configer.get(
+                'network', 'bn_type'), factor=1)
+            self.decoder = Decoder_Module(self.num_classes, dropout=0.1,
+                bn_type=self.configer.get('network', 'bn_type'), inplane1=
+                512, inplane2=256)
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=True)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=2048,
+            key_channels=256, out_channels=512, scale=1, dropout=0, use_gt=
+            True, bn_type=self.configer.get('network', 'bn_type'))
+        self.cls = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
+            padding=0, dilation=1, bias=False), ModuleHelper.BNReLU(256,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(256,
+            self.num_classes, kernel_size=1, padding=0, dilation=1, bias=True))
+        self.dsn = nn.Sequential(nn.Conv2d(in_channels[0], 512, kernel_size
+            =3, stride=1, padding=1, bias=False), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.1), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        seg_dsn = self.dsn(x[-2])
+        edge_out, edge_fea = self.edgelayer(x[-4], x[-3], x[-2])
+        x5 = x[-1]
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x5.size(2), x5.size(3)), mode='nearest')
+        context = self.spatial_context_head(x5, seg_dsn, label)
+        x_hr = self.spatial_ocr_head(x5, context, label)
+        seg_out1, x_hr = self.decoder(x_hr, x[-4])
+        x_hr = torch.cat([x_hr, edge_fea], dim=1)
+        seg_out2 = self.cls(x_hr)
+        seg_dsn = F.interpolate(seg_dsn, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out2 = F.interpolate(seg_out2, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        seg_out1 = F.interpolate(seg_out1, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        edge_out = F.interpolate(edge_out, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        return seg_out1, edge_out, seg_dsn, seg_out2
+
+
 class FcnNet(nn.Module):
 
     def __init__(self, configer):
@@ -4918,7 +5723,569 @@ class HRNet_W48(nn.Module):
         return out
 
 
+class HRNet_W48_ASPOCR(nn.Module):
+
+    def __init__(self, configer):
+        super(HRNet_W48_ASPOCR, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        in_channels = 720
+        self.asp_ocr_head = SpatialOCR_ASP_Module(features=720,
+            hidden_features=256, out_features=256, dilations=(24, 48, 72),
+            num_classes=self.num_classes, bn_type=self.configer.get(
+            'network', 'bn_type'))
+        self.cls_head = nn.Conv2d(256, self.num_classes, kernel_size=1,
+            stride=1, padding=0, bias=False)
+        self.aux_head = nn.Sequential(nn.Conv2d(in_channels, 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(512,
+            self.num_classes, kernel_size=1, stride=1, padding=0, bias=False))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        _, _, h, w = x[0].size()
+        feat1 = x[0]
+        feat2 = F.interpolate(x[1], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat3 = F.interpolate(x[2], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat4 = F.interpolate(x[3], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feats = torch.cat([feat1, feat2, feat3, feat4], 1)
+        out_aux = self.aux_head(feats)
+        feats = self.asp_ocr_head(feats, out_aux)
+        out = self.cls_head(feats)
+        out_aux = F.interpolate(out_aux, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        return out_aux, out
+
+
+class HRNet_W48_OCR(nn.Module):
+
+    def __init__(self, configer):
+        super(HRNet_W48_OCR, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        in_channels = 720
+        self.conv3x3 = nn.Sequential(nn.Conv2d(in_channels, 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.ocr_gather_head = SpatialGather_Module(self.num_classes)
+        self.ocr_distri_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            bn_type=self.configer.get('network', 'bn_type'))
+        self.cls_head = nn.Conv2d(512, self.num_classes, kernel_size=1,
+            stride=1, padding=0, bias=True)
+        self.aux_head = nn.Sequential(nn.Conv2d(in_channels, in_channels,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(
+            in_channels, bn_type=self.configer.get('network', 'bn_type')),
+            nn.Conv2d(in_channels, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        _, _, h, w = x[0].size()
+        feat1 = x[0]
+        feat2 = F.interpolate(x[1], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat3 = F.interpolate(x[2], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat4 = F.interpolate(x[3], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feats = torch.cat([feat1, feat2, feat3, feat4], 1)
+        out_aux = self.aux_head(feats)
+        feats = self.conv3x3(feats)
+        context = self.ocr_gather_head(feats, out_aux)
+        feats = self.ocr_distri_head(feats, context)
+        out = self.cls_head(feats)
+        out_aux = F.interpolate(out_aux, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        return out_aux, out
+
+
+class HRNet_W48_OCR_B(nn.Module):
+    """
+    Considering that the 3x3 convolution on the 4x resolution feature map is expensive,
+    we can decrease the intermediate channels from 512 to 256 w/o performance loss.
+    """
+
+    def __init__(self, configer):
+        super(HRNet_W48_OCR_B, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        in_channels = 720
+        self.conv3x3 = nn.Sequential(nn.Conv2d(in_channels, 256,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(256,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.ocr_gather_head = SpatialGather_Module(self.num_classes)
+        self.ocr_distri_head = SpatialOCR_Module(in_channels=256,
+            key_channels=128, out_channels=256, scale=1, dropout=0.05,
+            bn_type=self.configer.get('network', 'bn_type'))
+        self.cls_head = nn.Conv2d(256, self.num_classes, kernel_size=1,
+            stride=1, padding=0, bias=True)
+        self.aux_head = nn.Sequential(nn.Conv2d(in_channels, 256,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(256,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(256,
+            self.num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        _, _, h, w = x[0].size()
+        feat1 = x[0]
+        feat2 = F.interpolate(x[1], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat3 = F.interpolate(x[2], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feat4 = F.interpolate(x[3], size=(h, w), mode='bilinear',
+            align_corners=True)
+        feats = torch.cat([feat1, feat2, feat3, feat4], 1)
+        out_aux = self.aux_head(feats)
+        feats = self.conv3x3(feats)
+        context = self.ocr_gather_head(feats, out_aux)
+        feats = self.ocr_distri_head(feats, context)
+        out = self.cls_head(feats)
+        out_aux = F.interpolate(out_aux, size=(x_.size(2), x_.size(3)),
+            mode='bilinear', align_corners=True)
+        out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        return out_aux, out
+
+
+class IdealSpatialOCRNet(nn.Module):
+    """
+    augment the representations with the ground-truth object context.
+    """
+
+    def __init__(self, configer):
+        super(IdealSpatialOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=True)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            use_gt=True, bn_type=self.configer.get('network', 'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x.size(2), x.size(3)), mode='nearest')
+        context = self.spatial_context_head(x, x_dsn, label)
+        x = self.spatial_ocr_head(x, context, label)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class IdealSpatialOCRNetB(nn.Module):
+    """
+    augment the representations with both the ground-truth background context and object context.
+    """
+
+    def __init__(self, configer):
+        super(IdealSpatialOCRNetB, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=True)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            use_gt=True, use_bg=True, bn_type=self.configer.get('network',
+            'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x.size(2), x.size(3)), mode='nearest')
+        context = self.spatial_context_head(x, x_dsn, label)
+        x = self.spatial_ocr_head(x, context, label)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class IdealSpatialOCRNetC(nn.Module):
+    """
+    augment the representations with only the ground-truth background context.
+    """
+
+    def __init__(self, configer):
+        super(IdealSpatialOCRNetC, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=True)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            use_gt=True, use_bg=True, use_oc=False, bn_type=self.configer.
+            get('network', 'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x.size(2), x.size(3)), mode='nearest')
+        context = self.spatial_context_head(x, x_dsn, label)
+        x = self.spatial_ocr_head(x, context, label)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class IdealGatherOCRNet(nn.Module):
+
+    def __init__(self, configer):
+        super(IdealGatherOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=True)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            use_gt=False, bn_type=self.configer.get('network', 'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x.size(2), x.size(3)), mode='nearest')
+        context = self.spatial_context_head(x, x_dsn, label)
+        x = self.spatial_ocr_head(x, context)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class IdealDistributeOCRNet(nn.Module):
+
+    def __init__(self, configer):
+        super(IdealDistributeOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes,
+            use_gt=False)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            use_gt=True, bn_type=self.configer.get('network', 'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_, label_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        label = F.interpolate(input=label_.unsqueeze(1).type(torch.
+            FloatTensor), size=(x.size(2), x.size(3)), mode='nearest')
+        context = self.spatial_context_head(x, x_dsn)
+        x = self.spatial_ocr_head(x, context, label)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class ISANet(nn.Module):
+    """
+    Interlaced Sparse Self-Attention for Semantic Segmentation
+    """
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(ISANet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        bn_type = self.configer.get('network', 'bn_type')
+        factors = self.configer.get('network', 'factors')
+        self.isa_head = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
+            stride=1, padding=1, bias=False), ModuleHelper.BNReLU(512,
+            bn_type=bn_type), ISA_Module(in_channels=512, key_channels=256,
+            value_channels=512, out_channels=512, down_factors=factors,
+            dropout=0.05, bn_type=bn_type))
+        self.cls_head = nn.Conv2d(512, self.num_classes, kernel_size=1,
+            stride=1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3,
+            stride=1, padding=1, bias=False), ModuleHelper.BNReLU(512,
+            bn_type=bn_type), nn.Dropout2d(0.05), nn.Conv2d(512, self.
+            num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.isa_head(x[-1])
+        x = self.cls_head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class BaseOCNet(nn.Module):
+    """
+    OCNet: Object Context Network for Scene Parsing
+    """
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(BaseOCNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.oc_module_pre = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.oc_module = BaseOC_Module(in_channels=512, out_channels=512,
+            key_channels=256, value_channels=256, dropout=0.05, sizes=[1],
+            bn_type=self.configer.get('network', 'bn_type'))
+        self.cls = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(in_channels[0], 512, kernel_size
+            =3, stride=1, padding=1), ModuleHelper.BNReLU(512, bn_type=self
+            .configer.get('network', 'bn_type')), nn.Conv2d(512, self.
+            num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn(x[-2])
+        x = self.oc_module_pre(x[-1])
+        x = self.oc_module(x)
+        x = self.cls(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class AspOCNet(nn.Module):
+    """
+    OCNet: Object Context Network for Scene Parsing
+    """
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(AspOCNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.context = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), ASP_OC_Module
+            (512, 256, bn_type=self.configer.get('network', 'bn_type')))
+        self.cls = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(in_channels[0], 512, kernel_size
+            =3, stride=1, padding=1), ModuleHelper.BNReLU(512, bn_type=self
+            .configer.get('network', 'bn_type')), nn.Conv2d(512, self.
+            num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        aux_x = self.dsn(x[-2])
+        x = self.context(x[-1])
+        x = self.cls(x)
+        aux_x = F.interpolate(aux_x, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return aux_x, x
+
+
+class SpatialOCRNet(nn.Module):
+    """
+    Object-Contextual Representations for Semantic Segmentation,
+    Yuan, Yuhui and Chen, Xilin and Wang, Jingdong
+    """
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(SpatialOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.conv_3x3 = nn.Sequential(nn.Conv2d(in_channels[1], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')))
+        self.spatial_context_head = SpatialGather_Module(self.num_classes)
+        self.spatial_ocr_head = SpatialOCR_Module(in_channels=512,
+            key_channels=256, out_channels=512, scale=1, dropout=0.05,
+            bn_type=self.configer.get('network', 'bn_type'))
+        self.head = nn.Conv2d(512, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.05), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.conv_3x3(x[-1])
+        context = self.spatial_context_head(x, x_dsn)
+        x = self.spatial_ocr_head(x, context)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
+class ASPOCRNet(nn.Module):
+    """
+    Object-Contextual Representations for Semantic Segmentation,
+    Yuan, Yuhui and Chen, Xilin and Wang, Jingdong
+    """
+
+    def __init__(self, configer):
+        self.inplanes = 128
+        super(ASPOCRNet, self).__init__()
+        self.configer = configer
+        self.num_classes = self.configer.get('data', 'num_classes')
+        self.backbone = BackboneSelector(configer).get_backbone()
+        if 'wide_resnet38' in self.configer.get('network', 'backbone'):
+            in_channels = [2048, 4096]
+        else:
+            in_channels = [1024, 2048]
+        self.asp_ocr_head = SpatialOCR_ASP_Module(features=2048,
+            hidden_features=256, out_features=256, num_classes=self.
+            num_classes, bn_type=self.configer.get('network', 'bn_type'))
+        self.head = nn.Conv2d(256, self.num_classes, kernel_size=1, stride=
+            1, padding=0, bias=True)
+        self.dsn_head = nn.Sequential(nn.Conv2d(in_channels[0], 512,
+            kernel_size=3, stride=1, padding=1), ModuleHelper.BNReLU(512,
+            bn_type=self.configer.get('network', 'bn_type')), nn.Dropout2d(
+            0.1), nn.Conv2d(512, self.num_classes, kernel_size=1, stride=1,
+            padding=0, bias=True))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        x_dsn = self.dsn_head(x[-2])
+        x = self.asp_ocr_head(x[-1], x_dsn)
+        x = self.head(x)
+        x_dsn = F.interpolate(x_dsn, size=(x_.size(2), x_.size(3)), mode=
+            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=(x_.size(2), x_.size(3)), mode='bilinear',
+            align_corners=True)
+        return x_dsn, x
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_openseg_group_openseg_pytorch(_paritybench_base):
@@ -4927,39 +6294,51 @@ class Test_openseg_group_openseg_pytorch(_paritybench_base):
     def test_000(self):
         self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_001(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_002(self):
-        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(PacCRF(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(OffsetBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(PacCRFLoose(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(OffsetModule(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(PyramidSpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
     def test_006(self):
-        self._check(SingleGPU(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(PacCRF(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(PacCRFLoose(*[], **{'channels': 4, 'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_008(self):
+        self._check(PyramidSpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(SingleGPU(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(SpatialGather_Module(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(SwitchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_012(self):
         self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_013(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
 

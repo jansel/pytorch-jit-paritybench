@@ -12,6 +12,7 @@ encoder_Q = _module
 encoder_QI = _module
 encoder_QIH = _module
 model = _module
+netG = _module
 share_Linear = _module
 utils = _module
 download = _module
@@ -20,10 +21,13 @@ train_D = _module
 train_G = _module
 train_all = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +65,12 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
 
 
 from torch.autograd import Variable
@@ -422,6 +432,182 @@ class AxB(nn.Module):
         return mat.view(-1, 100)
 
 
+class _netG(nn.Module):
+
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout, mos):
+        super(_netG, self).__init__()
+        self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
+        self.rnn_type = rnn_type
+        self.nhid = nhid
+        self.nlayers = nlayers
+        self.mos_flag = mos
+        self.mos_layer = mixture_of_softmaxes(nhid, 5, ntoken + 1)
+        self.decoder = nn.Linear(nhid, ntoken + 1)
+        self.d = dropout
+        self.beta = 3
+        self.vocab_size = ntoken
+
+    def init_weights(self):
+        initrange = 0.1
+        self.decoder.bias.data.fill_(0)
+        self.decoder.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, emb, hidden):
+        output, hidden = self.rnn(emb, hidden)
+        output = F.dropout(output, self.d, training=self.training)
+        if self.mos_flag:
+            decoded = self.mos_layer(output.view(output.size(0) * output.
+                size(1), output.size(2)))
+            logprob = torch.log(self.beta * decoded)
+        else:
+            decoded = self.decoder(output.view(output.size(0) * output.size
+                (1), output.size(2)))
+            logprob = F.log_softmax(self.beta * decoded)
+        return logprob, hidden
+
+    def init_hidden(self, bsz):
+        weight = next(self.parameters()).data
+        if self.rnn_type == 'LSTM':
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
+                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+        else:
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+
+    def sample_beam(self, netW, input, hidden_state, opt={}):
+        beam_size = opt.get('beam_size', 10)
+        batch_size = input.size(1)
+        seq_all = torch.LongTensor(self.seq_length, batch_size, beam_size
+            ).zero_()
+        seq = torch.LongTensor(self.seq_length, batch_size).zero_()
+        seqLogprobs = torch.FloatTensor(self.seq_length, batch_size)
+        self.done_beams = [[] for _ in range(batch_size)]
+        for k in range(batch_size):
+            state = []
+            for state_tmp in hidden_state:
+                state.append(state_tmp[:, (k), :].view(1, 1, -1).expand(1,
+                    beam_size, self.nhid).clone())
+            state = tuple(state)
+            beam_seq = torch.LongTensor(self.seq_length, beam_size).zero_()
+            beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size
+                ).zero_()
+            beam_logprobs_sum = torch.zeros(beam_size)
+            for t in range(self.seq_length + 1):
+                if t == 0:
+                    it = input.data.resize_(1, beam_size).fill_(self.vocab_size
+                        )
+                    xt = netW(Variable(it, requires_grad=False))
+                else:
+                    """perform a beam merge. that is,
+                    for every previous beam we now many new possibilities to branch out
+                    we need to resort our beams to maintain the loop invariant of keeping
+                    the top beam_size most likely sequences."""
+                    logprobsf = logprobs.float()
+                    ys, ix = torch.sort(logprobsf, 1, True)
+                    candidates = []
+                    cols = min(beam_size, ys.size(1))
+                    rows = beam_size
+                    if t == 1:
+                        rows = 1
+                    for cc in range(cols):
+                        for qq in range(rows):
+                            local_logprob = ys[qq, cc]
+                            if beam_seq[t - 2, qq] == self.vocab_size:
+                                local_logprob.data.fill_(-9999)
+                            candidate_logprob = beam_logprobs_sum[qq
+                                ] + local_logprob
+                            candidates.append({'c': ix.data[qq, cc], 'q':
+                                qq, 'p': candidate_logprob.data[0], 'r':
+                                local_logprob.data[0]})
+                    candidates = sorted(candidates, key=lambda x: -x['p'])
+                    new_state = [_.clone() for _ in state]
+                    if t > 1:
+                        beam_seq_prev = beam_seq[:t - 1].clone()
+                        beam_seq_logprobs_prev = beam_seq_logprobs[:t - 1
+                            ].clone()
+                    for vix in range(beam_size):
+                        v = candidates[vix]
+                        if t > 1:
+                            beam_seq[:t - 1, (vix)] = beam_seq_prev[:, (v['q'])
+                                ]
+                            beam_seq_logprobs[:t - 1, (vix)
+                                ] = beam_seq_logprobs_prev[:, (v['q'])]
+                        for state_ix in range(len(new_state)):
+                            new_state[state_ix][0, vix] = state[state_ix][0,
+                                v['q']]
+                        beam_seq[t - 1, vix] = v['c']
+                        beam_seq_logprobs[t - 1, vix] = v['r']
+                        beam_logprobs_sum[vix] = v['p']
+                        if v['c'] == self.vocab_size or t == self.seq_length:
+                            self.done_beams[k].append({'seq': beam_seq[:, (
+                                vix)].clone(), 'logps': beam_seq_logprobs[:,
+                                (vix)].clone(), 'p': beam_logprobs_sum[vix]})
+                    it = beam_seq[t - 1].view(1, -1)
+                    xt = netW(Variable(it))
+                if t >= 1:
+                    state = new_state
+                output, state = self.rnn(xt, state)
+                output = F.dropout(output, self.d, training=self.training)
+                if self.mos_flag:
+                    decoded = self.mos_layer(output.view(output.size(0) *
+                        output.size(1), output.size(2)))
+                    logprob = torch.log(self.beta * decoded)
+                else:
+                    decoded = self.decoder(output.view(output.size(0) *
+                        output.size(1), output.size(2)))
+                    logprob = F.log_softmax(self.beta * decoded)
+            self.done_beams[k] = sorted(self.done_beams[k], key=lambda x: -
+                x['p'])
+            seq[:, (k)] = self.done_beams[k][0]['seq']
+            seqLogprobs[:, (k)] = self.done_beams[k][0]['logps']
+            for ii in range(beam_size):
+                seq_all[:, (k), (ii)] = self.done_beams[k][ii]['seq']
+        return seq.transpose(0, 1), seqLogprobs.transpose(0, 1)
+
+    def sample(self, netW, input, state, opt={}):
+        sample_max = opt.get('sample_max', 1)
+        beam_size = opt.get('beam_size', 1)
+        temperature = opt.get('temperature', 1.0)
+        seq_length = opt.get('seq_length', 9)
+        self.seq_length = seq_length
+        if beam_size > 1:
+            return self.sample_beam(netW, input, state, opt)
+        batch_size = input.size(1)
+        seq = []
+        seqLogprobs = []
+        for t in range(self.seq_length + 1):
+            if t == 0:
+                it = input.data
+            elif sample_max:
+                sampleLogprobs, it = torch.max(logprobs.data, 1)
+                it = it.view(-1).long()
+            else:
+                if temperature == 1.0:
+                    prob_prev = torch.exp(logprobs.data).cpu()
+                else:
+                    prob_prev = torch.exp(torch.div(logprobs.data, temperature)
+                        ).cpu()
+                it = torch.multinomial(prob_prev, 1)
+                sampleLogprobs = logprobs.gather(1, Variable(it,
+                    requires_grad=False))
+                it = it.view(-1).long()
+            xt = netW(Variable(it.view(1, -1), requires_grad=False))
+            if t >= 1:
+                seq.append(it)
+                seqLogprobs.append(sampleLogprobs.view(-1))
+            output, state = self.rnn(xt, state)
+            output = F.dropout(output, self.d, training=self.training)
+            if self.mos_flag:
+                decoded = self.mos_layer(output.view(output.size(0) *
+                    output.size(1), output.size(2)))
+                logprob = torch.log(self.beta * decoded)
+            else:
+                decoded = self.decoder(output.view(output.size(0) * output.
+                    size(1), output.size(2)))
+                logprob = F.log_softmax(self.beta * decoded)
+        return torch.cat([_.unsqueeze(1) for _ in seq], 1), torch.cat([_.
+            unsqueeze(1) for _ in seqLogprobs], 1)
+
+
 class share_Linear(Module):
     """Applies a linear transformation to the incoming data: :math:`y = Ax + b`
     Args:
@@ -457,12 +643,13 @@ class share_Linear(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jiasenlu_visDial_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LMCriterion(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(AxB(*[], **{'nhid': 4}), [torch.rand([400, 100, 4]), torch.rand([40000, 100, 4])], {})
 
     @_fails_compile()
     def test_001(self):
@@ -475,6 +662,10 @@ class Test_jiasenlu_visDial_pytorch(_paritybench_base):
     def test_003(self):
         self._check(mixture_of_softmaxes(*[], **{'nhid': 4, 'n_experts': 4, 'ntoken': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
+        self._check(nPairLoss(*[], **{'ninp': 4, 'margin': 4}), [torch.rand([16, 4, 4]), torch.rand([64, 4]), torch.rand([64, 4, 4]), torch.rand([64, 4, 4])], {})
+
+    def test_005(self):
         self._check(share_Linear(*[], **{'weight': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
 

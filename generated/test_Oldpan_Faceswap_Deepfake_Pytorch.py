@@ -9,10 +9,13 @@ training_data = _module
 umeyama = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -82,6 +85,15 @@ def conv2d_same_padding(input, weight, bias=None, stride=1, padding=1,
         input = pad(input, [0, int(cols_odd), 0, int(rows_odd)])
     return F.conv2d(input, weight, bias, stride, padding=(padding_rows // 2,
         padding_cols // 2), dilation=dilation, groups=groups)
+
+
+class _ConvLayer(nn.Sequential):
+
+    def __init__(self, input_features, output_features):
+        super(_ConvLayer, self).__init__()
+        self.add_module('conv2', Conv2d(input_features, output_features,
+            kernel_size=5, stride=2))
+        self.add_module('leakyrelu', nn.LeakyReLU(0.1, inplace=True))
 
 
 class _UpScale(nn.Sequential):
@@ -204,6 +216,7 @@ class _ConvNd(Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Oldpan_Faceswap_Deepfake_Pytorch(_paritybench_base):
@@ -212,5 +225,8 @@ class Test_Oldpan_Faceswap_Deepfake_Pytorch(_paritybench_base):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(Reshape(*[], **{}), [torch.rand([4, 1024, 4, 4])], {})
+
+    def test_002(self):
         self._check(_PixelShuffler(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

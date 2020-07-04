@@ -25,10 +25,13 @@ html = _module
 image_pool = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -494,13 +497,32 @@ class PixelDiscriminator(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_richzhang_colorization_pytorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
     def test_001(self):
+        self._check(HuberLoss(*[], **{}), [], {'in0': torch.rand([4, 4]), 'in1': 4})
+
+    def test_002(self):
+        self._check(L1Loss(*[], **{}), [], {'in0': torch.rand([4, 4]), 'in1': 4})
+
+    def test_003(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_004(self):
         self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_006(self):
+        self._check(SIGGRAPHGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 1, 8, 8]), torch.rand([4, 1, 8, 8]), torch.rand([4, 2, 8, 8])], {})
+
+    def test_007(self):
+        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 1, 64, 64]), torch.rand([4, 2, 64, 64])], {})
 

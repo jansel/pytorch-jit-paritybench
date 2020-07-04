@@ -30,10 +30,13 @@ train_celeba_dragan = _module
 train_celeba_lsgan = _module
 train_celeba_wgan_gp = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -56,6 +59,15 @@ import torch.nn as nn
 
 
 from torch.autograd import Variable
+
+
+import torchvision
+
+
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
 
 
 from torch.autograd import grad
@@ -286,6 +298,7 @@ class DiscriminatorWGANGP(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_LynnHo_DCGAN_LSGAN_WGAN_GP_DRAGAN_Pytorch(_paritybench_base):
@@ -300,27 +313,23 @@ class Test_LynnHo_DCGAN_LSGAN_WGAN_GP_DRAGAN_Pytorch(_paritybench_base):
     def test_002(self):
         self._check(ConvGenerator(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DepthToSpace(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
         self._check(Discriminator(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_005(self):
+    def test_004(self):
         self._check(DiscriminatorWGANGP(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_006(self):
+    def test_005(self):
         self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
 
-    def test_007(self):
+    def test_006(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_007(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
-        self._check(SpaceToDepth(*[], **{'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+    def test_008(self):
+        self._check(SpaceToDepth(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 

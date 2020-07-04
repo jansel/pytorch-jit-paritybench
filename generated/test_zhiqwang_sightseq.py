@@ -42,10 +42,13 @@ text_recognition = _module
 tokenizer = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -67,6 +70,27 @@ import torch.nn as nn
 from collections import OrderedDict
 
 
+from torchvision.ops import MultiScaleRoIAlign
+
+
+from torchvision.models.detection.rpn import AnchorGenerator
+
+
+from torchvision.models.detection.rpn import RPNHead
+
+
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+
+from torchvision.models.detection.faster_rcnn import TwoMLPHead
+
+
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
+
+
+from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
+
+
 import math
 
 
@@ -76,7 +100,16 @@ import re
 import torch.utils.checkpoint as cp
 
 
+from torchvision.models.utils import load_state_dict_from_url
+
+
 from torch import nn
+
+
+from torchvision.models.detection.rpn import RegionProposalNetwork
+
+
+from torchvision.models.detection.rpn import concat_box_prediction_layers
 
 
 class ObjectDetectionEnsembleModel(torch.nn.Module):
@@ -545,6 +578,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zhiqwang_sightseq(_paritybench_base):
@@ -555,16 +589,23 @@ class Test_zhiqwang_sightseq(_paritybench_base):
     def test_001(self):
         self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_003(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(PositionalEncoding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_006(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_007(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

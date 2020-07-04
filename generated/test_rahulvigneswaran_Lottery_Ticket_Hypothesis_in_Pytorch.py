@@ -21,10 +21,13 @@ combine_plots = _module
 main = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,18 @@ import copy
 
 
 import numpy as np
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.utils as vutils
 
 
 import torch.nn.init as init
@@ -888,6 +903,7 @@ class vgg16(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_rahulvigneswaran_Lottery_Ticket_Hypothesis_in_Pytorch(_paritybench_base):
@@ -900,11 +916,15 @@ class Test_rahulvigneswaran_Lottery_Ticket_Hypothesis_in_Pytorch(_paritybench_ba
 
     @_fails_compile()
     def test_002(self):
+        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(fc1(*[], **{}), [torch.rand([784, 784])], {})
 

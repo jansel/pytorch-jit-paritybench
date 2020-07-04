@@ -24,10 +24,13 @@ train = _module
 train_fns = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,10 +79,19 @@ from torch.nn import Parameter
 from torch.nn import functional as F
 
 
+from torchvision.utils import save_image
+
+
 from scipy import linalg
 
 
 import time
+
+
+from torchvision.models.inception import inception_v3
+
+
+import torchvision
 
 
 import collections
@@ -98,6 +110,9 @@ import torch.nn.init as init
 
 
 from torch.nn.parallel.data_parallel import DataParallel
+
+
+import torchvision.transforms as transforms
 
 
 from torch.utils.data import DataLoader
@@ -214,7 +229,7 @@ class Generator(nn.Module):
             return
         self.lr, self.B1, self.B2, self.adam_eps = G_lr, G_B1, G_B2, adam_eps
         if G_mixed_precision:
-            NoneNone
+            None
             self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
                 betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
@@ -329,7 +344,7 @@ class Discriminator(nn.Module):
             self.init_weights()
         self.lr, self.B1, self.B2, self.adam_eps = D_lr, D_B1, D_B2, adam_eps
         if D_mixed_precision:
-            NoneNone
+            None
             self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
                 betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
@@ -479,7 +494,7 @@ class Generator(nn.Module):
             return
         self.lr, self.B1, self.B2, self.adam_eps = G_lr, G_B1, G_B2, adam_eps
         if G_mixed_precision:
-            NoneNone
+            None
             self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
                 betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
@@ -569,7 +584,7 @@ class Discriminator(nn.Module):
             self.init_weights()
         self.lr, self.B1, self.B2, self.adam_eps = D_lr, D_B1, D_B2, adam_eps
         if D_mixed_precision:
-            NoneNone
+            None
             self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
                 betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
@@ -1669,6 +1684,7 @@ class DataParallelWithCallback(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ajbrock_BigGAN_PyTorch(_paritybench_base):
@@ -1686,28 +1702,32 @@ class Test_ajbrock_BigGAN_PyTorch(_paritybench_base):
 
     @_fails_compile()
     def test_003(self):
-        self._check(SNConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     @_fails_compile()
     def test_004(self):
-        self._check(SNEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(SNConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(SNLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(SNEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_006(self):
-        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(SNLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
+        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
         self._check(bn(*[], **{'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(myBN(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

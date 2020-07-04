@@ -22,10 +22,13 @@ prepro_feats = _module
 prepro_labels = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -676,10 +679,21 @@ class AllImgCore(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ruotianluo_ImageCaptioning_pytorch(_paritybench_base):
     pass
     def test_000(self):
+        self._check(AdaAtt_attention(*[], **{'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_001(self):
+        self._check(Attention(*[], **{'opt': _mock_config(rnn_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    def test_002(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(ShowAttendTellCore(*[], **{'opt': _mock_config(input_encoding_size=4, rnn_type='gru', rnn_size=4, num_layers=1, drop_prob_lm=0.5, fc_feat_size=4, att_feat_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([1, 4, 4])], {})
 

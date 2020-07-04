@@ -27,10 +27,13 @@ u_class = _module
 u_tools = _module
 test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -85,7 +88,16 @@ import numpy as np
 from torch import nn
 
 
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
+
+
 import torch.utils.data as Data
+
+
+import torchvision
 
 
 import string
@@ -542,6 +554,22 @@ class Net(torch.nn.Module):
         return y
 
 
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(N_STATES, 50)
+        self.fc1.weight.data.normal_(0, 0.1)
+        self.out = nn.Linear(50, N_ACTIONS)
+        self.out.weight.data.normal_(0, 0.1)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        actions_value = self.out(x)
+        return actions_value
+
+
 INPUT_SIZE = 1
 
 
@@ -866,6 +894,7 @@ class NamesRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_apachecn_nlp_pytorch_zh(_paritybench_base):
@@ -878,11 +907,16 @@ class Test_apachecn_nlp_pytorch_zh(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(EncoderRNN(*[], **{'hidden_size': 4, 'embedding': _mock_layer()}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(LSTMTagger(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    def test_004(self):
-        self._check(Net(*[], **{'n_feature': 4, 'n_hidden': 4, 'n_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+    @_fails_compile()
+    def test_005(self):
+        self._check(RNN(*[], **{}), [torch.rand([4, 4, 1]), torch.rand([1, 4, 32])], {})
 

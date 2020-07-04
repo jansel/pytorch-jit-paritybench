@@ -427,10 +427,13 @@ undirected = _module
 visualization = _module
 influence = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -635,22 +638,50 @@ def zeros(tensor):
         tensor.data.fill_(0)
 
 
-_global_config['num_stacks'] = 4
-
-
-_global_config['dropout'] = 0.5
-
-
-_global_config['num_layers'] = 1
+_global_config['K'] = 4
 
 
 _global_config['hidden'] = 4
 
 
-_global_config['skip_dropout'] = 0.5
+_global_config['dropout'] = 0.5
+
+
+_global_config['alpha'] = 4
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, dataset):
+        super(Net, self).__init__()
+        self.lin1 = Linear(dataset.num_features, args.hidden)
+        self.lin2 = Linear(args.hidden, dataset.num_classes)
+        self.prop1 = APPNP(args.K, args.alpha)
+
+    def reset_parameters(self):
+        self.lin1.reset_parameters()
+        self.lin2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, p=args.dropout, training=self.training)
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=args.dropout, training=self.training)
+        x = self.lin2(x)
+        x = self.prop1(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
+_global_config['num_layers'] = 1
 
 
 _global_config['shared_weights'] = 4
+
+
+_global_config['skip_dropout'] = 0.5
+
+
+_global_config['num_stacks'] = 4
 
 
 class Net(torch.nn.Module):
@@ -776,6 +807,28 @@ def get_laplacian(edge_index, edge_weight=None, normalization=None, dtype=
     return edge_index, edge_weight
 
 
+_global_config['num_hops'] = 4
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, dataset):
+        super(Net, self).__init__()
+        self.conv1 = ChebConv(dataset.num_features, args.hidden, args.num_hops)
+        self.conv2 = ChebConv(args.hidden, dataset.num_classes, args.num_hops)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=args.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
 def softmax(src, index, num_nodes=None):
     """Computes a sparsely evaluated softmax.
     Given a value tensor :attr:`src`, this function first groups the values
@@ -798,6 +851,34 @@ def softmax(src, index, num_nodes=None):
     return out
 
 
+_global_config['output_heads'] = 4
+
+
+_global_config['heads'] = 4
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, dataset):
+        super(Net, self).__init__()
+        self.conv1 = GATConv(dataset.num_features, args.hidden, heads=args.
+            heads, dropout=args.dropout)
+        self.conv2 = GATConv(args.hidden * args.heads, dataset.num_classes,
+            heads=args.output_heads, concat=False, dropout=args.dropout)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, p=args.dropout, training=self.training)
+        x = F.elu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=args.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
 class Net(torch.nn.Module):
 
     def __init__(self, dataset):
@@ -817,10 +898,95 @@ class Net(torch.nn.Module):
         return F.log_softmax(x, dim=1)
 
 
+class Net(torch.nn.Module):
+
+    def __init__(self, dataset):
+        super(Net, self).__init__()
+        self.conv1 = SGConv(dataset.num_features, dataset.num_classes, K=
+            args.K, cached=True)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
 def uniform(size, tensor):
     bound = 1.0 / math.sqrt(size)
     if tensor is not None:
         tensor.data.uniform_(-bound, bound)
+
+
+def global_mean_pool(x, batch, size=None):
+    """Returns batch-wise graph-level-outputs by averaging node features
+    across the node dimension, so that for a single graph
+    :math:`\\mathcal{G}_i` its output is computed by
+
+    .. math::
+        \\mathbf{r}_i = \\frac{1}{N_i} \\sum_{n=1}^{N_i} \\mathbf{x}_n
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
+        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
+            B-1\\}}^N`, which assigns each node to a specific example.
+        size (int, optional): Batch-size :math:`B`.
+            Automatically calculated if not given. (default: :obj:`None`)
+
+    :rtype: :class:`Tensor`
+    """
+    size = batch.max().item() + 1 if size is None else size
+    return scatter(x, batch, dim=0, dim_size=size, reduce='mean')
+
+
+class ASAP(torch.nn.Module):
+
+    def __init__(self, dataset, num_layers, hidden, ratio=0.8, dropout=0):
+        super(ASAP, self).__init__()
+        self.conv1 = GraphConv(dataset.num_features, hidden, aggr='mean')
+        self.convs = torch.nn.ModuleList()
+        self.pools = torch.nn.ModuleList()
+        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in
+            range(num_layers - 1)])
+        self.pools.extend([ASAPooling(hidden, ratio, dropout=dropout) for i in
+            range(num_layers // 2)])
+        self.jump = JumpingKnowledge(mode='cat')
+        self.lin1 = Linear(num_layers * hidden, hidden)
+        self.lin2 = Linear(hidden, dataset.num_classes)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        for conv in self.convs:
+            conv.reset_parameters()
+        for pool in self.pools:
+            pool.reset_parameters()
+        self.lin1.reset_parameters()
+        self.lin2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        edge_weight = None
+        x = F.relu(self.conv1(x, edge_index))
+        xs = [global_mean_pool(x, batch)]
+        for i, conv in enumerate(self.convs):
+            x = conv(x=x, edge_index=edge_index, edge_weight=edge_weight)
+            x = F.relu(x)
+            xs += [global_mean_pool(x, batch)]
+            if i % 2 == 0 and i < len(self.convs) - 1:
+                pool = self.pools[i // 2]
+                x, edge_index, edge_weight, batch, _ = pool(x=x, edge_index
+                    =edge_index, edge_weight=edge_weight, batch=batch)
+        x = self.jump(xs)
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=-1)
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
 class Block(torch.nn.Module):
@@ -962,28 +1128,6 @@ class DiffPool(torch.nn.Module):
         return self.__class__.__name__
 
 
-def global_mean_pool(x, batch, size=None):
-    """Returns batch-wise graph-level-outputs by averaging node features
-    across the node dimension, so that for a single graph
-    :math:`\\mathcal{G}_i` its output is computed by
-
-    .. math::
-        \\mathbf{r}_i = \\frac{1}{N_i} \\sum_{n=1}^{N_i} \\mathbf{x}_n
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
-        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
-            B-1\\}}^N`, which assigns each node to a specific example.
-        size (int, optional): Batch-size :math:`B`.
-            Automatically calculated if not given. (default: :obj:`None`)
-
-    :rtype: :class:`Tensor`
-    """
-    size = batch.max().item() + 1 if size is None else size
-    return scatter(x, batch, dim=0, dim_size=size, reduce='mean')
-
-
 class EdgePool(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden):
@@ -1116,6 +1260,43 @@ def reset(nn):
             _reset(nn)
 
 
+class GIN0(torch.nn.Module):
+
+    def __init__(self, dataset, num_layers, hidden):
+        super(GIN0, self).__init__()
+        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden
+            ), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
+            train_eps=False)
+        self.convs = torch.nn.ModuleList()
+        for i in range(num_layers - 1):
+            self.convs.append(GINConv(Sequential(Linear(hidden, hidden),
+                ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
+                train_eps=False))
+        self.lin1 = Linear(hidden, hidden)
+        self.lin2 = Linear(hidden, dataset.num_classes)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        for conv in self.convs:
+            conv.reset_parameters()
+        self.lin1.reset_parameters()
+        self.lin2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x = self.conv1(x, edge_index)
+        for conv in self.convs:
+            x = conv(x, edge_index)
+        x = global_mean_pool(x, batch)
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=-1)
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
 class GIN0WithJK(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden, mode='cat'):
@@ -1234,6 +1415,41 @@ class GINWithJK(torch.nn.Module):
             xs += [x]
         x = self.jump(xs)
         x = global_mean_pool(x, batch)
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=-1)
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+class GlobalAttentionNet(torch.nn.Module):
+
+    def __init__(self, dataset, num_layers, hidden):
+        super(GlobalAttentionNet, self).__init__()
+        self.conv1 = SAGEConv(dataset.num_features, hidden)
+        self.convs = torch.nn.ModuleList()
+        for i in range(num_layers - 1):
+            self.convs.append(SAGEConv(hidden, hidden))
+        self.att = GlobalAttention(Linear(hidden, 1))
+        self.lin1 = Linear(hidden, hidden)
+        self.lin2 = Linear(hidden, dataset.num_classes)
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        for conv in self.convs:
+            conv.reset_parameters()
+        self.att.reset_parameters()
+        self.lin1.reset_parameters()
+        self.lin2.reset_parameters()
+
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x = F.relu(self.conv1(x, edge_index))
+        for conv in self.convs:
+            x = F.relu(conv(x, edge_index))
+        x = self.att(x, batch)
         x = F.relu(self.lin1(x))
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.lin2(x)
@@ -2136,6 +2352,90 @@ class TopK(torch.nn.Module):
         return self.__class__.__name__
 
 
+def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine
+    =False):
+    """Computes graph edges to the nearest :obj:`k` points.
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
+        k (int): The number of neighbors.
+        batch (LongTensor, optional): Batch vector
+            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
+            node to a specific example. (default: :obj:`None`)
+        loop (bool, optional): If :obj:`True`, the graph will contain
+            self-loops. (default: :obj:`False`)
+        flow (string, optional): The flow direction when using in combination
+            with message passing (:obj:`"source_to_target"` or
+            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
+        cosine (boolean, optional): If :obj:`True`, will use the cosine
+            distance instead of euclidean distance to find nearest neighbors.
+            (default: :obj:`False`)
+
+    :rtype: :class:`LongTensor`
+
+    .. code-block:: python
+
+        import torch
+        from torch_geometric.nn import knn_graph
+
+        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        batch = torch.tensor([0, 0, 0, 0])
+        edge_index = knn_graph(x, k=2, batch=batch, loop=False)
+    """
+    if torch_cluster is None:
+        raise ImportError('`knn_graph` requires `torch-cluster`.')
+    return torch_cluster.knn_graph(x, k, batch, loop, flow, cosine)
+
+
+def global_max_pool(x, batch, size=None):
+    """Returns batch-wise graph-level-outputs by taking the channel-wise
+    maximum across the node dimension, so that for a single graph
+    :math:`\\mathcal{G}_i` its output is computed by
+
+    .. math::
+        \\mathbf{r}_i = \\mathrm{max}_{n=1}^{N_i} \\, \\mathbf{x}_n
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
+        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
+            B-1\\}}^N`, which assigns each node to a specific example.
+        size (int, optional): Batch-size :math:`B`.
+            Automatically calculated if not given. (default: :obj:`None`)
+
+    :rtype: :class:`Tensor`
+    """
+    size = batch.max().item() + 1 if size is None else size
+    return scatter(x, batch, dim=0, dim_size=size, reduce='max')
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, num_classes):
+        super(Net, self).__init__()
+        nn = Seq(Lin(6, 64), ReLU(), Lin(64, 64), ReLU(), Lin(64, 64), ReLU())
+        self.conv1 = DynamicEdgeConv(nn, k=20, aggr='max')
+        nn = Seq(Lin(128, 128), ReLU(), Lin(128, 128), ReLU(), Lin(128, 256
+            ), ReLU())
+        self.conv2 = DynamicEdgeConv(nn, k=20, aggr='max')
+        self.lin0 = Lin(256, 512)
+        self.lin1 = Lin(512, 256)
+        self.lin2 = Lin(256, 256)
+        self.lin3 = Lin(256, num_classes)
+
+    def forward(self, pos, batch):
+        x = self.conv1(pos, batch)
+        x = self.conv2(x, batch)
+        x = F.relu(self.lin0(x))
+        x = global_max_pool(x, batch)
+        x = F.relu(self.lin1(x))
+        x = F.relu(self.lin2(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin3(x)
+        return F.log_softmax(x, dim=-1)
+
+
 def fps(x, batch=None, ratio=0.5, random_start=True):
     """"A sampling algorithm from the `"PointNet++: Deep Hierarchical Feature
     Learning on Point Sets in a Metric Space"
@@ -2168,6 +2468,82 @@ def fps(x, batch=None, ratio=0.5, random_start=True):
     return torch_cluster.fps(x, batch, ratio, random_start)
 
 
+def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
+    'source_to_target'):
+    """Computes graph edges to all points within a given distance.
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
+        r (float): The radius.
+        batch (LongTensor, optional): Batch vector
+            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
+            node to a specific example. (default: :obj:`None`)
+        loop (bool, optional): If :obj:`True`, the graph will contain
+            self-loops. (default: :obj:`False`)
+        max_num_neighbors (int, optional): The maximum number of neighbors to
+            return for each element in :obj:`y`. (default: :obj:`32`)
+        flow (string, optional): The flow direction when using in combination
+            with message passing (:obj:`"source_to_target"` or
+            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
+
+    :rtype: :class:`LongTensor`
+
+    .. code-block:: python
+
+        import torch
+        from torch_geometric.nn import radius_graph
+
+        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
+        batch = torch.tensor([0, 0, 0, 0])
+        edge_index = radius_graph(x, r=1.5, batch=batch, loop=False)
+    """
+    if torch_cluster is None:
+        raise ImportError('`radius_graph` requires `torch-cluster`.')
+    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors,
+        flow)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, num_classes):
+        super(Net, self).__init__()
+        nn = Seq(Lin(3, 25), ReLU(), Lin(25, 1 * 64))
+        self.conv1 = NNConv(1, 64, nn, aggr='mean')
+        nn = Seq(Lin(3, 25), ReLU(), Lin(25, 64 * 64))
+        self.conv2 = NNConv(64, 64, nn, aggr='mean')
+        nn = Seq(Lin(3, 25), ReLU(), Lin(25, 64 * 128))
+        self.conv3 = NNConv(64, 128, nn, aggr='mean')
+        self.lin1 = torch.nn.Linear(128, 256)
+        self.lin2 = torch.nn.Linear(256, 256)
+        self.lin3 = torch.nn.Linear(256, num_classes)
+
+    def forward(self, pos, batch):
+        x = pos.new_ones((pos.size(0), 1))
+        radius = 0.2
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = pos[edge_index[1]] - pos[edge_index[0]]
+        x = F.relu(self.conv1(x, edge_index, pseudo))
+        idx = fps(pos, batch, ratio=0.5)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 0.4
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = pos[edge_index[1]] - pos[edge_index[0]]
+        x = F.relu(self.conv2(x, edge_index, pseudo))
+        idx = fps(pos, batch, ratio=0.25)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 1
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = pos[edge_index[1]] - pos[edge_index[0]]
+        x = F.relu(self.conv3(x, edge_index, pseudo))
+        x = global_mean_pool(x, batch)
+        x = F.relu(self.lin1(x))
+        x = F.relu(self.lin2(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin3(x)
+        return F.log_softmax(x, dim=-1)
+
+
 class Net(torch.nn.Module):
 
     def __init__(self, num_classes):
@@ -2195,6 +2571,82 @@ class Net(torch.nn.Module):
         x = global_mean_pool(x, batch)
         x = F.relu(self.lin1(x))
         x = F.relu(self.lin2(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin3(x)
+        return F.log_softmax(x, dim=-1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, num_classes):
+        super(Net, self).__init__()
+        nn = Seq(Lin(3, 64), ReLU(), Lin(64, 64))
+        self.conv1 = PointConv(local_nn=nn)
+        nn = Seq(Lin(67, 128), ReLU(), Lin(128, 128))
+        self.conv2 = PointConv(local_nn=nn)
+        nn = Seq(Lin(131, 256), ReLU(), Lin(256, 256))
+        self.conv3 = PointConv(local_nn=nn)
+        self.lin1 = Lin(256, 256)
+        self.lin2 = Lin(256, 256)
+        self.lin3 = Lin(256, num_classes)
+
+    def forward(self, pos, batch):
+        radius = 0.2
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        x = F.relu(self.conv1(None, pos, edge_index))
+        idx = fps(pos, batch, ratio=0.5)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 0.4
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        x = F.relu(self.conv2(x, pos, edge_index))
+        idx = fps(pos, batch, ratio=0.25)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 1
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        x = F.relu(self.conv3(x, pos, edge_index))
+        x = global_max_pool(x, batch)
+        x = F.relu(self.lin1(x))
+        x = F.relu(self.lin2(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin3(x)
+        return F.log_softmax(x, dim=-1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, num_classes):
+        super(Net, self).__init__()
+        self.conv1 = SplineConv(1, 64, dim=3, kernel_size=5)
+        self.conv2 = SplineConv(64, 64, dim=3, kernel_size=5)
+        self.conv3 = SplineConv(64, 128, dim=3, kernel_size=5)
+        self.lin1 = Lin(128, 256)
+        self.lin2 = Lin(256, 256)
+        self.lin3 = Lin(256, num_classes)
+
+    def forward(self, pos, batch):
+        x = pos.new_ones((pos.size(0), 1))
+        radius = 0.2
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = (pos[edge_index[1]] - pos[edge_index[0]]) / (2 * radius) + 0.5
+        pseudo = pseudo.clamp(min=0, max=1)
+        x = F.elu(self.conv1(x, edge_index, pseudo))
+        idx = fps(pos, batch, ratio=0.5)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 0.4
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = (pos[edge_index[1]] - pos[edge_index[0]]) / (2 * radius) + 0.5
+        pseudo = pseudo.clamp(min=0, max=1)
+        x = F.elu(self.conv2(x, edge_index, pseudo))
+        idx = fps(pos, batch, ratio=0.25)
+        x, pos, batch = x[idx], pos[idx], batch[idx]
+        radius = 1
+        edge_index = radius_graph(pos, r=radius, batch=batch)
+        pseudo = (pos[edge_index[1]] - pos[edge_index[0]]) / (2 * radius) + 0.5
+        pseudo = pseudo.clamp(min=0, max=1)
+        x = F.elu(self.conv3(x, edge_index, pseudo))
+        x = global_mean_pool(x, batch)
+        x = F.elu(self.lin1(x))
+        x = F.elu(self.lin2(x))
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.lin3(x)
         return F.log_softmax(x, dim=-1)
@@ -2581,119 +3033,7 @@ class RGCN(torch.nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-class Encoder(torch.nn.Module):
-
-    def __init__(self, in_channels, hidden_channels, out_channels):
-        super(Encoder, self).__init__()
-        self.conv1 = GCNConv(in_channels, hidden_channels, cached=True)
-        self.conv_mu = GCNConv(hidden_channels, out_channels, cached=True)
-        self.conv_logvar = GCNConv(hidden_channels, out_channels, cached=True)
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
-
-
-class Discriminator(torch.nn.Module):
-
-    def __init__(self, in_channels, hidden_channels, out_channels):
-        super(Discriminator, self).__init__()
-        self.lin1 = torch.nn.Linear(in_channels, hidden_channels)
-        self.lin2 = torch.nn.Linear(hidden_channels, hidden_channels)
-        self.lin3 = torch.nn.Linear(hidden_channels, out_channels)
-
-    def forward(self, x):
-        x = F.relu(self.lin1(x))
-        x = F.relu(self.lin2(x))
-        x = self.lin3(x)
-        return x
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-_global_config['model'] = 4
-
-
-class Encoder(torch.nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(Encoder, self).__init__()
-        self.conv1 = GCNConv(in_channels, 2 * out_channels, cached=True)
-        if args.model in ['GAE']:
-            self.conv2 = GCNConv(2 * out_channels, out_channels, cached=True)
-        elif args.model in ['VGAE']:
-            self.conv_mu = GCNConv(2 * out_channels, out_channels, cached=True)
-            self.conv_logvar = GCNConv(2 * out_channels, out_channels,
-                cached=True)
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        if args.model in ['GAE']:
-            return self.conv2(x, edge_index)
-        elif args.model in ['VGAE']:
-            return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(Net, self).__init__()
-        self.conv1 = SAGEConv(in_channels, 128)
-        self.conv2 = SAGEConv(128, out_channels)
-
-    def forward(self, x, edge_index):
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = F.relu(self.conv1(x, edge_index))
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv2(x, edge_index)
-        return F.log_softmax(x, dim=1)
-
-
-def global_add_pool(x, batch, size=None):
-    """Returns batch-wise graph-level-outputs by adding node features
-    across the node dimension, so that for a single graph
-    :math:`\\mathcal{G}_i` its output is computed by
-
-    .. math::
-        \\mathbf{r}_i = \\sum_{n=1}^{N_i} \\mathbf{x}_n
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
-        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
-            B-1\\}}^N`, which assigns each node to a specific example.
-        size (int, optional): Batch-size :math:`B`.
-            Automatically calculated if not given. (default: :obj:`None`)
-
-    :rtype: :class:`Tensor`
-    """
-    size = batch.max().item() + 1 if size is None else size
-    return scatter(x, batch, dim=0, dim_size=size, reduce='add')
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, in_channels):
-        super(Net, self).__init__()
-        self.conv1 = GINConv(Seq(Lin(in_channels, 64), ReLU(), Lin(64, 64)))
-        self.pool1 = TopKPooling(in_channels, min_score=0.05)
-        self.conv2 = GINConv(Seq(Lin(64, 64), ReLU(), Lin(64, 64)))
-        self.lin = torch.nn.Linear(64, 1)
-
-    def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        out = F.relu(self.conv1(x, edge_index))
-        out, edge_index, _, batch, perm, score = self.pool1(out, edge_index,
-            None, batch, attn=x)
-        ratio = out.size(0) / x.size(0)
-        out = F.relu(self.conv2(out, edge_index))
-        out = global_add_pool(out, batch)
-        out = self.lin(out).view(-1)
-        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm],
-            reduction='none')
-        attn_loss = scatter_mean(attn_loss, batch)
-        return out, attn_loss, ratio
 
 
 def files_exist(files):
@@ -3293,6 +3633,179 @@ class TUDataset(InMemoryDataset):
         return '{}({})'.format(self.name, len(self))
 
 
+class HandleNodeAttention(object):
+
+    def __call__(self, data):
+        data.attn = torch.softmax(data.x, dim=0).flatten()
+        data.x = None
+        return data
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.lin1 = torch.nn.Linear(dataset.num_features, 16)
+        self.prop1 = AGNNConv(requires_grad=False)
+        self.prop2 = AGNNConv(requires_grad=True)
+        self.lin2 = torch.nn.Linear(16, dataset.num_classes)
+
+    def forward(self):
+        x = F.dropout(data.x, training=self.training)
+        x = F.relu(self.lin1(x))
+        x = self.prop1(x, data.edge_index)
+        x = self.prop2(x, data.edge_index)
+        x = F.dropout(x, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=1)
+
+
+class Encoder(torch.nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, out_channels):
+        super(Encoder, self).__init__()
+        self.conv1 = GCNConv(in_channels, hidden_channels, cached=True)
+        self.conv_mu = GCNConv(hidden_channels, out_channels, cached=True)
+        self.conv_logvar = GCNConv(hidden_channels, out_channels, cached=True)
+
+    def forward(self, x, edge_index):
+        x = F.relu(self.conv1(x, edge_index))
+        return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
+
+
+class Discriminator(torch.nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, out_channels):
+        super(Discriminator, self).__init__()
+        self.lin1 = torch.nn.Linear(in_channels, hidden_channels)
+        self.lin2 = torch.nn.Linear(hidden_channels, hidden_channels)
+        self.lin3 = torch.nn.Linear(hidden_channels, out_channels)
+
+    def forward(self, x):
+        x = F.relu(self.lin1(x))
+        x = F.relu(self.lin2(x))
+        x = self.lin3(x)
+        return x
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = ARMAConv(dataset.num_features, 16, num_stacks=3,
+            num_layers=2, shared_weights=True, dropout=0.25)
+        self.conv2 = ARMAConv(16, dataset.num_classes, num_stacks=3,
+            num_layers=2, shared_weights=True, dropout=0.25, act=None)
+
+    def forward(self):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, training=self.training)
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
+_global_config['model'] = 4
+
+
+class Encoder(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(Encoder, self).__init__()
+        self.conv1 = GCNConv(in_channels, 2 * out_channels, cached=True)
+        if args.model in ['GAE']:
+            self.conv2 = GCNConv(2 * out_channels, out_channels, cached=True)
+        elif args.model in ['VGAE']:
+            self.conv_mu = GCNConv(2 * out_channels, out_channels, cached=True)
+            self.conv_logvar = GCNConv(2 * out_channels, out_channels,
+                cached=True)
+
+    def forward(self, x, edge_index):
+        x = F.relu(self.conv1(x, edge_index))
+        if args.model in ['GAE']:
+            return self.conv2(x, edge_index)
+        elif args.model in ['VGAE']:
+            return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(Net, self).__init__()
+        self.conv1 = SAGEConv(in_channels, 128)
+        self.conv2 = SAGEConv(128, out_channels)
+
+    def forward(self, x, edge_index):
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+
+def global_add_pool(x, batch, size=None):
+    """Returns batch-wise graph-level-outputs by adding node features
+    across the node dimension, so that for a single graph
+    :math:`\\mathcal{G}_i` its output is computed by
+
+    .. math::
+        \\mathbf{r}_i = \\sum_{n=1}^{N_i} \\mathbf{x}_n
+
+    Args:
+        x (Tensor): Node feature matrix
+            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
+        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
+            B-1\\}}^N`, which assigns each node to a specific example.
+        size (int, optional): Batch-size :math:`B`.
+            Automatically calculated if not given. (default: :obj:`None`)
+
+    :rtype: :class:`Tensor`
+    """
+    size = batch.max().item() + 1 if size is None else size
+    return scatter(x, batch, dim=0, dim_size=size, reduce='add')
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, in_channels):
+        super(Net, self).__init__()
+        self.conv1 = GINConv(Seq(Lin(in_channels, 64), ReLU(), Lin(64, 64)))
+        self.pool1 = TopKPooling(in_channels, min_score=0.05)
+        self.conv2 = GINConv(Seq(Lin(64, 64), ReLU(), Lin(64, 64)))
+        self.lin = torch.nn.Linear(64, 1)
+
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        out = F.relu(self.conv1(x, edge_index))
+        out, edge_index, _, batch, perm, score = self.pool1(out, edge_index,
+            None, batch, attn=x)
+        ratio = out.size(0) / x.size(0)
+        out = F.relu(self.conv2(out, edge_index))
+        out = global_add_pool(out, batch)
+        out = self.lin(out).view(-1)
+        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm],
+            reduction='none')
+        attn_loss = scatter_mean(attn_loss, batch)
+        return out, attn_loss, ratio
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = SplineConv(dataset.num_features, 16, dim=1, kernel_size=2)
+        self.conv2 = SplineConv(16, dataset.num_classes, dim=1, kernel_size=2)
+
+    def forward(self):
+        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x = F.dropout(x, training=self.training)
+        x = F.elu(self.conv1(x, edge_index, edge_attr))
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index, edge_attr)
+        return F.log_softmax(x, dim=1)
+
+
 class Net(torch.nn.Module):
 
     def __init__(self):
@@ -3315,28 +3828,6 @@ class Net(torch.nn.Module):
 def MLP(channels, batch_norm=True):
     return Seq(*[Seq(Lin(channels[i - 1], channels[i]), ReLU(), BN(channels
         [i])) for i in range(1, len(channels))])
-
-
-def global_max_pool(x, batch, size=None):
-    """Returns batch-wise graph-level-outputs by taking the channel-wise
-    maximum across the node dimension, so that for a single graph
-    :math:`\\mathcal{G}_i` its output is computed by
-
-    .. math::
-        \\mathbf{r}_i = \\mathrm{max}_{n=1}^{N_i} \\, \\mathbf{x}_n
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{(N_1 + \\ldots + N_B) \\times F}`.
-        batch (LongTensor): Batch vector :math:`\\mathbf{b} \\in {\\{ 0, \\ldots,
-            B-1\\}}^N`, which assigns each node to a specific example.
-        size (int, optional): Batch-size :math:`B`.
-            Automatically calculated if not given. (default: :obj:`None`)
-
-    :rtype: :class:`Tensor`
-    """
-    size = batch.max().item() + 1 if size is None else size
-    return scatter(x, batch, dim=0, dim_size=size, reduce='max')
 
 
 class Net(torch.nn.Module):
@@ -3379,6 +3870,39 @@ class Net(torch.nn.Module):
         out = self.lin1(torch.cat([x1, x2, x3], dim=1))
         out = self.mlp(out)
         return F.log_softmax(out, dim=1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, out_channels,
+        num_layers, heads=1, groups=1):
+        super(Net, self).__init__()
+        self.hidden_channels = hidden_channels
+        self.lin1 = torch.nn.Linear(in_channels, hidden_channels)
+        self.convs = torch.nn.ModuleList()
+        for i in range(num_layers):
+            self.convs.append(DNAConv(hidden_channels, heads, groups,
+                dropout=0.8, cached=True))
+        self.lin2 = torch.nn.Linear(hidden_channels, out_channels)
+
+    def reset_parameters(self):
+        self.lin1.reset_parameters()
+        for conv in self.convs:
+            conv.reset_parameters()
+        self.lin2.reset_parameters()
+
+    def forward(self, x, edge_index):
+        x = F.relu(self.lin1(x))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x_all = x.view(-1, 1, self.hidden_channels)
+        for conv in self.convs:
+            x = F.relu(conv(x_all, edge_index))
+            x = x.view(-1, 1, self.hidden_channels)
+            x_all = torch.cat([x_all, x], dim=1)
+        x = x_all[:, (-1)]
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin2(x)
+        return torch.log_softmax(x, dim=1)
 
 
 class Net(torch.nn.Module):
@@ -3518,6 +4042,33 @@ class ICEWS18(EventDataset):
 
 
 seq_len = 10
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = SplineConv(1, 32, dim=3, kernel_size=5, aggr='add')
+        self.conv2 = SplineConv(32, 64, dim=3, kernel_size=5, aggr='add')
+        self.conv3 = SplineConv(64, 64, dim=3, kernel_size=5, aggr='add')
+        self.conv4 = SplineConv(64, 64, dim=3, kernel_size=5, aggr='add')
+        self.conv5 = SplineConv(64, 64, dim=3, kernel_size=5, aggr='add')
+        self.conv6 = SplineConv(64, 64, dim=3, kernel_size=5, aggr='add')
+        self.lin1 = torch.nn.Linear(64, 256)
+        self.lin2 = torch.nn.Linear(256, d.num_nodes)
+
+    def forward(self, data):
+        x, edge_index, pseudo = data.x, data.edge_index, data.edge_attr
+        x = F.elu(self.conv1(x, edge_index, pseudo))
+        x = F.elu(self.conv2(x, edge_index, pseudo))
+        x = F.elu(self.conv3(x, edge_index, pseudo))
+        x = F.elu(self.conv4(x, edge_index, pseudo))
+        x = F.elu(self.conv5(x, edge_index, pseudo))
+        x = F.elu(self.conv6(x, edge_index, pseudo))
+        x = F.elu(self.lin1(x))
+        x = F.dropout(x, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=1)
 
 
 class Net(torch.nn.Module):
@@ -3867,12 +4418,29 @@ def normalized_cut_2d(edge_index, pos):
     return normalized_cut(edge_index, edge_attr, num_nodes=pos.size(0))
 
 
-class HandleNodeAttention(object):
+class Net(torch.nn.Module):
 
-    def __call__(self, data):
-        data.attn = torch.softmax(data.x, dim=0).flatten()
-        data.x = None
-        return data
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = SplineConv(d.num_features, 32, dim=2, kernel_size=5)
+        self.conv2 = SplineConv(32, 64, dim=2, kernel_size=5)
+        self.fc1 = torch.nn.Linear(64, 128)
+        self.fc2 = torch.nn.Linear(128, d.num_classes)
+
+    def forward(self, data):
+        data.x = F.elu(self.conv1(data.x, data.edge_index, data.edge_attr))
+        weight = normalized_cut_2d(data.edge_index, data.pos)
+        cluster = graclus(data.edge_index, weight, data.x.size(0))
+        data.edge_attr = None
+        data = max_pool(cluster, data, transform=transform)
+        data.x = F.elu(self.conv2(data.x, data.edge_index, data.edge_attr))
+        weight = normalized_cut_2d(data.edge_index, data.pos)
+        cluster = graclus(data.edge_index, weight, data.x.size(0))
+        x, batch = max_pool_x(cluster, data.x, data.batch)
+        x = global_mean_pool(x, batch)
+        x = F.elu(self.fc1(x))
+        x = F.dropout(x, training=self.training)
+        return F.log_softmax(self.fc2(x), dim=1)
 
 
 class Net(nn.Module):
@@ -4012,6 +4580,52 @@ class Net(torch.nn.Module):
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x, dim=-1)
+
+
+class SAGE(torch.nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, out_channels, num_layers):
+        super(SAGE, self).__init__()
+        self.num_layers = num_layers
+        self.convs = torch.nn.ModuleList()
+        self.convs.append(SAGEConv(in_channels, hidden_channels))
+        for _ in range(num_layers - 2):
+            self.convs.append(SAGEConv(hidden_channels, hidden_channels))
+        self.convs.append(SAGEConv(hidden_channels, out_channels))
+
+    def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
+
+    def forward(self, x, adjs):
+        for i, (edge_index, _, size) in enumerate(adjs):
+            x_target = x[:size[1]]
+            x = self.convs[i]((x, x_target), edge_index)
+            if i != self.num_layers - 1:
+                x = F.relu(x)
+                x = F.dropout(x, p=0.5, training=self.training)
+        return x.log_softmax(dim=-1)
+
+    def inference(self, x_all):
+        model.eval()
+        pbar = tqdm(total=x_all.size(0) * self.num_layers)
+        pbar.set_description('Evaluating')
+        total_edges = 0
+        for i in range(self.num_layers):
+            xs = []
+            for batch_size, n_id, adj in subgraph_loader:
+                edge_index, _, size = adj
+                total_edges += edge_index.size(1)
+                x = x_all[n_id]
+                x_target = x[:size[1]]
+                x = self.convs[i]((x, x_target), edge_index)
+                if i - 1 < self.num_layers:
+                    x = F.relu(x)
+                xs.append(x.cpu())
+                pbar.update(batch_size)
+            x_all = torch.cat(xs, dim=0)
+        pbar.close()
+        return x_all
 
 
 def radius(x, y, r, batch_x=None, batch_y=None, max_num_neighbors=32):
@@ -4321,6 +4935,158 @@ class Net(torch.nn.Module):
         return F.log_softmax(x, dim=-1), l1 + l2, e1 + e2
 
 
+def _rank3_diag(x):
+    eye = torch.eye(x.size(1)).type_as(x)
+    out = eye * x.unsqueeze(2).expand(*x.size(), x.size(1))
+    return out
+
+
+def _rank3_trace(x):
+    return torch.einsum('ijj->i', x)
+
+
+def dense_mincut_pool(x, adj, s, mask=None):
+    """MinCUt pooling operator from the `"Mincut Pooling in Graph Neural
+    Networks" <https://arxiv.org/abs/1907.00481>`_ paper
+
+    .. math::
+        \\mathbf{X}^{\\prime} &= {\\mathrm{softmax}(\\mathbf{S})}^{\\top} \\cdot
+        \\mathbf{X}
+
+        \\mathbf{A}^{\\prime} &= {\\mathrm{softmax}(\\mathbf{S})}^{\\top} \\cdot
+        \\mathbf{A} \\cdot \\mathrm{softmax}(\\mathbf{S})
+
+    based on dense learned assignments :math:`\\mathbf{S} \\in \\mathbb{R}^{B
+    \\times N \\times C}`.
+    Returns pooled node feature matrix, coarsened symmetrically normalized
+    adjacency matrix and two auxiliary objectives: (1) The minCUT loss
+
+    .. math::
+        \\mathcal{L}_c = - \\frac{\\mathrm{Tr}(\\mathbf{S}^{\\top} \\mathbf{A}
+        \\mathbf{S})} {\\mathrm{Tr}(\\mathbf{S}^{\\top} \\mathbf{D}
+        \\mathbf{S})}
+
+    where :math:`\\mathbf{D}` is the degree matrix, and (2) the orthogonality
+    loss
+
+    .. math::
+        \\mathcal{L}_o = {\\left\\| \\frac{\\mathbf{S}^{\\top} \\mathbf{S}}
+        {{\\|\\mathbf{S}^{\\top} \\mathbf{S}\\|}_F} -\\frac{\\mathbf{I}_C}{\\sqrt{C}}
+        \\right\\|}_F.
+
+    Args:
+        x (Tensor): Node feature tensor :math:`\\mathbf{X} \\in \\mathbb{R}^{B
+            \\times N \\times F}` with batch-size :math:`B`, (maximum)
+            number of nodes :math:`N` for each graph, and feature dimension
+            :math:`F`.
+        adj (Tensor): Symmetrically normalized adjacency tensor
+            :math:`\\mathbf{A} \\in \\mathbb{R}^{B \\times N \\times N}`.
+        s (Tensor): Assignment tensor :math:`\\mathbf{S} \\in \\mathbb{R}^{B
+            \\times N \\times C}` with number of clusters :math:`C`. The softmax
+            does not have to be applied beforehand, since it is executed
+            within this method.
+        mask (BoolTensor, optional): Mask matrix
+            :math:`\\mathbf{M} \\in {\\{ 0, 1 \\}}^{B \\times N}` indicating
+            the valid nodes for each graph. (default: :obj:`None`)
+
+    :rtype: (:class:`Tensor`, :class:`Tensor`, :class:`Tensor`,
+        :class:`Tensor`)
+    """
+    x = x.unsqueeze(0) if x.dim() == 2 else x
+    adj = adj.unsqueeze(0) if adj.dim() == 2 else adj
+    s = s.unsqueeze(0) if s.dim() == 2 else s
+    (batch_size, num_nodes, _), k = x.size(), s.size(-1)
+    s = torch.softmax(s, dim=-1)
+    if mask is not None:
+        mask = mask.view(batch_size, num_nodes, 1).to(x.dtype)
+        x, s = x * mask, s * mask
+    out = torch.matmul(s.transpose(1, 2), x)
+    out_adj = torch.matmul(torch.matmul(s.transpose(1, 2), adj), s)
+    mincut_num = _rank3_trace(out_adj)
+    d_flat = torch.einsum('ijk->ij', adj)
+    d = _rank3_diag(d_flat)
+    mincut_den = _rank3_trace(torch.matmul(torch.matmul(s.transpose(1, 2),
+        d), s))
+    mincut_loss = -(mincut_num / mincut_den)
+    mincut_loss = torch.mean(mincut_loss)
+    ss = torch.matmul(s.transpose(1, 2), s)
+    i_s = torch.eye(k).type_as(ss)
+    ortho_loss = torch.norm(ss / torch.norm(ss, dim=(-1, -2), keepdim=True) -
+        i_s / torch.norm(i_s), dim=(-1, -2))
+    ortho_loss = torch.mean(ortho_loss)
+    ind = torch.arange(k, device=out_adj.device)
+    out_adj[:, (ind), (ind)] = 0
+    d = torch.einsum('ijk->ij', out_adj)
+    d = torch.sqrt(d)[:, (None)] + EPS
+    out_adj = out_adj / d / d.transpose(1, 2)
+    return out, out_adj, mincut_loss, ortho_loss
+
+
+def to_dense_adj(edge_index, batch=None, edge_attr=None):
+    """Converts batched sparse adjacency matrices given by edge indices and
+    edge attributes to a single dense batched adjacency matrix.
+
+    Args:
+        edge_index (LongTensor): The edge indices.
+        batch (LongTensor, optional): Batch vector
+            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
+            node to a specific example. (default: :obj:`None`)
+        edge_attr (Tensor, optional): Edge weights or multi-dimensional edge
+            features. (default: :obj:`None`)
+
+    :rtype: :class:`Tensor`
+    """
+    if batch is None:
+        batch = edge_index.new_zeros(edge_index.max().item() + 1)
+    batch_size = batch[-1].item() + 1
+    one = batch.new_ones(batch.size(0))
+    num_nodes = scatter_add(one, batch, dim=0, dim_size=batch_size)
+    cum_nodes = torch.cat([batch.new_zeros(1), num_nodes.cumsum(dim=0)])
+    max_num_nodes = num_nodes.max().item()
+    size = [batch_size, max_num_nodes, max_num_nodes]
+    size = size if edge_attr is None else size + list(edge_attr.size())[1:]
+    dtype = torch.float if edge_attr is None else edge_attr.dtype
+    adj = torch.zeros(size, dtype=dtype, device=edge_index.device)
+    edge_index_0 = batch[edge_index[0]].view(1, -1)
+    edge_index_1 = edge_index[0] - cum_nodes[batch][edge_index[0]]
+    edge_index_2 = edge_index[1] - cum_nodes[batch][edge_index[1]]
+    if edge_attr is None:
+        adj[edge_index_0, edge_index_1, edge_index_2] = 1
+    else:
+        adj[edge_index_0, edge_index_1, edge_index_2] = edge_attr
+    return adj
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels, hidden_channels=32):
+        super(Net, self).__init__()
+        self.conv1 = GCNConv(in_channels, hidden_channels)
+        num_nodes = ceil(0.5 * average_nodes)
+        self.pool1 = Linear(hidden_channels, num_nodes)
+        self.conv2 = DenseGraphConv(hidden_channels, hidden_channels)
+        num_nodes = ceil(0.5 * num_nodes)
+        self.pool2 = Linear(hidden_channels, num_nodes)
+        self.conv3 = DenseGraphConv(hidden_channels, hidden_channels)
+        self.lin1 = Linear(hidden_channels, hidden_channels)
+        self.lin2 = Linear(hidden_channels, out_channels)
+
+    def forward(self, x, edge_index, batch):
+        x = F.relu(self.conv1(x, edge_index))
+        x, mask = to_dense_batch(x, batch)
+        adj = to_dense_adj(edge_index, batch)
+        s = self.pool1(x)
+        x, adj, mc1, o1 = dense_mincut_pool(x, adj, s, mask)
+        x = F.relu(self.conv2(x, adj))
+        s = self.pool2(x)
+        x, adj, mc2, o2 = dense_mincut_pool(x, adj, s)
+        x = self.conv3(x, adj)
+        x = x.mean(dim=1)
+        x = F.relu(self.lin1(x))
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=-1), mc1 + mc2, o1 + o2
+
+
 class Net(torch.nn.Module):
 
     def __init__(self):
@@ -4379,6 +5145,46 @@ class Net(torch.nn.Module):
         return out.view(-1)
 
 
+class SAGE(torch.nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, out_channels):
+        super(SAGE, self).__init__()
+        self.num_layers = 2
+        self.convs = torch.nn.ModuleList()
+        self.convs.append(SAGEConv(in_channels, hidden_channels))
+        self.convs.append(SAGEConv(hidden_channels, out_channels))
+
+    def forward(self, x, adjs):
+        for i, (edge_index, _, size) in enumerate(adjs):
+            x_target = x[:size[1]]
+            x = self.convs[i]((x, x_target), edge_index)
+            if i != self.num_layers - 1:
+                x = F.relu(x)
+                x = F.dropout(x, p=0.5, training=self.training)
+        return x.log_softmax(dim=-1)
+
+    def inference(self, x_all):
+        model.eval()
+        pbar = tqdm(total=x_all.size(0) * self.num_layers)
+        pbar.set_description('Evaluating')
+        total_edges = 0
+        for i in range(self.num_layers):
+            xs = []
+            for batch_size, n_id, adj in subgraph_loader:
+                edge_index, _, size = adj
+                total_edges += edge_index.size(1)
+                x = x_all[n_id]
+                x_target = x[:size[1]]
+                x = self.convs[i]((x, x_target), edge_index)
+                if i - 1 < self.num_layers:
+                    x = F.relu(x)
+                xs.append(x.cpu())
+                pbar.update(batch_size)
+            x_all = torch.cat(xs, dim=0)
+        pbar.close()
+        return x_all
+
+
 class Net(torch.nn.Module):
 
     def __init__(self):
@@ -4427,6 +5233,21 @@ class Net(torch.nn.Module):
         x = torch.cat(xs, dim=-1)
         x = self.lin(x)
         return F.log_softmax(x, dim=-1)
+
+
+class Net(torch.nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = TAGConv(dataset.num_features, 16)
+        self.conv2 = TAGConv(16, dataset.num_classes)
+
+    def forward(self):
+        x, edge_index = data.x, data.edge_index
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
 
 
 class Net(torch.nn.Module):
@@ -4950,42 +5771,6 @@ class MessagePassing(torch.nn.Module):
         which was initially passed to :meth:`propagate`.
         """
         return inputs
-
-
-def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine
-    =False):
-    """Computes graph edges to the nearest :obj:`k` points.
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
-        k (int): The number of neighbors.
-        batch (LongTensor, optional): Batch vector
-            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
-            node to a specific example. (default: :obj:`None`)
-        loop (bool, optional): If :obj:`True`, the graph will contain
-            self-loops. (default: :obj:`False`)
-        flow (string, optional): The flow direction when using in combination
-            with message passing (:obj:`"source_to_target"` or
-            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
-        cosine (boolean, optional): If :obj:`True`, will use the cosine
-            distance instead of euclidean distance to find nearest neighbors.
-            (default: :obj:`False`)
-
-    :rtype: :class:`LongTensor`
-
-    .. code-block:: python
-
-        import torch
-        from torch_geometric.nn import knn_graph
-
-        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
-        batch = torch.tensor([0, 0, 0, 0])
-        edge_index = knn_graph(x, k=2, batch=batch, loop=False)
-    """
-    if torch_cluster is None:
-        raise ImportError('`knn_graph` requires `torch-cluster`.')
-    return torch_cluster.knn_graph(x, k, batch, loop, flow, cosine)
 
 
 class XConv(torch.nn.Module):
@@ -7262,42 +8047,6 @@ qm9_target_dict = {(0): 'dipole_moment', (1): 'isotropic_polarizability', (
     'free_energy', (11): 'heat_capacity'}
 
 
-def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
-    'source_to_target'):
-    """Computes graph edges to all points within a given distance.
-
-    Args:
-        x (Tensor): Node feature matrix
-            :math:`\\mathbf{X} \\in \\mathbb{R}^{N \\times F}`.
-        r (float): The radius.
-        batch (LongTensor, optional): Batch vector
-            :math:`\\mathbf{b} \\in {\\{ 0, \\ldots, B-1\\}}^N`, which assigns each
-            node to a specific example. (default: :obj:`None`)
-        loop (bool, optional): If :obj:`True`, the graph will contain
-            self-loops. (default: :obj:`False`)
-        max_num_neighbors (int, optional): The maximum number of neighbors to
-            return for each element in :obj:`y`. (default: :obj:`32`)
-        flow (string, optional): The flow direction when using in combination
-            with message passing (:obj:`"source_to_target"` or
-            :obj:`"target_to_source"`). (default: :obj:`"source_to_target"`)
-
-    :rtype: :class:`LongTensor`
-
-    .. code-block:: python
-
-        import torch
-        from torch_geometric.nn import radius_graph
-
-        x = torch.Tensor([[-1, -1], [-1, 1], [1, -1], [1, 1]])
-        batch = torch.tensor([0, 0, 0, 0])
-        edge_index = radius_graph(x, r=1.5, batch=batch, loop=False)
-    """
-    if torch_cluster is None:
-        raise ImportError('`radius_graph` requires `torch-cluster`.')
-    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors,
-        flow)
-
-
 class SchNet(torch.nn.Module):
     """The continuous-filter convolutional neural network SchNet from the
     `"SchNet: A Continuous-filter Convolutional Neural Network for Modeling
@@ -8541,6 +9290,7 @@ class Reshape(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_rusty1s_pytorch_geometric(_paritybench_base):
@@ -8562,7 +9312,7 @@ class Test_rusty1s_pytorch_geometric(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(DenseGINConv(*[], **{'nn': ReLU()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(DenseGINConv(*[], **{'nn': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
     def test_005(self):

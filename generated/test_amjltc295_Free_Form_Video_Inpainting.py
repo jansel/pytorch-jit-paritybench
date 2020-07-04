@@ -79,10 +79,13 @@ readers = _module
 screen = _module
 visualization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -102,6 +105,9 @@ from torch.autograd import Variable
 
 
 from collections import namedtuple
+
+
+from torchvision import models
 
 
 import scipy
@@ -547,6 +553,16 @@ class resnet(torch.nn.Module):
             'conv5'])
         out = outputs(h_relu1, h_conv2, h_conv3, h_conv4, h_conv5)
         return out
+
+
+class PerceptModel(torch.nn.Module):
+
+    def __init__(self):
+        super(PerceptModel, self).__init__()
+        self.pred = torch.nn.Parameter(pred.data)
+
+    def forward(self):
+        return self.pred
 
 
 class BaseModel(nn.Module):
@@ -1277,6 +1293,31 @@ class ReconLoss(nn.Module):
 device = torch.device('cuda')
 
 
+class VGGLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.l1_loss = nn.L1Loss()
+
+    def vgg_loss(self, output, target):
+        output_feature = vgg(output)
+        target_feature = vgg(target)
+        loss = self.l1_loss(output_feature.relu2_2, target_feature.relu2_2
+            ) + self.l1_loss(output_feature.relu3_3, target_feature.relu3_3
+            ) + self.l1_loss(output_feature.relu4_3, target_feature.relu4_3)
+        return loss
+
+    def forward(self, data_input, model_output):
+        targets = data_input['targets']
+        outputs = model_output['outputs']
+        mean_image_loss = []
+        for frame_idx in range(targets.size(1)):
+            mean_image_loss.append(self.vgg_loss(outputs[:, (frame_idx)],
+                targets[:, (frame_idx)]))
+        mean_image_loss = torch.stack(mean_image_loss, dim=0).mean(dim=0)
+        return mean_image_loss
+
+
 class StyleLoss(nn.Module):
 
     def __init__(self, original_channel_norm=True):
@@ -1318,6 +1359,42 @@ class StyleLoss(nn.Module):
             mean_image_loss.append(self.style_loss(outputs[:, (frame_idx)],
                 targets[:, (frame_idx)]))
         mean_image_loss = torch.stack(mean_image_loss, dim=0).mean(dim=0)
+        return mean_image_loss
+
+
+class EdgeLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.l1_loss = nn.L1Loss()
+
+    def edge_loss(self, output, target):
+        output_edge = get_edge(output)
+        gt_edge = get_edge(target)
+        loss = self.l1_loss(output_edge, gt_edge)
+        return loss, output_edge, gt_edge
+
+    def forward(self, data_input, model_output):
+        targets = data_input['targets']
+        outputs = model_output['outputs']
+        mean_image_loss = []
+        output_edges = []
+        target_edges = []
+        for batch_idx in range(targets.size(0)):
+            edges_o = []
+            edges_t = []
+            for frame_idx in range(targets.size(1)):
+                loss, output_edge, target_edge = self.edge_loss(outputs[(
+                    batch_idx), frame_idx:frame_idx + 1], targets[(
+                    batch_idx), frame_idx:frame_idx + 1])
+                mean_image_loss.append(loss)
+                edges_o.append(output_edge)
+                edges_t.append(target_edge)
+            output_edges.append(torch.cat(edges_o, dim=0))
+            target_edges.append(torch.cat(edges_t, dim=0))
+        mean_image_loss = torch.stack(mean_image_loss, dim=0).mean(dim=0)
+        self.current_output_edges = output_edges
+        self.current_target_edges = target_edges
         return mean_image_loss
 
 
@@ -1374,6 +1451,55 @@ class CompleteFramesReconLoss(nn.Module):
         targets = data_input['targets']
         masks = data_input['masks']
         return self.loss_fn(outputs, targets, masks)
+
+
+class TemporalWarpingLoss(nn.Module):
+
+    def __init__(self, flownet_checkpoint_path=None, alpha=50):
+        super().__init__()
+        self.loss_fn = L1LossMaskedMean()
+        self.alpha = alpha
+        self.flownet_checkpoint_path = flownet_checkpoint_path
+        self.flownet = None
+
+    def get_flownet_checkpoint_path(self):
+        return self.flownet_checkpoint_path
+
+    def _setup(self):
+        self.flownet = FlowNetWrapper(checkpoint_path=self.
+            flownet_checkpoint_path)
+
+    def _get_non_occlusion_mask(self, targets, warped_targets):
+        non_occlusion_masks = torch.exp(-self.alpha * torch.sum(targets[:, 
+            1:] - warped_targets, dim=2).pow(2)).unsqueeze(2)
+        return non_occlusion_masks
+
+    def _get_loss(self, outputs, warped_outputs, non_occlusion_masks, masks):
+        return self.loss_fn(outputs[:, 1:] * non_occlusion_masks, 
+            warped_outputs * non_occlusion_masks, masks[:, 1:])
+
+    def forward(self, data_input, model_output):
+        if self.flownet is None:
+            self._setup()
+        targets = data_input['targets']
+        outputs = model_output['outputs']
+        flows = self.flownet.infer_video(targets)
+        warped_targets = warp_optical_flow(targets[:, :-1], -flows).detach()
+        warped_outputs = warp_optical_flow(outputs[:, :-1], -flows).detach()
+        non_occlusion_masks = self._get_non_occlusion_mask(targets,
+            warped_targets)
+        model_output['warped_outputs'] = warped_outputs[0]
+        model_output['warped_targets'] = warped_targets[0]
+        model_output['non_occlusion_masks'] = non_occlusion_masks[0]
+        flow_imgs = []
+        for flow in flows[0]:
+            flow_img = flow_to_image(flow.cpu().permute(1, 2, 0).detach().
+                numpy()).transpose(2, 0, 1)
+            flow_imgs.append(torch.Tensor(flow_img))
+        model_output['flow_imgs'] = flow_imgs
+        masks = data_input['masks']
+        return self._get_loss(outputs, warped_outputs, non_occlusion_masks,
+            masks)
 
 
 class TVLoss(nn.Module):
@@ -1766,6 +1892,7 @@ class Vgg16(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_amjltc295_Free_Form_Video_Inpainting(_paritybench_base):
@@ -1784,17 +1911,45 @@ class Test_amjltc295_Free_Form_Video_Inpainting(_paritybench_base):
     def test_003(self):
         self._check(GatedConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(L1LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(GatedDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     def test_005(self):
+        self._check(L1LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
         self._check(L2LossMaskedMean(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_008(self):
         self._check(VanillaConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_009(self):
+        self._check(VanillaDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_011(self):
+        self._check(alexnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(resnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(squeezenet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

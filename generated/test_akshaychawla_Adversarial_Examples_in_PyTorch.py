@@ -9,10 +9,13 @@ visualize_adv_examples = _module
 visualize_imnet = _module
 visualize_mnist = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -22,10 +25,16 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torchvision
+
+
 import torch
 
 
 from torch.autograd import Variable
+
+
+from torchvision import transforms
 
 
 import torch.nn as nn
@@ -41,6 +50,9 @@ import torch.optim as optim
 
 
 import random
+
+
+import torchvision.models
 
 
 class Net(nn.Module):
@@ -98,6 +110,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_akshaychawla_Adversarial_Examples_in_PyTorch(_paritybench_base):

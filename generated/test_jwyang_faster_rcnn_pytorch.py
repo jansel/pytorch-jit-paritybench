@@ -61,10 +61,13 @@ setup = _module
 test_net = _module
 trainval_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -92,10 +95,19 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as dset
+
+
 import random
 
 
 import torch.nn.functional as F
+
+
+import torchvision.models as models
 
 
 import math
@@ -157,10 +169,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
 _global_config['TRAIN'] = 4
 
 
-_global_config['POOLING_SIZE'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 _global_config['POOLING_MODE'] = 4
@@ -842,8 +854,8 @@ class Depth3DGridGen_with_mask(Module):
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                cuda.FloatTensor) * (y.ge(0).type(torch.cuda.FloatTensor) -
-                y.lt(0).type(torch.cuda.FloatTensor))
+                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
+                type(torch.FloatTensor))
         else:
             phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
                 FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
@@ -866,6 +878,50 @@ sources = []
 
 
 with_cuda = False
+
+
+class RoICropFunction(Function):
+
+    def forward(self, input1, input2):
+        self.input1 = input1
+        self.input2 = input2
+        self.device_c = ffi.new('int *')
+        output = torch.zeros(input2.size()[0], input1.size()[1], input2.
+            size()[1], input2.size()[2])
+        if input1.is_cuda:
+            self.device = torch.cuda.current_device()
+        else:
+            self.device = -1
+        self.device_c[0] = self.device
+        if not input1.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
+        else:
+            output = output.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2,
+                output)
+        return output
+
+    def backward(self, grad_output):
+        grad_input1 = torch.zeros(self.input1.size())
+        grad_input2 = torch.zeros(self.input2.size())
+        if not grad_output.is_cuda:
+            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.
+                input2, grad_input1, grad_input2, grad_output)
+        else:
+            grad_input1 = grad_input1.cuda(self.device)
+            grad_input2 = grad_input2.cuda(self.device)
+            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1,
+                self.input2, grad_input1, grad_input2, grad_output)
+        return grad_input1, grad_input2
+
+
+class _RoICrop(Module):
+
+    def __init__(self, layout='BHWD'):
+        super(_RoICrop, self).__init__()
+
+    def forward(self, input1, input2):
+        return RoICropFunction()(input1, input2)
 
 
 class RoIPoolFunction(Function):
@@ -1549,13 +1605,13 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
+_global_config['ANCHOR_RATIOS'] = 4
+
+
 _global_config['ANCHOR_SCALES'] = 4
 
 
 _global_config['FEAT_STRIDE'] = 4
-
-
-_global_config['ANCHOR_RATIOS'] = 4
 
 
 class _RPN(nn.Module):
@@ -1628,6 +1684,7 @@ class _RPN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jwyang_faster_rcnn_pytorch(_paritybench_base):

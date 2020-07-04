@@ -10,10 +10,13 @@ test_image = _module
 test_video = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -27,6 +30,9 @@ import torch
 
 
 from torch import nn
+
+
+from torchvision.models.vgg import vgg16
 
 
 import math
@@ -237,6 +243,7 @@ class SSIM(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_leftthomas_SRGAN(_paritybench_base):
@@ -247,13 +254,21 @@ class Test_leftthomas_SRGAN(_paritybench_base):
     def test_001(self):
         self._check(Generator(*[], **{'scale_factor': 1.0}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
+        self._check(GeneratorLoss(*[], **{}), [torch.rand([4, 13, 3, 3]), torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_003(self):
         self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    @_fails_compile()
+    def test_005(self):
         self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(UpsampleBLock(*[], **{'in_channels': 4, 'up_scale': 4}), [torch.rand([4, 4, 4, 4])], {})
 

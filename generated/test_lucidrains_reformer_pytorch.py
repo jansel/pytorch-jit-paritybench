@@ -12,10 +12,13 @@ reformer_pytorch = _module
 reversible = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1119,7 +1122,7 @@ class Deterministic(nn.Module):
 
     def record_rng(self, *args):
         self.cpu_state = torch.get_rng_state()
-        if torch.cuda._initialized:
+        if torch._initialized:
             self.cuda_in_fwd = True
             self.gpu_devices, self.gpu_states = get_device_states(*args)
 
@@ -1256,6 +1259,7 @@ class ReversibleSequence(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lucidrains_reformer_pytorch(_paritybench_base):
@@ -1265,35 +1269,43 @@ class Test_lucidrains_reformer_pytorch(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(Chunk(*[], **{'chunks': 4, 'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Chunk(*[], **{'chunks': 4, 'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Deterministic(*[], **{'net': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     @_fails_compile()
     def test_003(self):
-        self._check(FixedPositionalEmbedding(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FeedForward(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(FixedPositionalEmbedding(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_005(self):
         self._check(FullQKAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(GELU_(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(LocalAttention(*[], **{'bucket_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(ReZero(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+    def test_008(self):
+        self._check(PreNorm(*[], **{'norm_class': _mock_layer, 'dim': 4, 'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(Recorder(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_009(self):
+        self._check(ReZero(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(Recorder(*[], **{'net': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(ScaleNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

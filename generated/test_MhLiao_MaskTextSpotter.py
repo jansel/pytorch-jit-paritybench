@@ -93,10 +93,13 @@ demo = _module
 test_net = _module
 train_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -213,6 +216,56 @@ class ConvTranspose2d(torch.nn.ConvTranspose2d):
             dilation, self.kernel_size, self.stride, self.output_padding)]
         output_shape = [x.shape[0], self.bias.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
+
+
+class _ROIAlign(Function):
+
+    @staticmethod
+    def forward(ctx, input, roi, output_size, spatial_scale, sampling_ratio):
+        ctx.save_for_backward(roi)
+        ctx.output_size = _pair(output_size)
+        ctx.spatial_scale = spatial_scale
+        ctx.sampling_ratio = sampling_ratio
+        ctx.input_shape = input.size()
+        output = _C.roi_align_forward(input, roi, spatial_scale,
+            output_size[0], output_size[1], sampling_ratio)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        rois, = ctx.saved_tensors
+        output_size = ctx.output_size
+        spatial_scale = ctx.spatial_scale
+        sampling_ratio = ctx.sampling_ratio
+        bs, ch, h, w = ctx.input_shape
+        grad_input = _C.roi_align_backward(grad_output, rois, spatial_scale,
+            output_size[0], output_size[1], bs, ch, h, w, sampling_ratio)
+        return grad_input, None, None, None, None
+
+
+roi_align = _ROIAlign.apply
+
+
+class ROIAlign(nn.Module):
+
+    def __init__(self, output_size, spatial_scale, sampling_ratio):
+        super(ROIAlign, self).__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+
+    def forward(self, input, rois):
+        return roi_align(input, rois, self.output_size, self.spatial_scale,
+            self.sampling_ratio)
+
+    def __repr__(self):
+        tmpstr = self.__class__.__name__ + '('
+        tmpstr += 'output_size=' + str(self.output_size)
+        tmpstr += ', spatial_scale=' + str(self.spatial_scale)
+        tmpstr += ', sampling_ratio=' + str(self.sampling_ratio)
+        tmpstr += ')'
+        return tmpstr
 
 
 class _ROIPool(Function):
@@ -347,6 +400,101 @@ ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for
 
 _STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5,
     'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
+
+
+def _make_stage(transformation_module, in_channels, bottleneck_channels,
+    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
+    blocks = []
+    stride = first_stride
+    for _ in range(block_count):
+        blocks.append(transformation_module(in_channels,
+            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
+            stride))
+        stride = 1
+        in_channels = out_channels
+    return nn.Sequential(*blocks)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, cfg):
+        super(ResNet, self).__init__()
+        stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
+        stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
+            TRANS_FUNC]
+        self.stem = stem_module(cfg)
+        num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
+        width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
+        in_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        stage2_bottleneck_channels = num_groups * width_per_group
+        stage2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+        self.stages = []
+        self.return_features = {}
+        for stage_spec in stage_specs:
+            name = 'layer' + str(stage_spec.index)
+            stage2_relative_factor = 2 ** (stage_spec.index - 1)
+            bottleneck_channels = (stage2_bottleneck_channels *
+                stage2_relative_factor)
+            out_channels = stage2_out_channels * stage2_relative_factor
+            module = _make_stage(transformation_module, in_channels,
+                bottleneck_channels, out_channels, stage_spec.block_count,
+                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
+                int(stage_spec.index > 1) + 1)
+            in_channels = out_channels
+            self.add_module(name, module)
+            self.stages.append(name)
+            self.return_features[name] = stage_spec.return_features
+        self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+
+    def _freeze_backbone(self, freeze_at):
+        for stage_index in range(freeze_at):
+            if stage_index == 0:
+                m = self.stem
+            else:
+                m = getattr(self, 'layer' + str(stage_index))
+            for p in m.parameters():
+                p.requires_grad = False
+
+    def forward(self, x):
+        outputs = []
+        x = self.stem(x)
+        for stage_name in self.stages:
+            x = getattr(self, stage_name)(x)
+            if self.return_features[stage_name]:
+                outputs.append(x)
+        return outputs
+
+
+class ResNetHead(nn.Module):
+
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=
+        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
+        super(ResNetHead, self).__init__()
+        stage2_relative_factor = 2 ** (stages[0].index - 1)
+        stage2_bottleneck_channels = num_groups * width_per_group
+        out_channels = res2_out_channels * stage2_relative_factor
+        in_channels = out_channels // 2
+        bottleneck_channels = (stage2_bottleneck_channels *
+            stage2_relative_factor)
+        block_module = _TRANSFORMATION_MODULES[block_module]
+        self.stages = []
+        stride = stride_init
+        for stage in stages:
+            name = 'layer' + str(stage.index)
+            if not stride:
+                stride = int(stage.index > 1) + 1
+            module = _make_stage(block_module, in_channels,
+                bottleneck_channels, out_channels, stage.block_count,
+                num_groups, stride_in_1x1, first_stride=stride)
+            stride = None
+            self.add_module(name, module)
+            self.stages.append(name)
+
+    def forward(self, x):
+        for stage in self.stages:
+            x = getattr(self, stage)(x)
+        return x
 
 
 class BottleneckWithFixedBatchNorm(nn.Module):
@@ -759,6 +907,66 @@ class Pooler(nn.Module):
         return result
 
 
+def make_roi_box_feature_extractor(cfg):
+    func = _ROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.FEATURE_EXTRACTOR
+        ]
+    return func(cfg)
+
+
+class BalancedPositiveNegativeSampler(object):
+    """
+    This class samples batches, ensuring that they contain a fixed proportion of positives
+    """
+
+    def __init__(self, batch_size_per_image, positive_fraction):
+        """
+        Arguments:
+            batch_size_per_image (int): number of elements to be selected per image
+            positive_fraction (float): percentace of positive elements per batch
+        """
+        self.batch_size_per_image = batch_size_per_image
+        self.positive_fraction = positive_fraction
+
+    def __call__(self, matched_idxs):
+        """
+        Arguments:
+            matched idxs: list of tensors containing -1, 0 or positive values.
+                Each tensor corresponds to a specific image.
+                -1 values are ignored, 0 are considered as negatives and > 0 as
+                positives.
+
+        Returns:
+            pos_idx (list[tensor])
+            neg_idx (list[tensor])
+
+        Returns two lists of binary masks for each image.
+        The first list contains the positive elements that were selected,
+        and the second list the negative example.
+        """
+        pos_idx = []
+        neg_idx = []
+        for matched_idxs_per_image in matched_idxs:
+            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
+            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
+            num_pos = int(self.batch_size_per_image * self.positive_fraction)
+            num_pos = min(positive.numel(), num_pos)
+            num_neg = self.batch_size_per_image - num_pos
+            num_neg = min(negative.numel(), num_neg)
+            perm1 = torch.randperm(positive.numel())[:num_pos]
+            perm2 = torch.randperm(negative.numel())[:num_neg]
+            pos_idx_per_image = positive[perm1]
+            neg_idx_per_image = negative[perm2]
+            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.bool)
+            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
+                dtype=torch.bool)
+            pos_idx_per_image_mask[pos_idx_per_image] = 1
+            neg_idx_per_image_mask[neg_idx_per_image] = 1
+            pos_idx.append(pos_idx_per_image_mask)
+            neg_idx.append(neg_idx_per_image_mask)
+        return pos_idx, neg_idx
+
+
 class BoxCoder(object):
     """
     This class encodes and decodes a set of bounding boxes into
@@ -835,6 +1043,225 @@ class BoxCoder(object):
         pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w - 1
         pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h - 1
         return pred_boxes
+
+
+def boxlist_iou(boxlist1, boxlist2):
+    """Compute the intersection over union of two set of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Arguments:
+      box1: (BoxList) bounding boxes, sized [N,4].
+      box2: (BoxList) bounding boxes, sized [M,4].
+
+    Returns:
+      (tensor) iou, sized [N,M].
+
+    Reference:
+      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
+    """
+    if boxlist1.size != boxlist2.size:
+        raise RuntimeError('boxlists should have same image size, got {}, {}'
+            .format(boxlist1, boxlist2))
+    N = len(boxlist1)
+    M = len(boxlist2)
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    lt = torch.max(box1[:, (None), :2], box2[:, :2])
+    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    TO_REMOVE = 1
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)
+    inter = wh[:, :, (0)] * wh[:, :, (1)]
+    iou = inter / (area1[:, (None)] + area2 - inter)
+    return iou
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
+
+
+class FastRCNNLossComputation(object):
+    """
+    Computes the loss for Faster R-CNN.
+    Also supports FPN
+    """
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.box_coder = box_coder
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields('labels')
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        regression_targets = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(
+                proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_inds] = 0
+            ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+            labels_per_image[ignore_inds] = -1
+            regression_targets_per_image = self.box_coder.encode(
+                matched_targets.bbox, proposals_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def subsample(self, proposals, targets):
+        """
+        This method performs the positive/negative sampling, and return
+        the sampled proposals.
+        Note: this function keeps a state.
+
+        Arguments:
+            proposals (list[BoxList])
+            targets (list[BoxList])
+        """
+        labels, regression_targets = self.prepare_targets(proposals, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        proposals = list(proposals)
+        for labels_per_image, regression_targets_per_image, proposals_per_image in zip(
+            labels, regression_targets, proposals):
+            proposals_per_image.add_field('labels', labels_per_image)
+            proposals_per_image.add_field('regression_targets',
+                regression_targets_per_image)
+        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(
+            sampled_pos_inds, sampled_neg_inds)):
+            img_sampled_inds = torch.nonzero(pos_inds_img | neg_inds_img
+                ).squeeze(1)
+            proposals_per_image = proposals[img_idx][img_sampled_inds]
+            proposals[img_idx] = proposals_per_image
+        self._proposals = proposals
+        return proposals
+
+    def __call__(self, class_logits, box_regression):
+        """
+        Computes the loss for Faster R-CNN.
+        This requires that the subsample method has been called beforehand.
+
+        Arguments:
+            class_logits (list[Tensor])
+            box_regression (list[Tensor])
+
+        Returns:
+            classification_loss (Tensor)
+            box_loss (Tensor)
+        """
+        class_logits = cat(class_logits, dim=0)
+        box_regression = cat(box_regression, dim=0)
+        device = class_logits.device
+        if not hasattr(self, '_proposals'):
+            raise RuntimeError('subsample needs to be called before')
+        proposals = self._proposals
+        labels = cat([proposal.get_field('labels') for proposal in
+            proposals], dim=0)
+        regression_targets = cat([proposal.get_field('regression_targets') for
+            proposal in proposals], dim=0)
+        classification_loss = F.cross_entropy(class_logits, labels)
+        sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
+        labels_pos = labels[sampled_pos_inds_subset]
+        map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3],
+            device=device)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:,
+            (None)], map_inds], regression_targets[sampled_pos_inds_subset],
+            size_average=False, beta=1)
+        box_loss = box_loss / labels.numel()
+        return classification_loss, box_loss
+
+
+def make_roi_box_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
+        ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.
+        BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
+    loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler, box_coder)
+    return loss_evaluator
+
+
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    postprocessor = PostProcessor(score_thresh, nms_thresh,
+        detections_per_img, box_coder)
+    return postprocessor
+
+
+def make_roi_box_predictor(cfg):
+    func = _ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+class ROIBoxHead(torch.nn.Module):
+    """
+    Generic Box Head class.
+    """
+
+    def __init__(self, cfg):
+        super(ROIBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg)
+        self.predictor = make_roi_box_predictor(cfg)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression),
+                proposals)
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits],
+            [box_regression])
+        return x, proposals, dict(loss_classifier=loss_classifier,
+            loss_box_reg=loss_box_reg)
 
 
 FLIP_LEFT_RIGHT = 0
@@ -1465,37 +1892,6 @@ class CharMaskPostProcessor(nn.Module):
         return [results, char_results]
 
 
-def boxlist_iou(boxlist1, boxlist2):
-    """Compute the intersection over union of two set of boxes.
-    The box order must be (xmin, ymin, xmax, ymax).
-
-    Arguments:
-      box1: (BoxList) bounding boxes, sized [N,4].
-      box2: (BoxList) bounding boxes, sized [M,4].
-
-    Returns:
-      (tensor) iou, sized [N,M].
-
-    Reference:
-      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
-    """
-    if boxlist1.size != boxlist2.size:
-        raise RuntimeError('boxlists should have same image size, got {}, {}'
-            .format(boxlist1, boxlist2))
-    N = len(boxlist1)
-    M = len(boxlist2)
-    area1 = boxlist1.area()
-    area2 = boxlist2.area()
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
-    return iou
-
-
 def keep_only_positive_boxes(boxes, batch_size_per_im):
     """
     Given a set of BoxList containing the `labels` field,
@@ -1521,6 +1917,344 @@ def keep_only_positive_boxes(boxes, batch_size_per_im):
         positive_boxes.append(boxes_per_image[new_inds])
         positive_inds.append(inds_mask)
     return positive_boxes, positive_inds
+
+
+def make_roi_mask_feature_extractor(cfg):
+    func = _ROI_MASK_FEATURE_EXTRACTORS[cfg.MODEL.ROI_MASK_HEAD.
+        FEATURE_EXTRACTOR]
+    return func(cfg)
+
+
+class CharMaskRCNNLossComputation(object):
+
+    def __init__(self, use_weighted_loss=False):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            discretization_size (int)
+        """
+        self.use_weighted_loss = use_weighted_loss
+
+    def __call__(self, proposals, mask_logits, char_mask_logits,
+        mask_targets, char_mask_targets, char_mask_weights):
+        """
+        Arguments:
+            proposals (list[BoxList])
+            mask_logits (Tensor)
+            targets (list[BoxList])
+
+        Return:
+            mask_loss (Tensor): scalar tensor containing the loss
+        """
+        mask_targets = cat(mask_targets, dim=0)
+        char_mask_targets = cat(char_mask_targets, dim=0)
+        char_mask_weights = cat(char_mask_weights, dim=0)
+        char_mask_weights = char_mask_weights.mean(dim=0)
+        if mask_targets.numel() == 0 or char_mask_targets.numel() == 0:
+            return mask_logits.sum() * 0, char_mask_targets.sum() * 0
+        mask_loss = F.binary_cross_entropy_with_logits(mask_logits.squeeze(
+            dim=1), mask_targets)
+        if self.use_weighted_loss:
+            char_mask_loss = F.cross_entropy(char_mask_logits,
+                char_mask_targets, char_mask_weights, ignore_index=-1)
+        else:
+            char_mask_loss = F.cross_entropy(char_mask_logits,
+                char_mask_targets, ignore_index=-1)
+        return mask_loss, char_mask_loss
+
+
+def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+
+    Arguments:
+        segmentation_masks: an instance of SegmentationMask
+        proposals: an instance of BoxList
+    """
+    masks = []
+    M = discretization_size
+    device = proposals.bbox.device
+    proposals = proposals.convert('xyxy')
+    assert segmentation_masks.size == proposals.size, '{}, {}'.format(
+        segmentation_masks, proposals)
+    proposals = proposals.bbox.to(torch.device('cpu'))
+    for segmentation_mask, proposal in zip(segmentation_masks, proposals):
+        cropped_mask = segmentation_mask.crop(proposal)
+        scaled_mask = cropped_mask.resize((M, M))
+        mask = scaled_mask.convert(mode='mask')
+        masks.append(mask)
+    if len(masks) == 0:
+        return torch.empty(0, dtype=torch.float32, device=device)
+    return torch.stack(masks, dim=0).to(device, dtype=torch.float32)
+
+
+class MaskRCNNLossComputation(object):
+
+    def __init__(self, proposal_matcher, discretization_size):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            discretization_size (int)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.discretization_size = discretization_size
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'masks'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        masks = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(
+                proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
+            segmentation_masks = matched_targets.get_field('masks')
+            segmentation_masks = segmentation_masks[positive_inds]
+            positive_proposals = proposals_per_image[positive_inds]
+            masks_per_image = project_masks_on_boxes(segmentation_masks,
+                positive_proposals, self.discretization_size)
+            labels.append(labels_per_image)
+            masks.append(masks_per_image)
+        return labels, masks
+
+    def __call__(self, proposals, mask_logits, targets):
+        """
+        Arguments:
+            proposals (list[BoxList])
+            mask_logits (Tensor)
+            targets (list[BoxList])
+
+        Return:
+            mask_loss (Tensor): scalar tensor containing the loss
+        """
+        labels, mask_targets = self.prepare_targets(proposals, targets)
+        labels = cat(labels, dim=0)
+        mask_targets = cat(mask_targets, dim=0)
+        positive_inds = torch.nonzero(labels > 0).squeeze(1)
+        labels_pos = labels[positive_inds]
+        if mask_targets.numel() == 0:
+            return mask_logits.sum() * 0
+        mask_loss = F.binary_cross_entropy_with_logits(mask_logits[
+            positive_inds, labels_pos], mask_targets)
+        return mask_loss
+
+
+def make_roi_mask_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.
+        ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    if cfg.MODEL.CHAR_MASK_ON:
+        loss_evaluator = CharMaskRCNNLossComputation(use_weighted_loss=cfg.
+            MODEL.ROI_MASK_HEAD.USE_WEIGHTED_CHAR_MASK)
+    else:
+        loss_evaluator = MaskRCNNLossComputation(matcher, cfg.MODEL.
+            ROI_MASK_HEAD.RESOLUTION)
+    return loss_evaluator
+
+
+def make_roi_mask_post_processor(cfg):
+    masker = None
+    if cfg.MODEL.CHAR_MASK_ON:
+        mask_post_processor = CharMaskPostProcessor(cfg, masker)
+    else:
+        mask_post_processor = MaskPostProcessor(masker)
+    return mask_post_processor
+
+
+def make_roi_mask_predictor(cfg):
+    func = _ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+def project_char_masks_on_boxes(segmentation_masks, segmentation_char_masks,
+    proposals, discretization_size):
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+
+    Arguments:
+        segmentation_masks: an instance of SegmentationMask
+        proposals: an instance of BoxList
+    """
+    masks = []
+    char_masks = []
+    char_mask_weights = []
+    decoder_targets = []
+    word_targets = []
+    M_H, M_W = discretization_size[0], discretization_size[1]
+    device = proposals.bbox.device
+    proposals = proposals.convert('xyxy')
+    assert segmentation_masks.size == proposals.size, '{}, {}'.format(
+        segmentation_masks, proposals)
+    assert segmentation_char_masks.size == proposals.size, '{}, {}'.format(
+        segmentation_char_masks, proposals)
+    proposals = proposals.bbox.to(torch.device('cpu'))
+    for segmentation_mask, segmentation_char_mask, proposal in zip(
+        segmentation_masks, segmentation_char_masks, proposals):
+        cropped_mask = segmentation_mask.crop(proposal)
+        scaled_mask = cropped_mask.resize((M_W, M_H))
+        mask = scaled_mask.convert(mode='mask')
+        masks.append(mask)
+        cropped_char_mask = segmentation_char_mask.crop(proposal)
+        scaled_char_mask = cropped_char_mask.resize((M_W, M_H))
+        char_mask, char_mask_weight, decoder_target, word_target = (
+            scaled_char_mask.convert(mode='seq_char_mask'))
+        char_masks.append(char_mask)
+        char_mask_weights.append(char_mask_weight)
+        decoder_targets.append(decoder_target)
+        word_targets.append(word_target)
+    if len(masks) == 0:
+        return torch.empty(0, dtype=torch.float32, device=device), torch.empty(
+            0, dtype=torch.long, device=device), torch.empty(0, dtype=torch
+            .float32, device=device), torch.empty(0, dtype=torch.long,
+            device=device)
+    return torch.stack(masks, dim=0).to(device, dtype=torch.float32
+        ), torch.stack(char_masks, dim=0).to(device, dtype=torch.long
+        ), torch.stack(char_mask_weights, dim=0).to(device, dtype=torch.float32
+        ), torch.stack(decoder_targets, dim=0).to(device, dtype=torch.long
+        ), torch.stack(word_targets, dim=0).to(device, dtype=torch.long)
+
+
+class ROIMaskHead(torch.nn.Module):
+
+    def __init__(self, cfg, proposal_matcher, discretization_size):
+        super(ROIMaskHead, self).__init__()
+        self.proposal_matcher = proposal_matcher
+        self.discretization_size = discretization_size
+        self.cfg = cfg.clone()
+        self.feature_extractor = make_roi_mask_feature_extractor(cfg)
+        self.predictor = make_roi_mask_predictor(cfg)
+        self.post_processor = make_roi_mask_post_processor(cfg)
+        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'masks', 'char_masks'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        masks = []
+        char_masks = []
+        char_mask_weights = []
+        decoder_targets = []
+        word_targets = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(
+                proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
+            segmentation_masks = matched_targets.get_field('masks')
+            segmentation_masks = segmentation_masks[positive_inds]
+            char_segmentation_masks = matched_targets.get_field('char_masks')
+            char_segmentation_masks = char_segmentation_masks[positive_inds]
+            positive_proposals = proposals_per_image[positive_inds]
+            (masks_per_image, char_masks_per_image,
+                char_masks_weight_per_image, decoder_targets_per_image,
+                word_targets_per_image) = (project_char_masks_on_boxes(
+                segmentation_masks, char_segmentation_masks,
+                positive_proposals, self.discretization_size))
+            masks.append(masks_per_image)
+            char_masks.append(char_masks_per_image)
+            char_mask_weights.append(char_masks_weight_per_image)
+            decoder_targets.append(decoder_targets_per_image)
+            word_targets.append(word_targets_per_image)
+        return (masks, char_masks, char_mask_weights, decoder_targets,
+            word_targets)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the original proposals
+                are returned. During testing, the predicted boxlists are returned
+                with the `mask` field set
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            all_proposals = proposals
+            proposals, positive_inds = keep_only_positive_boxes(proposals,
+                self.cfg.MODEL.ROI_MASK_HEAD.MASK_BATCH_SIZE_PER_IM)
+        if (self.training and self.cfg.MODEL.ROI_MASK_HEAD.
+            SHARE_BOX_FEATURE_EXTRACTOR):
+            x = features
+            x = x[torch.cat(positive_inds, dim=0)]
+        else:
+            x = self.feature_extractor(features, proposals)
+        if self.training and self.cfg.MODEL.CHAR_MASK_ON:
+            (mask_targets, char_mask_targets, char_mask_weights,
+                decoder_targets, word_targets) = self.prepare_targets(proposals
+                , targets)
+            decoder_targets = cat(decoder_targets, dim=0)
+            word_targets = cat(word_targets, dim=0)
+        if self.cfg.MODEL.CHAR_MASK_ON:
+            if self.cfg.SEQUENCE.SEQ_ON:
+                if not self.training:
+                    if x.numel() > 0:
+                        (mask_logits, char_mask_logits, seq_outputs,
+                            seq_scores, detailed_seq_scores) = self.predictor(x
+                            )
+                        result = self.post_processor(mask_logits,
+                            char_mask_logits, proposals, seq_outputs=
+                            seq_outputs, seq_scores=seq_scores,
+                            detailed_seq_scores=detailed_seq_scores)
+                        return x, result, {}
+                    else:
+                        return None, None, {}
+                mask_logits, char_mask_logits, seq_outputs = self.predictor(x,
+                    decoder_targets=decoder_targets, word_targets=word_targets)
+                loss_mask, loss_char_mask = self.loss_evaluator(proposals,
+                    mask_logits, char_mask_logits, mask_targets,
+                    char_mask_targets, char_mask_weights)
+                return x, all_proposals, dict(loss_mask=loss_mask,
+                    loss_char_mask=loss_char_mask, loss_seq=seq_outputs)
+            else:
+                mask_logits, char_mask_logits = self.predictor(x)
+                if not self.training:
+                    result = self.post_processor(mask_logits,
+                        char_mask_logits, proposals)
+                    return x, result, {}
+                loss_mask, loss_char_mask = self.loss_evaluator(proposals,
+                    mask_logits, char_mask_logits, mask_targets,
+                    char_mask_targets, char_mask_weights)
+                return x, all_proposals, dict(loss_mask=loss_mask,
+                    loss_char_mask=loss_char_mask)
+        else:
+            mask_logits = self.predictor(x)
+            if not self.training:
+                result = self.post_processor(mask_logits, proposals)
+                return x, result, {}
+            loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
+            return x, all_proposals, dict(loss_mask=loss_mask)
 
 
 class MaskRCNNFPNFeatureExtractor(nn.Module):
@@ -2352,73 +3086,6 @@ def make_anchor_generator(config):
     return anchor_generator
 
 
-class BalancedPositiveNegativeSampler(object):
-    """
-    This class samples batches, ensuring that they contain a fixed proportion of positives
-    """
-
-    def __init__(self, batch_size_per_image, positive_fraction):
-        """
-        Arguments:
-            batch_size_per_image (int): number of elements to be selected per image
-            positive_fraction (float): percentace of positive elements per batch
-        """
-        self.batch_size_per_image = batch_size_per_image
-        self.positive_fraction = positive_fraction
-
-    def __call__(self, matched_idxs):
-        """
-        Arguments:
-            matched idxs: list of tensors containing -1, 0 or positive values.
-                Each tensor corresponds to a specific image.
-                -1 values are ignored, 0 are considered as negatives and > 0 as
-                positives.
-
-        Returns:
-            pos_idx (list[tensor])
-            neg_idx (list[tensor])
-
-        Returns two lists of binary masks for each image.
-        The first list contains the positive elements that were selected,
-        and the second list the negative example.
-        """
-        pos_idx = []
-        neg_idx = []
-        for matched_idxs_per_image in matched_idxs:
-            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
-            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
-            num_pos = int(self.batch_size_per_image * self.positive_fraction)
-            num_pos = min(positive.numel(), num_pos)
-            num_neg = self.batch_size_per_image - num_pos
-            num_neg = min(negative.numel(), num_neg)
-            perm1 = torch.randperm(positive.numel())[:num_pos]
-            perm2 = torch.randperm(negative.numel())[:num_neg]
-            pos_idx_per_image = positive[perm1]
-            neg_idx_per_image = negative[perm2]
-            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.bool)
-            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image,
-                dtype=torch.bool)
-            pos_idx_per_image_mask[pos_idx_per_image] = 1
-            neg_idx_per_image_mask[neg_idx_per_image] = 1
-            pos_idx.append(pos_idx_per_image_mask)
-            neg_idx.append(neg_idx_per_image_mask)
-        return pos_idx, neg_idx
-
-
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
-
-
 class RPNLossComputation(object):
     """
     This class computes the RPN loss.
@@ -2607,6 +3274,7 @@ class RPNModule(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MhLiao_MaskTextSpotter(_paritybench_base):

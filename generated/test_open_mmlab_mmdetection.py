@@ -470,10 +470,13 @@ robustness_eval = _module
 test_robustness = _module
 upgrade_model_version = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -722,6 +725,11 @@ class HRModule(nn.Module):
         return x_fuse
 
 
+def get_root_logger(log_file=None, log_level=logging.INFO):
+    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
+    return logger
+
+
 class Res2Layer(nn.Sequential):
     """Res2Layer to build Res2Net style backbone.
 
@@ -810,6 +818,178 @@ class BasicBlock(nn.Module):
         return out
 
 
+def build_plugin_layer(cfg, postfix='', **kwargs):
+    """ Build plugin layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify plugin layer type.
+            layer args: args needed to instantiate a plugin layer.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created plugin layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in plugin_cfg:
+        raise KeyError(f'Unrecognized plugin type {layer_type}')
+    else:
+        abbr, plugin_layer = plugin_cfg[layer_type]
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    layer = plugin_layer(**kwargs, **cfg_)
+    return name, layer
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
+        None, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(
+        type='BN'), dcn=None, plugins=None):
+        """Bottleneck block for ResNet.
+        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
+        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
+        """
+        super(Bottleneck, self).__init__()
+        assert style in ['pytorch', 'caffe']
+        assert dcn is None or isinstance(dcn, dict)
+        assert plugins is None or isinstance(plugins, list)
+        if plugins is not None:
+            allowed_position = ['after_conv1', 'after_conv2', 'after_conv3']
+            assert all(p['position'] in allowed_position for p in plugins)
+        self.inplanes = inplanes
+        self.planes = planes
+        self.stride = stride
+        self.dilation = dilation
+        self.style = style
+        self.with_cp = with_cp
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.dcn = dcn
+        self.with_dcn = dcn is not None
+        self.plugins = plugins
+        self.with_plugins = plugins is not None
+        if self.with_plugins:
+            self.after_conv1_plugins = [plugin['cfg'] for plugin in plugins if
+                plugin['position'] == 'after_conv1']
+            self.after_conv2_plugins = [plugin['cfg'] for plugin in plugins if
+                plugin['position'] == 'after_conv2']
+            self.after_conv3_plugins = [plugin['cfg'] for plugin in plugins if
+                plugin['position'] == 'after_conv3']
+        if self.style == 'pytorch':
+            self.conv1_stride = 1
+            self.conv2_stride = stride
+        else:
+            self.conv1_stride = stride
+            self.conv2_stride = 1
+        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
+        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
+        self.norm3_name, norm3 = build_norm_layer(norm_cfg, planes * self.
+            expansion, postfix=3)
+        self.conv1 = build_conv_layer(conv_cfg, inplanes, planes,
+            kernel_size=1, stride=self.conv1_stride, bias=False)
+        self.add_module(self.norm1_name, norm1)
+        fallback_on_stride = False
+        if self.with_dcn:
+            fallback_on_stride = dcn.pop('fallback_on_stride', False)
+        if not self.with_dcn or fallback_on_stride:
+            self.conv2 = build_conv_layer(conv_cfg, planes, planes,
+                kernel_size=3, stride=self.conv2_stride, padding=dilation,
+                dilation=dilation, bias=False)
+        else:
+            assert self.conv_cfg is None, 'conv_cfg must be None for DCN'
+            self.conv2 = build_conv_layer(dcn, planes, planes, kernel_size=
+                3, stride=self.conv2_stride, padding=dilation, dilation=
+                dilation, bias=False)
+        self.add_module(self.norm2_name, norm2)
+        self.conv3 = build_conv_layer(conv_cfg, planes, planes * self.
+            expansion, kernel_size=1, bias=False)
+        self.add_module(self.norm3_name, norm3)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        if self.with_plugins:
+            self.after_conv1_plugin_names = self.make_block_plugins(planes,
+                self.after_conv1_plugins)
+            self.after_conv2_plugin_names = self.make_block_plugins(planes,
+                self.after_conv2_plugins)
+            self.after_conv3_plugin_names = self.make_block_plugins(planes *
+                self.expansion, self.after_conv3_plugins)
+
+    def make_block_plugins(self, in_channels, plugins):
+        """ make plugins for block
+
+        Args:
+            in_channels (int): Input channels of plugin.
+            plugins (list[dict]): List of plugins cfg to build.
+
+        Returns:
+            list[str]: List of the names of plugin.
+
+        """
+        assert isinstance(plugins, list)
+        plugin_names = []
+        for plugin in plugins:
+            plugin = plugin.copy()
+            name, layer = build_plugin_layer(plugin, in_channels=
+                in_channels, postfix=plugin.pop('postfix', ''))
+            assert not hasattr(self, name), f'duplicate plugin {name}'
+            self.add_module(name, layer)
+            plugin_names.append(name)
+        return plugin_names
+
+    def forward_plugin(self, x, plugin_names):
+        out = x
+        for name in plugin_names:
+            out = getattr(self, name)(x)
+        return out
+
+    @property
+    def norm1(self):
+        return getattr(self, self.norm1_name)
+
+    @property
+    def norm2(self):
+        return getattr(self, self.norm2_name)
+
+    @property
+    def norm3(self):
+        return getattr(self, self.norm3_name)
+
+    def forward(self, x):
+
+        def _inner_forward(x):
+            identity = x
+            out = self.conv1(x)
+            out = self.norm1(out)
+            out = self.relu(out)
+            if self.with_plugins:
+                out = self.forward_plugin(out, self.after_conv1_plugin_names)
+            out = self.conv2(out)
+            out = self.norm2(out)
+            out = self.relu(out)
+            if self.with_plugins:
+                out = self.forward_plugin(out, self.after_conv2_plugin_names)
+            out = self.conv3(out)
+            out = self.norm3(out)
+            if self.with_plugins:
+                out = self.forward_plugin(out, self.after_conv3_plugin_names)
+            if self.downsample is not None:
+                identity = self.downsample(x)
+            out += identity
+            return out
+        if self.with_cp and x.requires_grad:
+            out = cp.checkpoint(_inner_forward, x)
+        else:
+            out = _inner_forward(x)
+        out = self.relu(out)
+        return out
+
+
 class L2Norm(nn.Module):
 
     def __init__(self, n_dims, scale=20.0, eps=1e-10):
@@ -826,30 +1006,148 @@ class L2Norm(nn.Module):
             x_float) * x_float / norm).type_as(x)
 
 
-INF = 100000000.0
+def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
+    ):
+    img_h, img_w = img_shape[:2]
+    if allowed_border >= 0:
+        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
+            ) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:,
+            (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h +
+            allowed_border)
+    else:
+        inside_flags = valid_flags
+    return inside_flags
 
 
-class FeatureAlign(nn.Module):
+def build_anchor_generator(cfg, default_args=None):
+    return build_from_cfg(cfg, ANCHOR_GENERATORS, default_args)
 
-    def __init__(self, in_channels, out_channels, kernel_size=3,
-        deformable_groups=4):
-        super(FeatureAlign, self).__init__()
-        offset_channels = kernel_size * kernel_size * 2
-        self.conv_offset = nn.Conv2d(4, deformable_groups * offset_channels,
-            1, bias=False)
-        self.conv_adaption = DeformConv(in_channels, out_channels,
-            kernel_size=kernel_size, padding=(kernel_size - 1) // 2,
-            deformable_groups=deformable_groups)
-        self.relu = nn.ReLU(inplace=True)
 
-    def init_weights(self):
-        normal_init(self.conv_offset, std=0.1)
-        normal_init(self.conv_adaption, std=0.01)
+def build_assigner(cfg, **default_args):
+    return build_from_cfg(cfg, BBOX_ASSIGNERS, default_args)
 
-    def forward(self, x, shape):
-        offset = self.conv_offset(shape)
-        x = self.relu(self.conv_adaption(x, offset))
-        return x
+
+def build_bbox_coder(cfg, **default_args):
+    return build_from_cfg(cfg, BBOX_CODERS, default_args)
+
+
+def build(cfg, registry, default_args=None):
+    if isinstance(cfg, list):
+        modules = [build_from_cfg(cfg_, registry, default_args) for cfg_ in cfg
+            ]
+        return nn.Sequential(*modules)
+    else:
+        return build_from_cfg(cfg, registry, default_args)
+
+
+def build_loss(cfg):
+    return build(cfg, LOSSES)
+
+
+def build_sampler(cfg, **default_args):
+    return build_from_cfg(cfg, BBOX_SAMPLERS, default_args)
+
+
+def cast_tensor_type(inputs, src_type, dst_type):
+    if isinstance(inputs, torch.Tensor):
+        return inputs.to(dst_type)
+    elif isinstance(inputs, str):
+        return inputs
+    elif isinstance(inputs, np.ndarray):
+        return inputs
+    elif isinstance(inputs, abc.Mapping):
+        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
+            k, v in inputs.items()})
+    elif isinstance(inputs, abc.Iterable):
+        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
+            item in inputs)
+    else:
+        return inputs
+
+
+def force_fp32(apply_to=None, out_fp16=False):
+    """Decorator to convert input arguments to fp32 in force.
+
+    This decorator is useful when you write custom modules and want to support
+    mixed precision training. If there are some inputs that must be processed
+    in fp32 mode, then this decorator can handle it. If inputs arguments are
+    fp16 tensors, they will be converted to fp32 automatically. Arguments other
+    than fp16 tensors are ignored.
+
+    Args:
+        apply_to (Iterable, optional): The argument names to be converted.
+            `None` indicates all arguments.
+        out_fp16 (bool): Whether to convert the output back to fp16.
+
+    Example:
+
+        >>> import torch.nn as nn
+        >>> class MyModule1(nn.Module):
+        >>>
+        >>>     # Convert x and y to fp32
+        >>>     @force_fp32()
+        >>>     def loss(self, x, y):
+        >>>         pass
+
+        >>> import torch.nn as nn
+        >>> class MyModule2(nn.Module):
+        >>>
+        >>>     # convert pred to fp32
+        >>>     @force_fp32(apply_to=('pred', ))
+        >>>     def post_process(self, pred, others):
+        >>>         pass
+    """
+
+    def force_fp32_wrapper(old_func):
+
+        @functools.wraps(old_func)
+        def new_func(*args, **kwargs):
+            if not isinstance(args[0], torch.nn.Module):
+                raise TypeError(
+                    '@force_fp32 can only be used to decorate the method of nn.Module'
+                    )
+            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
+                return old_func(*args, **kwargs)
+            args_info = getfullargspec(old_func)
+            args_to_cast = args_info.args if apply_to is None else apply_to
+            new_args = []
+            if args:
+                arg_names = args_info.args[:len(args)]
+                for i, arg_name in enumerate(arg_names):
+                    if arg_name in args_to_cast:
+                        new_args.append(cast_tensor_type(args[i], torch.
+                            half, torch.float))
+                    else:
+                        new_args.append(args[i])
+            new_kwargs = dict()
+            if kwargs:
+                for arg_name, arg_value in kwargs.items():
+                    if arg_name in args_to_cast:
+                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
+                            torch.half, torch.float)
+                    else:
+                        new_kwargs[arg_name] = arg_value
+            output = old_func(*new_args, **new_kwargs)
+            if out_fp16:
+                output = cast_tensor_type(output, torch.float, torch.half)
+            return output
+        return new_func
+    return force_fp32_wrapper
+
+
+def images_to_levels(target, num_levels):
+    """Convert targets by image to targets by feature level.
+
+    [target_img0, target_img1] -> [target_level0, target_level1, ...]
+    """
+    target = torch.stack(target, 0)
+    level_targets = []
+    start = 0
+    for n in num_levels:
+        end = start + n
+        level_targets.append(target[:, start:end])
+        start = end
+    return level_targets
 
 
 def multi_apply(func, *args, **kwargs):
@@ -942,6 +1240,69 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
     return dets, labels[keep]
 
 
+def unmap(data, count, inds, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 1:
+        ret = data.new_full((count,), fill)
+        ret[inds.type(torch.bool)] = data
+    else:
+        new_size = (count,) + data.size()[1:]
+        ret = data.new_full(new_size, fill)
+        ret[(inds.type(torch.bool)), :] = data
+    return ret
+
+
+INF = 100000000.0
+
+
+def distance2bbox(points, distance, max_shape=None):
+    """Decode distance prediction to bounding box.
+
+    Args:
+        points (Tensor): Shape (n, 2), [x, y].
+        distance (Tensor): Distance from the given point to 4
+            boundaries (left, top, right, bottom).
+        max_shape (tuple): Shape of the image.
+
+    Returns:
+        Tensor: Decoded bboxes.
+    """
+    x1 = points[:, (0)] - distance[:, (0)]
+    y1 = points[:, (1)] - distance[:, (1)]
+    x2 = points[:, (0)] + distance[:, (2)]
+    y2 = points[:, (1)] + distance[:, (3)]
+    if max_shape is not None:
+        x1 = x1.clamp(min=0, max=max_shape[1])
+        y1 = y1.clamp(min=0, max=max_shape[0])
+        x2 = x2.clamp(min=0, max=max_shape[1])
+        y2 = y2.clamp(min=0, max=max_shape[0])
+    return torch.stack([x1, y1, x2, y2], -1)
+
+
+class FeatureAlign(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size=3,
+        deformable_groups=4):
+        super(FeatureAlign, self).__init__()
+        offset_channels = kernel_size * kernel_size * 2
+        self.conv_offset = nn.Conv2d(4, deformable_groups * offset_channels,
+            1, bias=False)
+        self.conv_adaption = DeformConv(in_channels, out_channels,
+            kernel_size=kernel_size, padding=(kernel_size - 1) // 2,
+            deformable_groups=deformable_groups)
+        self.relu = nn.ReLU(inplace=True)
+
+    def init_weights(self):
+        normal_init(self.conv_offset, std=0.1)
+        normal_init(self.conv_adaption, std=0.01)
+
+    def forward(self, x, shape):
+        offset = self.conv_offset(shape)
+        x = self.relu(self.conv_adaption(x, offset))
+        return x
+
+
 class FeatureAdaption(nn.Module):
     """Feature Adaption Module.
 
@@ -975,23 +1336,6 @@ class FeatureAdaption(nn.Module):
         offset = self.conv_offset(shape.detach())
         x = self.relu(self.conv_adaption(x, offset))
         return x
-
-
-def cast_tensor_type(inputs, src_type, dst_type):
-    if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
-    elif isinstance(inputs, str):
-        return inputs
-    elif isinstance(inputs, np.ndarray):
-        return inputs
-    elif isinstance(inputs, abc.Mapping):
-        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
-            k, v in inputs.items()})
-    elif isinstance(inputs, abc.Iterable):
-        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
-            item in inputs)
-    else:
-        return inputs
 
 
 def auto_fp16(apply_to=None, out_fp32=False):
@@ -1660,6 +2004,78 @@ def l1_loss(pred, target):
     return loss
 
 
+def build_shared_head(cfg):
+    return build(cfg, SHARED_HEADS)
+
+
+class BaseRoIHead(nn.Module, metaclass=ABCMeta):
+    """Base class for RoIHeads"""
+
+    def __init__(self, bbox_roi_extractor=None, bbox_head=None,
+        mask_roi_extractor=None, mask_head=None, shared_head=None,
+        train_cfg=None, test_cfg=None):
+        super(BaseRoIHead, self).__init__()
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        if shared_head is not None:
+            self.shared_head = build_shared_head(shared_head)
+        if bbox_head is not None:
+            self.init_bbox_head(bbox_roi_extractor, bbox_head)
+        if mask_head is not None:
+            self.init_mask_head(mask_roi_extractor, mask_head)
+        self.init_assigner_sampler()
+
+    @property
+    def with_bbox(self):
+        return hasattr(self, 'bbox_head') and self.bbox_head is not None
+
+    @property
+    def with_mask(self):
+        return hasattr(self, 'mask_head') and self.mask_head is not None
+
+    @property
+    def with_shared_head(self):
+        return hasattr(self, 'shared_head') and self.shared_head is not None
+
+    @abstractmethod
+    def init_weights(self, pretrained):
+        pass
+
+    @abstractmethod
+    def init_bbox_head(self):
+        pass
+
+    @abstractmethod
+    def init_mask_head(self):
+        pass
+
+    @abstractmethod
+    def init_assigner_sampler(self):
+        pass
+
+    @abstractmethod
+    def forward_train(self, x, img_meta, proposal_list, gt_bboxes,
+        gt_labels, gt_bboxes_ignore=None, gt_masks=None, **kwargs):
+        """Forward function during training"""
+        pass
+
+    async def async_simple_test(self, x, img_meta, **kwargs):
+        raise NotImplementedError
+
+    def simple_test(self, x, proposal_list, img_meta, proposals=None,
+        rescale=False, **kwargs):
+        """Test without augmentation."""
+        pass
+
+    def aug_test(self, x, proposal_list, img_metas, rescale=False, **kwargs):
+        """Test with augmentations.
+
+        If rescale is False, then returned bboxes and masks will fit the scale
+        of imgs[0].
+        """
+        pass
+
+
 class BasicResBlock(nn.Module):
     """Basic residual block.
 
@@ -1761,76 +2177,6 @@ def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
         return img_masks[:, (0)], ()
 
 
-def force_fp32(apply_to=None, out_fp16=False):
-    """Decorator to convert input arguments to fp32 in force.
-
-    This decorator is useful when you write custom modules and want to support
-    mixed precision training. If there are some inputs that must be processed
-    in fp32 mode, then this decorator can handle it. If inputs arguments are
-    fp16 tensors, they will be converted to fp32 automatically. Arguments other
-    than fp16 tensors are ignored.
-
-    Args:
-        apply_to (Iterable, optional): The argument names to be converted.
-            `None` indicates all arguments.
-        out_fp16 (bool): Whether to convert the output back to fp16.
-
-    Example:
-
-        >>> import torch.nn as nn
-        >>> class MyModule1(nn.Module):
-        >>>
-        >>>     # Convert x and y to fp32
-        >>>     @force_fp32()
-        >>>     def loss(self, x, y):
-        >>>         pass
-
-        >>> import torch.nn as nn
-        >>> class MyModule2(nn.Module):
-        >>>
-        >>>     # convert pred to fp32
-        >>>     @force_fp32(apply_to=('pred', ))
-        >>>     def post_process(self, pred, others):
-        >>>         pass
-    """
-
-    def force_fp32_wrapper(old_func):
-
-        @functools.wraps(old_func)
-        def new_func(*args, **kwargs):
-            if not isinstance(args[0], torch.nn.Module):
-                raise TypeError(
-                    '@force_fp32 can only be used to decorate the method of nn.Module'
-                    )
-            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
-                return old_func(*args, **kwargs)
-            args_info = getfullargspec(old_func)
-            args_to_cast = args_info.args if apply_to is None else apply_to
-            new_args = []
-            if args:
-                arg_names = args_info.args[:len(args)]
-                for i, arg_name in enumerate(arg_names):
-                    if arg_name in args_to_cast:
-                        new_args.append(cast_tensor_type(args[i], torch.
-                            half, torch.float))
-                    else:
-                        new_args.append(args[i])
-            new_kwargs = dict()
-            if kwargs:
-                for arg_name, arg_value in kwargs.items():
-                    if arg_name in args_to_cast:
-                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
-                            torch.half, torch.float)
-                    else:
-                        new_kwargs[arg_name] = arg_value
-            output = old_func(*new_args, **new_kwargs)
-            if out_fp16:
-                output = cast_tensor_type(output, torch.float, torch.half)
-            return output
-        return new_func
-    return force_fp32_wrapper
-
-
 def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
     device = pos_proposals.device
     mask_size = _pair(cfg.mask_size)
@@ -1858,11 +2204,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list,
     if len(mask_targets) > 0:
         mask_targets = torch.cat(mask_targets)
     return mask_targets
-
-
-def get_root_logger(log_file=None, log_level=logging.INFO):
-    logger = get_logger(name='mmdet', log_file=log_file, log_level=log_level)
-    return logger
 
 
 class ResLayer(nn.Sequential):
@@ -2974,6 +3315,79 @@ class RoIAlignFunction(Function):
 roi_align = RoIAlignFunction.apply
 
 
+class RoIAlign(nn.Module):
+
+    def __init__(self, out_size, spatial_scale, sample_num=0,
+        use_torchvision=False, aligned=True):
+        """
+        Args:
+            out_size (tuple): h, w
+            spatial_scale (float): scale the input boxes by this number
+            sample_num (int): number of inputs samples to take for each
+                output sample. 2 to take samples densely for current models.
+            use_torchvision (bool): whether to use roi_align from torchvision
+            aligned (bool): if False, use the legacy implementation in
+                MMDetection. If True, align the results more perfectly.
+
+        Note:
+            The implementation of RoIAlign when aligned=True is modified from
+            https://github.com/facebookresearch/detectron2/
+
+            The meaning of aligned=True:
+
+            Given a continuous coordinate c, its two neighboring pixel
+            indices (in our pixel model) are computed by floor(c - 0.5) and
+            ceil(c - 0.5). For example, c=1.3 has pixel neighbors with discrete
+            indices [0] and [1] (which are sampled from the underlying signal
+            at continuous coordinates 0.5 and 1.5). But the original roi_align
+            (aligned=False) does not subtract the 0.5 when computing
+            neighboring pixel indices and therefore it uses pixels with a
+            slightly incorrect alignment (relative to our pixel model) when
+            performing bilinear interpolation.
+
+            With `aligned=True`,
+            we first appropriately scale the ROI and then shift it by -0.5
+            prior to calling roi_align. This produces the correct neighbors;
+
+            The difference does not make a difference to the model's
+            performance if ROIAlign is used together with conv layers.
+        """
+        super(RoIAlign, self).__init__()
+        self.out_size = _pair(out_size)
+        self.spatial_scale = float(spatial_scale)
+        self.aligned = aligned
+        self.sample_num = int(sample_num)
+        self.use_torchvision = use_torchvision
+        assert not (use_torchvision and aligned
+            ), 'Torchvision does not support aligned RoIAlgin'
+
+    def forward(self, features, rois):
+        """
+        Args:
+            features: NCHW images
+            rois: Bx5 boxes. First column is the index into N. The other 4
+            columns are xyxy.
+        """
+        assert rois.dim() == 2 and rois.size(1) == 5
+        if self.use_torchvision:
+            from torchvision.ops import roi_align as tv_roi_align
+            return tv_roi_align(features, rois, self.out_size, self.
+                spatial_scale, self.sample_num)
+        else:
+            return roi_align(features, rois, self.out_size, self.
+                spatial_scale, self.sample_num, self.aligned)
+
+    def __repr__(self):
+        indent_str = '\n    '
+        format_str = self.__class__.__name__
+        format_str += f'({indent_str}out_size={self.out_size},'
+        format_str += f'{indent_str}spatial_scale={self.spatial_scale},'
+        format_str += f'{indent_str}sample_num={self.sample_num},'
+        format_str += f'{indent_str}use_torchvision={self.use_torchvision},'
+        format_str += f'{indent_str}aligned={self.aligned})'
+        return format_str
+
+
 class RoIPoolFunction(Function):
 
     @staticmethod
@@ -3012,6 +3426,30 @@ class RoIPoolFunction(Function):
 
 
 roi_pool = RoIPoolFunction.apply
+
+
+class RoIPool(nn.Module):
+
+    def __init__(self, out_size, spatial_scale, use_torchvision=False):
+        super(RoIPool, self).__init__()
+        self.out_size = _pair(out_size)
+        self.spatial_scale = float(spatial_scale)
+        self.use_torchvision = use_torchvision
+
+    def forward(self, features, rois):
+        if self.use_torchvision:
+            from torchvision.ops import roi_pool as tv_roi_pool
+            return tv_roi_pool(features, rois, self.out_size, self.
+                spatial_scale)
+        else:
+            return roi_pool(features, rois, self.out_size, self.spatial_scale)
+
+    def __repr__(self):
+        format_str = self.__class__.__name__
+        format_str += f'(out_size={self.out_size}, '
+        format_str += f'spatial_scale={self.spatial_scale}, '
+        format_str += f'use_torchvision={self.use_torchvision})'
+        return format_str
 
 
 class SigmoidFocalLoss(nn.Module):
@@ -3144,6 +3582,7 @@ class PseudoDataParallel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_open_mmlab_mmdetection(_paritybench_base):

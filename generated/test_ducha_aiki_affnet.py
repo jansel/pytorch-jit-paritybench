@@ -36,10 +36,13 @@ pytorch_sift = _module
 train_AffNet_test_on_graffity = _module
 train_OriNet_test_on_graffity = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -97,7 +100,13 @@ import torch.nn.init
 import torch.optim as optim
 
 
+import torchvision.transforms as transforms
+
+
 import torch.utils.data as data
+
+
+import torchvision.datasets as dset
 
 
 import random
@@ -2788,6 +2797,7 @@ class HardTFeatNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ducha_aiki_affnet(_paritybench_base):
@@ -2834,44 +2844,51 @@ class Test_ducha_aiki_affnet(_paritybench_base):
 
     @_fails_compile()
     def test_010(self):
+        self._check(AffNetFastFullConv(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(AffNetFastScale(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_011(self):
+    def test_012(self):
         self._check(GHH(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(GaussianBlur(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(HardNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 
     @_fails_compile()
-    def test_014(self):
+    def test_015(self):
         self._check(HardNetNarELU(*[], **{'sm': 4}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(HardTFeatNet(*[], **{'sm': 4}), [torch.rand([4, 1, 64, 64])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(HessianResp(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(L1Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(L2Norm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_019(self):
-        self._check(OriNetFast(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
-
-    @_fails_compile()
     def test_020(self):
-        self._check(ScalePyramid(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(LocalNorm2d(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_021(self):
+        self._check(OriNetFast(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+
+    @_fails_compile()
+    def test_022(self):
+        self._check(ScalePyramid(*[], **{}), [torch.rand([4, 1, 4, 4])], {})
+
+    @_fails_compile()
+    def test_023(self):
         self._check(YiNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
 

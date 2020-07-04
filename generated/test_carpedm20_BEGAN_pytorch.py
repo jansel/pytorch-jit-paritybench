@@ -10,10 +10,13 @@ models = _module
 trainer = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -56,11 +59,14 @@ from collections import deque
 import torch.nn.parallel
 
 
+import torchvision.utils as vutils
+
+
 class BaseModel(nn.Module):
 
     def forward(self, x):
         gpu_ids = None
-        if isinstance(x.data, torch.cuda.FloatTensor) and self.num_gpu > 1:
+        if isinstance(x.data, torch.FloatTensor) and self.num_gpu > 1:
             gpu_ids = range(self.num_gpu)
         if gpu_ids:
             return nn.parallel.data_parallel(self.main, x, gpu_ids)
@@ -80,6 +86,7 @@ class _Loss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_carpedm20_BEGAN_pytorch(_paritybench_base):

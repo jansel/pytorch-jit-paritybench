@@ -155,10 +155,13 @@ lib = _module
 slurm = _module
 sweep_visual_bert = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -175,6 +178,9 @@ import numpy as np
 
 
 import torch
+
+
+from torchvision import transforms
 
 
 from torch import nn
@@ -207,6 +213,9 @@ from torch.nn.utils.weight_norm import weight_norm
 from functools import lru_cache
 
 
+import torchvision
+
+
 import torch.nn as nn
 
 
@@ -228,7 +237,993 @@ from itertools import chain
 from collections import defaultdict
 
 
+from torchtext import vocab
+
+
+import torchvision.models as models
+
+
+import torchvision.transforms as transforms
+
+
 from torch.autograd import Variable
+
+
+def built(path, version_string=None):
+    """
+    Check if '.built' flag has been set for that task.
+
+    If a version_string is provided, this has to match, or the version
+    is regarded as not built.
+
+    Version_string are generally the dataset version + the date the file was
+    last updated. If this doesn't match, dataset will be mark not built. This makes
+    sure that if we update our features or anything else features are updated
+    for the end user.
+    """
+    if version_string:
+        fname = os.path.join(path, '.built.json')
+        if not PathManager.isfile(fname):
+            return False
+        else:
+            with PathManager.open(fname, 'r') as read:
+                text = json.load(read)
+            return text.get('version', None) == version_string
+    else:
+        return PathManager.isfile(os.path.join(path, '.built.json'))
+
+
+def decompress(path, fname, delete_original=True):
+    """
+    Unpack the given archive file to the same directory.
+
+    Args:
+        path(str): The folder containing the archive. Will contain the contents.
+        fname (str): The filename of the archive file.
+        delete_original (bool, optional): If true, the archive will be deleted
+                                          after extraction. Default to True.
+    """
+    print('Unpacking ' + fname)
+    fullpath = os.path.join(path, fname)
+    shutil.unpack_archive(fullpath, path)
+    if delete_original:
+        os.remove(fullpath)
+
+
+def check_header(url, from_google=False):
+    """
+    Performs a HEAD request to check if the URL / Google Drive ID is live.
+    """
+    session = requests.Session()
+    if from_google:
+        URL = 'https://docs.google.com/uc?export=download'
+        response = session.head(URL, params={'id': url}, stream=True)
+    else:
+        headers = {'User-Agent': 
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) ' +
+            'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+            'Chrome/77.0.3865.90 Safari/537.36'}
+        response = session.head(url, allow_redirects=True, headers=headers)
+    status = response.status_code
+    session.close()
+    assert status == 200, ('The url {} is broken. If this is not your own url,'
+         + ' please open up an issue on GitHub').format(url)
+
+
+def move(path1, path2):
+    """
+    Rename the given file.
+    """
+    shutil.move(path1, path2)
+
+
+def download(url, path, fname, redownload=True):
+    """
+    Download file using `requests`.
+
+    If ``redownload`` is set to false, then will not download tar file again if it is
+    present (default ``True``).
+
+    Returns whether download actually happened or not
+    """
+    outfile = os.path.join(path, fname)
+    download = not PathManager.isfile(outfile) or redownload
+    retry = 5
+    exp_backoff = [(2 ** r) for r in reversed(range(retry))]
+    pbar = None
+    if download:
+        check_header(url)
+        print('[ Downloading: ' + url + ' to ' + outfile + ' ]')
+        pbar = tqdm.tqdm(unit='B', unit_scale=True, desc=f'Downloading {fname}'
+            )
+    while download and retry >= 0:
+        resume_file = outfile + '.part'
+        resume = PathManager.isfile(resume_file)
+        if resume:
+            resume_pos = os.path.getsize(resume_file)
+            mode = 'ab'
+        else:
+            resume_pos = 0
+            mode = 'wb'
+        response = None
+        with requests.Session() as session:
+            try:
+                header = {'Range': 'bytes=%d-' % resume_pos,
+                    'Accept-Encoding': 'identity'} if resume else {}
+                response = session.get(url, stream=True, timeout=5, headers
+                    =header)
+                if resume and response.headers.get('Accept-Ranges', 'none'
+                    ) == 'none':
+                    resume_pos = 0
+                    mode = 'wb'
+                CHUNK_SIZE = 32768
+                total_size = int(response.headers.get('Content-Length', -1))
+                total_size += resume_pos
+                pbar.total = total_size
+                done = resume_pos
+                with PathManager.open(resume_file, mode) as f:
+                    for chunk in response.iter_content(CHUNK_SIZE):
+                        if chunk:
+                            f.write(chunk)
+                        if total_size > 0:
+                            done += len(chunk)
+                            if total_size < done:
+                                total_size = done
+                                pbar.total = total_size
+                            pbar.update(len(chunk))
+                    break
+            except (requests.exceptions.ConnectionError, requests.
+                exceptions.ReadTimeout):
+                retry -= 1
+                pbar.clear()
+                if retry >= 0:
+                    print('Connection error, retrying. (%d retries left)' %
+                        retry)
+                    time.sleep(exp_backoff[retry])
+                else:
+                    print('Retried too many times, stopped retrying.')
+            finally:
+                if response:
+                    response.close()
+    if retry < 0:
+        raise RuntimeWarning(
+            'Connection broken too many times. Stopped retrying.')
+    if download and retry > 0:
+        pbar.update(done - pbar.n)
+        if done < total_size:
+            raise RuntimeWarning('Received less data than specified in ' +
+                'Content-Length header for ' + url +
+                '. There may be a download problem.')
+        move(resume_file, outfile)
+    if pbar:
+        pbar.close()
+    return download
+
+
+def _get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
+
+
+def download_from_google_drive(gd_id, destination, redownload=True):
+    """
+    Use the requests package to download a file from Google Drive.
+    """
+    download = not PathManager.isfile(destination) or redownload
+    URL = 'https://docs.google.com/uc?export=download'
+    if not download:
+        return download
+    else:
+        check_header(gd_id, from_google=True)
+    with requests.Session() as session:
+        response = session.get(URL, params={'id': gd_id}, stream=True)
+        token = _get_confirm_token(response)
+        if token:
+            response.close()
+            params = {'id': gd_id, 'confirm': token}
+            response = session.get(URL, params=params, stream=True)
+        CHUNK_SIZE = 32768
+        with PathManager.open(destination, 'wb') as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+        response.close()
+    return download
+
+
+class DownloadableFile:
+    """
+    A class used to abstract any file that has to be downloaded online.
+
+    Originally taken from ParlAI, this file has been modified for MMF specific
+    use cases.
+
+    Any dataset/model that needs to download a file needs to have a list RESOURCES
+    that have objects of this class as elements.
+
+    The class automatically figures out if the file is from Google Drive.
+
+    This class provides the following functionality:
+
+    - Download a file from a URL / Google Drive
+    - Decompress the file if compressed
+    - Checksum for the downloaded file
+    - Send HEAD request to validate URL or Google Drive link
+    - If the file is present and checksum is same, it won't be redownloaded
+
+    Raises:
+        AssertionError: If while downloading checksum of the files fails.
+    """
+    GOOGLE_DRIVE_SUBSTR = 'drive.google'
+    MMF_PREFIX = 'mmf://'
+    MMF_PREFIX_REPLACEMENT = 'https://dl.fbaipublicfiles.com/mmf/data/'
+
+    def __init__(self, url, file_name, hashcode=None, compressed=True,
+        delete_original=False):
+        """
+        An object of this class needs to be created with:
+
+        Args:
+            url (string): URL or Google Drive id to download from
+            file_name (string): File name that the file should be named
+            hashcode (string, optional): SHA256 hashcode of the downloaded file.
+                                         Defaults to None. Won't be checked if not
+                                         passed.
+            compressed (bool, optional): False if the file is not compressed.
+                                         Defaults to True.
+            delete_original (bool, optional): If compressed whether to delete original.
+                                              Defaults to False.
+        """
+        self._url = self._parse_url(url)
+        self._file_name = file_name
+        self._hashcode = hashcode
+        self._compressed = compressed
+        self._from_google = self._url.find(self.GOOGLE_DRIVE_SUBSTR) != -1
+        self._delete_original = delete_original
+
+    def _parse_url(self, url):
+        if url.find(self.MMF_PREFIX) == -1:
+            return url
+        else:
+            return self.MMF_PREFIX_REPLACEMENT + url[len(self.MMF_PREFIX):]
+
+    def checksum(self, download_path):
+        """
+        Checksum on a given file.
+
+        Args:
+            download_path (string): path to the downloaded file.
+        """
+        if self._hashcode is None:
+            print(f'[ Checksum not provided, skipping for {self._file_name}]')
+            return
+        sha256_hash = hashlib.sha256()
+        destination = os.path.join(download_path, self._file_name)
+        if not PathManager.isfile(destination):
+            return
+        with PathManager.open(destination, 'rb') as f:
+            print(f'[ Starting checksum for {self._file_name}]')
+            for byte_block in iter(lambda : f.read(65536), b''):
+                sha256_hash.update(byte_block)
+            if sha256_hash.hexdigest() != self._hashcode:
+                raise AssertionError(
+                    f"""[ Checksum for {self._file_name} from 
+{self._url}
+does not match the expected checksum. Please try again. ]"""
+                    )
+            else:
+                print(f'[ Checksum successful for {self._file_name}]')
+
+    def download_file(self, download_path):
+        downloaded = False
+        redownload = False
+        try:
+            self.checksum(download_path)
+        except AssertionError:
+            print('[ Checksum changed for {}. Redownloading')
+            redownload = True
+        if self._from_google:
+            downloaded = download_from_google_drive(self._url, os.path.join
+                (download_path, self._file_name), redownload=redownload)
+        else:
+            downloaded = download(self._url, download_path, self._file_name,
+                redownload=redownload)
+        if downloaded:
+            self.checksum(download_path)
+            if self._compressed:
+                decompress(download_path, self._file_name, self.
+                    _delete_original)
+
+
+def download_resource(resource, download_path):
+    if isinstance(resource, collections.abc.Mapping):
+        resource = DownloadableFile(**resource)
+    assert isinstance(resource, DownloadableFile)
+    resource.download_file(download_path)
+
+
+def make_dir(path):
+    """
+    Make the directory and any nonexistent parent directories (`mkdir -p`).
+    """
+    if path != '':
+        PathManager.mkdirs(path)
+
+
+def mark_done(path, version_string=None):
+    """
+    Mark this path as prebuilt.
+
+    Marks the path as done by adding a '.built' file with the current timestamp
+    plus a version description string if specified.
+
+    Args:
+        path (str): The file path to mark as built
+        version_string (str): The version of this dataset
+    """
+    data = {}
+    data['created_at'] = str(datetime.datetime.today())
+    data['version'] = version_string
+    with PathManager.open(os.path.join(path, '.built.json'), 'w') as f:
+        json.dump(data, f)
+
+
+def download_resources(resources, download_path, version):
+    is_built = built(download_path, version_string=version)
+    if not is_built:
+        make_dir(download_path)
+        if not isinstance(resources, collections.abc.Sequence):
+            resources = [resources]
+        if len(resources) == 0:
+            return
+        for resource in resources:
+            download_resource(resource, download_path)
+        mark_done(download_path, version_string=version)
+
+
+def get_mmf_root():
+    from mmf.common.registry import registry
+    mmf_root = registry.get('mmf_root', no_warning=True)
+    if mmf_root is None:
+        mmf_root = os.path.dirname(os.path.abspath(__file__))
+        mmf_root = os.path.abspath(os.path.join(mmf_root, '..'))
+        registry.register('mmf_root', mmf_root)
+    return mmf_root
+
+
+def get_absolute_path(paths):
+    if isinstance(paths, str):
+        if os.path.isabs(paths):
+            return paths
+        possible_paths = [paths]
+        from mmf.utils.configuration import get_mmf_env
+        user_dir = get_mmf_env(key='user_dir')
+        if user_dir:
+            possible_paths.append(os.path.join(user_dir, paths))
+        mmf_root = get_mmf_root()
+        possible_paths.append(os.path.join(mmf_root, '..', paths))
+        possible_paths.append(os.path.join(mmf_root, paths))
+        for path in possible_paths:
+            if PathManager.exists(path):
+                if path.find('://') == -1:
+                    return os.path.abspath(path)
+                else:
+                    return path
+        return paths
+    elif isinstance(paths, collections.abc.Iterable):
+        return [get_absolute_path(path) for path in paths]
+    else:
+        raise TypeError(
+            'Paths passed to dataset should either be string or list')
+
+
+def get_rank():
+    if not dist.is_nccl_available():
+        return 0
+    if not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_master():
+    return get_rank() == 0
+
+
+def synchronize():
+    if not dist.is_nccl_available():
+        return
+    if not dist.is_initialized():
+        return
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return
+    dist.barrier()
+
+
+def download_pretrained_model(model_name, *args, **kwargs):
+    import omegaconf
+    from omegaconf import OmegaConf
+    from mmf.utils.configuration import load_yaml, get_mmf_env
+    model_zoo = load_yaml(get_mmf_env(key='model_zoo'))
+    OmegaConf.set_struct(model_zoo, True)
+    OmegaConf.set_readonly(model_zoo, True)
+    data_dir = get_absolute_path(get_mmf_env('data_dir'))
+    model_data_dir = os.path.join(data_dir, 'models')
+    download_path = os.path.join(model_data_dir, model_name)
+    try:
+        model_config = OmegaConf.select(model_zoo, model_name)
+    except omegaconf.errors.OmegaConfBaseException as e:
+        print(f'No such model name {model_name} defined in mmf zoo')
+        raise e
+    if 'version' not in model_config or 'resources' not in model_config:
+        try:
+            model_config = model_config.defaults
+            download_path = os.path.join(model_data_dir, model_name +
+                '.defaults')
+        except omegaconf.errors.OmegaConfBaseException as e:
+            print(
+                f"Model name {model_name} doesn't specify 'resources' and 'version' while no defaults have been provided"
+                )
+            raise e
+    if 'zoo_requirements' in model_config:
+        requirements = model_config.zoo_requirements
+        if isinstance(requirements, str):
+            requirements = [requirements]
+        for item in requirements:
+            download_pretrained_model(item, *args, **kwargs)
+    version = model_config.version
+    resources = model_config.resources
+    if is_master():
+        download_resources(resources, download_path, version)
+    synchronize()
+    return download_path
+
+
+def _hack_imports():
+    sys.modules['pythia'] = importlib.import_module('mmf')
+    sys.modules['pythia.utils.configuration'] = importlib.import_module(
+        'mmf.utils.configuration')
+
+
+def load_yaml(f):
+    abs_f = get_absolute_path(f)
+    try:
+        mapping = OmegaConf.load(abs_f)
+        f = abs_f
+    except FileNotFoundError as e:
+        relative = os.path.abspath(os.path.join(get_mmf_root(), f))
+        if not PathManager.isfile(relative):
+            raise e
+        else:
+            f = relative
+            mapping = OmegaConf.load(f)
+    if mapping is None:
+        mapping = OmegaConf.create()
+    includes = mapping.get('includes', [])
+    if not isinstance(includes, collections.abc.Sequence):
+        raise AttributeError('Includes must be a list, {} provided'.format(
+            type(includes)))
+    include_mapping = OmegaConf.create()
+    mmf_root_dir = get_mmf_root()
+    for include in includes:
+        original_include_path = include
+        include = os.path.join(mmf_root_dir, include)
+        if not PathManager.exists(include):
+            include = os.path.join(os.path.dirname(f), original_include_path)
+        current_include_mapping = load_yaml(include)
+        include_mapping = OmegaConf.merge(include_mapping,
+            current_include_mapping)
+    mapping.pop('includes', None)
+    mapping = OmegaConf.merge(include_mapping, mapping)
+    return mapping
+
+
+def load_pretrained_model(model_name_or_path, *args, **kwargs):
+    if PathManager.exists(model_name_or_path):
+        download_path = model_name_or_path
+        model_name = model_name_or_path
+    else:
+        download_path = download_pretrained_model(model_name_or_path, *args,
+            **kwargs)
+        model_name = model_name_or_path
+    configs = glob.glob(os.path.join(download_path, '*.yaml'))
+    assert len(configs
+        ) <= 1, 'Multiple yaml files with the pretrained model. ' + "MMF doesn't know what to do."
+    ckpts = []
+    allowed_ckpt_types = '*.ckpt', '*.pth', '*.pt'
+    for ckpt_type in allowed_ckpt_types:
+        ckpts.extend(glob.glob(os.path.join(download_path, ckpt_type)))
+    assert len(ckpts
+        ) == 1, "None or multiple checkpoints files. MMF doesn't know what to do."
+    _hack_imports()
+    ckpt = torch.load(ckpts[0], map_location=lambda storage, loc: storage)
+    if len(configs) == 0:
+        assert 'config' in ckpt, "No configs provided with pretrained model  while checkpoint also doesn't have configuration."
+        config = ckpt['config']
+    else:
+        config = load_yaml(configs[0])
+    model_config = config.get('model_config', config)
+    ckpt = ckpt.get('model', ckpt)
+    model_config = model_config.get(model_name.split(os.path.sep)[-1].split
+        ('.')[0])
+    return {'config': model_config, 'checkpoint': ckpt, 'full_config': config}
+
+
+class Registry:
+    """Class for registry object which acts as central source of truth
+    for MMF
+    """
+    mapping = {'builder_name_mapping': {}, 'trainer_name_mapping': {},
+        'model_name_mapping': {}, 'metric_name_mapping': {},
+        'loss_name_mapping': {}, 'fusion_name_mapping': {},
+        'optimizer_name_mapping': {}, 'scheduler_name_mapping': {},
+        'processor_name_mapping': {}, 'decoder_name_mapping': {}, 'state': {}}
+
+    @classmethod
+    def register_trainer(cls, name):
+        """Register a trainer to registry with key 'name'
+
+        Args:
+            name: Key with which the trainer will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.trainers.custom_trainer import CustomTrainer
+
+
+            @registry.register_trainer("custom_trainer")
+            class CustomTrainer():
+                ...
+
+        """
+
+        def wrap(trainer_cls):
+            cls.mapping['trainer_name_mapping'][name] = trainer_cls
+            return trainer_cls
+        return wrap
+
+    @classmethod
+    def register_builder(cls, name):
+        """Register a dataset builder to registry with key 'name'
+
+        Args:
+            name: Key with which the metric will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
+
+
+            @registry.register_builder("vqa2")
+            class VQA2Builder(BaseDatasetBuilder):
+                ...
+
+        """
+
+        def wrap(builder_cls):
+            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
+            assert issubclass(builder_cls, BaseDatasetBuilder
+                ), 'All builders must inherit BaseDatasetBuilder class'
+            cls.mapping['builder_name_mapping'][name] = builder_cls
+            return builder_cls
+        return wrap
+
+    @classmethod
+    def register_metric(cls, name):
+        """Register a metric to registry with key 'name'
+
+        Args:
+            name: Key with which the metric will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.modules.metrics import BaseMetric
+
+
+            @registry.register_metric("r@1")
+            class RecallAt1(BaseMetric):
+                ...
+
+        """
+
+        def wrap(func):
+            from mmf.modules.metrics import BaseMetric
+            assert issubclass(func, BaseMetric
+                ), 'All Metric must inherit BaseMetric class'
+            cls.mapping['metric_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_loss(cls, name):
+        """Register a loss to registry with key 'name'
+
+        Args:
+            name: Key with which the loss will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from torch import nn
+
+            @registry.register_task("logit_bce")
+            class LogitBCE(nn.Module):
+                ...
+
+        """
+
+        def wrap(func):
+            from torch import nn
+            assert issubclass(func, nn.Module
+                ), 'All loss must inherit torch.nn.Module class'
+            cls.mapping['loss_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_fusion(cls, name):
+        """Register a fusion technique to registry with key 'name'
+
+        Args:
+            name: Key with which the fusion technique will be registered
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from torch import nn
+
+            @registry.register_fusion("linear_sum")
+            class LinearSum():
+                ...
+        """
+
+        def wrap(func):
+            from torch import nn
+            assert issubclass(func, nn.Module
+                ), 'All Fusion must inherit torch.nn.Module class'
+            cls.mapping['fusion_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_model(cls, name):
+        """Register a model to registry with key 'name'
+
+        Args:
+            name: Key with which the model will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.models.base_model import BaseModel
+
+            @registry.register_task("pythia")
+            class Pythia(BaseModel):
+                ...
+        """
+
+        def wrap(func):
+            from mmf.models.base_model import BaseModel
+            assert issubclass(func, BaseModel
+                ), 'All models must inherit BaseModel class'
+            cls.mapping['model_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_processor(cls, name):
+        """Register a processor to registry with key 'name'
+
+        Args:
+            name: Key with which the processor will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.datasets.processors import BaseProcessor
+
+            @registry.register_task("glove")
+            class GloVe(BaseProcessor):
+                ...
+
+        """
+
+        def wrap(func):
+            from mmf.datasets.processors.processors import BaseProcessor
+            assert issubclass(func, BaseProcessor
+                ), 'All Processor classes must inherit BaseProcessor class'
+            cls.mapping['processor_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_optimizer(cls, name):
+
+        def wrap(func):
+            cls.mapping['optimizer_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_scheduler(cls, name):
+
+        def wrap(func):
+            cls.mapping['scheduler_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_decoder(cls, name):
+        """Register a decoder to registry with key 'name'
+
+        Args:
+            name: Key with which the decoder will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.utils.text import TextDecoder
+
+
+            @registry.register_decoder("nucleus_sampling")
+            class NucleusSampling(TextDecoder):
+                ...
+
+        """
+
+        def wrap(decoder_cls):
+            from mmf.utils.text import TextDecoder
+            assert issubclass(decoder_cls, TextDecoder
+                ), 'All decoders must inherit TextDecoder class'
+            cls.mapping['decoder_name_mapping'][name] = decoder_cls
+            return decoder_cls
+        return wrap
+
+    @classmethod
+    def register(cls, name, obj):
+        """Register an item to registry with key 'name'
+
+        Args:
+            name: Key with which the item will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+
+            registry.register("config", {})
+        """
+        path = name.split('.')
+        current = cls.mapping['state']
+        for part in path[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+        current[path[-1]] = obj
+
+    @classmethod
+    def get_trainer_class(cls, name):
+        return cls.mapping['trainer_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_builder_class(cls, name):
+        return cls.mapping['builder_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_model_class(cls, name):
+        return cls.mapping['model_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_processor_class(cls, name):
+        return cls.mapping['processor_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_metric_class(cls, name):
+        return cls.mapping['metric_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_loss_class(cls, name):
+        return cls.mapping['loss_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_optimizer_class(cls, name):
+        return cls.mapping['optimizer_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_scheduler_class(cls, name):
+        return cls.mapping['scheduler_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_decoder_class(cls, name):
+        return cls.mapping['decoder_name_mapping'].get(name, None)
+
+    @classmethod
+    def get(cls, name, default=None, no_warning=False):
+        """Get an item from registry with key 'name'
+
+        Args:
+            name (string): Key whose value needs to be retrieved.
+            default: If passed and key is not in registry, default value will
+                     be returned with a warning. Default: None
+            no_warning (bool): If passed as True, warning when key doesn't exist
+                               will not be generated. Useful for MMF's
+                               internal operations. Default: False
+        Usage::
+
+            from mmf.common.registry import registry
+
+            config = registry.get("config")
+        """
+        original_name = name
+        name = name.split('.')
+        value = cls.mapping['state']
+        for subname in name:
+            value = value.get(subname, default)
+            if value is default:
+                break
+        if 'writer' in cls.mapping['state'
+            ] and value == default and no_warning is False:
+            cls.mapping['state']['writer'].write(
+                'Key {} is not present in registry, returning default value of {}'
+                .format(original_name, default))
+        return value
+
+    @classmethod
+    def unregister(cls, name):
+        """Remove an item from registry with key 'name'
+
+        Args:
+            name: Key which needs to be removed.
+        Usage::
+
+            from mmf.common.registry import registry
+
+            config = registry.unregister("config")
+        """
+        return cls.mapping['state'].pop(name, None)
+
+
+registry = Registry()
+
+
+class BaseModel(nn.Module):
+    """For integration with Pythia's trainer, datasets and other features,
+    models needs to inherit this class, call `super`, write a build function,
+    write a forward function taking a ``SampleList`` as input and returning a
+    dict as output and finally, register it using ``@registry.register_model``
+
+    Args:
+        config (DictConfig): ``model_config`` configuration from global config.
+
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self._logged_warning = {'losses_present': False}
+        self.writer = registry.get('writer')
+        self._is_pretrained = False
+
+    @property
+    def is_pretrained(self):
+        return self._is_pretrained
+
+    @is_pretrained.setter
+    def is_pretrained(self, x):
+        self._is_pretrained = x
+
+    def build(self):
+        """Function to be implemented by the child class, in case they need to
+        build their model separately than ``__init__``. All model related
+        downloads should also happen here.
+        """
+        raise NotImplementedError(
+            'Build method not implemented in the child model class.')
+
+    def init_losses(self):
+        """Initializes loss for the model based ``losses`` key. Automatically called by
+        MMF internally after building the model.
+        """
+        losses = self.config.get('losses', [])
+        if len(losses) == 0 and not self.is_pretrained:
+            warnings.warn(
+                'No losses are defined in model configuration. You are expected to return loss in your return dict from forward.'
+                )
+        self.losses = Losses(losses)
+
+    @classmethod
+    def config_path(cls):
+        return None
+
+    @classmethod
+    def format_state_key(cls, key):
+        """Can be implemented if something special needs to be done
+        key when pretrained model is being load. This will adapt and return
+        keys according to that. Useful for backwards compatibility. See
+        updated load_state_dict below. For an example, see VisualBERT model's
+        code.
+
+        Args:
+            key (string): key to be formatted
+
+        Returns:
+            string: formatted key
+        """
+        return key
+
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        copied_state_dict = deepcopy(state_dict)
+        for key in list(copied_state_dict.keys()):
+            formatted_key = self.format_state_key(key)
+            copied_state_dict[formatted_key] = copied_state_dict.pop(key)
+        return super().load_state_dict(copied_state_dict, *args, **kwargs)
+
+    def forward(self, sample_list, *args, **kwargs):
+        """To be implemented by child class. Takes in a ``SampleList`` and
+        returns back a dict.
+
+        Args:
+            sample_list (SampleList): SampleList returned by the DataLoader for
+            current iteration
+
+        Returns:
+            Dict: Dict containing scores object.
+
+        """
+        raise NotImplementedError(
+            'Forward of the child model class needs to be implemented.')
+
+    def __call__(self, sample_list, *args, **kwargs):
+        model_output = super().__call__(sample_list, *args, **kwargs)
+        if self.is_pretrained:
+            return model_output
+        assert isinstance(model_output, collections.abc.Mapping
+            ), 'A dict must be returned from the forward of the model.'
+        if 'losses' in model_output:
+            if not self._logged_warning['losses_present']:
+                warnings.warn(
+                    "'losses' already present in model output. No calculation will be done in base model."
+                    )
+                self._logged_warning['losses_present'] = True
+            assert isinstance(model_output['losses'], collections.abc.Mapping
+                ), "'losses' must be a dict."
+        else:
+            model_output['losses'] = self.losses(sample_list, model_output)
+        return model_output
+
+    def load_requirements(self, *args, **kwargs):
+        requirements = self.config.get('zoo_requirements', [])
+        if isinstance(requirements, str):
+            requirements = [requirements]
+        for item in requirements:
+            download_pretrained_model(item, *args, **kwargs)
+
+    def format_for_prediction(self, results, report):
+        """Implement this method in models if it requires to modify prediction
+        results using report fields. Note that the required fields in report
+        should already be gathered in report.
+        """
+        return results
+
+    @classmethod
+    def from_pretrained(cls, model_name, *args, **kwargs):
+        model_key = model_name.split('.')[0]
+        model_cls = registry.get_model_class(model_key)
+        assert model_cls == cls, f'Incorrect pretrained model key {model_name} for class {cls.__name__}'
+        output = load_pretrained_model(model_name, *args, **kwargs)
+        config, checkpoint = output['config'], output['checkpoint']
+        if hasattr(cls, 'update_registry_for_pretrained'):
+            cls.update_registry_for_pretrained(config, checkpoint, output)
+        instance = cls(config)
+        instance.is_pretrained = True
+        instance.build()
+        instance.load_state_dict(checkpoint)
+        instance.eval()
+        return instance
 
 
 class OcrPtrNet(nn.Module):
@@ -513,6 +1508,401 @@ class MMBTConfig:
         self.modal_hidden_size = modal_hidden_size
         if num_labels:
             self.num_labels = num_labels
+
+
+def get_default_config_path():
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
+
+
+def import_user_module(user_dir: str, no_print: bool=False):
+    """Given a user dir, this function imports it as a module.
+
+    This user_module is expected to have an __init__.py at its root.
+    You can use import_files to import your python files easily in
+    __init__.py
+
+    Args:
+        user_dir (str): directory which has to be imported
+        no_print (bool): This function won't print anything if set to true
+    """
+    if user_dir:
+        user_dir = get_absolute_path(user_dir)
+        module_parent, module_name = os.path.split(user_dir)
+        if module_name not in sys.modules:
+            sys.path.insert(0, module_parent)
+            if not no_print:
+                print(f'Importing user_dir from {user_dir}')
+            importlib.import_module(module_name)
+            sys.path.pop(0)
+
+
+def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
+    try:
+        from torch.hub import _get_torch_home
+        torch_cache_home = _get_torch_home()
+    except ImportError:
+        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
+            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
+    default_cache_path = os.path.join(torch_cache_home, default)
+    cache_path = os.getenv(env_variable, default_cache_path)
+    if not PathManager.exists(cache_path):
+        try:
+            PathManager.mkdirs(cache_path)
+        except PermissionError:
+            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
+            PathManager.mkdirs(cache_path)
+    return cache_path
+
+
+def resolve_dir(env_variable, default='data'):
+    default_dir = os.path.join(resolve_cache_dir(), default)
+    dir_path = os.getenv(env_variable, default_dir)
+    if not PathManager.exists(dir_path):
+        PathManager.mkdirs(dir_path)
+    return dir_path
+
+
+class Configuration:
+
+    def __init__(self, args=None, default_only=False):
+        self.config = {}
+        if not args:
+            import argparse
+            args = argparse.Namespace(opts=[])
+            default_only = True
+        self.args = args
+        self._register_resolvers()
+        self._default_config = self._build_default_config()
+        if default_only:
+            other_configs = {}
+        else:
+            other_configs = self._build_other_configs()
+        self.config = OmegaConf.merge(self._default_config, other_configs)
+        self.config = self._merge_with_dotlist(self.config, args.opts)
+        self._update_specific(self.config)
+        self.upgrade(self.config)
+        registry.register('config', self.config)
+
+    def _build_default_config(self):
+        self.default_config_path = get_default_config_path()
+        default_config = load_yaml(self.default_config_path)
+        return default_config
+
+    def _build_other_configs(self):
+        opts_config = self._build_opt_list(self.args.opts)
+        user_config = self._build_user_config(opts_config)
+        self._opts_config = opts_config
+        self._user_config = user_config
+        self.import_user_dir()
+        model_config = self._build_model_config(opts_config)
+        dataset_config = self._build_dataset_config(opts_config)
+        args_overrides = self._build_demjson_config(self.args.config_override)
+        other_configs = OmegaConf.merge(model_config, dataset_config,
+            user_config, args_overrides)
+        return other_configs
+
+    def _build_opt_list(self, opts):
+        opts_dot_list = self._convert_to_dot_list(opts)
+        return OmegaConf.from_dotlist(opts_dot_list)
+
+    def _build_user_config(self, opts):
+        user_config = {}
+        self.config_path = opts.config
+        if self.config_path is not None:
+            user_config = load_yaml(self.config_path)
+        return user_config
+
+    def import_user_dir(self):
+        user_dir = self._default_config.env.user_dir
+        user_config_user_dir = self._user_config.get('env', {}).get('user_dir',
+            None)
+        if user_config_user_dir:
+            user_dir = user_config_user_dir
+        opts_user_dir = self._opts_config.get('env', {}).get('user_dir', None)
+        if opts_user_dir:
+            user_dir = opts_user_dir
+        if user_dir:
+            import_user_module(user_dir)
+
+    def _build_model_config(self, config):
+        model = config.model
+        if model is None:
+            raise KeyError("Required argument 'model' not passed")
+        model_cls = registry.get_model_class(model)
+        if model_cls is None:
+            warning = f"No model named '{model}' has been registered"
+            warnings.warn(warning)
+            return OmegaConf.create()
+        default_model_config_path = model_cls.config_path()
+        if default_model_config_path is None:
+            warning = ("Model {}'s class has no default configuration provided"
+                .format(model))
+            warnings.warn(warning)
+            return OmegaConf.create()
+        return load_yaml(default_model_config_path)
+
+    def _build_dataset_config(self, config):
+        dataset = config.dataset
+        datasets = config.datasets
+        if dataset is None and datasets is None:
+            raise KeyError("Required argument 'dataset|datasets' not passed")
+        if datasets is None:
+            config.datasets = dataset
+            datasets = dataset.split(',')
+        else:
+            datasets = datasets.split(',')
+        dataset_config = OmegaConf.create()
+        for dataset in datasets:
+            builder_cls = registry.get_builder_class(dataset)
+            if builder_cls is None:
+                warning = f"No dataset named '{dataset}' has been registered"
+                warnings.warn(warning)
+                continue
+            default_dataset_config_path = builder_cls.config_path()
+            if default_dataset_config_path is None:
+                warning = (
+                    "Dataset {}'s builder class has no default configuration "
+                     + f'provided')
+                warnings.warn(warning)
+                continue
+            dataset_config = OmegaConf.merge(dataset_config, load_yaml(
+                default_dataset_config_path))
+        return dataset_config
+
+    def get_config(self):
+        self._register_resolvers()
+        return self.config
+
+    def _build_demjson_config(self, demjson_string):
+        if demjson_string is None:
+            return OmegaConf.create()
+        demjson_dict = demjson.decode(demjson_string)
+        return OmegaConf.create(demjson_dict)
+
+    def _get_args_config(self, args):
+        args_dict = vars(args)
+        return OmegaConf.create(args_dict)
+
+    def _register_resolvers(self):
+        OmegaConf.clear_resolvers()
+        device_count = max(1, torch.cuda.device_count())
+        OmegaConf.register_resolver('device_count', lambda : device_count)
+        OmegaConf.register_resolver('resolve_cache_dir', resolve_cache_dir)
+        OmegaConf.register_resolver('resolve_dir', resolve_dir)
+
+    def _merge_with_dotlist(self, config, opts):
+        if opts is None:
+            opts = []
+        if len(opts) == 0:
+            return config
+        has_equal = opts[0].find('=') != -1
+        if has_equal:
+            opt_values = [opt.split('=') for opt in opts]
+        else:
+            assert len(opts) % 2 == 0, 'Number of opts should be multiple of 2'
+            opt_values = zip(opts[0::2], opts[1::2])
+        for opt, value in opt_values:
+            if opt == 'dataset':
+                opt = 'datasets'
+            splits = opt.split('.')
+            current = config
+            for idx, field in enumerate(splits):
+                array_index = -1
+                if field.find('[') != -1 and field.find(']') != -1:
+                    stripped_field = field[:field.find('[')]
+                    array_index = int(field[field.find('[') + 1:field.find(
+                        ']')])
+                else:
+                    stripped_field = field
+                if stripped_field not in current:
+                    raise AttributeError(
+                        'While updating configuration option {} is missing from configuration at field {}'
+                        .format(opt, stripped_field))
+                if isinstance(current[stripped_field], collections.abc.Mapping
+                    ):
+                    current = current[stripped_field]
+                elif isinstance(current[stripped_field], collections.abc.
+                    Sequence) and array_index != -1:
+                    current_value = current[stripped_field][array_index]
+                    if not isinstance(current_value, (collections.abc.
+                        Mapping, collections.abc.Sequence)):
+                        print(f'Overriding option {opt} to {value}')
+                        current[stripped_field][array_index
+                            ] = self._decode_value(value)
+                    else:
+                        current = current_value
+                elif idx == len(splits) - 1:
+                    print(f'Overriding option {opt} to {value}')
+                    current[stripped_field] = self._decode_value(value)
+                else:
+                    raise AttributeError('While updating configuration',
+                        'option {} is not present after field {}'.format(
+                        opt, stripped_field))
+        return config
+
+    def _decode_value(self, value):
+        if not isinstance(value, str):
+            return value
+        if value == 'None':
+            value = None
+        try:
+            value = literal_eval(value)
+        except ValueError:
+            pass
+        except SyntaxError:
+            pass
+        return value
+
+    def freeze(self):
+        OmegaConf.set_struct(self.config, True)
+
+    def defrost(self):
+        OmegaConf.set_struct(self.config, False)
+
+    def _convert_to_dot_list(self, opts):
+        if opts is None:
+            opts = []
+        if len(opts) == 0:
+            return opts
+        has_equal = opts[0].find('=') != -1
+        if has_equal:
+            return opts
+        return [(opt + '=' + value) for opt, value in zip(opts[0::2], opts[
+            1::2])]
+
+    def pretty_print(self):
+        if not self.config.training.log_detailed_config:
+            return
+        self.writer = registry.get('writer')
+        self.writer.write('=====  Training Parameters    =====', 'info')
+        self.writer.write(self._convert_node_to_json(self.config.training),
+            'info')
+        self.writer.write('======  Dataset Attributes  ======', 'info')
+        datasets = self.config.datasets.split(',')
+        for dataset in datasets:
+            if dataset in self.config.dataset_config:
+                self.writer.write(f'======== {dataset} =======', 'info')
+                dataset_config = self.config.dataset_config[dataset]
+                self.writer.write(self._convert_node_to_json(dataset_config
+                    ), 'info')
+            else:
+                self.writer.write(
+                    f"No dataset named '{dataset}' in config. Skipping",
+                    'warning')
+        self.writer.write('======  Optimizer Attributes  ======', 'info')
+        self.writer.write(self._convert_node_to_json(self.config.optimizer),
+            'info')
+        if self.config.model not in self.config.model_config:
+            raise ValueError(
+                f'{self.config.model} not present in model attributes')
+        self.writer.write(
+            f'======  Model ({self.config.model}) Attributes  ======', 'info')
+        self.writer.write(self._convert_node_to_json(self.config.
+            model_config[self.config.model]), 'info')
+
+    def _convert_node_to_json(self, node):
+        container = OmegaConf.to_container(node, resolve=True)
+        return json.dumps(container, indent=4, sort_keys=True)
+
+    def _update_specific(self, config):
+        self.writer = registry.get('writer')
+        if config.learning_rate:
+            if 'optimizer' in config and 'params' in config.optimizer:
+                lr = config.learning_rate
+                config.optimizer.params.lr = lr
+        if not torch.cuda.is_available() and 'cuda' in config.training.device:
+            warnings.warn(
+                "Device specified is 'cuda' but cuda is not present. " +
+                'Switching to CPU version.')
+            config.training.device = 'cpu'
+        return config
+
+    def upgrade(self, config):
+        mapping = {'training.resume_file': 'checkpoint.resume_file',
+            'training.resume': 'checkpoint.resume', 'training.resume_best':
+            'checkpoint.resume_best', 'training.load_pretrained':
+            'checkpoint.resume_pretrained',
+            'training.pretrained_state_mapping':
+            'checkpoint.pretrained_state_mapping', 'training.run_type':
+            'run_type'}
+        for old, new in mapping.items():
+            value = OmegaConf.select(config, old)
+            if value:
+                OmegaConf.update(config, new, value)
+
+
+def get_global_config(key=None):
+    config = registry.get('config')
+    if config is None:
+        configuration = Configuration()
+        config = configuration.get_config()
+        registry.register('config', config)
+    if key:
+        config = OmegaConf.select(config, key)
+    return config
+
+
+def get_mmf_cache_dir():
+    config = get_global_config()
+    cache_dir = config.env.cache_dir
+    if not os.path.exists(cache_dir):
+        cache_dir = os.path.join(get_mmf_root(), cache_dir)
+    return cache_dir
+
+
+class MMBTForPreTraining(nn.Module):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__()
+        self.config = config
+        self.bert = MMBTBase(config, *args, **kwargs)
+        self.encoder_config = self.bert.encoder_config
+        pretraining_module = BertForPreTraining.from_pretrained(self.config
+            .bert_model_name, config=self.encoder_config, cache_dir=os.path
+            .join(get_mmf_cache_dir(), 'distributed_{}'.format(-1)))
+        self.cls = deepcopy(pretraining_module.cls)
+        self.loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+        self.tie_weights()
+
+    def tie_weights(self):
+        """ Make sure we are sharing the input and output embeddings.
+            Export to TorchScript can't handle parameter sharing so we
+            are cloning them instead.
+        """
+        if hasattr(self, 'cls'):
+            self.bert.mmbt.transformer._tie_or_clone_weights(self.cls.
+                predictions.decoder, self.bert.mmbt.transformer.embeddings.
+                word_embeddings)
+
+    def forward(self, sample_list):
+        module_output = self.bert(sample_list)
+        sequence_output, pooled_output = module_output[0], module_output[1]
+        prediction_scores, seq_relationship_score = self.cls(sequence_output,
+            pooled_output)
+        output = {}
+        if (self.encoder_config.output_hidden_states or self.encoder_config
+            .output_attentions):
+            output['extras'] = module_output[2:]
+        loss_key = f'{sample_list.dataset_name}/{sample_list.dataset_type}'
+        if ('lm_label_ids' in sample_list and sample_list.lm_label_ids is not
+            None):
+            output['logits'] = prediction_scores
+            lm_label_ids = sample_list.lm_label_ids
+            text_scores = prediction_scores[:, -lm_label_ids.size(1):
+                ].contiguous().view(-1, self.encoder_config.vocab_size)
+            masked_lm_loss = self.loss_fct(text_scores, sample_list.
+                lm_label_ids.contiguous().view(-1))
+            output['losses'] = {}
+            output['losses'][f'{loss_key}/masked_lm_loss'] = masked_lm_loss
+        if ('image_text_alignment' in sample_list and sample_list.
+            image_text_alignment is not None):
+            output['seq_relationship_logits'] = seq_relationship_score
+            alignment_loss = self.loss_fct(seq_relationship_score.
+                contiguous().view(-1), sample_list.image_text_alignment.
+                contiguous().view(-1))
+            output['losses'][f'{loss_key}/alignment_loss'] = alignment_loss
+        return output
 
 
 class MMBTForClassification(nn.Module):
@@ -1124,753 +2514,112 @@ class BertImageFeatureEmbeddings(nn.Module):
         return embeddings
 
 
-def get_default_config_path():
-    directory = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(directory, '..', 'configs', 'defaults.yaml')
+class ViLBERTForPretraining(nn.Module):
 
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.bert = ViLBERTBase.from_pretrained(self.config.bert_model_name,
+            config=BertConfig.from_dict(OmegaConf.to_container(self.config,
+            resolve=True)), cache_dir=os.path.join(get_mmf_cache_dir(),
+            'distributed_{}'.format(-1)))
+        self.cls = BertPreTrainingHeads(config)
+        self.vocab_size = self.config.vocab_size
+        self.visual_target = config.visual_target
+        self.num_negative = config.num_negative
+        self.loss_fct = CrossEntropyLoss(ignore_index=-1)
+        if self.visual_target == 0:
+            self.vis_criterion = nn.KLDivLoss(reduction='none')
+        elif self.visual_target == 1:
+            self.vis_criterion = nn.MSELoss(reduction='none')
+        elif self.visual_target == 2:
+            self.vis_criterion = CrossEntropyLoss()
 
-def get_mmf_root():
-    from mmf.common.registry import registry
-    mmf_root = registry.get('mmf_root', no_warning=True)
-    if mmf_root is None:
-        mmf_root = os.path.dirname(os.path.abspath(__file__))
-        mmf_root = os.path.abspath(os.path.join(mmf_root, '..'))
-        registry.register('mmf_root', mmf_root)
-    return mmf_root
+    def init_weights(self):
+        if self.config.random_initialize is False:
+            if self.config.bert_model_name is None:
+                self.bert.init_weights()
+                self.cls.apply(self.bert._init_weights)
+            self.tie_weights()
 
-
-def get_absolute_path(paths):
-    if isinstance(paths, str):
-        if os.path.isabs(paths):
-            return paths
-        possible_paths = [paths]
-        from mmf.utils.configuration import get_mmf_env
-        user_dir = get_mmf_env(key='user_dir')
-        if user_dir:
-            possible_paths.append(os.path.join(user_dir, paths))
-        mmf_root = get_mmf_root()
-        possible_paths.append(os.path.join(mmf_root, '..', paths))
-        possible_paths.append(os.path.join(mmf_root, paths))
-        for path in possible_paths:
-            if PathManager.exists(path):
-                if path.find('://') == -1:
-                    return os.path.abspath(path)
-                else:
-                    return path
-        return paths
-    elif isinstance(paths, collections.abc.Iterable):
-        return [get_absolute_path(path) for path in paths]
-    else:
-        raise TypeError(
-            'Paths passed to dataset should either be string or list')
-
-
-def import_user_module(user_dir: str, no_print: bool=False):
-    """Given a user dir, this function imports it as a module.
-
-    This user_module is expected to have an __init__.py at its root.
-    You can use import_files to import your python files easily in
-    __init__.py
-
-    Args:
-        user_dir (str): directory which has to be imported
-        no_print (bool): This function won't print anything if set to true
-    """
-    if user_dir:
-        user_dir = get_absolute_path(user_dir)
-        module_parent, module_name = os.path.split(user_dir)
-        if module_name not in sys.modules:
-            sys.path.insert(0, module_parent)
-            if not no_print:
-                print(f'Importing user_dir from {user_dir}')
-            importlib.import_module(module_name)
-            sys.path.pop(0)
-
-
-def load_yaml(f):
-    abs_f = get_absolute_path(f)
-    try:
-        mapping = OmegaConf.load(abs_f)
-        f = abs_f
-    except FileNotFoundError as e:
-        relative = os.path.abspath(os.path.join(get_mmf_root(), f))
-        if not PathManager.isfile(relative):
-            raise e
-        else:
-            f = relative
-            mapping = OmegaConf.load(f)
-    if mapping is None:
-        mapping = OmegaConf.create()
-    includes = mapping.get('includes', [])
-    if not isinstance(includes, collections.abc.Sequence):
-        raise AttributeError('Includes must be a list, {} provided'.format(
-            type(includes)))
-    include_mapping = OmegaConf.create()
-    mmf_root_dir = get_mmf_root()
-    for include in includes:
-        original_include_path = include
-        include = os.path.join(mmf_root_dir, include)
-        if not PathManager.exists(include):
-            include = os.path.join(os.path.dirname(f), original_include_path)
-        current_include_mapping = load_yaml(include)
-        include_mapping = OmegaConf.merge(include_mapping,
-            current_include_mapping)
-    mapping.pop('includes', None)
-    mapping = OmegaConf.merge(include_mapping, mapping)
-    return mapping
-
-
-class Registry:
-    """Class for registry object which acts as central source of truth
-    for MMF
-    """
-    mapping = {'builder_name_mapping': {}, 'trainer_name_mapping': {},
-        'model_name_mapping': {}, 'metric_name_mapping': {},
-        'loss_name_mapping': {}, 'fusion_name_mapping': {},
-        'optimizer_name_mapping': {}, 'scheduler_name_mapping': {},
-        'processor_name_mapping': {}, 'decoder_name_mapping': {}, 'state': {}}
-
-    @classmethod
-    def register_trainer(cls, name):
-        """Register a trainer to registry with key 'name'
-
-        Args:
-            name: Key with which the trainer will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.trainers.custom_trainer import CustomTrainer
-
-
-            @registry.register_trainer("custom_trainer")
-            class CustomTrainer():
-                ...
-
+    def tie_weights(self):
+        """ Make sure we are sharing the input and output embeddings.
+            Export to TorchScript can't handle parameter sharing so we are cloning
+            them instead.
         """
-
-        def wrap(trainer_cls):
-            cls.mapping['trainer_name_mapping'][name] = trainer_cls
-            return trainer_cls
-        return wrap
-
-    @classmethod
-    def register_builder(cls, name):
-        """Register a dataset builder to registry with key 'name'
-
-        Args:
-            name: Key with which the metric will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
-
-
-            @registry.register_builder("vqa2")
-            class VQA2Builder(BaseDatasetBuilder):
-                ...
-
-        """
-
-        def wrap(builder_cls):
-            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
-            assert issubclass(builder_cls, BaseDatasetBuilder
-                ), 'All builders must inherit BaseDatasetBuilder class'
-            cls.mapping['builder_name_mapping'][name] = builder_cls
-            return builder_cls
-        return wrap
-
-    @classmethod
-    def register_metric(cls, name):
-        """Register a metric to registry with key 'name'
-
-        Args:
-            name: Key with which the metric will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.modules.metrics import BaseMetric
-
-
-            @registry.register_metric("r@1")
-            class RecallAt1(BaseMetric):
-                ...
-
-        """
-
-        def wrap(func):
-            from mmf.modules.metrics import BaseMetric
-            assert issubclass(func, BaseMetric
-                ), 'All Metric must inherit BaseMetric class'
-            cls.mapping['metric_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_loss(cls, name):
-        """Register a loss to registry with key 'name'
-
-        Args:
-            name: Key with which the loss will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from torch import nn
-
-            @registry.register_task("logit_bce")
-            class LogitBCE(nn.Module):
-                ...
-
-        """
-
-        def wrap(func):
-            from torch import nn
-            assert issubclass(func, nn.Module
-                ), 'All loss must inherit torch.nn.Module class'
-            cls.mapping['loss_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_fusion(cls, name):
-        """Register a fusion technique to registry with key 'name'
-
-        Args:
-            name: Key with which the fusion technique will be registered
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from torch import nn
-
-            @registry.register_fusion("linear_sum")
-            class LinearSum():
-                ...
-        """
-
-        def wrap(func):
-            from torch import nn
-            assert issubclass(func, nn.Module
-                ), 'All Fusion must inherit torch.nn.Module class'
-            cls.mapping['fusion_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_model(cls, name):
-        """Register a model to registry with key 'name'
-
-        Args:
-            name: Key with which the model will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.models.base_model import BaseModel
-
-            @registry.register_task("pythia")
-            class Pythia(BaseModel):
-                ...
-        """
-
-        def wrap(func):
-            from mmf.models.base_model import BaseModel
-            assert issubclass(func, BaseModel
-                ), 'All models must inherit BaseModel class'
-            cls.mapping['model_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_processor(cls, name):
-        """Register a processor to registry with key 'name'
-
-        Args:
-            name: Key with which the processor will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.datasets.processors import BaseProcessor
-
-            @registry.register_task("glove")
-            class GloVe(BaseProcessor):
-                ...
-
-        """
-
-        def wrap(func):
-            from mmf.datasets.processors.processors import BaseProcessor
-            assert issubclass(func, BaseProcessor
-                ), 'All Processor classes must inherit BaseProcessor class'
-            cls.mapping['processor_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_optimizer(cls, name):
-
-        def wrap(func):
-            cls.mapping['optimizer_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_scheduler(cls, name):
-
-        def wrap(func):
-            cls.mapping['scheduler_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_decoder(cls, name):
-        """Register a decoder to registry with key 'name'
-
-        Args:
-            name: Key with which the decoder will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.utils.text import TextDecoder
-
-
-            @registry.register_decoder("nucleus_sampling")
-            class NucleusSampling(TextDecoder):
-                ...
-
-        """
-
-        def wrap(decoder_cls):
-            from mmf.utils.text import TextDecoder
-            assert issubclass(decoder_cls, TextDecoder
-                ), 'All decoders must inherit TextDecoder class'
-            cls.mapping['decoder_name_mapping'][name] = decoder_cls
-            return decoder_cls
-        return wrap
-
-    @classmethod
-    def register(cls, name, obj):
-        """Register an item to registry with key 'name'
-
-        Args:
-            name: Key with which the item will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-
-            registry.register("config", {})
-        """
-        path = name.split('.')
-        current = cls.mapping['state']
-        for part in path[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        current[path[-1]] = obj
-
-    @classmethod
-    def get_trainer_class(cls, name):
-        return cls.mapping['trainer_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_builder_class(cls, name):
-        return cls.mapping['builder_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_model_class(cls, name):
-        return cls.mapping['model_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_processor_class(cls, name):
-        return cls.mapping['processor_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_metric_class(cls, name):
-        return cls.mapping['metric_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_loss_class(cls, name):
-        return cls.mapping['loss_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_optimizer_class(cls, name):
-        return cls.mapping['optimizer_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_scheduler_class(cls, name):
-        return cls.mapping['scheduler_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_decoder_class(cls, name):
-        return cls.mapping['decoder_name_mapping'].get(name, None)
-
-    @classmethod
-    def get(cls, name, default=None, no_warning=False):
-        """Get an item from registry with key 'name'
-
-        Args:
-            name (string): Key whose value needs to be retrieved.
-            default: If passed and key is not in registry, default value will
-                     be returned with a warning. Default: None
-            no_warning (bool): If passed as True, warning when key doesn't exist
-                               will not be generated. Useful for MMF's
-                               internal operations. Default: False
-        Usage::
-
-            from mmf.common.registry import registry
-
-            config = registry.get("config")
-        """
-        original_name = name
-        name = name.split('.')
-        value = cls.mapping['state']
-        for subname in name:
-            value = value.get(subname, default)
-            if value is default:
-                break
-        if 'writer' in cls.mapping['state'
-            ] and value == default and no_warning is False:
-            cls.mapping['state']['writer'].write(
-                'Key {} is not present in registry, returning default value of {}'
-                .format(original_name, default))
-        return value
-
-    @classmethod
-    def unregister(cls, name):
-        """Remove an item from registry with key 'name'
-
-        Args:
-            name: Key which needs to be removed.
-        Usage::
-
-            from mmf.common.registry import registry
-
-            config = registry.unregister("config")
-        """
-        return cls.mapping['state'].pop(name, None)
-
-
-registry = Registry()
-
-
-def resolve_cache_dir(env_variable='MMF_CACHE_DIR', default='mmf'):
-    try:
-        from torch.hub import _get_torch_home
-        torch_cache_home = _get_torch_home()
-    except ImportError:
-        torch_cache_home = os.path.expanduser(os.getenv('TORCH_HOME', os.
-            path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
-    default_cache_path = os.path.join(torch_cache_home, default)
-    cache_path = os.getenv(env_variable, default_cache_path)
-    if not PathManager.exists(cache_path):
-        try:
-            PathManager.mkdirs(cache_path)
-        except PermissionError:
-            cache_path = os.path.join(get_mmf_root(), '.mmf_cache')
-            PathManager.mkdirs(cache_path)
-    return cache_path
-
-
-def resolve_dir(env_variable, default='data'):
-    default_dir = os.path.join(resolve_cache_dir(), default)
-    dir_path = os.getenv(env_variable, default_dir)
-    if not PathManager.exists(dir_path):
-        PathManager.mkdirs(dir_path)
-    return dir_path
-
-
-class Configuration:
-
-    def __init__(self, args=None, default_only=False):
-        self.config = {}
-        if not args:
-            import argparse
-            args = argparse.Namespace(opts=[])
-            default_only = True
-        self.args = args
-        self._register_resolvers()
-        self._default_config = self._build_default_config()
-        if default_only:
-            other_configs = {}
-        else:
-            other_configs = self._build_other_configs()
-        self.config = OmegaConf.merge(self._default_config, other_configs)
-        self.config = self._merge_with_dotlist(self.config, args.opts)
-        self._update_specific(self.config)
-        self.upgrade(self.config)
-        registry.register('config', self.config)
-
-    def _build_default_config(self):
-        self.default_config_path = get_default_config_path()
-        default_config = load_yaml(self.default_config_path)
-        return default_config
-
-    def _build_other_configs(self):
-        opts_config = self._build_opt_list(self.args.opts)
-        user_config = self._build_user_config(opts_config)
-        self._opts_config = opts_config
-        self._user_config = user_config
-        self.import_user_dir()
-        model_config = self._build_model_config(opts_config)
-        dataset_config = self._build_dataset_config(opts_config)
-        args_overrides = self._build_demjson_config(self.args.config_override)
-        other_configs = OmegaConf.merge(model_config, dataset_config,
-            user_config, args_overrides)
-        return other_configs
-
-    def _build_opt_list(self, opts):
-        opts_dot_list = self._convert_to_dot_list(opts)
-        return OmegaConf.from_dotlist(opts_dot_list)
-
-    def _build_user_config(self, opts):
-        user_config = {}
-        self.config_path = opts.config
-        if self.config_path is not None:
-            user_config = load_yaml(self.config_path)
-        return user_config
-
-    def import_user_dir(self):
-        user_dir = self._default_config.env.user_dir
-        user_config_user_dir = self._user_config.get('env', {}).get('user_dir',
-            None)
-        if user_config_user_dir:
-            user_dir = user_config_user_dir
-        opts_user_dir = self._opts_config.get('env', {}).get('user_dir', None)
-        if opts_user_dir:
-            user_dir = opts_user_dir
-        if user_dir:
-            import_user_module(user_dir)
-
-    def _build_model_config(self, config):
-        model = config.model
-        if model is None:
-            raise KeyError("Required argument 'model' not passed")
-        model_cls = registry.get_model_class(model)
-        if model_cls is None:
-            warning = f"No model named '{model}' has been registered"
-            warnings.warn(warning)
-            return OmegaConf.create()
-        default_model_config_path = model_cls.config_path()
-        if default_model_config_path is None:
-            warning = ("Model {}'s class has no default configuration provided"
-                .format(model))
-            warnings.warn(warning)
-            return OmegaConf.create()
-        return load_yaml(default_model_config_path)
-
-    def _build_dataset_config(self, config):
-        dataset = config.dataset
-        datasets = config.datasets
-        if dataset is None and datasets is None:
-            raise KeyError("Required argument 'dataset|datasets' not passed")
-        if datasets is None:
-            config.datasets = dataset
-            datasets = dataset.split(',')
-        else:
-            datasets = datasets.split(',')
-        dataset_config = OmegaConf.create()
-        for dataset in datasets:
-            builder_cls = registry.get_builder_class(dataset)
-            if builder_cls is None:
-                warning = f"No dataset named '{dataset}' has been registered"
-                warnings.warn(warning)
-                continue
-            default_dataset_config_path = builder_cls.config_path()
-            if default_dataset_config_path is None:
-                warning = (
-                    "Dataset {}'s builder class has no default configuration "
-                     + f'provided')
-                warnings.warn(warning)
-                continue
-            dataset_config = OmegaConf.merge(dataset_config, load_yaml(
-                default_dataset_config_path))
-        return dataset_config
-
-    def get_config(self):
-        self._register_resolvers()
-        return self.config
-
-    def _build_demjson_config(self, demjson_string):
-        if demjson_string is None:
-            return OmegaConf.create()
-        demjson_dict = demjson.decode(demjson_string)
-        return OmegaConf.create(demjson_dict)
-
-    def _get_args_config(self, args):
-        args_dict = vars(args)
-        return OmegaConf.create(args_dict)
-
-    def _register_resolvers(self):
-        OmegaConf.clear_resolvers()
-        device_count = max(1, torch.cuda.device_count())
-        OmegaConf.register_resolver('device_count', lambda : device_count)
-        OmegaConf.register_resolver('resolve_cache_dir', resolve_cache_dir)
-        OmegaConf.register_resolver('resolve_dir', resolve_dir)
-
-    def _merge_with_dotlist(self, config, opts):
-        if opts is None:
-            opts = []
-        if len(opts) == 0:
-            return config
-        has_equal = opts[0].find('=') != -1
-        if has_equal:
-            opt_values = [opt.split('=') for opt in opts]
-        else:
-            assert len(opts) % 2 == 0, 'Number of opts should be multiple of 2'
-            opt_values = zip(opts[0::2], opts[1::2])
-        for opt, value in opt_values:
-            if opt == 'dataset':
-                opt = 'datasets'
-            splits = opt.split('.')
-            current = config
-            for idx, field in enumerate(splits):
-                array_index = -1
-                if field.find('[') != -1 and field.find(']') != -1:
-                    stripped_field = field[:field.find('[')]
-                    array_index = int(field[field.find('[') + 1:field.find(
-                        ']')])
-                else:
-                    stripped_field = field
-                if stripped_field not in current:
-                    raise AttributeError(
-                        'While updating configuration option {} is missing from configuration at field {}'
-                        .format(opt, stripped_field))
-                if isinstance(current[stripped_field], collections.abc.Mapping
-                    ):
-                    current = current[stripped_field]
-                elif isinstance(current[stripped_field], collections.abc.
-                    Sequence) and array_index != -1:
-                    current_value = current[stripped_field][array_index]
-                    if not isinstance(current_value, (collections.abc.
-                        Mapping, collections.abc.Sequence)):
-                        print(f'Overriding option {opt} to {value}')
-                        current[stripped_field][array_index
-                            ] = self._decode_value(value)
-                    else:
-                        current = current_value
-                elif idx == len(splits) - 1:
-                    print(f'Overriding option {opt} to {value}')
-                    current[stripped_field] = self._decode_value(value)
-                else:
-                    raise AttributeError('While updating configuration',
-                        'option {} is not present after field {}'.format(
-                        opt, stripped_field))
-        return config
-
-    def _decode_value(self, value):
-        if not isinstance(value, str):
-            return value
-        if value == 'None':
-            value = None
-        try:
-            value = literal_eval(value)
-        except ValueError:
-            pass
-        except SyntaxError:
-            pass
-        return value
-
-    def freeze(self):
-        OmegaConf.set_struct(self.config, True)
-
-    def defrost(self):
-        OmegaConf.set_struct(self.config, False)
-
-    def _convert_to_dot_list(self, opts):
-        if opts is None:
-            opts = []
-        if len(opts) == 0:
-            return opts
-        has_equal = opts[0].find('=') != -1
-        if has_equal:
-            return opts
-        return [(opt + '=' + value) for opt, value in zip(opts[0::2], opts[
-            1::2])]
-
-    def pretty_print(self):
-        if not self.config.training.log_detailed_config:
-            return
-        self.writer = registry.get('writer')
-        self.writer.write('=====  Training Parameters    =====', 'info')
-        self.writer.write(self._convert_node_to_json(self.config.training),
-            'info')
-        self.writer.write('======  Dataset Attributes  ======', 'info')
-        datasets = self.config.datasets.split(',')
-        for dataset in datasets:
-            if dataset in self.config.dataset_config:
-                self.writer.write(f'======== {dataset} =======', 'info')
-                dataset_config = self.config.dataset_config[dataset]
-                self.writer.write(self._convert_node_to_json(dataset_config
-                    ), 'info')
-            else:
-                self.writer.write(
-                    f"No dataset named '{dataset}' in config. Skipping",
-                    'warning')
-        self.writer.write('======  Optimizer Attributes  ======', 'info')
-        self.writer.write(self._convert_node_to_json(self.config.optimizer),
-            'info')
-        if self.config.model not in self.config.model_config:
-            raise ValueError(
-                f'{self.config.model} not present in model attributes')
-        self.writer.write(
-            f'======  Model ({self.config.model}) Attributes  ======', 'info')
-        self.writer.write(self._convert_node_to_json(self.config.
-            model_config[self.config.model]), 'info')
-
-    def _convert_node_to_json(self, node):
-        container = OmegaConf.to_container(node, resolve=True)
-        return json.dumps(container, indent=4, sort_keys=True)
-
-    def _update_specific(self, config):
-        self.writer = registry.get('writer')
-        if config.learning_rate:
-            if 'optimizer' in config and 'params' in config.optimizer:
-                lr = config.learning_rate
-                config.optimizer.params.lr = lr
-        if not torch.cuda.is_available() and 'cuda' in config.training.device:
-            warnings.warn(
-                "Device specified is 'cuda' but cuda is not present. " +
-                'Switching to CPU version.')
-            config.training.device = 'cpu'
-        return config
-
-    def upgrade(self, config):
-        mapping = {'training.resume_file': 'checkpoint.resume_file',
-            'training.resume': 'checkpoint.resume', 'training.resume_best':
-            'checkpoint.resume_best', 'training.load_pretrained':
-            'checkpoint.resume_pretrained',
-            'training.pretrained_state_mapping':
-            'checkpoint.pretrained_state_mapping', 'training.run_type':
-            'run_type'}
-        for old, new in mapping.items():
-            value = OmegaConf.select(config, old)
-            if value:
-                OmegaConf.update(config, new, value)
-
-
-def get_global_config(key=None):
-    config = registry.get('config')
-    if config is None:
-        configuration = Configuration()
-        config = configuration.get_config()
-        registry.register('config', config)
-    if key:
-        config = OmegaConf.select(config, key)
-    return config
-
-
-def get_mmf_cache_dir():
-    config = get_global_config()
-    cache_dir = config.env.cache_dir
-    if not os.path.exists(cache_dir):
-        cache_dir = os.path.join(get_mmf_root(), cache_dir)
-    return cache_dir
+        self._tie_or_clone_weights(self.cls.predictions.decoder, self.bert.
+            embeddings.word_embeddings)
+
+    def forward(self, input_ids, image_feature, image_location,
+        token_type_ids=None, attention_mask=None, image_attention_mask=None,
+        masked_lm_labels=None, image_label=None, image_target=None,
+        next_sentence_label=None, output_all_attention_masks=False):
+        (sequence_output_t, sequence_output_v, pooled_output_t,
+            pooled_output_v, attention_weights) = (self.bert(input_ids,
+            image_feature, image_location, token_type_ids, attention_mask,
+            image_attention_mask, output_all_encoded_layers=False,
+            output_all_attention_masks=output_all_attention_masks))
+        (prediction_scores_t, prediction_scores_v, seq_relationship_score) = (
+            self.cls(sequence_output_t, sequence_output_v, pooled_output_t,
+            pooled_output_v))
+        output = {}
+        if output_all_attention_masks:
+            output['attention_weights'] = attention_weights
+        if image_target is not None:
+            if self.visual_target == 1:
+                img_loss = self.vis_criterion(prediction_scores_v, image_target
+                    )
+                masked_img_loss = torch.sum(img_loss * (image_label == 1).
+                    unsqueeze(2).float()) / max(torch.sum((image_label == 1
+                    ).unsqueeze(2).expand_as(img_loss)), 1)
+            elif self.visual_target == 0:
+                img_loss = self.vis_criterion(F.log_softmax(
+                    prediction_scores_v, dim=2), image_target)
+                masked_img_loss = torch.sum(img_loss * (image_label == 1).
+                    unsqueeze(2).float()) / max(torch.sum(image_label == 1), 0)
+            elif self.visual_target == 2:
+                num_across_batch = int(self.num_negative * 0.7)
+                num_inside_batch = int(self.num_negative * 0.3)
+                batch_size, num_regions, _ = prediction_scores_v.size()
+                assert batch_size != 0
+                row_across_index = input_ids.new(batch_size, num_regions,
+                    num_across_batch).random_(0, batch_size - 1)
+                col_across_index = input_ids.new(batch_size, num_regions,
+                    num_across_batch).random_(0, num_regions)
+                for i in range(batch_size - 1):
+                    row_across_index[i][row_across_index[i] == i
+                        ] = batch_size - 1
+                final_across_index = (row_across_index * num_regions +
+                    col_across_index)
+                row_inside_index = input_ids.new(batch_size, num_regions,
+                    num_inside_batch).zero_()
+                col_inside_index = input_ids.new(batch_size, num_regions,
+                    num_inside_batch).random_(0, num_regions - 1)
+                for i in range(batch_size):
+                    row_inside_index[i] = i
+                for i in range(num_regions - 1):
+                    col_inside_index[:, (i), :][col_inside_index[:, (i), :] ==
+                        i] = num_regions - 1
+                final_inside_index = (row_inside_index * num_regions +
+                    col_inside_index)
+                final_index = torch.cat((final_across_index,
+                    final_inside_index), dim=2)
+                predict_v = prediction_scores_v[image_label == 1]
+                neg_index_v = final_index[image_label == 1]
+                flat_image_target = image_target.view(batch_size *
+                    num_regions, -1)
+                negative_v = flat_image_target[neg_index_v]
+                positive_v = image_target[image_label == 1]
+                sample_v = torch.cat((positive_v.unsqueeze(1), negative_v),
+                    dim=1)
+                score = torch.bmm(sample_v, predict_v.unsqueeze(2)).squeeze(2)
+                masked_img_loss = self.vis_criterion(score, input_ids.new(
+                    score.size(0)).zero_())
+            output['masked_img_loss'] = masked_img_loss.unsqueeze(0)
+        masked_lm_loss = self.loss_fct(prediction_scores_t.view(-1, self.
+            vocab_size), masked_lm_labels.view(-1))
+        output['masked_lm_loss'] = masked_lm_loss.unsqueeze(0)
+        return output
 
 
 class ViLBERTForClassification(nn.Module):
@@ -1925,6 +2674,84 @@ class ViLBERTForClassification(nn.Module):
         reshaped_logits = logits.contiguous().view(-1, self.num_labels)
         output['scores'] = reshaped_logits
         return output
+
+
+class VisualBERTForPretraining(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.output_attentions = self.config.output_attentions
+        self.output_hidden_states = self.config.output_hidden_states
+        self.bert_model_name = getattr(self.config, 'bert_model_name', None)
+        self.bert_config = BertConfig.from_dict(OmegaConf.to_container(self
+            .config, resolve=True))
+        if self.bert_model_name is None:
+            self.bert = VisualBERTBase(self.bert_config,
+                visual_embedding_dim=self.config.visual_embedding_dim,
+                embedding_strategy=self.config.embedding_strategy,
+                bypass_transformer=self.config.bypass_transformer,
+                output_attentions=self.config.output_attentions,
+                output_hidden_states=self.config.output_hidden_states)
+        else:
+            self.bert = VisualBERTBase.from_pretrained(self.config.
+                bert_model_name, config=self.bert_config, cache_dir=os.path
+                .join(get_mmf_cache_dir(), 'distributed_{}'.format(-1)),
+                visual_embedding_dim=self.config.visual_embedding_dim,
+                embedding_strategy=self.config.embedding_strategy,
+                bypass_transformer=self.config.bypass_transformer,
+                output_attentions=self.config.output_attentions,
+                output_hidden_states=self.config.output_hidden_states)
+        self.vocab_size = self.bert.config.vocab_size
+        if self.bert_model_name is None:
+            bert_masked_lm = BertForPreTraining(self.bert.config)
+        else:
+            bert_masked_lm = BertForPreTraining.from_pretrained(self.config
+                .bert_model_name, cache_dir=os.path.join(get_mmf_cache_dir(
+                ), 'distributed_{}'.format(-1)))
+        self.cls = deepcopy(bert_masked_lm.cls)
+        self.loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+        self.init_weights()
+
+    def init_weights(self):
+        if self.config.random_initialize is False:
+            if self.bert_model_name is None:
+                self.bert.init_weights()
+                self.cls.apply(self.bert._init_weights)
+            self.tie_weights()
+
+    def tie_weights(self):
+        """ Make sure we are sharing the input and output embeddings.
+            Export to TorchScript can't handle parameter sharing so we are cloning them
+            instead.
+        """
+        self.bert._tie_or_clone_weights(self.cls.predictions.decoder, self.
+            bert.embeddings.word_embeddings)
+
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None,
+        visual_embeddings=None, position_embeddings_visual=None,
+        visual_embeddings_type=None, image_text_alignment=None,
+        masked_lm_labels=None):
+        sequence_output, pooled_output, attention_weights = self.bert(input_ids
+            , attention_mask, token_type_ids, visual_embeddings,
+            position_embeddings_visual, visual_embeddings_type,
+            image_text_alignment)
+        output_dict = {}
+        if self.output_attentions:
+            output_dict['attention_weights'] = attention_weights
+        if self.output_hidden_states:
+            output_dict['sequence_output'] = sequence_output
+            output_dict['pooled_output'] = pooled_output
+        prediction_scores, seq_relationship_score = self.cls(sequence_output,
+            pooled_output)
+        if masked_lm_labels is not None:
+            output_dict['logits'] = prediction_scores
+            masked_lm_loss = self.loss_fct(prediction_scores.contiguous().
+                view(-1, self.vocab_size), masked_lm_labels.contiguous().
+                view(-1))
+            output_dict['masked_lm_loss'] = masked_lm_loss
+            output_dict['loss'] = masked_lm_loss
+        return output_dict
 
 
 class VisualBERTForClassification(nn.Module):
@@ -2405,29 +3232,6 @@ class ExtractedVocab(BaseVocab):
 
 
 EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
-
-
-def get_rank():
-    if not dist.is_nccl_available():
-        return 0
-    if not dist.is_initialized():
-        return 0
-    return dist.get_rank()
-
-
-def is_master():
-    return get_rank() == 0
-
-
-def synchronize():
-    if not dist.is_nccl_available():
-        return
-    if not dist.is_initialized():
-        return
-    world_size = dist.get_world_size()
-    if world_size == 1:
-        return
-    dist.barrier()
 
 
 class IntersectedVocab(BaseVocab):
@@ -3735,6 +4539,44 @@ class ClassifierLayer(nn.Module):
         return self.module(*args, **kwargs)
 
 
+class BertClassifierHead(nn.Module):
+
+    def __init__(self, in_dim=768, out_dim=2, config=None, *args, **kwargs):
+        super().__init__()
+        if config is None:
+            config = BertConfig.from_pretrained('bert-base-uncased')
+        assert config.hidden_size == in_dim
+        self.module = nn.Sequential(nn.Dropout(config.hidden_dropout_prob),
+            BertPredictionHeadTransform(config), nn.Linear(in_dim, out_dim))
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class MLPClassifer(nn.Module):
+
+    def __init__(self, in_dim, out_dim, hidden_dim=None, num_layers=0,
+        dropout=0.5, hidden_act='relu', batch_norm=True, **kwargs):
+        super().__init__()
+        activation = ACT2FN[hidden_act]
+        self.layers = nn.ModuleList()
+        if hidden_dim is None:
+            hidden_dim = in_dim
+        for _ in range(num_layers):
+            self.layers.append(nn.Linear(in_dim, hidden_dim))
+            if batch_norm:
+                self.layers.append(nn.BatchNorm1d(hidden_dim))
+            self.layers.append(activation())
+            self.layers.append(nn.Dropout(dropout))
+            in_dim = hidden_dim
+        self.layers.append(nn.Linear(in_dim, out_dim))
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
 class LogitClassifier(nn.Module):
 
     def __init__(self, in_dim, out_dim, **kwargs):
@@ -4672,105 +5514,16 @@ class TestDecoderModel(nn.Module):
         return model_output
 
 
-import torch
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+RESNET152_MODEL = models.resnet152(pretrained=True)
 
-class Test_facebookresearch_mmf(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BCNet(*[], **{'v_dim': 4, 'q_dim': 4, 'h_dim': 4, 'h_out': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_001(self):
-        self._check(BertBiAttention(*[], **{'config': _mock_config(bi_hidden_size=4, bi_num_attention_heads=4, visualization=4, v_hidden_size=4, v_attention_probs_dropout_prob=0.5, hidden_size=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+class ResNet152FeatModule(nn.Module):
 
-    def test_002(self):
-        self._check(BertImageIntermediate(*[], **{'config': _mock_config(v_hidden_size=4, v_intermediate_size=4, v_hidden_act=ReLU())}), [torch.rand([4, 4, 4, 4])], {})
+    def __init__(self):
+        super().__init__()
+        modules = list(RESNET152_MODEL.children())[:-2]
+        self.feature_module = nn.Sequential(*modules)
 
-    def test_003(self):
-        self._check(BertImagePooler(*[], **{'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_004(self):
-        self._check(BertImageSelfAttention(*[], **{'config': _mock_config(v_hidden_size=4, v_num_attention_heads=4, dynamic_attention=4, visualization=4, hidden_size=4, v_attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_005(self):
-        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, visualization=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
-    def test_006(self):
-        self._check(BertTextPooler(*[], **{'config': _mock_config(hidden_size=4, bi_hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_007(self):
-        self._check(BiAttention(*[], **{'x_dim': 4, 'y_dim': 4, 'z_dim': 4, 'glimpse': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_008(self):
-        self._check(Block(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(CompactBilinearPooling(*[], **{'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(ConcatenationAttention(*[], **{'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
-
-    def test_011(self):
-        self._check(ConvNet(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(ConvTransform(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4])], {})
-
-    def test_013(self):
-        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_015(self):
-        self._check(GatedTanh(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_016(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_017(self):
-        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_018(self):
-        self._check(LinearTransform(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_019(self):
-        self._check(MCB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_020(self):
-        self._check(MFB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_021(self):
-        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_022(self):
-        self._check(MfbExpand(*[], **{'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_023(self):
-        self._check(MultiHeadImageFeatureEmbedding(*[], **{'img_dim': 4, 'question_dim': 4, 'num_heads': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_024(self):
-        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_025(self):
-        self._check(OcrPtrNet(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    def test_026(self):
-        self._check(ReLUWithWeightNormFC(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_027(self):
-        self._check(WeightNormClassifier(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+    def forward(self, x):
+        return self.feature_module(x)
 

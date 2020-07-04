@@ -236,10 +236,13 @@ test = _module
 upgrade_model_version = _module
 voc_eval = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1482,7 +1485,29 @@ class FeatureAdaption(nn.Module):
         return x
 
 
-BACKBONES = Registry('backbone')
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
 
 
 norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
@@ -1528,6 +1553,144 @@ def build_norm_layer(cfg, num_features, postfix=''):
     for param in layer.parameters():
         param.requires_grad = requires_grad
     return name, layer
+
+
+class HRModule(nn.Module):
+    """ High-Resolution Module for HRNet. In this module, every branch
+    has 4 BasicBlocks/Bottlenecks. Fusion/Exchange is in this module.
+    """
+
+    def __init__(self, num_branches, blocks, num_blocks, in_channels,
+        num_channels, multiscale_output=True, with_cp=False, conv_cfg=None,
+        norm_cfg=dict(type='BN')):
+        super(HRModule, self).__init__()
+        self._check_branches(num_branches, num_blocks, in_channels,
+            num_channels)
+        self.in_channels = in_channels
+        self.num_branches = num_branches
+        self.multiscale_output = multiscale_output
+        self.norm_cfg = norm_cfg
+        self.conv_cfg = conv_cfg
+        self.with_cp = with_cp
+        self.branches = self._make_branches(num_branches, blocks,
+            num_blocks, num_channels)
+        self.fuse_layers = self._make_fuse_layers()
+        self.relu = nn.ReLU(inplace=False)
+
+    def _check_branches(self, num_branches, num_blocks, in_channels,
+        num_channels):
+        if num_branches != len(num_blocks):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
+                num_branches, len(num_blocks))
+            raise ValueError(error_msg)
+        if num_branches != len(num_channels):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
+                num_branches, len(num_channels))
+            raise ValueError(error_msg)
+        if num_branches != len(in_channels):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
+                num_branches, len(in_channels))
+            raise ValueError(error_msg)
+
+    def _make_one_branch(self, branch_index, block, num_blocks,
+        num_channels, stride=1):
+        downsample = None
+        if stride != 1 or self.in_channels[branch_index] != num_channels[
+            branch_index] * block.expansion:
+            downsample = nn.Sequential(build_conv_layer(self.conv_cfg, self
+                .in_channels[branch_index], num_channels[branch_index] *
+                block.expansion, kernel_size=1, stride=stride, bias=False),
+                build_norm_layer(self.norm_cfg, num_channels[branch_index] *
+                block.expansion)[1])
+        layers = []
+        layers.append(block(self.in_channels[branch_index], num_channels[
+            branch_index], stride, downsample=downsample, with_cp=self.
+            with_cp, norm_cfg=self.norm_cfg, conv_cfg=self.conv_cfg))
+        self.in_channels[branch_index] = num_channels[branch_index
+            ] * block.expansion
+        for i in range(1, num_blocks[branch_index]):
+            layers.append(block(self.in_channels[branch_index],
+                num_channels[branch_index], with_cp=self.with_cp, norm_cfg=
+                self.norm_cfg, conv_cfg=self.conv_cfg))
+        return nn.Sequential(*layers)
+
+    def _make_branches(self, num_branches, block, num_blocks, num_channels):
+        branches = []
+        for i in range(num_branches):
+            branches.append(self._make_one_branch(i, block, num_blocks,
+                num_channels))
+        return nn.ModuleList(branches)
+
+    def _make_fuse_layers(self):
+        if self.num_branches == 1:
+            return None
+        num_branches = self.num_branches
+        in_channels = self.in_channels
+        fuse_layers = []
+        num_out_branches = num_branches if self.multiscale_output else 1
+        for i in range(num_out_branches):
+            fuse_layer = []
+            for j in range(num_branches):
+                if j > i:
+                    fuse_layer.append(nn.Sequential(build_conv_layer(self.
+                        conv_cfg, in_channels[j], in_channels[i],
+                        kernel_size=1, stride=1, padding=0, bias=False),
+                        build_norm_layer(self.norm_cfg, in_channels[i])[1],
+                        nn.Upsample(scale_factor=2 ** (j - i), mode='nearest'))
+                        )
+                elif j == i:
+                    fuse_layer.append(None)
+                else:
+                    conv_downsamples = []
+                    for k in range(i - j):
+                        if k == i - j - 1:
+                            conv_downsamples.append(nn.Sequential(
+                                build_conv_layer(self.conv_cfg, in_channels
+                                [j], in_channels[i], kernel_size=3, stride=
+                                2, padding=1, bias=False), build_norm_layer
+                                (self.norm_cfg, in_channels[i])[1]))
+                        else:
+                            conv_downsamples.append(nn.Sequential(
+                                build_conv_layer(self.conv_cfg, in_channels
+                                [j], in_channels[j], kernel_size=3, stride=
+                                2, padding=1, bias=False), build_norm_layer
+                                (self.norm_cfg, in_channels[j])[1], nn.ReLU
+                                (inplace=False)))
+                    fuse_layer.append(nn.Sequential(*conv_downsamples))
+            fuse_layers.append(nn.ModuleList(fuse_layer))
+        return nn.ModuleList(fuse_layers)
+
+    def forward(self, x):
+        if self.num_branches == 1:
+            return [self.branches[0](x[0])]
+        for i in range(self.num_branches):
+            x[i] = self.branches[i](x[i])
+        x_fuse = []
+        for i in range(len(self.fuse_layers)):
+            y = 0
+            for j in range(self.num_branches):
+                if i == j:
+                    y += x[j]
+                else:
+                    y += self.fuse_layers[i][j](x[j])
+            x_fuse.append(self.relu(y))
+        return x_fuse
+
+
+BACKBONES = Registry('backbone')
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 class BasicBlock(nn.Module):
@@ -1702,19 +1865,6 @@ class Bottleneck(nn.Module):
             out = _inner_forward(x)
         out = self.relu(out)
         return out
-
-
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
 
 
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
@@ -4384,6 +4534,7 @@ class Scale(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ming71_mmdetection_annotated(_paritybench_base):

@@ -340,10 +340,13 @@ test_robustness = _module
 upgrade_model_version = _module
 voc_eval = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -586,10 +589,302 @@ class Registry(object):
 HEADS = Registry('head')
 
 
-def bias_init_with_prob(prior_prob):
-    """ initialize conv/fc bias value according to giving probablity"""
-    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
-    return bias_init
+class BaseSampler(metaclass=ABCMeta):
+
+    def __init__(self, num, pos_fraction, neg_pos_ub=-1,
+        add_gt_as_proposals=True, **kwargs):
+        self.num = num
+        self.pos_fraction = pos_fraction
+        self.neg_pos_ub = neg_pos_ub
+        self.add_gt_as_proposals = add_gt_as_proposals
+        self.pos_sampler = self
+        self.neg_sampler = self
+
+    @abstractmethod
+    def _sample_pos(self, assign_result, num_expected, **kwargs):
+        pass
+
+    @abstractmethod
+    def _sample_neg(self, assign_result, num_expected, **kwargs):
+        pass
+
+    def sample(self, assign_result, bboxes, gt_bboxes, gt_labels=None, **kwargs
+        ):
+        """Sample positive and negative bboxes.
+
+        This is a simple implementation of bbox sampling given candidates,
+        assigning results and ground truth bboxes.
+
+        Args:
+            assign_result (:obj:`AssignResult`): Bbox assigning results.
+            bboxes (Tensor): Boxes to be sampled from.
+            gt_bboxes (Tensor): Ground truth bboxes.
+            gt_labels (Tensor, optional): Class labels of ground truth bboxes.
+
+        Returns:
+            :obj:`SamplingResult`: Sampling result.
+
+        Example:
+            >>> from mmdet.core.bbox import RandomSampler
+            >>> from mmdet.core.bbox import AssignResult
+            >>> from mmdet.core.bbox.demodata import ensure_rng, random_boxes
+            >>> rng = ensure_rng(None)
+            >>> assign_result = AssignResult.random(rng=rng)
+            >>> bboxes = random_boxes(assign_result.num_preds, rng=rng)
+            >>> gt_bboxes = random_boxes(assign_result.num_gts, rng=rng)
+            >>> gt_labels = None
+            >>> self = RandomSampler(num=32, pos_fraction=0.5, neg_pos_ub=-1,
+            >>>                      add_gt_as_proposals=False)
+            >>> self = self.sample(assign_result, bboxes, gt_bboxes, gt_labels)
+        """
+        if len(bboxes.shape) < 2:
+            bboxes = bboxes[(None), :]
+        bboxes = bboxes[:, :4]
+        gt_flags = bboxes.new_zeros((bboxes.shape[0],), dtype=torch.uint8)
+        if self.add_gt_as_proposals and len(gt_bboxes) > 0:
+            if gt_labels is None:
+                raise ValueError(
+                    'gt_labels must be given when add_gt_as_proposals is True')
+            bboxes = torch.cat([gt_bboxes, bboxes], dim=0)
+            assign_result.add_gt_(gt_labels)
+            gt_ones = bboxes.new_ones(gt_bboxes.shape[0], dtype=torch.uint8)
+            gt_flags = torch.cat([gt_ones, gt_flags])
+        num_expected_pos = int(self.num * self.pos_fraction)
+        pos_inds = self.pos_sampler._sample_pos(assign_result,
+            num_expected_pos, bboxes=bboxes, **kwargs)
+        pos_inds = pos_inds.unique()
+        num_sampled_pos = pos_inds.numel()
+        num_expected_neg = self.num - num_sampled_pos
+        if self.neg_pos_ub >= 0:
+            _pos = max(1, num_sampled_pos)
+            neg_upper_bound = int(self.neg_pos_ub * _pos)
+            if num_expected_neg > neg_upper_bound:
+                num_expected_neg = neg_upper_bound
+        neg_inds = self.neg_sampler._sample_neg(assign_result,
+            num_expected_neg, bboxes=bboxes, **kwargs)
+        neg_inds = neg_inds.unique()
+        sampling_result = SamplingResult(pos_inds, neg_inds, bboxes,
+            gt_bboxes, assign_result, gt_flags)
+        return sampling_result
+
+
+class PseudoSampler(BaseSampler):
+
+    def __init__(self, **kwargs):
+        pass
+
+    def _sample_pos(self, **kwargs):
+        raise NotImplementedError
+
+    def _sample_neg(self, **kwargs):
+        raise NotImplementedError
+
+    def sample(self, assign_result, bboxes, gt_bboxes, **kwargs):
+        pos_inds = torch.nonzero(assign_result.gt_inds > 0).squeeze(-1).unique(
+            )
+        neg_inds = torch.nonzero(assign_result.gt_inds == 0).squeeze(-1
+            ).unique()
+        gt_flags = bboxes.new_zeros(bboxes.shape[0], dtype=torch.uint8)
+        sampling_result = SamplingResult(pos_inds, neg_inds, bboxes,
+            gt_bboxes, assign_result, gt_flags)
+        return sampling_result
+
+
+def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0
+    ):
+    img_h, img_w = img_shape[:2]
+    if allowed_border >= 0:
+        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border
+            ).type(torch.uint8) & (flat_anchors[:, (1)] >= -allowed_border
+            ).type(torch.uint8) & (flat_anchors[:, (2)] < img_w +
+            allowed_border).type(torch.uint8) & (flat_anchors[:, (3)] < 
+            img_h + allowed_border).type(torch.uint8)
+    else:
+        inside_flags = valid_flags
+    return inside_flags
+
+
+def build_assigner(cfg, **kwargs):
+    if isinstance(cfg, assigners.BaseAssigner):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
+def build_sampler(cfg, **kwargs):
+    if isinstance(cfg, samplers.BaseSampler):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(
+            type(cfg)))
+
+
+def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
+    bbox_assigner = build_assigner(cfg.assigner)
+    bbox_sampler = build_sampler(cfg.sampler)
+    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
+        gt_bboxes_ignore, gt_labels)
+    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
+        gt_labels)
+    return assign_result, sampling_result
+
+
+def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
+    assert proposals.size() == gt.size()
+    proposals = proposals.float()
+    gt = gt.float()
+    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
+    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
+    pw = proposals[..., 2] - proposals[..., 0] + 1.0
+    ph = proposals[..., 3] - proposals[..., 1] + 1.0
+    gx = (gt[..., 0] + gt[..., 2]) * 0.5
+    gy = (gt[..., 1] + gt[..., 3]) * 0.5
+    gw = gt[..., 2] - gt[..., 0] + 1.0
+    gh = gt[..., 3] - gt[..., 1] + 1.0
+    dx = (gx - px) / pw
+    dy = (gy - py) / ph
+    dw = torch.log(gw / pw)
+    dh = torch.log(gh / ph)
+    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
+    means = deltas.new_tensor(means).unsqueeze(0)
+    stds = deltas.new_tensor(stds).unsqueeze(0)
+    deltas = deltas.sub_(means).div_(stds)
+    return deltas
+
+
+def unmap(data, count, inds, fill=0):
+    """ Unmap a subset of item (data) back to the original set of items (of
+    size count) """
+    if data.dim() == 1:
+        ret = data.new_full((count,), fill)
+        ret[inds] = data
+    else:
+        new_size = (count,) + data.size()[1:]
+        ret = data.new_full(new_size, fill)
+        ret[(inds), :] = data
+    return ret
+
+
+def anchor_target_single(flat_anchors, valid_flags, gt_bboxes,
+    gt_bboxes_ignore, gt_labels, img_meta, target_means, target_stds, cfg,
+    label_channels=1, sampling=True, unmap_outputs=True):
+    inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta[
+        'img_shape'][:2], cfg.allowed_border)
+    if not inside_flags.any():
+        return (None,) * 6
+    anchors = flat_anchors[(inside_flags), :]
+    if sampling:
+        assign_result, sampling_result = assign_and_sample(anchors,
+            gt_bboxes, gt_bboxes_ignore, None, cfg)
+    else:
+        bbox_assigner = build_assigner(cfg.assigner)
+        assign_result = bbox_assigner.assign(anchors, gt_bboxes,
+            gt_bboxes_ignore, gt_labels)
+        bbox_sampler = PseudoSampler()
+        sampling_result = bbox_sampler.sample(assign_result, anchors, gt_bboxes
+            )
+    num_valid_anchors = anchors.shape[0]
+    bbox_targets = torch.zeros_like(anchors)
+    bbox_weights = torch.zeros_like(anchors)
+    labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
+    label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
+    pos_inds = sampling_result.pos_inds
+    neg_inds = sampling_result.neg_inds
+    if len(pos_inds) > 0:
+        pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes,
+            sampling_result.pos_gt_bboxes, target_means, target_stds)
+        bbox_targets[(pos_inds), :] = pos_bbox_targets
+        bbox_weights[(pos_inds), :] = 1.0
+        if gt_labels is None:
+            labels[pos_inds] = 1
+        else:
+            labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+        if cfg.pos_weight <= 0:
+            label_weights[pos_inds] = 1.0
+        else:
+            label_weights[pos_inds] = cfg.pos_weight
+    if len(neg_inds) > 0:
+        label_weights[neg_inds] = 1.0
+    if unmap_outputs:
+        num_total_anchors = flat_anchors.size(0)
+        labels = unmap(labels, num_total_anchors, inside_flags)
+        label_weights = unmap(label_weights, num_total_anchors, inside_flags)
+        bbox_targets = unmap(bbox_targets, num_total_anchors, inside_flags)
+        bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+    return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
+        neg_inds)
+
+
+def images_to_levels(target, num_level_anchors):
+    """Convert targets by image to targets by feature level.
+
+    [target_img0, target_img1] -> [target_level0, target_level1, ...]
+    """
+    target = torch.stack(target, 0)
+    level_targets = []
+    start = 0
+    for n in num_level_anchors:
+        end = start + n
+        level_targets.append(target[:, start:end].squeeze(0))
+        start = end
+    return level_targets
+
+
+def multi_apply(func, *args, **kwargs):
+    pfunc = partial(func, **kwargs) if kwargs else func
+    map_results = map(pfunc, *args)
+    return tuple(map(list, zip(*map_results)))
+
+
+def anchor_target(anchor_list, valid_flag_list, gt_bboxes_list, img_metas,
+    target_means, target_stds, cfg, gt_bboxes_ignore_list=None,
+    gt_labels_list=None, label_channels=1, sampling=True, unmap_outputs=True):
+    """Compute regression and classification targets for anchors.
+
+    Args:
+        anchor_list (list[list]): Multi level anchors of each image.
+        valid_flag_list (list[list]): Multi level valid flags of each image.
+        gt_bboxes_list (list[Tensor]): Ground truth bboxes of each image.
+        img_metas (list[dict]): Meta info of each image.
+        target_means (Iterable): Mean value of regression targets.
+        target_stds (Iterable): Std value of regression targets.
+        cfg (dict): RPN train configs.
+
+    Returns:
+        tuple
+    """
+    num_imgs = len(img_metas)
+    assert len(anchor_list) == len(valid_flag_list) == num_imgs
+    num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]]
+    for i in range(num_imgs):
+        assert len(anchor_list[i]) == len(valid_flag_list[i])
+        anchor_list[i] = torch.cat(anchor_list[i])
+        valid_flag_list[i] = torch.cat(valid_flag_list[i])
+    if gt_bboxes_ignore_list is None:
+        gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
+    if gt_labels_list is None:
+        gt_labels_list = [None for _ in range(num_imgs)]
+    (all_labels, all_label_weights, all_bbox_targets, all_bbox_weights,
+        pos_inds_list, neg_inds_list) = (multi_apply(anchor_target_single,
+        anchor_list, valid_flag_list, gt_bboxes_list, gt_bboxes_ignore_list,
+        gt_labels_list, img_metas, target_means=target_means, target_stds=
+        target_stds, cfg=cfg, label_channels=label_channels, sampling=
+        sampling, unmap_outputs=unmap_outputs))
+    if any([(labels is None) for labels in all_labels]):
+        return None
+    num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
+    num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
+    labels_list = images_to_levels(all_labels, num_level_anchors)
+    label_weights_list = images_to_levels(all_label_weights, num_level_anchors)
+    bbox_targets_list = images_to_levels(all_bbox_targets, num_level_anchors)
+    bbox_weights_list = images_to_levels(all_bbox_weights, num_level_anchors)
+    return (labels_list, label_weights_list, bbox_targets_list,
+        bbox_weights_list, num_total_pos, num_total_neg)
 
 
 LOSSES = Registry('loss')
@@ -637,6 +932,481 @@ def build(cfg, registry, default_args=None):
 
 def build_loss(cfg):
     return build(cfg, LOSSES)
+
+
+def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
+    max_shape=None, wh_ratio_clip=16 / 1000):
+    """
+    Apply deltas to shift/scale base boxes.
+
+    Typically the rois are anchor or proposed bounding boxes and the deltas are
+    network outputs used to shift/scale those boxes.
+
+    Args:
+        rois (Tensor): boxes to be transformed. Has shape (N, 4)
+        deltas (Tensor): encoded offsets with respect to each roi.
+            Has shape (N, 4). Note N = num_anchors * W * H when rois is a grid
+            of anchors. Offset encoding follows [1]_.
+        means (list): denormalizing means for delta coordinates
+        stds (list): denormalizing standard deviation for delta coordinates
+        max_shape (tuple[int, int]): maximum bounds for boxes. specifies (H, W)
+        wh_ratio_clip (float): maximum aspect ratio for boxes.
+
+    Returns:
+        Tensor: boxes with shape (N, 4), where columns represent
+            tl_x, tl_y, br_x, br_y.
+
+    References:
+        .. [1] https://arxiv.org/abs/1311.2524
+
+    Example:
+        >>> rois = torch.Tensor([[ 0.,  0.,  1.,  1.],
+        >>>                      [ 0.,  0.,  1.,  1.],
+        >>>                      [ 0.,  0.,  1.,  1.],
+        >>>                      [ 5.,  5.,  5.,  5.]])
+        >>> deltas = torch.Tensor([[  0.,   0.,   0.,   0.],
+        >>>                        [  1.,   1.,   1.,   1.],
+        >>>                        [  0.,   0.,   2.,  -1.],
+        >>>                        [ 0.7, -1.9, -0.5,  0.3]])
+        >>> delta2bbox(rois, deltas, max_shape=(32, 32))
+        tensor([[0.0000, 0.0000, 1.0000, 1.0000],
+                [0.2817, 0.2817, 4.7183, 4.7183],
+                [0.0000, 0.6321, 7.3891, 0.3679],
+                [5.8967, 2.9251, 5.5033, 3.2749]])
+    """
+    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
+    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
+    denorm_deltas = deltas * stds + means
+    dx = denorm_deltas[:, 0::4]
+    dy = denorm_deltas[:, 1::4]
+    dw = denorm_deltas[:, 2::4]
+    dh = denorm_deltas[:, 3::4]
+    max_ratio = np.abs(np.log(wh_ratio_clip))
+    dw = dw.clamp(min=-max_ratio, max=max_ratio)
+    dh = dh.clamp(min=-max_ratio, max=max_ratio)
+    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    gw = pw * dw.exp()
+    gh = ph * dh.exp()
+    gx = torch.addcmul(px, 1, pw, dx)
+    gy = torch.addcmul(py, 1, ph, dy)
+    x1 = gx - gw * 0.5 + 0.5
+    y1 = gy - gh * 0.5 + 0.5
+    x2 = gx + gw * 0.5 - 0.5
+    y2 = gy + gh * 0.5 - 0.5
+    if max_shape is not None:
+        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
+        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
+        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
+        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
+    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
+    return bboxes
+
+
+def cast_tensor_type(inputs, src_type, dst_type):
+    if isinstance(inputs, torch.Tensor):
+        return inputs.to(dst_type)
+    elif isinstance(inputs, str):
+        return inputs
+    elif isinstance(inputs, np.ndarray):
+        return inputs
+    elif isinstance(inputs, abc.Mapping):
+        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
+            k, v in inputs.items()})
+    elif isinstance(inputs, abc.Iterable):
+        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
+            item in inputs)
+    else:
+        return inputs
+
+
+def force_fp32(apply_to=None, out_fp16=False):
+    """Decorator to convert input arguments to fp32 in force.
+
+    This decorator is useful when you write custom modules and want to support
+    mixed precision training. If there are some inputs that must be processed
+    in fp32 mode, then this decorator can handle it. If inputs arguments are
+    fp16 tensors, they will be converted to fp32 automatically. Arguments other
+    than fp16 tensors are ignored.
+
+    Args:
+        apply_to (Iterable, optional): The argument names to be converted.
+            `None` indicates all arguments.
+        out_fp16 (bool): Whether to convert the output back to fp16.
+
+    :Example:
+
+        class MyModule1(nn.Module)
+
+            # Convert x and y to fp32
+            @force_fp32()
+            def loss(self, x, y):
+                pass
+
+        class MyModule2(nn.Module):
+
+            # convert pred to fp32
+            @force_fp32(apply_to=('pred', ))
+            def post_process(self, pred, others):
+                pass
+    """
+
+    def force_fp32_wrapper(old_func):
+
+        @functools.wraps(old_func)
+        def new_func(*args, **kwargs):
+            if not isinstance(args[0], torch.nn.Module):
+                raise TypeError(
+                    '@force_fp32 can only be used to decorate the method of nn.Module'
+                    )
+            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
+                return old_func(*args, **kwargs)
+            args_info = getfullargspec(old_func)
+            args_to_cast = args_info.args if apply_to is None else apply_to
+            new_args = []
+            if args:
+                arg_names = args_info.args[:len(args)]
+                for i, arg_name in enumerate(arg_names):
+                    if arg_name in args_to_cast:
+                        new_args.append(cast_tensor_type(args[i], torch.
+                            half, torch.float))
+                    else:
+                        new_args.append(args[i])
+            new_kwargs = dict()
+            if kwargs:
+                for arg_name, arg_value in kwargs.items():
+                    if arg_name in args_to_cast:
+                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
+                            torch.half, torch.float)
+                    else:
+                        new_kwargs[arg_name] = arg_value
+            output = old_func(*new_args, **new_kwargs)
+            if out_fp16:
+                output = cast_tensor_type(output, torch.float, torch.half)
+            return output
+        return new_func
+    return force_fp32_wrapper
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
+    -1, score_factors=None):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class), where the 0th column
+            contains scores of the background class, but this will be ignored.
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+        score_factors (Tensor): The factors multiplied to scores before
+            applying NMS
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
+            are 0-based.
+    """
+    num_classes = multi_scores.shape[1]
+    bboxes, labels = [], []
+    nms_cfg_ = nms_cfg.copy()
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = getattr(nms_wrapper, nms_type)
+    for i in range(1, num_classes):
+        cls_inds = multi_scores[:, (i)] > score_thr
+        if not cls_inds.any():
+            continue
+        if multi_bboxes.shape[1] == 4:
+            _bboxes = multi_bboxes[(cls_inds), :]
+        else:
+            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+        _scores = multi_scores[cls_inds, i]
+        if score_factors is not None:
+            _scores *= score_factors[cls_inds]
+        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
+        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
+            dtype=torch.long)
+        bboxes.append(cls_dets)
+        labels.append(cls_labels)
+    if bboxes:
+        bboxes = torch.cat(bboxes)
+        labels = torch.cat(labels)
+        if bboxes.shape[0] > max_num:
+            _, inds = bboxes[:, (-1)].sort(descending=True)
+            inds = inds[:max_num]
+            bboxes = bboxes[inds]
+            labels = labels[inds]
+    else:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+    return bboxes, labels
+
+
+def normal_init(module, mean=0, std=1, bias=0):
+    nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
+@HEADS.register_module
+class AnchorHead(nn.Module):
+    """Anchor-based head (RPN, RetinaNet, SSD, etc.).
+
+    Args:
+        num_classes (int): Number of categories including the background
+            category.
+        in_channels (int): Number of channels in the input feature map.
+        feat_channels (int): Number of hidden channels. Used in child classes.
+        anchor_scales (Iterable): Anchor scales.
+        anchor_ratios (Iterable): Anchor aspect ratios.
+        anchor_strides (Iterable): Anchor strides.
+        anchor_base_sizes (Iterable): Anchor base sizes.
+        target_means (Iterable): Mean values of regression targets.
+        target_stds (Iterable): Std values of regression targets.
+        loss_cls (dict): Config of classification loss.
+        loss_bbox (dict): Config of localization loss.
+    """
+
+    def __init__(self, num_classes, in_channels, feat_channels=256,
+        anchor_scales=[8, 16, 32], anchor_ratios=[0.5, 1.0, 2.0],
+        anchor_strides=[4, 8, 16, 32, 64], anchor_base_sizes=None,
+        target_means=(0.0, 0.0, 0.0, 0.0), target_stds=(1.0, 1.0, 1.0, 1.0),
+        loss_cls=dict(type='CrossEntropyLoss', use_sigmoid=True,
+        loss_weight=1.0), loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 
+        9.0, loss_weight=1.0)):
+        super(AnchorHead, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.feat_channels = feat_channels
+        self.anchor_scales = anchor_scales
+        self.anchor_ratios = anchor_ratios
+        self.anchor_strides = anchor_strides
+        self.anchor_base_sizes = list(anchor_strides
+            ) if anchor_base_sizes is None else anchor_base_sizes
+        self.target_means = target_means
+        self.target_stds = target_stds
+        self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
+        self.sampling = loss_cls['type'] not in ['FocalLoss', 'GHMC']
+        if self.use_sigmoid_cls:
+            self.cls_out_channels = num_classes - 1
+        else:
+            self.cls_out_channels = num_classes
+        if self.cls_out_channels <= 0:
+            raise ValueError('num_classes={} is too small'.format(num_classes))
+        self.loss_cls = build_loss(loss_cls)
+        self.loss_bbox = build_loss(loss_bbox)
+        self.fp16_enabled = False
+        self.anchor_generators = []
+        for anchor_base in self.anchor_base_sizes:
+            self.anchor_generators.append(AnchorGenerator(anchor_base,
+                anchor_scales, anchor_ratios))
+        self.num_anchors = len(self.anchor_ratios) * len(self.anchor_scales)
+        self._init_layers()
+
+    def _init_layers(self):
+        self.conv_cls = nn.Conv2d(self.in_channels, self.num_anchors * self
+            .cls_out_channels, 1)
+        self.conv_reg = nn.Conv2d(self.in_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.conv_cls, std=0.01)
+        normal_init(self.conv_reg, std=0.01)
+
+    def forward_single(self, x):
+        cls_score = self.conv_cls(x)
+        bbox_pred = self.conv_reg(x)
+        return cls_score, bbox_pred
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single, feats)
+
+    def get_anchors(self, featmap_sizes, img_metas, device='cuda'):
+        """Get anchors according to feature map sizes.
+
+        Args:
+            featmap_sizes (list[tuple]): Multi-level feature map sizes.
+            img_metas (list[dict]): Image meta info.
+            device (torch.device | str): device for returned tensors
+
+        Returns:
+            tuple: anchors of each image, valid flags of each image
+        """
+        num_imgs = len(img_metas)
+        num_levels = len(featmap_sizes)
+        multi_level_anchors = []
+        for i in range(num_levels):
+            anchors = self.anchor_generators[i].grid_anchors(featmap_sizes[
+                i], self.anchor_strides[i], device=device)
+            multi_level_anchors.append(anchors)
+        anchor_list = [multi_level_anchors for _ in range(num_imgs)]
+        valid_flag_list = []
+        for img_id, img_meta in enumerate(img_metas):
+            multi_level_flags = []
+            for i in range(num_levels):
+                anchor_stride = self.anchor_strides[i]
+                feat_h, feat_w = featmap_sizes[i]
+                h, w = img_meta['pad_shape'][:2]
+                valid_feat_h = min(int(np.ceil(h / anchor_stride)), feat_h)
+                valid_feat_w = min(int(np.ceil(w / anchor_stride)), feat_w)
+                flags = self.anchor_generators[i].valid_flags((feat_h,
+                    feat_w), (valid_feat_h, valid_feat_w), device=device)
+                multi_level_flags.append(flags)
+            valid_flag_list.append(multi_level_flags)
+        return anchor_list, valid_flag_list
+
+    def loss_single(self, cls_score, bbox_pred, labels, label_weights,
+        bbox_targets, bbox_weights, num_total_samples, cfg):
+        labels = labels.reshape(-1)
+        label_weights = label_weights.reshape(-1)
+        cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.
+            cls_out_channels)
+        loss_cls = self.loss_cls(cls_score, labels, label_weights,
+            avg_factor=num_total_samples)
+        bbox_targets = bbox_targets.reshape(-1, 4)
+        bbox_weights = bbox_weights.reshape(-1, 4)
+        bbox_pred = bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
+        loss_bbox = self.loss_bbox(bbox_pred, bbox_targets, bbox_weights,
+            avg_factor=num_total_samples)
+        return loss_cls, loss_bbox
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds'))
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels, img_metas,
+        cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.anchor_generators)
+        device = cls_scores[0].device
+        anchor_list, valid_flag_list = self.get_anchors(featmap_sizes,
+            img_metas, device=device)
+        label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        cls_reg_targets = anchor_target(anchor_list, valid_flag_list,
+            gt_bboxes, img_metas, self.target_means, self.target_stds, cfg,
+            gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=
+            gt_labels, label_channels=label_channels, sampling=self.sampling)
+        if cls_reg_targets is None:
+            return None
+        (labels_list, label_weights_list, bbox_targets_list,
+            bbox_weights_list, num_total_pos, num_total_neg) = cls_reg_targets
+        num_total_samples = (num_total_pos + num_total_neg if self.sampling
+             else num_total_pos)
+        losses_cls, losses_bbox = multi_apply(self.loss_single, cls_scores,
+            bbox_preds, labels_list, label_weights_list, bbox_targets_list,
+            bbox_weights_list, num_total_samples=num_total_samples, cfg=cfg)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds'))
+    def get_bboxes(self, cls_scores, bbox_preds, img_metas, cfg, rescale=False
+        ):
+        """
+        Transform network output for a batch into labeled boxes.
+
+        Args:
+            cls_scores (list[Tensor]): Box scores for each scale level
+                Has shape (N, num_anchors * num_classes, H, W)
+            bbox_preds (list[Tensor]): Box energies / deltas for each scale
+                level with shape (N, num_anchors * 4, H, W)
+            img_metas (list[dict]): size / scale info for each image
+            cfg (mmcv.Config): test / postprocessing configuration
+            rescale (bool): if True, return boxes in original image space
+
+        Returns:
+            list[tuple[Tensor, Tensor]]: each item in result_list is 2-tuple.
+                The first item is an (n, 5) tensor, where the first 4 columns
+                are bounding box positions (tl_x, tl_y, br_x, br_y) and the
+                5-th column is a score between 0 and 1. The second item is a
+                (n,) tensor where each item is the class index of the
+                corresponding box.
+
+        Example:
+            >>> import mmcv
+            >>> self = AnchorHead(num_classes=9, in_channels=1)
+            >>> img_metas = [{'img_shape': (32, 32, 3), 'scale_factor': 1}]
+            >>> cfg = mmcv.Config(dict(
+            >>>     score_thr=0.00,
+            >>>     nms=dict(type='nms', iou_thr=1.0),
+            >>>     max_per_img=10))
+            >>> feat = torch.rand(1, 1, 3, 3)
+            >>> cls_score, bbox_pred = self.forward_single(feat)
+            >>> # note the input lists are over different levels, not images
+            >>> cls_scores, bbox_preds = [cls_score], [bbox_pred]
+            >>> result_list = self.get_bboxes(cls_scores, bbox_preds,
+            >>>                               img_metas, cfg)
+            >>> det_bboxes, det_labels = result_list[0]
+            >>> assert len(result_list) == 1
+            >>> assert det_bboxes.shape[1] == 5
+            >>> assert len(det_bboxes) == len(det_labels) == cfg.max_per_img
+        """
+        assert len(cls_scores) == len(bbox_preds)
+        num_levels = len(cls_scores)
+        device = cls_scores[0].device
+        mlvl_anchors = [self.anchor_generators[i].grid_anchors(cls_scores[i
+            ].size()[-2:], self.anchor_strides[i], device=device) for i in
+            range(num_levels)]
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cls_score_list = [cls_scores[i][img_id].detach() for i in range
+                (num_levels)]
+            bbox_pred_list = [bbox_preds[i][img_id].detach() for i in range
+                (num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            proposals = self.get_bboxes_single(cls_score_list,
+                bbox_pred_list, mlvl_anchors, img_shape, scale_factor, cfg,
+                rescale)
+            result_list.append(proposals)
+        return result_list
+
+    def get_bboxes_single(self, cls_score_list, bbox_pred_list,
+        mlvl_anchors, img_shape, scale_factor, cfg, rescale=False):
+        """
+        Transform outputs for a single batch item into labeled boxes.
+        """
+        assert len(cls_score_list) == len(bbox_pred_list) == len(mlvl_anchors)
+        mlvl_bboxes = []
+        mlvl_scores = []
+        for cls_score, bbox_pred, anchors in zip(cls_score_list,
+            bbox_pred_list, mlvl_anchors):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            cls_score = cls_score.permute(1, 2, 0).reshape(-1, self.
+                cls_out_channels)
+            if self.use_sigmoid_cls:
+                scores = cls_score.sigmoid()
+            else:
+                scores = cls_score.softmax(-1)
+            bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            nms_pre = cfg.get('nms_pre', -1)
+            if nms_pre > 0 and scores.shape[0] > nms_pre:
+                if self.use_sigmoid_cls:
+                    max_scores, _ = scores.max(dim=1)
+                else:
+                    max_scores, _ = scores[:, 1:].max(dim=1)
+                _, topk_inds = max_scores.topk(nms_pre)
+                anchors = anchors[(topk_inds), :]
+                bbox_pred = bbox_pred[(topk_inds), :]
+                scores = scores[(topk_inds), :]
+            bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self
+                .target_stds, img_shape)
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+        mlvl_bboxes = torch.cat(mlvl_bboxes)
+        if rescale:
+            mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
+        mlvl_scores = torch.cat(mlvl_scores)
+        if self.use_sigmoid_cls:
+            padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
+            mlvl_scores = torch.cat([padding, mlvl_scores], dim=1)
+        det_bboxes, det_labels = multiclass_nms(mlvl_bboxes, mlvl_scores,
+            cfg.score_thr, cfg.nms, cfg.max_per_img)
+        return det_bboxes, det_labels
+
+
+def bias_init_with_prob(prior_prob):
+    """ initialize conv/fc bias value according to giving probablity"""
+    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
+    return bias_init
 
 
 def dice_loss(input, target):
@@ -692,18 +1462,6 @@ def matrix_nms(seg_masks, cate_labels, cate_scores, kernel='gaussian',
         raise NotImplementedError
     cate_scores_update = cate_scores * decay_coefficient
     return cate_scores_update
-
-
-def multi_apply(func, *args, **kwargs):
-    pfunc = partial(func, **kwargs) if kwargs else func
-    map_results = map(pfunc, *args)
-    return tuple(map(list, zip(*map_results)))
-
-
-def normal_init(module, mean=0, std=1, bias=0):
-    nn.init.normal_(module.weight, mean, std)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
 
 
 def points_nms(heat, kernel=2):
@@ -1440,147 +2198,6 @@ def distance2bbox(points, distance, max_shape=None):
     return torch.stack([x1, y1, x2, y2], -1)
 
 
-def cast_tensor_type(inputs, src_type, dst_type):
-    if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
-    elif isinstance(inputs, str):
-        return inputs
-    elif isinstance(inputs, np.ndarray):
-        return inputs
-    elif isinstance(inputs, abc.Mapping):
-        return type(inputs)({k: cast_tensor_type(v, src_type, dst_type) for
-            k, v in inputs.items()})
-    elif isinstance(inputs, abc.Iterable):
-        return type(inputs)(cast_tensor_type(item, src_type, dst_type) for
-            item in inputs)
-    else:
-        return inputs
-
-
-def force_fp32(apply_to=None, out_fp16=False):
-    """Decorator to convert input arguments to fp32 in force.
-
-    This decorator is useful when you write custom modules and want to support
-    mixed precision training. If there are some inputs that must be processed
-    in fp32 mode, then this decorator can handle it. If inputs arguments are
-    fp16 tensors, they will be converted to fp32 automatically. Arguments other
-    than fp16 tensors are ignored.
-
-    Args:
-        apply_to (Iterable, optional): The argument names to be converted.
-            `None` indicates all arguments.
-        out_fp16 (bool): Whether to convert the output back to fp16.
-
-    :Example:
-
-        class MyModule1(nn.Module)
-
-            # Convert x and y to fp32
-            @force_fp32()
-            def loss(self, x, y):
-                pass
-
-        class MyModule2(nn.Module):
-
-            # convert pred to fp32
-            @force_fp32(apply_to=('pred', ))
-            def post_process(self, pred, others):
-                pass
-    """
-
-    def force_fp32_wrapper(old_func):
-
-        @functools.wraps(old_func)
-        def new_func(*args, **kwargs):
-            if not isinstance(args[0], torch.nn.Module):
-                raise TypeError(
-                    '@force_fp32 can only be used to decorate the method of nn.Module'
-                    )
-            if not (hasattr(args[0], 'fp16_enabled') and args[0].fp16_enabled):
-                return old_func(*args, **kwargs)
-            args_info = getfullargspec(old_func)
-            args_to_cast = args_info.args if apply_to is None else apply_to
-            new_args = []
-            if args:
-                arg_names = args_info.args[:len(args)]
-                for i, arg_name in enumerate(arg_names):
-                    if arg_name in args_to_cast:
-                        new_args.append(cast_tensor_type(args[i], torch.
-                            half, torch.float))
-                    else:
-                        new_args.append(args[i])
-            new_kwargs = dict()
-            if kwargs:
-                for arg_name, arg_value in kwargs.items():
-                    if arg_name in args_to_cast:
-                        new_kwargs[arg_name] = cast_tensor_type(arg_value,
-                            torch.half, torch.float)
-                    else:
-                        new_kwargs[arg_name] = arg_value
-            output = old_func(*new_args, **new_kwargs)
-            if out_fp16:
-                output = cast_tensor_type(output, torch.float, torch.half)
-            return output
-        return new_func
-    return force_fp32_wrapper
-
-
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=
-    -1, score_factors=None):
-    """NMS for multi-class bboxes.
-
-    Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class), where the 0th column
-            contains scores of the background class, but this will be ignored.
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-        score_factors (Tensor): The factors multiplied to scores before
-            applying NMS
-
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
-            are 0-based.
-    """
-    num_classes = multi_scores.shape[1]
-    bboxes, labels = [], []
-    nms_cfg_ = nms_cfg.copy()
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = getattr(nms_wrapper, nms_type)
-    for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
-        if not cls_inds.any():
-            continue
-        if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
-        else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
-        _scores = multi_scores[cls_inds, i]
-        if score_factors is not None:
-            _scores *= score_factors[cls_inds]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
-        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
-        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1,
-            dtype=torch.long)
-        bboxes.append(cls_dets)
-        labels.append(cls_labels)
-    if bboxes:
-        bboxes = torch.cat(bboxes)
-        labels = torch.cat(labels)
-        if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
-            inds = inds[:max_num]
-            bboxes = bboxes[inds]
-            labels = labels[inds]
-    else:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-    return bboxes, labels
-
-
 @HEADS.register_module
 class FCOSHead(nn.Module):
     """
@@ -2210,64 +2827,6 @@ class PointGenerator(object):
         valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
         valid = valid_xx & valid_yy
         return valid
-
-
-def images_to_levels(target, num_level_anchors):
-    """Convert targets by image to targets by feature level.
-
-    [target_img0, target_img1] -> [target_level0, target_level1, ...]
-    """
-    target = torch.stack(target, 0)
-    level_targets = []
-    start = 0
-    for n in num_level_anchors:
-        end = start + n
-        level_targets.append(target[:, start:end].squeeze(0))
-        start = end
-    return level_targets
-
-
-def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
-
-
-def build_sampler(cfg, **kwargs):
-    if isinstance(cfg, samplers.BaseSampler):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(
-            type(cfg)))
-
-
-def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
-    bbox_assigner = build_assigner(cfg.assigner)
-    bbox_sampler = build_sampler(cfg.sampler)
-    assign_result = bbox_assigner.assign(bboxes, gt_bboxes,
-        gt_bboxes_ignore, gt_labels)
-    sampling_result = bbox_sampler.sample(assign_result, bboxes, gt_bboxes,
-        gt_labels)
-    return assign_result, sampling_result
-
-
-def unmap(data, count, inds, fill=0):
-    """ Unmap a subset of item (data) back to the original set of items (of
-    size count) """
-    if data.dim() == 1:
-        ret = data.new_full((count,), fill)
-        ret[inds] = data
-    else:
-        new_size = (count,) + data.size()[1:]
-        ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
-    return ret
 
 
 def point_target_single(flat_proposals, valid_flags, gt_bboxes,
@@ -3269,7 +3828,95 @@ def print_log(msg, logger=None, level=logging.INFO):
             .format(logger))
 
 
-BACKBONES = Registry('backbone')
+class ModulatedDeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
+        padding=0, dilation=1, groups=1, deformable_groups=1):
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.dilation = dilation
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.with_bias = bias is not None
+        if not ctx.with_bias:
+            bias = input.new_empty(1)
+        if not input.is_cuda:
+            raise NotImplementedError
+        if (weight.requires_grad or mask.requires_grad or offset.
+            requires_grad or input.requires_grad):
+            ctx.save_for_backward(input, offset, mask, weight, bias)
+        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
+            ctx, input, weight))
+        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
+        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
+            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
+            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
+            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
+            deformable_groups, ctx.with_bias)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        input, offset, mask, weight, bias = ctx.saved_tensors
+        grad_input = torch.zeros_like(input)
+        grad_offset = torch.zeros_like(offset)
+        grad_mask = torch.zeros_like(mask)
+        grad_weight = torch.zeros_like(weight)
+        grad_bias = torch.zeros_like(bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
+            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
+            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
+            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
+            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
+            ctx.deformable_groups, ctx.with_bias)
+        if not ctx.with_bias:
+            grad_bias = None
+        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
+            None, None, None, None, None)
+
+    @staticmethod
+    def _infer_shape(ctx, input, weight):
+        n = input.size(0)
+        channels_out = weight.size(0)
+        height, width = input.shape[2:4]
+        kernel_h, kernel_w = weight.shape[2:4]
+        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
+            1) + 1)) // ctx.stride + 1
+        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
+            1) + 1)) // ctx.stride + 1
+        return n, channels_out, height_out, width_out
+
+
+modulated_deform_conv = ModulatedDeformConvFunction.apply
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
 
 
 norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm
@@ -3315,6 +3962,144 @@ def build_norm_layer(cfg, num_features, postfix=''):
     for param in layer.parameters():
         param.requires_grad = requires_grad
     return name, layer
+
+
+class HRModule(nn.Module):
+    """ High-Resolution Module for HRNet. In this module, every branch
+    has 4 BasicBlocks/Bottlenecks. Fusion/Exchange is in this module.
+    """
+
+    def __init__(self, num_branches, blocks, num_blocks, in_channels,
+        num_channels, multiscale_output=True, with_cp=False, conv_cfg=None,
+        norm_cfg=dict(type='BN')):
+        super(HRModule, self).__init__()
+        self._check_branches(num_branches, num_blocks, in_channels,
+            num_channels)
+        self.in_channels = in_channels
+        self.num_branches = num_branches
+        self.multiscale_output = multiscale_output
+        self.norm_cfg = norm_cfg
+        self.conv_cfg = conv_cfg
+        self.with_cp = with_cp
+        self.branches = self._make_branches(num_branches, blocks,
+            num_blocks, num_channels)
+        self.fuse_layers = self._make_fuse_layers()
+        self.relu = nn.ReLU(inplace=False)
+
+    def _check_branches(self, num_branches, num_blocks, in_channels,
+        num_channels):
+        if num_branches != len(num_blocks):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
+                num_branches, len(num_blocks))
+            raise ValueError(error_msg)
+        if num_branches != len(num_channels):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
+                num_branches, len(num_channels))
+            raise ValueError(error_msg)
+        if num_branches != len(in_channels):
+            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
+                num_branches, len(in_channels))
+            raise ValueError(error_msg)
+
+    def _make_one_branch(self, branch_index, block, num_blocks,
+        num_channels, stride=1):
+        downsample = None
+        if stride != 1 or self.in_channels[branch_index] != num_channels[
+            branch_index] * block.expansion:
+            downsample = nn.Sequential(build_conv_layer(self.conv_cfg, self
+                .in_channels[branch_index], num_channels[branch_index] *
+                block.expansion, kernel_size=1, stride=stride, bias=False),
+                build_norm_layer(self.norm_cfg, num_channels[branch_index] *
+                block.expansion)[1])
+        layers = []
+        layers.append(block(self.in_channels[branch_index], num_channels[
+            branch_index], stride, downsample=downsample, with_cp=self.
+            with_cp, norm_cfg=self.norm_cfg, conv_cfg=self.conv_cfg))
+        self.in_channels[branch_index] = num_channels[branch_index
+            ] * block.expansion
+        for i in range(1, num_blocks[branch_index]):
+            layers.append(block(self.in_channels[branch_index],
+                num_channels[branch_index], with_cp=self.with_cp, norm_cfg=
+                self.norm_cfg, conv_cfg=self.conv_cfg))
+        return nn.Sequential(*layers)
+
+    def _make_branches(self, num_branches, block, num_blocks, num_channels):
+        branches = []
+        for i in range(num_branches):
+            branches.append(self._make_one_branch(i, block, num_blocks,
+                num_channels))
+        return nn.ModuleList(branches)
+
+    def _make_fuse_layers(self):
+        if self.num_branches == 1:
+            return None
+        num_branches = self.num_branches
+        in_channels = self.in_channels
+        fuse_layers = []
+        num_out_branches = num_branches if self.multiscale_output else 1
+        for i in range(num_out_branches):
+            fuse_layer = []
+            for j in range(num_branches):
+                if j > i:
+                    fuse_layer.append(nn.Sequential(build_conv_layer(self.
+                        conv_cfg, in_channels[j], in_channels[i],
+                        kernel_size=1, stride=1, padding=0, bias=False),
+                        build_norm_layer(self.norm_cfg, in_channels[i])[1],
+                        nn.Upsample(scale_factor=2 ** (j - i), mode='nearest'))
+                        )
+                elif j == i:
+                    fuse_layer.append(None)
+                else:
+                    conv_downsamples = []
+                    for k in range(i - j):
+                        if k == i - j - 1:
+                            conv_downsamples.append(nn.Sequential(
+                                build_conv_layer(self.conv_cfg, in_channels
+                                [j], in_channels[i], kernel_size=3, stride=
+                                2, padding=1, bias=False), build_norm_layer
+                                (self.norm_cfg, in_channels[i])[1]))
+                        else:
+                            conv_downsamples.append(nn.Sequential(
+                                build_conv_layer(self.conv_cfg, in_channels
+                                [j], in_channels[j], kernel_size=3, stride=
+                                2, padding=1, bias=False), build_norm_layer
+                                (self.norm_cfg, in_channels[j])[1], nn.ReLU
+                                (inplace=False)))
+                    fuse_layer.append(nn.Sequential(*conv_downsamples))
+            fuse_layers.append(nn.ModuleList(fuse_layer))
+        return nn.ModuleList(fuse_layers)
+
+    def forward(self, x):
+        if self.num_branches == 1:
+            return [self.branches[0](x[0])]
+        for i in range(self.num_branches):
+            x[i] = self.branches[i](x[i])
+        x_fuse = []
+        for i in range(len(self.fuse_layers)):
+            y = 0
+            for j in range(self.num_branches):
+                if i == j:
+                    y += x[j]
+                else:
+                    y += self.fuse_layers[i][j](x[j])
+            x_fuse.append(self.relu(y))
+        return x_fuse
+
+
+BACKBONES = Registry('backbone')
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
+    distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
+            nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
 class BasicBlock(nn.Module):
@@ -3468,19 +4253,6 @@ class Bottleneck(nn.Module):
             out = _inner_forward(x)
         out = self.relu(out)
         return out
-
-
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=
-            nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
 
 
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1,
@@ -3777,29 +4549,6 @@ def auto_fp16(apply_to=None, out_fp32=False):
     return auto_fp16_wrapper
 
 
-def bbox2delta(proposals, gt, means=[0, 0, 0, 0], stds=[1, 1, 1, 1]):
-    assert proposals.size() == gt.size()
-    proposals = proposals.float()
-    gt = gt.float()
-    px = (proposals[..., 0] + proposals[..., 2]) * 0.5
-    py = (proposals[..., 1] + proposals[..., 3]) * 0.5
-    pw = proposals[..., 2] - proposals[..., 0] + 1.0
-    ph = proposals[..., 3] - proposals[..., 1] + 1.0
-    gx = (gt[..., 0] + gt[..., 2]) * 0.5
-    gy = (gt[..., 1] + gt[..., 3]) * 0.5
-    gw = gt[..., 2] - gt[..., 0] + 1.0
-    gh = gt[..., 3] - gt[..., 1] + 1.0
-    dx = (gx - px) / pw
-    dy = (gy - py) / ph
-    dw = torch.log(gw / pw)
-    dh = torch.log(gh / ph)
-    deltas = torch.stack([dx, dy, dw, dh], dim=-1)
-    means = deltas.new_tensor(means).unsqueeze(0)
-    stds = deltas.new_tensor(stds).unsqueeze(0)
-    deltas = deltas.sub_(means).div_(stds)
-    return deltas
-
-
 def bbox_target_single(pos_bboxes, neg_bboxes, pos_gt_bboxes, pos_gt_labels,
     cfg, reg_classes=1, target_means=[0.0, 0.0, 0.0, 0.0], target_stds=[1.0,
     1.0, 1.0, 1.0]):
@@ -3836,77 +4585,6 @@ def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list,
         bbox_targets = torch.cat(bbox_targets, 0)
         bbox_weights = torch.cat(bbox_weights, 0)
     return labels, label_weights, bbox_targets, bbox_weights
-
-
-def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1],
-    max_shape=None, wh_ratio_clip=16 / 1000):
-    """
-    Apply deltas to shift/scale base boxes.
-
-    Typically the rois are anchor or proposed bounding boxes and the deltas are
-    network outputs used to shift/scale those boxes.
-
-    Args:
-        rois (Tensor): boxes to be transformed. Has shape (N, 4)
-        deltas (Tensor): encoded offsets with respect to each roi.
-            Has shape (N, 4). Note N = num_anchors * W * H when rois is a grid
-            of anchors. Offset encoding follows [1]_.
-        means (list): denormalizing means for delta coordinates
-        stds (list): denormalizing standard deviation for delta coordinates
-        max_shape (tuple[int, int]): maximum bounds for boxes. specifies (H, W)
-        wh_ratio_clip (float): maximum aspect ratio for boxes.
-
-    Returns:
-        Tensor: boxes with shape (N, 4), where columns represent
-            tl_x, tl_y, br_x, br_y.
-
-    References:
-        .. [1] https://arxiv.org/abs/1311.2524
-
-    Example:
-        >>> rois = torch.Tensor([[ 0.,  0.,  1.,  1.],
-        >>>                      [ 0.,  0.,  1.,  1.],
-        >>>                      [ 0.,  0.,  1.,  1.],
-        >>>                      [ 5.,  5.,  5.,  5.]])
-        >>> deltas = torch.Tensor([[  0.,   0.,   0.,   0.],
-        >>>                        [  1.,   1.,   1.,   1.],
-        >>>                        [  0.,   0.,   2.,  -1.],
-        >>>                        [ 0.7, -1.9, -0.5,  0.3]])
-        >>> delta2bbox(rois, deltas, max_shape=(32, 32))
-        tensor([[0.0000, 0.0000, 1.0000, 1.0000],
-                [0.2817, 0.2817, 4.7183, 4.7183],
-                [0.0000, 0.6321, 7.3891, 0.3679],
-                [5.8967, 2.9251, 5.5033, 3.2749]])
-    """
-    means = deltas.new_tensor(means).repeat(1, deltas.size(1) // 4)
-    stds = deltas.new_tensor(stds).repeat(1, deltas.size(1) // 4)
-    denorm_deltas = deltas * stds + means
-    dx = denorm_deltas[:, 0::4]
-    dy = denorm_deltas[:, 1::4]
-    dw = denorm_deltas[:, 2::4]
-    dh = denorm_deltas[:, 3::4]
-    max_ratio = np.abs(np.log(wh_ratio_clip))
-    dw = dw.clamp(min=-max_ratio, max=max_ratio)
-    dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
-    gw = pw * dw.exp()
-    gh = ph * dh.exp()
-    gx = torch.addcmul(px, 1, pw, dx)
-    gy = torch.addcmul(py, 1, ph, dy)
-    x1 = gx - gw * 0.5 + 0.5
-    y1 = gy - gh * 0.5 + 0.5
-    x2 = gx + gw * 0.5 - 0.5
-    y2 = gy + gh * 0.5 - 0.5
-    if max_shape is not None:
-        x1 = x1.clamp(min=0, max=max_shape[1] - 1)
-        y1 = y1.clamp(min=0, max=max_shape[0] - 1)
-        x2 = x2.clamp(min=0, max=max_shape[1] - 1)
-        y2 = y2.clamp(min=0, max=max_shape[0] - 1)
-    bboxes = torch.stack([x1, y1, x2, y2], dim=-1).view_as(deltas)
-    return bboxes
 
 
 @HEADS.register_module
@@ -6780,72 +7458,6 @@ class DeformConv(nn.Module):
             padding, self.dilation, self.groups, self.deformable_groups)
 
 
-class ModulatedDeformConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1):
-        ctx.stride = stride
-        ctx.padding = padding
-        ctx.dilation = dilation
-        ctx.groups = groups
-        ctx.deformable_groups = deformable_groups
-        ctx.with_bias = bias is not None
-        if not ctx.with_bias:
-            bias = input.new_empty(1)
-        if not input.is_cuda:
-            raise NotImplementedError
-        if (weight.requires_grad or mask.requires_grad or offset.
-            requires_grad or input.requires_grad):
-            ctx.save_for_backward(input, offset, mask, weight, bias)
-        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
-            ctx, input, weight))
-        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
-        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
-            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
-            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
-            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
-            deformable_groups, ctx.with_bias)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        input, offset, mask, weight, bias = ctx.saved_tensors
-        grad_input = torch.zeros_like(input)
-        grad_offset = torch.zeros_like(offset)
-        grad_mask = torch.zeros_like(mask)
-        grad_weight = torch.zeros_like(weight)
-        grad_bias = torch.zeros_like(bias)
-        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
-            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
-            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
-            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
-            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
-            ctx.deformable_groups, ctx.with_bias)
-        if not ctx.with_bias:
-            grad_bias = None
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None, None)
-
-    @staticmethod
-    def _infer_shape(ctx, input, weight):
-        n = input.size(0)
-        channels_out = weight.size(0)
-        height, width = input.shape[2:4]
-        kernel_h, kernel_w = weight.shape[2:4]
-        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
-            1) + 1)) // ctx.stride + 1
-        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
-            1) + 1)) // ctx.stride + 1
-        return n, channels_out, height_out, width_out
-
-
-modulated_deform_conv = ModulatedDeformConvFunction.apply
-
-
 class ModulatedDeformConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
@@ -7068,6 +7680,33 @@ class RoIAlignFunction(Function):
 roi_align = RoIAlignFunction.apply
 
 
+class RoIAlign(nn.Module):
+
+    def __init__(self, out_size, spatial_scale, sample_num=0,
+        use_torchvision=False):
+        super(RoIAlign, self).__init__()
+        self.out_size = _pair(out_size)
+        self.spatial_scale = float(spatial_scale)
+        self.sample_num = int(sample_num)
+        self.use_torchvision = use_torchvision
+
+    def forward(self, features, rois):
+        if self.use_torchvision:
+            from torchvision.ops import roi_align as tv_roi_align
+            return tv_roi_align(features, rois, self.out_size, self.
+                spatial_scale, self.sample_num)
+        else:
+            return roi_align(features, rois, self.out_size, self.
+                spatial_scale, self.sample_num)
+
+    def __repr__(self):
+        format_str = self.__class__.__name__
+        format_str += '(out_size={}, spatial_scale={}, sample_num={}'.format(
+            self.out_size, self.spatial_scale, self.sample_num)
+        format_str += ', use_torchvision={})'.format(self.use_torchvision)
+        return format_str
+
+
 class RoIPoolFunction(Function):
 
     @staticmethod
@@ -7108,6 +7747,30 @@ class RoIPoolFunction(Function):
 roi_pool = RoIPoolFunction.apply
 
 
+class RoIPool(nn.Module):
+
+    def __init__(self, out_size, spatial_scale, use_torchvision=False):
+        super(RoIPool, self).__init__()
+        self.out_size = _pair(out_size)
+        self.spatial_scale = float(spatial_scale)
+        self.use_torchvision = use_torchvision
+
+    def forward(self, features, rois):
+        if self.use_torchvision:
+            from torchvision.ops import roi_pool as tv_roi_pool
+            return tv_roi_pool(features, rois, self.out_size, self.
+                spatial_scale)
+        else:
+            return roi_pool(features, rois, self.out_size, self.spatial_scale)
+
+    def __repr__(self):
+        format_str = self.__class__.__name__
+        format_str += '(out_size={}, spatial_scale={}'.format(self.out_size,
+            self.spatial_scale)
+        format_str += ', use_torchvision={})'.format(self.use_torchvision)
+        return format_str
+
+
 class SigmoidFocalLoss(nn.Module):
 
     def __init__(self, gamma, alpha):
@@ -7127,6 +7790,7 @@ class SigmoidFocalLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_WXinlong_SOLO(_paritybench_base):

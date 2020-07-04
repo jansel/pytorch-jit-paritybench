@@ -11,10 +11,13 @@ utilities = _module
 images = _module
 layers = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -40,6 +43,9 @@ import math
 
 
 from torch import optim
+
+
+from torchvision import transforms
 
 
 from torch.optim import lr_scheduler
@@ -162,7 +168,47 @@ class SubNet(nn.Module):
         return x
 
 
+model_urls = {'resnet18':
+    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
+    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
+    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101':
+    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+
+
+def resnet50_features(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNetFeatures(BottleneckFeatures, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
+    return model
+
+
+class RetinaNet(nn.Module):
+
+    def __init__(self, classes):
+        super(RetinaNet, self).__init__()
+        self.classes = classes
+        _resnet = resnet50_features(pretrained=True)
+        self.feature_pyramid = FeaturePyramid(_resnet)
+        self.subnet_boxes = SubNet(mode='boxes')
+        self.subnet_classes = SubNet(mode='classes')
+
+    def forward(self, x):
+        boxes = []
+        classes = []
+        features = self.feature_pyramid(x)
+        boxes = [self.subnet_boxes(feature) for feature in features]
+        classes = [self.subnet_classes(feature) for feature in features]
+        return torch.cat(boxes, 1), torch.cat(classes, 1)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_c0nn3r_RetinaNet(_paritybench_base):

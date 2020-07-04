@@ -5,10 +5,13 @@ benchmark = _module
 run = _module
 sepconv = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -146,7 +149,77 @@ def cupy_kernel(strFunction, objVariables):
     return strKernel
 
 
+class _FunctionSepconv(torch.autograd.Function):
+
+    @staticmethod
+    def forward(self, input, vertical, horizontal):
+        self.save_for_backward(input, vertical, horizontal)
+        intSample = input.shape[0]
+        intInputDepth = input.shape[1]
+        intInputHeight = input.shape[2]
+        intInputWidth = input.shape[3]
+        intFilterSize = min(vertical.shape[1], horizontal.shape[1])
+        intOutputHeight = min(vertical.shape[2], horizontal.shape[2])
+        intOutputWidth = min(vertical.shape[3], horizontal.shape[3])
+        assert intInputHeight - intFilterSize == intOutputHeight - 1
+        assert intInputWidth - intFilterSize == intOutputWidth - 1
+        assert input.is_contiguous() == True
+        assert vertical.is_contiguous() == True
+        assert horizontal.is_contiguous() == True
+        output = input.new_zeros([intSample, intInputDepth, intOutputHeight,
+            intOutputWidth])
+        if input.is_cuda == True:
+            n = output.nelement()
+            cupy_launch('kernel_Sepconv_updateOutput', cupy_kernel(
+                'kernel_Sepconv_updateOutput', {'input': input, 'vertical':
+                vertical, 'horizontal': horizontal, 'output': output}))(grid
+                =tuple([int((n + 512 - 1) / 512), 1, 1]), block=tuple([512,
+                1, 1]), args=[n, input.data_ptr(), vertical.data_ptr(),
+                horizontal.data_ptr(), output.data_ptr()])
+        elif first.is_cuda == False:
+            raise NotImplementedError()
+        return output
+
+    @staticmethod
+    def backward(self, gradOutput):
+        input, vertical, horizontal = self.saved_tensors
+        intSample = input.shape[0]
+        intInputDepth = input.shape[1]
+        intInputHeight = input.shape[2]
+        intInputWidth = input.shape[3]
+        intFilterSize = min(vertical.shape[1], horizontal.shape[1])
+        intOutputHeight = min(vertical.shape[2], horizontal.shape[2])
+        intOutputWidth = min(vertical.shape[3], horizontal.shape[3])
+        assert intInputHeight - intFilterSize == intOutputHeight - 1
+        assert intInputWidth - intFilterSize == intOutputWidth - 1
+        assert gradOutput.is_contiguous() == True
+        gradInput = input.new_zeros([intSample, intInputDepth,
+            intInputHeight, intInputWidth]) if self.needs_input_grad[0
+            ] == True else None
+        gradVertical = input.new_zeros([intSample, intFilterSize,
+            intOutputHeight, intOutputWidth]) if self.needs_input_grad[1
+            ] == True else None
+        gradHorizontal = input.new_zeros([intSample, intFilterSize,
+            intOutputHeight, intOutputWidth]) if self.needs_input_grad[2
+            ] == True else None
+        if input.is_cuda == True:
+            raise NotImplementedError()
+        elif input.is_cuda == False:
+            raise NotImplementedError()
+        return gradInput, gradVertical, gradHorizontal
+
+
+class ModuleSepconv(torch.nn.Module):
+
+    def __init__(self):
+        super(ModuleSepconv, self).__init__()
+
+    def forward(self, tenInput, tenVertical, tenHorizontal):
+        return _FunctionSepconv.apply(tenInput, tenVertical, tenHorizontal)
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_sniklaus_sepconv_slomo(_paritybench_base):

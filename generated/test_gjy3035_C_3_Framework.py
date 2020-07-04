@@ -38,15 +38,19 @@ VGG = _module
 VGG_decoder = _module
 SCC_Model = _module
 models = _module
+test = _module
 train = _module
 trainer = _module
 trainer_for_CMTL = _module
 trainer_for_M2TCC = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -93,6 +97,15 @@ import random
 
 
 from torch import nn
+
+
+import torchvision.utils as vutils
+
+
+import torchvision.transforms as standard_transforms
+
+
+from torchvision import models
 
 
 class Conv2d(nn.Module):
@@ -306,80 +319,7 @@ class SSIM_Loss(_Loss):
         return out
 
 
-class CrowdCounter(nn.Module):
-
-    def __init__(self, gpus, model_name):
-        super(CrowdCounter, self).__init__()
-        if model_name == 'AlexNet':None
-        elif model_name == 'VGG':None
-        elif model_name == 'VGG_DECODER':None
-        elif model_name == 'MCNN':None
-        elif model_name == 'CSRNet':None
-        elif model_name == 'Res50':None
-        elif model_name == 'Res101':None
-        elif model_name == 'Res101_SFCN':None
-        self.CCN = net()
-        if len(gpus) > 1:
-            self.CCN = torch.nn.DataParallel(self.CCN, device_ids=gpus)
-        else:
-            self.CCN = self.CCN
-        self.loss_mse_fn = nn.MSELoss()
-
-    @property
-    def loss(self):
-        return self.loss_mse
-
-    def forward(self, img, gt_map):
-        density_map = self.CCN(img)
-        self.loss_mse = self.build_loss(density_map.squeeze(), gt_map.squeeze()
-            )
-        return density_map
-
-    def build_loss(self, density_map, gt_data):
-        loss_mse = self.loss_mse_fn(density_map, gt_data)
-        return loss_mse
-
-    def test_forward(self, img):
-        density_map = self.CCN(img)
-        return density_map
-
-
 _global_config['LAMBDA_1'] = 4
-
-
-class CrowdCounter(nn.Module):
-
-    def __init__(self, gpus, model_name, loss_1_fn, loss_2_fn):
-        super(CrowdCounter, self).__init__()
-        if model_name == 'CMTL':None
-        self.CCN = net()
-        if len(gpus) > 1:
-            self.CCN = torch.nn.DataParallel(self.CCN, device_ids=gpus)
-        else:
-            self.CCN = self.CCN
-        self.loss_mse_fn = loss_1_fn
-        self.loss_bce_fn = loss_2_fn
-
-    @property
-    def loss(self):
-        return self.loss_mse, self.cross_entropy * cfg.LAMBDA_1
-
-    def forward(self, img, gt_map=None, gt_cls_label=None):
-        density_map, density_cls_score = self.CCN(img)
-        density_cls_prob = F.softmax(density_cls_score, dim=1)
-        self.loss_mse, self.cross_entropy = self.build_loss(density_map.
-            squeeze(), gt_map.squeeze(), density_cls_prob, gt_cls_label)
-        return density_map
-
-    def build_loss(self, density_map, gt_data, density_cls_score, gt_cls_label
-        ):
-        loss_mse = self.loss_mse_fn(density_map, gt_data)
-        cross_entropy = self.loss_bce_fn(density_cls_score, gt_cls_label)
-        return loss_mse, cross_entropy
-
-    def test_forward(self, img):
-        density_map, density_cls_score = self.CCN(img)
-        return density_map
 
 
 def real_init_weights(m):
@@ -457,34 +397,6 @@ class CMTL(nn.Module):
         x_den = torch.cat((x_hlp1, x_den), 1)
         x_den = self.de_stage_2(x_den)
         return x_den, x_cls
-
-
-class CrowdCounter(nn.Module):
-
-    def __init__(self, gpus, model_name, loss_1_fn, loss_2_fn):
-        super(CrowdCounter, self).__init__()
-        if model_name == 'SANet':None
-        self.CCN = net()
-        if len(gpus) > 1:
-            self.CCN = torch.nn.DataParallel(self.CCN, device_ids=gpus)
-        else:
-            self.CCN = self.CCN
-        self.loss_1_fn = loss_1_fn
-        self.loss_2_fn = loss_2_fn
-
-    @property
-    def loss(self):
-        return self.loss_1, self.loss_2 * cfg.LAMBDA_1
-
-    def forward(self, img, gt_map):
-        density_map = self.CCN(img)
-        self.loss_1 = self.loss_1_fn(density_map.squeeze(), gt_map.squeeze())
-        self.loss_2 = 1 - self.loss_2_fn(density_map, gt_map[:, (None), :, :])
-        return density_map
-
-    def test_forward(self, img):
-        density_map = self.CCN(img)
-        return density_map
 
 
 class BasicConv(nn.Module):
@@ -961,50 +873,78 @@ class VGG_decoder(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_gjy3035_C_3_Framework(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(BasicConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
+        self._check(BasicConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(BasicDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(CMTL(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_003(self):
+    @_fails_compile()
+    def test_004(self):
+        self._check(CSRNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_006(self):
         self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(MCNN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
-
-    def test_006(self):
-        self._check(SAModule(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_007(self):
-        self._check(SAModule_Head(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MCNN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_008(self):
-        self._check(SANet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(Res101(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Res101_SFCN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_010(self):
+        self._check(Res50(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_011(self):
+        self._check(SAModule(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
+        self._check(SAModule_Head(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_013(self):
+        self._check(SANet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_015(self):
+        self._check(VGG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_016(self):
+        self._check(VGG_decoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_017(self):
         self._check(convDU(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_018(self):
         self._check(convLR(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
 

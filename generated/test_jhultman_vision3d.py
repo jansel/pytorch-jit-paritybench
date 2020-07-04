@@ -32,10 +32,13 @@ matcher = _module
 train = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -598,6 +601,264 @@ def make_subm_layer(C_in, C_out, *args, **kwargs):
     return layer
 
 
+class PV_RCNN(nn.Module):
+    """
+    TODO: Improve docstrings.
+    TODO: Some docstrings may claim incorrect dimensions.
+    TODO: Figure out clean way to handle proposals_only forward.
+    """
+
+    def __init__(self, cfg):
+        super(PV_RCNN, self).__init__()
+        self.pnets = self.build_pointnets(cfg)
+        self.roi_grid_pool = RoiGridPool(cfg)
+        self.vfe = VoxelFeatureExtractor()
+        self.cnn = CNN_FACTORY[cfg.CNN](cfg)
+        self.bev = BEVFeatureGatherer(cfg, self.cnn.voxel_offset, self.cnn.
+            base_voxel_size)
+        self.proposal_layer = ProposalLayer(cfg)
+        self.refinement_layer = RefinementLayer(cfg)
+        self.cfg = cfg
+
+    def build_pointnets(self, cfg):
+        """Copy list because PointNet modifies it in-place."""
+        pnets = []
+        for i, mlps in enumerate(cfg.PSA.MLPS):
+            pnets += [PointnetSAModuleMSG(npoint=-1, radii=cfg.PSA.RADII[i],
+                nsamples=cfg.SAMPLES_PN, mlps=deepcopy(mlps), use_xyz=True)]
+        return nn.Sequential(*pnets)
+
+    def sample_keypoints(self, points):
+        """
+        fps expects points shape (B, N, 3)
+        fps returns indices shape (B, K)
+        gather expects features shape (B, C, N)
+        """
+        points = points[(...), :3].contiguous()
+        indices = furthest_point_sample(points, self.cfg.NUM_KEYPOINTS)
+        keypoints = gather_operation(points.transpose(1, 2).contiguous(),
+            indices)
+        keypoints = keypoints.transpose(1, 2).contiguous()
+        return keypoints
+
+    def _pointnets(self, cnn_out, keypoint_xyz):
+        """xyz (B, N, 3) | features (B, N, C) | new_xyz (B, M, C) | return (B, M, Co)"""
+        pnet_out = []
+        for (voxel_xyz, voxel_features), pnet in zip(cnn_out, self.pnets):
+            voxel_xyz = voxel_xyz.contiguous()
+            voxel_features = voxel_features.transpose(1, 2).contiguous()
+            out = pnet(voxel_xyz, voxel_features, keypoint_xyz)[1]
+            pnet_out += [out]
+        return pnet_out
+
+    def point_feature_extract(self, item, cnn_features, bev_map):
+        points_split = torch.split(item['points'], [3, 1], dim=-1)
+        cnn_features = [points_split] + cnn_features
+        point_features = self._pointnets(cnn_features, item['keypoints'])
+        bev_features = self.bev(bev_map, item['keypoints'])
+        point_features = torch.cat(point_features + [bev_features], dim=1)
+        return point_features
+
+    def proposal(self, item):
+        item['keypoints'] = self.sample_keypoints(item['points'])
+        features = self.vfe(item['features'], item['occupancy'])
+        cnn_features, bev_map = self.cnn(features, item['coordinates'],
+            item['batch_size'])
+        scores, boxes = self.proposal_layer(bev_map)
+        item.update(dict(P_cls=scores, P_reg=boxes))
+        return item
+
+    def forward(self, item):
+        raise NotImplementedError
+
+
+def nms_rotated(boxes, scores, iou_threshold):
+    """
+    Performs non-maximum suppression (NMS) on the rotated boxes according
+    to their intersection-over-union (IoU).
+    Rotated NMS iteratively removes lower scoring rotated boxes which have an
+    IoU greater than iou_threshold with another (higher scoring) rotated box.
+    Note that RotatedBox (5, 3, 4, 2, -90) covers exactly the same region as
+    RotatedBox (5, 3, 4, 2, 90) does, and their IoU will be 1. However, they
+    can be representing completely different objects in certain tasks, e.g., OCR.
+    As for the question of whether rotated-NMS should treat them as faraway boxes
+    even though their IOU is 1, it depends on the application and/or ground truth annotation.
+    As an extreme example, consider a single character v and the square box around it.
+    If the angle is 0 degree, the object (text) would be read as 'v';
+    If the angle is 90 degrees, the object (text) would become '>';
+    If the angle is 180 degrees, the object (text) would become '^';
+    If the angle is 270/-90 degrees, the object (text) would become '<'
+    All of these cases have IoU of 1 to each other, and rotated NMS that only
+    uses IoU as criterion would only keep one of them with the highest score -
+    which, practically, still makes sense in most cases because typically
+    only one of theses orientations is the correct one. Also, it does not matter
+    as much if the box is only used to classify the object (instead of transcribing
+    them with a sequential OCR recognition model) later.
+    On the other hand, when we use IoU to filter proposals that are close to the
+    ground truth during training, we should definitely take the angle into account if
+    we know the ground truth is labeled with the strictly correct orientation (as in,
+    upside-down words are annotated with -180 degrees even though they can be covered
+    with a 0/90/-90 degree box, etc.)
+    The way the original dataset is annotated also matters. For example, if the dataset
+    is a 4-point polygon dataset that does not enforce ordering of vertices/orientation,
+    we can estimate a minimum rotated bounding box to this polygon, but there's no way
+    we can tell the correct angle with 100% confidence (as shown above, there could be 4 different
+    rotated boxes, with angles differed by 90 degrees to each other, covering the exactly
+    same region). In that case we have to just use IoU to determine the box
+    proximity (as many detection benchmarks (even for text) do) unless there're other
+    assumptions we can make (like width is always larger than height, or the object is not
+    rotated by more than 90 degrees CCW/CW, etc.)
+    In summary, not considering angles in rotated NMS seems to be a good option for now,
+    but we should be aware of its implications.
+    Args:
+        boxes (Tensor[N, 5]): Rotated boxes to perform NMS on. They are expected to be in
+           (x_center, y_center, width, height, angle_degrees) format.
+        scores (Tensor[N]): Scores for each one of the rotated boxes
+        iou_threshold (float): Discards all overlapping rotated boxes with IoU < iou_threshold
+    Returns:
+        keep (Tensor): int64 tensor with the indices of the elements that have been kept
+        by Rotated NMS, sorted in decreasing order of scores
+    """
+    return _C.nms_rotated(boxes, scores, iou_threshold)
+
+
+def batched_nms_rotated(boxes, scores, idxs, iou_threshold):
+    """
+    Performs non-maximum suppression in a batched fashion.
+    Each index value correspond to a category, and NMS
+    will not be applied between elements of different categories.
+    Args:
+        boxes (Tensor[N, 5]):
+           boxes where NMS will be performed. They
+           are expected to be in (x_ctr, y_ctr, width, height, angle_degrees) format
+        scores (Tensor[N]):
+           scores for each one of the boxes
+        idxs (Tensor[N]):
+           indices of the categories for each one of the boxes.
+        iou_threshold (float):
+           discards all overlapping boxes
+           with IoU < iou_threshold
+    Returns:
+        Tensor:
+            int64 tensor with the indices of the elements that have been kept
+            by NMS, sorted in decreasing order of scores
+    """
+    assert boxes.shape[-1] == 5
+    if boxes.numel() == 0:
+        return torch.empty((0,), dtype=torch.int64, device=boxes.device)
+    max_coordinate = (torch.max(boxes[:, (0)], boxes[:, (1)]) + torch.max(
+        boxes[:, (2)], boxes[:, (3)]) / 2).max()
+    min_coordinate = (torch.min(boxes[:, (0)], boxes[:, (1)]) - torch.min(
+        boxes[:, (2)], boxes[:, (3)]) / 2).min()
+    offsets = idxs.to(boxes) * (max_coordinate - min_coordinate + 1)
+    boxes_for_nms = boxes.clone()
+    boxes_for_nms[:, :2] += offsets[:, (None)]
+    keep = nms_rotated(boxes_for_nms, scores, iou_threshold)
+    return keep
+
+
+def decode(deltas, anchors):
+    """Both inputs of shape (*, 7)."""
+    P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
+    A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
+    A_norm = _anchor_diagonal(A_wlh)
+    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
+        A_yaw), dim=-1)
+    return boxes
+
+
+class ProposalLayer(nn.Module):
+    """
+    Use BEV feature map to generate 3D box proposals.
+    TODO: Fix long variable names, ugly line wraps.
+    """
+
+    def __init__(self, cfg):
+        super(ProposalLayer, self).__init__()
+        self.cfg = cfg
+        self.conv_cls = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.
+            NUM_YAW, 1)
+        self.conv_reg = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.
+            NUM_YAW * cfg.BOX_DOF, 1)
+        self.TOPK, self.DOF = cfg.PROPOSAL.TOPK, cfg.BOX_DOF
+        self._init_weights()
+
+    def _init_weights(self):
+        nn.init.constant_(self.conv_cls.bias, -math.log(1 - 0.01) / 0.01)
+        nn.init.constant_(self.conv_reg.bias, 0)
+        for m in (self.conv_cls.weight, self.conv_reg.weight):
+            nn.init.normal_(m, std=0.01)
+
+    def _generate_group_idx(self, B, n_cls):
+        """Compute unique group_idx based on (batch_idx, class_idx) tuples."""
+        batch_idx = torch.arange(B)[:, (None)].expand(-1, n_cls)
+        class_idx = torch.arange(n_cls)[(None), :].expand(B, -1)
+        group_idx = class_idx + n_cls * batch_idx
+        b, c, g = [x[..., None].expand(-1, -1, self.TOPK).reshape(-1) for x in
+            (batch_idx, class_idx, group_idx)]
+        return b, c, g
+
+    def _above_score_thresh(self, scores, class_idx):
+        """Classes may have different score thresholds."""
+        thresh = scores.new_tensor([a['score_thresh'] for a in self.cfg.
+            ANCHORS])
+        mask = scores > thresh[class_idx]
+        return mask
+
+    def _multiclass_batch_nms(self, boxes, scores):
+        """Only boxes with same group_idx are jointly considered in nms"""
+        B, n_cls = scores.shape[:2]
+        scores = scores.view(-1)
+        boxes = boxes.view(-1, self.DOF)
+        bev_boxes = boxes[:, ([0, 1, 3, 4, 6])]
+        batch_idx, class_idx, group_idx = self._generate_group_idx(B, n_cls)
+        idx = batched_nms_rotated(bev_boxes, scores, group_idx,
+            iou_threshold=0.01)
+        boxes, batch_idx, class_idx, scores = [x[idx] for x in (boxes,
+            batch_idx, class_idx, scores)]
+        mask = self._above_score_thresh(scores, class_idx)
+        out = [x[mask] for x in (boxes, batch_idx, class_idx, scores)]
+        return out
+
+    def _decode(self, reg_map, anchors, anchor_idx):
+        """Expands anchors in batch dimension and calls decode."""
+        B, n_cls = reg_map.shape[:2]
+        anchor_idx = anchor_idx[..., None].expand(-1, -1, -1, self.DOF)
+        deltas = reg_map.reshape(B, n_cls, -1, self.cfg.BOX_DOF).gather(2,
+            anchor_idx)
+        anchors = anchors.view(1, n_cls, -1, self.cfg.BOX_DOF).expand(B, -1,
+            -1, -1).gather(2, anchor_idx)
+        boxes = decode(deltas, anchors)
+        return boxes
+
+    def inference(self, feature_map, anchors):
+        """:return (boxes, batch_idx, class_idx, scores)"""
+        cls_map, reg_map = self(feature_map)
+        score_map = cls_map.sigmoid_()
+        B, n_cls = score_map.shape[:2]
+        scores, anchor_idx = score_map.view(B, n_cls, -1).topk(self.TOPK, -1)
+        boxes = self._decode(reg_map, anchors, anchor_idx)
+        out = self._multiclass_batch_nms(boxes, scores)
+        return out
+
+    def reshape_cls(self, cls_map):
+        B, _, ny, nx = cls_map.shape
+        shape = B, self.cfg.NUM_CLASSES, self.cfg.NUM_YAW, ny, nx
+        cls_map = cls_map.view(shape)
+        return cls_map
+
+    def reshape_reg(self, reg_map):
+        B, _, ny, nx = reg_map.shape
+        shape = B, self.cfg.NUM_CLASSES, self.cfg.BOX_DOF, -1, ny, nx
+        reg_map = reg_map.view(shape).permute(0, 1, 3, 4, 5, 2)
+        return reg_map
+
+    def forward(self, feature_map):
+        cls_map = self.reshape_cls(self.conv_cls(feature_map))
+        reg_map = self.reshape_reg(self.conv_reg(feature_map))
+        return cls_map, reg_map
+
+
 def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
     reduction: str='none'):
     """
@@ -787,6 +1048,34 @@ class RoiGridPool(nn.Module):
         return features
 
 
+class Second(nn.Module):
+
+    def __init__(self, cfg):
+        super(Second, self).__init__()
+        self.vfe = VoxelFeatureExtractor()
+        self.cnn = Middle(cfg)
+        self.rpn = RPN()
+        self.head = ProposalLayer(cfg)
+        self.cfg = cfg
+
+    def feature_extract(self, item):
+        features = self.vfe(item['features'], item['occupancy'])
+        features = self.cnn(features, item['coordinates'], item['batch_size'])
+        features = self.rpn(features)
+        return features
+
+    def forward(self, item):
+        features = self.feature_extract(item)
+        scores, boxes = self.head(features)
+        item.update(dict(P_cls=scores, P_reg=boxes))
+        return item
+
+    def inference(self, item):
+        features = self.feature_extract(item)
+        out = self.head.inference(features, item['anchors'])
+        return out
+
+
 class RPN(nn.Module):
     """OneStage RPN from SECOND."""
 
@@ -857,8 +1146,8 @@ class SparseCNNBase(nn.Module):
         super(SparseCNNBase, self).__init__()
         self.cfg = cfg
         self.grid_shape = compute_grid_shape(cfg)
-        self.base_voxel_size = torch.cuda.FloatTensor(cfg.VOXEL_SIZE)
-        self.voxel_offset = torch.cuda.FloatTensor(cfg.GRID_BOUNDS[:3])
+        self.base_voxel_size = torch.FloatTensor(cfg.VOXEL_SIZE)
+        self.voxel_offset = torch.FloatTensor(cfg.GRID_BOUNDS[:3])
         self.make_blocks(cfg)
 
     def make_blocks(self, cfg):
@@ -944,6 +1233,7 @@ class SparseCNNBase(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jhultman_vision3d(_paritybench_base):

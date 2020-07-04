@@ -57,10 +57,13 @@ sparse_tensor = _module
 strided_conv = _module
 union = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -131,6 +134,9 @@ from torch.optim import SGD
 
 
 from torch.utils.data.sampler import Sampler
+
+
+from torchvision.transforms import Compose as VisionCompose
 
 
 from scipy.linalg import expm
@@ -279,6 +285,94 @@ class CoordsKey:
         return self.getKey() == other.getKey()
 
 
+def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
+    IntTensor], dimension: int):
+    if isinstance(arg, torch.IntTensor):
+        assert arg.numel() == dimension
+        return arg
+    if isinstance(arg, (Sequence, np.ndarray)):
+        tmp = torch.IntTensor([i for i in arg])
+        assert tmp.numel() == dimension
+    elif np.isscalar(arg):
+        tmp = torch.IntTensor([int(arg) for i in range(dimension)])
+    else:
+        raise ValueError('Input must be a scalar or a sequence')
+    return tmp
+
+
+class RegionType(Enum):
+    """
+    Define the kernel region type
+    """
+    HYPERCUBE = 0, 'HYPERCUBE'
+    HYPERCROSS = 1, 'HYPERCROSS'
+    CUSTOM = 2, 'CUSTOM'
+    HYBRID = 3, 'HYBRID'
+
+    def __new__(cls, value, name):
+        member = object.__new__(cls)
+        member._value_ = value
+        member.fullname = name
+        return member
+
+    def __int__(self):
+        return self.value
+
+
+def prep_args(tensor_stride: Union[int, Sequence, np.ndarray, torch.
+    IntTensor], stride: Union[int, Sequence, np.ndarray, torch.IntTensor],
+    kernel_size: Union[int, Sequence, np.ndarray, torch.IntTensor],
+    dilation: Union[int, Sequence, np.ndarray, torch.IntTensor],
+    region_type: Union[int, RegionType], D=-1):
+    assert torch.prod(kernel_size > 0
+        ), f'kernel_size must be a positive integer, provided {kernel_size}'
+    assert D > 0, f'dimension must be a positive integer, {D}'
+    tensor_stride = convert_to_int_tensor(tensor_stride, D)
+    stride = convert_to_int_tensor(stride, D)
+    kernel_size = convert_to_int_tensor(kernel_size, D)
+    dilation = convert_to_int_tensor(dilation, D)
+    region_type = int(region_type)
+    return tensor_stride, stride, kernel_size, dilation, region_type
+
+
+class SparseTensorOperationMode(Enum):
+    """
+    `SEPARATE_COORDS_MANAGER`: always create a new coordinate manager.
+    `SHARE_COORDS_MANAGER`: always use the globally defined coordinate manager. Must clear the coordinate manager manually by :attr:`MinkowskiEngine.SparseTensor.clear_global_coords_man`
+    """
+    SEPARATE_COORDS_MANAGER = 0
+    SHARE_COORDS_MANAGER = 1
+
+
+class SparseTensorQuantizationMode(Enum):
+    """
+    `RANDOM_SUBSAMPLE`: Subsample one coordinate per each quantization block randomly.
+    `UNWEIGHTED_AVERAGE`: average all features within a quantization block equally.
+    """
+    RANDOM_SUBSAMPLE = 0
+    UNWEIGHTED_AVERAGE = 1
+
+
+class AbstractMinkowskiBroadcast(Module):
+
+    def __init__(self, operation_type):
+        super(AbstractMinkowskiBroadcast, self).__init__()
+        assert isinstance(operation_type, OperationType)
+        self.operation_type = operation_type
+        self.broadcast = MinkowskiBroadcastFunction()
+
+    def forward(self, input, input_glob):
+        assert isinstance(input, SparseTensor)
+        output = self.broadcast.apply(input.F, input_glob.F, self.
+            operation_type, input.coords_key, input_glob.coords_key, input.
+            coords_man)
+        return SparseTensor(output, coords_key=input.coords_key,
+            coords_manager=input.coords_man)
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
 class MinkowskiBroadcast(Module):
     """Broadcast reduced features to all input coordinates.
 
@@ -313,21 +407,6 @@ class MinkowskiBroadcast(Module):
             broadcast_feat[row_ind] = input_glob.F[b]
         return SparseTensor(broadcast_feat, coords_key=input.coords_key,
             coords_manager=input.coords_man)
-
-
-def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
-    IntTensor], dimension: int):
-    if isinstance(arg, torch.IntTensor):
-        assert arg.numel() == dimension
-        return arg
-    if isinstance(arg, (Sequence, np.ndarray)):
-        tmp = torch.IntTensor([i for i in arg])
-        assert tmp.numel() == dimension
-    elif np.isscalar(arg):
-        tmp = torch.IntTensor([int(arg) for i in range(dimension)])
-    else:
-        raise ValueError('Input must be a scalar or a sequence')
-    return tmp
 
 
 class MinkowskiNetwork(nn.Module, ABC):
@@ -444,6 +523,54 @@ class MinkowskiBatchNorm(Module):
         return self.__class__.__name__ + s
 
 
+class MinkowskiBroadcastAddition(AbstractMinkowskiBroadcast):
+    """Broadcast the reduced features to all input coordinates.
+
+    .. math::
+
+        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} + \\mathbf{x}_2
+        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+
+
+    For all input :math:`\\mathbf{x}_\\mathbf{u}`, add :math:`\\mathbf{x}_2`. The
+    output coordinates will be the same as the input coordinates
+    :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+
+    .. note::
+        The first argument takes a sparse tensor; the second argument takes
+        features that are reduced to the origin. This can be typically done with
+        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
+
+    """
+
+    def __init__(self):
+        AbstractMinkowskiBroadcast.__init__(self, OperationType.ADDITION)
+
+
+class MinkowskiBroadcastMultiplication(AbstractMinkowskiBroadcast):
+    """Broadcast reduced features to all input coordinates.
+
+    .. math::
+
+        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} \\times \\mathbf{x}_2
+        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+
+
+    For all input :math:`\\mathbf{x}_\\mathbf{u}`, multiply :math:`\\mathbf{x}_2`
+    element-wise. The output coordinates will be the same as the input
+    coordinates :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+
+    .. note::
+        The first argument takes a sparse tensor; the second argument takes
+        features that are reduced to the origin. This can be typically done with
+        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
+
+    """
+
+    def __init__(self):
+        AbstractMinkowskiBroadcast.__init__(self, OperationType.MULTIPLICATION)
+
+
 class GlobalPoolingMode(Enum):
     """
     Define the global pooling mode
@@ -460,6 +587,114 @@ class GlobalPoolingMode(Enum):
 
     def __int__(self):
         return self.value
+
+
+class MinkowskiGlobalPoolingFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, average=True, mode=GlobalPoolingMode.
+        AUTO, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert isinstance(mode, GlobalPoolingMode
+            ), f'Mode must be an instance of GlobalPoolingMode, {mode}'
+        ctx.in_coords_key = in_coords_key
+        ctx.out_coords_key = out_coords_key
+        ctx.in_feat = input_features
+        ctx.average = average
+        ctx.coords_manager = coords_manager
+        ctx.mode = mode.value
+        fw_fn = get_minkowski_function('GlobalPoolingForward', input_features)
+        out_feat, num_nonzero = fw_fn(ctx.in_feat, ctx.in_coords_key.
+            CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.
+            coords_manager.CPPCoordsManager, ctx.average, ctx.mode)
+        ctx.num_nonzero = num_nonzero
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        bw_fn = get_minkowski_function('GlobalPoolingBackward', grad_out_feat)
+        grad_in_feat = bw_fn(ctx.in_feat, grad_out_feat, ctx.num_nonzero,
+            ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey,
+            ctx.coords_manager.CPPCoordsManager, ctx.average)
+        return grad_in_feat, None, None, None, None, None
+
+
+class MinkowskiGlobalPooling(MinkowskiModuleBase):
+    """Pool all input features to one output.
+
+    .. math::
+
+        \\mathbf{y} = \\frac{1}{|\\mathcal{C}^\\text{in}|} \\sum_{\\mathbf{i} \\in
+        \\mathcal{C}^\\text{in}} \\mathbf{x}_{\\mathbf{i}}
+
+    """
+
+    def __init__(self, average=True, mode=GlobalPoolingMode.AUTO):
+        """Reduces sparse coords into points at origin, i.e. reduce each point
+        cloud into a point at the origin, returning batch_size number of points
+        [[0, 0, ..., 0], [0, 0, ..., 1],, [0, 0, ..., 2]] where the last elem
+        of the coords is the batch index.
+
+        Args:
+            :attr:`average` (bool): when True, return the averaged output. If
+            not, return the sum of all input features.
+
+        """
+        super(MinkowskiGlobalPooling, self).__init__()
+        assert isinstance(mode, GlobalPoolingMode
+            ), f'Mode must be an instance of GlobalPoolingMode. mode={mode}'
+        self.mode = mode
+        self.average = average
+        self.pooling = MinkowskiGlobalPoolingFunction()
+
+    def forward(self, input):
+        assert isinstance(input, SparseTensor)
+        out_coords_key = CoordsKey(input.coords_key.D)
+        output = self.pooling.apply(input.F, self.average, self.mode, input
+            .coords_key, out_coords_key, input.coords_man)
+        return SparseTensor(output, coords_key=out_coords_key,
+            coords_manager=input.coords_man)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(average=' + str(self.average) + ')'
+
+
+class MinkowskiStableInstanceNorm(Module):
+
+    def __init__(self, num_features):
+        Module.__init__(self)
+        self.num_features = num_features
+        self.eps = 1e-06
+        self.weight = nn.Parameter(torch.ones(1, num_features))
+        self.bias = nn.Parameter(torch.zeros(1, num_features))
+        self.mean_in = MinkowskiGlobalPooling()
+        self.glob_sum = MinkowskiBroadcastAddition()
+        self.glob_sum2 = MinkowskiBroadcastAddition()
+        self.glob_mean = MinkowskiGlobalPooling()
+        self.glob_times = MinkowskiBroadcastMultiplication()
+        self.reset_parameters()
+
+    def __repr__(self):
+        s = f'(nchannels={self.num_features})'
+        return self.__class__.__name__ + s
+
+    def reset_parameters(self):
+        self.weight.data.fill_(1)
+        self.bias.data.zero_()
+
+    def forward(self, x):
+        neg_mean_in = self.mean_in(SparseTensor(-x.F, coords_key=x.
+            coords_key, coords_manager=x.coords_man))
+        centered_in = self.glob_sum(x, neg_mean_in)
+        temp = SparseTensor(centered_in.F ** 2, coords_key=centered_in.
+            coords_key, coords_manager=centered_in.coords_man)
+        var_in = self.glob_mean(temp)
+        instd_in = SparseTensor(1 / (var_in.F + self.eps).sqrt(),
+            coords_key=var_in.coords_key, coords_manager=var_in.coords_man)
+        x = self.glob_times(self.glob_sum2(x, neg_mean_in), instd_in)
+        return SparseTensor(x.F * self.weight + self.bias, coords_key=x.
+            coords_key, coords_manager=x.coords_man)
 
 
 class MinkowskiInstanceNormFunction(Function):
@@ -1583,6 +1818,7 @@ class VAE(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_StanfordVL_MinkowskiEngine(_paritybench_base):

@@ -131,10 +131,13 @@ caffe_inference = _module
 export2tf = _module
 pytorch_to_caffe = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -178,6 +181,9 @@ import numpy as np
 
 
 import copy
+
+
+import torchvision.transforms as transforms
 
 
 from torch.backends import cudnn
@@ -258,6 +264,38 @@ from torch.autograd import Variable
 from torch.nn.modules.utils import _list_with_default
 
 
+def build_backbone(cfg):
+    """
+    Build a backbone from `cfg.MODEL.BACKBONE.NAME`.
+    Returns:
+        an instance of :class:`Backbone`
+    """
+    backbone_name = cfg.MODEL.BACKBONE.NAME
+    backbone = BACKBONE_REGISTRY.get(backbone_name)(cfg)
+    return backbone
+
+
+def build_reid_heads(cfg, in_feat, num_classes, pool_layer):
+    """
+    Build REIDHeads defined by `cfg.MODEL.REID_HEADS.NAME`.
+    """
+    head = cfg.MODEL.HEADS.NAME
+    return REID_HEADS_REGISTRY.get(head)(cfg, in_feat, num_classes, pool_layer)
+
+
+class TfMetaArch(nn.Module):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.backbone = build_backbone(cfg)
+        self.heads = build_reid_heads(cfg)
+
+    def forward(self, x):
+        global_feat = self.backbone(x)
+        pred_features = self.heads(global_feat)
+        return pred_features
+
+
 class Mish(nn.Module):
 
     def __init__(self):
@@ -302,6 +340,30 @@ class GELU(nn.Module):
     def forward(self, x):
         return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 
             0.044715 * torch.pow(x, 3))))
+
+
+class Arcface(nn.Module):
+
+    def __init__(self, cfg, in_feat, num_classes):
+        super().__init__()
+        self.in_feat = in_feat
+        self._num_classes = num_classes
+        self._s = cfg.MODEL.HEADS.SCALE
+        self._m = cfg.MODEL.HEADS.MARGIN
+        self.weight = Parameter(torch.Tensor(self._num_classes, in_feat))
+
+    def forward(self, features, targets):
+        cosine = F.linear(F.normalize(features), F.normalize(self.weight))
+        theta = torch.acos(torch.clamp(cosine, -1.0 + 1e-07, 1.0 - 1e-07))
+        phi = torch.cos(theta + self._m)
+        targets = one_hot(targets, self._num_classes)
+        pred_class_logits = targets * phi + (1.0 - targets) * cosine
+        pred_class_logits *= self._s
+        return pred_class_logits
+
+    def extra_repr(self):
+        return 'in_features={}, num_classes={}, scale={}, margin={}'.format(
+            self.in_feat, self._num_classes, self._s, self._m)
 
 
 class BatchDrop(nn.Module):
@@ -451,6 +513,42 @@ class GhostBatchNorm(BatchNorm):
         else:
             return F.batch_norm(input, self.running_mean, self.running_var,
                 self.weight, self.bias, False, self.momentum, self.eps)
+
+
+def get_norm(norm, out_channels, num_splits=1, **kwargs):
+    """
+    Args:
+        norm (str or callable):
+    Returns:
+        nn.Module or None: the normalization layer
+    """
+    if isinstance(norm, str):
+        if len(norm) == 0:
+            return None
+        norm = {'BN': BatchNorm(out_channels, **kwargs), 'GhostBN':
+            GhostBatchNorm(out_channels, num_splits, **kwargs), 'FrozenBN':
+            FrozenBatchNorm(out_channels), 'GN': nn.GroupNorm(32,
+            out_channels), 'syncBN': SyncBatchNorm(out_channels, **kwargs)}[
+            norm]
+    return norm
+
+
+class IBN(nn.Module):
+
+    def __init__(self, planes, bn_norm, num_splits):
+        super(IBN, self).__init__()
+        half1 = int(planes / 2)
+        self.half = half1
+        half2 = planes - half1
+        self.IN = nn.InstanceNorm2d(half1, affine=True)
+        self.BN = get_norm(bn_norm, half2, num_splits)
+
+    def forward(self, x):
+        split = torch.split(x, self.half, 1)
+        out1 = self.IN(split[0].contiguous())
+        out2 = self.BN(split[1].contiguous())
+        out = torch.cat((out1, out2), 1)
+        return out
 
 
 class Circle(nn.Module):
@@ -755,6 +853,70 @@ class SELayer(nn.Module):
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
+
+
+class SplAtConv2d(nn.Module):
+    """Split-Attention Conv2d
+    """
+
+    def __init__(self, in_channels, channels, kernel_size, stride=(1, 1),
+        padding=(0, 0), dilation=(1, 1), groups=1, bias=True, radix=2,
+        reduction_factor=4, rectify=False, rectify_avg=False, norm_layer=
+        None, num_splits=1, dropblock_prob=0.0, **kwargs):
+        super(SplAtConv2d, self).__init__()
+        padding = _pair(padding)
+        self.rectify = rectify and (padding[0] > 0 or padding[1] > 0)
+        self.rectify_avg = rectify_avg
+        inter_channels = max(in_channels * radix // reduction_factor, 32)
+        self.radix = radix
+        self.cardinality = groups
+        self.channels = channels
+        self.dropblock_prob = dropblock_prob
+        if self.rectify:
+            self.conv = RFConv2d(in_channels, channels * radix, kernel_size,
+                stride, padding, dilation, groups=groups * radix, bias=bias,
+                average_mode=rectify_avg, **kwargs)
+        else:
+            self.conv = Conv2d(in_channels, channels * radix, kernel_size,
+                stride, padding, dilation, groups=groups * radix, bias=bias,
+                **kwargs)
+        self.use_bn = norm_layer is not None
+        if self.use_bn:
+            self.bn0 = get_norm(norm_layer, channels * radix, num_splits)
+        self.relu = ReLU(inplace=True)
+        self.fc1 = Conv2d(channels, inter_channels, 1, groups=self.cardinality)
+        if self.use_bn:
+            self.bn1 = get_norm(norm_layer, inter_channels, num_splits)
+        self.fc2 = Conv2d(inter_channels, channels * radix, 1, groups=self.
+            cardinality)
+        self.rsoftmax = rSoftMax(radix, groups)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.use_bn:
+            x = self.bn0(x)
+        if self.dropblock_prob > 0.0:
+            x = self.dropblock(x)
+        x = self.relu(x)
+        batch, rchannel = x.shape[:2]
+        if self.radix > 1:
+            splited = torch.split(x, rchannel // self.radix, dim=1)
+            gap = sum(splited)
+        else:
+            gap = x
+        gap = F.adaptive_avg_pool2d(gap, 1)
+        gap = self.fc1(gap)
+        if self.use_bn:
+            gap = self.bn1(gap)
+        gap = self.relu(gap)
+        atten = self.fc2(gap)
+        atten = self.rsoftmax(atten).view(batch, -1, 1, 1)
+        if self.radix > 1:
+            attens = torch.split(atten, rchannel // self.radix, dim=1)
+            out = sum([(att * split) for att, split in zip(attens, splited)])
+        else:
+            out = atten * x
+        return out.contiguous()
 
 
 class rSoftMax(nn.Module):
@@ -1337,6 +1499,295 @@ class OSNet(nn.Module):
         return x
 
 
+class Bottleneck(nn.Module):
+    """ResNet Bottleneck
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, bn_norm, num_splits, with_ibn=
+        False, stride=1, downsample=None, radix=1, cardinality=1,
+        bottleneck_width=64, avd=False, avd_first=False, dilation=1,
+        is_first=False, rectified_conv=False, rectify_avg=False,
+        dropblock_prob=0.0, last_gamma=False):
+        super(Bottleneck, self).__init__()
+        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
+        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False
+            )
+        if with_ibn:
+            self.bn1 = IBN(group_width, bn_norm, num_splits)
+        else:
+            self.bn1 = get_norm(bn_norm, group_width, num_splits)
+        self.dropblock_prob = dropblock_prob
+        self.radix = radix
+        self.avd = avd and (stride > 1 or is_first)
+        self.avd_first = avd_first
+        if self.avd:
+            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
+            stride = 1
+        if radix > 1:
+            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=
+                3, stride=stride, padding=dilation, dilation=dilation,
+                groups=cardinality, bias=False, radix=radix, rectify=
+                rectified_conv, rectify_avg=rectify_avg, norm_layer=bn_norm,
+                num_splits=num_splits, dropblock_prob=dropblock_prob)
+        elif rectified_conv:
+            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False, average_mode=rectify_avg)
+            self.bn2 = get_norm(bn_norm, group_width, num_splits)
+        else:
+            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False)
+            self.bn2 = get_norm(bn_norm, group_width, num_splits)
+        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias
+            =False)
+        self.bn3 = get_norm(bn_norm, planes * 4, num_splits)
+        if last_gamma:
+            from torch.nn.init import zeros_
+            zeros_(self.bn3.weight)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.dilation = dilation
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock1(out)
+        out = self.relu(out)
+        if self.avd and self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv2(out)
+        if self.radix == 1:
+            out = self.bn2(out)
+            if self.dropblock_prob > 0.0:
+                out = self.dropblock2(out)
+            out = self.relu(out)
+        if self.avd and not self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class ResNest(nn.Module):
+    """ResNet Variants ResNest
+    Parameters
+    ----------
+    block : Block
+        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
+    layers : list of int
+        Numbers of layers in each block
+    classes : int, default 1000
+        Number of classification classes.
+    dilated : bool, default False
+        Applying dilation strategy to pretrained ResNet yielding a stride-8 model,
+        typically used in Semantic Segmentation.
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
+        for Synchronized Cross-GPU BachNormalization).
+    Reference:
+        - He, Kaiming, et al. "Deep residual learning for image recognition." Proceedings of the IEEE conference on computer vision and pattern recognition. 2016.
+        - Yu, Fisher, and Vladlen Koltun. "Multi-scale context aggregation by dilated convolutions."
+    """
+
+    def __init__(self, last_stride, bn_norm, num_splits, with_ibn, with_nl,
+        block, layers, non_layers, radix=1, groups=1, bottleneck_width=64,
+        dilated=False, dilation=1, deep_stem=False, stem_width=64, avg_down
+        =False, rectified_conv=False, rectify_avg=False, avd=False,
+        avd_first=False, final_drop=0.0, dropblock_prob=0, last_gamma=False):
+        self.cardinality = groups
+        self.bottleneck_width = bottleneck_width
+        self.inplanes = stem_width * 2 if deep_stem else 64
+        self.avg_down = avg_down
+        self.last_gamma = last_gamma
+        self.radix = radix
+        self.avd = avd
+        self.avd_first = avd_first
+        super().__init__()
+        self.rectified_conv = rectified_conv
+        self.rectify_avg = rectify_avg
+        if rectified_conv:
+            conv_layer = RFConv2d
+        else:
+            conv_layer = nn.Conv2d
+        conv_kwargs = {'average_mode': rectify_avg} if rectified_conv else {}
+        if deep_stem:
+            self.conv1 = nn.Sequential(conv_layer(3, stem_width,
+                kernel_size=3, stride=2, padding=1, bias=False, **
+                conv_kwargs), get_norm(bn_norm, stem_width, num_splits), nn
+                .ReLU(inplace=True), conv_layer(stem_width, stem_width,
+                kernel_size=3, stride=1, padding=1, bias=False, **
+                conv_kwargs), get_norm(bn_norm, stem_width, num_splits), nn
+                .ReLU(inplace=True), conv_layer(stem_width, stem_width * 2,
+                kernel_size=3, stride=1, padding=1, bias=False, **conv_kwargs))
+        else:
+            self.conv1 = conv_layer(3, 64, kernel_size=7, stride=2, padding
+                =3, bias=False, **conv_kwargs)
+        self.bn1 = get_norm(bn_norm, self.inplanes, num_splits)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0], 1, bn_norm,
+            num_splits, with_ibn=with_ibn, is_first=False)
+        self.layer2 = self._make_layer(block, 128, layers[1], 2, bn_norm,
+            num_splits, with_ibn=with_ibn)
+        if dilated or dilation == 4:
+            self.layer3 = self._make_layer(block, 256, layers[2], 1,
+                bn_norm, num_splits, with_ibn=with_ibn, dilation=2,
+                dropblock_prob=dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3], 1,
+                bn_norm, num_splits, with_ibn=with_ibn, dilation=4,
+                dropblock_prob=dropblock_prob)
+        elif dilation == 2:
+            self.layer3 = self._make_layer(block, 256, layers[2], 2,
+                bn_norm, num_splits, with_ibn=with_ibn, dilation=1,
+                dropblock_prob=dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3], 1,
+                bn_norm, num_splits, with_ibn=with_ibn, dilation=2,
+                dropblock_prob=dropblock_prob)
+        else:
+            self.layer3 = self._make_layer(block, 256, layers[2], 2,
+                bn_norm, num_splits, with_ibn=with_ibn, dropblock_prob=
+                dropblock_prob)
+            self.layer4 = self._make_layer(block, 512, layers[3],
+                last_stride, bn_norm, num_splits, with_ibn=with_ibn,
+                dropblock_prob=dropblock_prob)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        if with_nl:
+            self._build_nonlocal(layers, non_layers, bn_norm, num_splits)
+        else:
+            self.NL_1_idx = self.NL_2_idx = self.NL_3_idx = self.NL_4_idx = []
+
+    def _make_layer(self, block, planes, blocks, stride=1, bn_norm='BN',
+        num_splits=1, with_ibn=False, dilation=1, dropblock_prob=0.0,
+        is_first=True):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            down_layers = []
+            if self.avg_down:
+                if dilation == 1:
+                    down_layers.append(nn.AvgPool2d(kernel_size=stride,
+                        stride=stride, ceil_mode=True, count_include_pad=False)
+                        )
+                else:
+                    down_layers.append(nn.AvgPool2d(kernel_size=1, stride=1,
+                        ceil_mode=True, count_include_pad=False))
+                down_layers.append(nn.Conv2d(self.inplanes, planes * block.
+                    expansion, kernel_size=1, stride=1, bias=False))
+            else:
+                down_layers.append(nn.Conv2d(self.inplanes, planes * block.
+                    expansion, kernel_size=1, stride=stride, bias=False))
+            down_layers.append(get_norm(bn_norm, planes * block.expansion,
+                num_splits))
+            downsample = nn.Sequential(*down_layers)
+        layers = []
+        if planes == 512:
+            with_ibn = False
+        if dilation == 1 or dilation == 2:
+            layers.append(block(self.inplanes, planes, bn_norm, num_splits,
+                with_ibn, stride, downsample=downsample, radix=self.radix,
+                cardinality=self.cardinality, bottleneck_width=self.
+                bottleneck_width, avd=self.avd, avd_first=self.avd_first,
+                dilation=1, is_first=is_first, rectified_conv=self.
+                rectified_conv, rectify_avg=self.rectify_avg,
+                dropblock_prob=dropblock_prob, last_gamma=self.last_gamma))
+        elif dilation == 4:
+            layers.append(block(self.inplanes, planes, bn_norm, num_splits,
+                with_ibn, stride, downsample=downsample, radix=self.radix,
+                cardinality=self.cardinality, bottleneck_width=self.
+                bottleneck_width, avd=self.avd, avd_first=self.avd_first,
+                dilation=2, is_first=is_first, rectified_conv=self.
+                rectified_conv, rectify_avg=self.rectify_avg,
+                dropblock_prob=dropblock_prob, last_gamma=self.last_gamma))
+        else:
+            raise RuntimeError('=> unknown dilation size: {}'.format(dilation))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, bn_norm, num_splits,
+                with_ibn, radix=self.radix, cardinality=self.cardinality,
+                bottleneck_width=self.bottleneck_width, avd=self.avd,
+                avd_first=self.avd_first, dilation=dilation, rectified_conv
+                =self.rectified_conv, rectify_avg=self.rectify_avg,
+                dropblock_prob=dropblock_prob, last_gamma=self.last_gamma))
+        return nn.Sequential(*layers)
+
+    def _build_nonlocal(self, layers, non_layers, bn_norm, num_splits):
+        self.NL_1 = nn.ModuleList([Non_local(256, bn_norm, num_splits) for
+            _ in range(non_layers[0])])
+        self.NL_1_idx = sorted([(layers[0] - (i + 1)) for i in range(
+            non_layers[0])])
+        self.NL_2 = nn.ModuleList([Non_local(512, bn_norm, num_splits) for
+            _ in range(non_layers[1])])
+        self.NL_2_idx = sorted([(layers[1] - (i + 1)) for i in range(
+            non_layers[1])])
+        self.NL_3 = nn.ModuleList([Non_local(1024, bn_norm, num_splits) for
+            _ in range(non_layers[2])])
+        self.NL_3_idx = sorted([(layers[2] - (i + 1)) for i in range(
+            non_layers[2])])
+        self.NL_4 = nn.ModuleList([Non_local(2048, bn_norm, num_splits) for
+            _ in range(non_layers[3])])
+        self.NL_4_idx = sorted([(layers[3] - (i + 1)) for i in range(
+            non_layers[3])])
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        NL1_counter = 0
+        if len(self.NL_1_idx) == 0:
+            self.NL_1_idx = [-1]
+        for i in range(len(self.layer1)):
+            x = self.layer1[i](x)
+            if i == self.NL_1_idx[NL1_counter]:
+                _, C, H, W = x.shape
+                x = self.NL_1[NL1_counter](x)
+                NL1_counter += 1
+        NL2_counter = 0
+        if len(self.NL_2_idx) == 0:
+            self.NL_2_idx = [-1]
+        for i in range(len(self.layer2)):
+            x = self.layer2[i](x)
+            if i == self.NL_2_idx[NL2_counter]:
+                _, C, H, W = x.shape
+                x = self.NL_2[NL2_counter](x)
+                NL2_counter += 1
+        NL3_counter = 0
+        if len(self.NL_3_idx) == 0:
+            self.NL_3_idx = [-1]
+        for i in range(len(self.layer3)):
+            x = self.layer3[i](x)
+            if i == self.NL_3_idx[NL3_counter]:
+                _, C, H, W = x.shape
+                x = self.NL_3[NL3_counter](x)
+                NL3_counter += 1
+        NL4_counter = 0
+        if len(self.NL_4_idx) == 0:
+            self.NL_4_idx = [-1]
+        for i in range(len(self.layer4)):
+            x = self.layer4[i](x)
+            if i == self.NL_4_idx[NL4_counter]:
+                _, C, H, W = x.shape
+                x = self.NL_4[NL4_counter](x)
+                NL4_counter += 1
+        return x
+
+
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -1737,6 +2188,20 @@ class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
         self.p = nn.Parameter(torch.ones(1) * norm)
 
 
+def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix=''
+    ) ->dict:
+    loss_dict = {}
+    for loss_name in cfg.MODEL.LOSSES.NAME:
+        loss = getattr(Loss, loss_name)(cfg)(pred_class_logits,
+            global_features, gt_classes)
+        loss_dict.update(loss)
+    named_loss_dict = {}
+    for name in loss_dict.keys():
+        named_loss_dict[prefix + name] = loss_dict[name]
+    del loss_dict
+    return named_loss_dict
+
+
 _CURRENT_STORAGE_STACK = []
 
 
@@ -1801,28 +2266,6 @@ class CrossEntropyLoss(object):
         return {'loss_cls': loss * self._scale}
 
 
-def build_reid_heads(cfg, in_feat, num_classes, pool_layer):
-    """
-    Build REIDHeads defined by `cfg.MODEL.REID_HEADS.NAME`.
-    """
-    head = cfg.MODEL.HEADS.NAME
-    return REID_HEADS_REGISTRY.get(head)(cfg, in_feat, num_classes, pool_layer)
-
-
-def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix=''
-    ) ->dict:
-    loss_dict = {}
-    for loss_name in cfg.MODEL.LOSSES.NAME:
-        loss = getattr(Loss, loss_name)(cfg)(pred_class_logits,
-            global_features, gt_classes)
-        loss_dict.update(loss)
-    named_loss_dict = {}
-    for name in loss_dict.keys():
-        named_loss_dict[prefix + name] = loss_dict[name]
-    del loss_dict
-    return named_loss_dict
-
-
 class OcclusionUnit(nn.Module):
 
     def __init__(self, in_planes=2048):
@@ -1864,6 +2307,7 @@ class OcclusionUnit(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_JDAI_CV_fast_reid(_paritybench_base):
@@ -1897,49 +2341,61 @@ class Test_JDAI_CV_fast_reid(_paritybench_base):
     def test_008(self):
         self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_009(self):
-        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_010(self):
-        self._check(FastGlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FastGlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(FrozenBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FrozenBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_014(self):
-        self._check(GeneralizedMeanPooling(*[], **{'norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
-        self._check(GeneralizedMeanPoolingP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneralizedMeanPooling(*[], **{'norm': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_016(self):
-        self._check(GhostBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GeneralizedMeanPoolingP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_017(self):
+        self._check(GhostBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
         self._check(LightConv3x3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_018(self):
+    def test_019(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    def test_021(self):
         self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_021(self):
+    @_fails_compile()
+    def test_022(self):
+        self._check(OcclusionUnit(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+
+    @_fails_compile()
+    def test_023(self):
+        self._check(SplAtConv2d(*[], **{'in_channels': 4, 'channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_024(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_022(self):
+    def test_025(self):
         self._check(TLU(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_023(self):
+    def test_026(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
 

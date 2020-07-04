@@ -87,10 +87,13 @@ test_models = _module
 test_vizual = _module
 train_with_trainer_class = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -125,6 +128,9 @@ from abc import abstractmethod
 
 
 import torch.nn.functional as F
+
+
+from torchvision import models
 
 
 from functools import partial
@@ -199,6 +205,26 @@ def expand_as_one_hot(input, C, ignore_index=None):
         return result
     else:
         return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
+
+
+class BCEDiceLoss(nn.Module):
+    """Linear combination of BCE and Dice losses3D"""
+
+    def __init__(self, alpha=1, beta=1, classes=4):
+        super(BCEDiceLoss, self).__init__()
+        self.alpha = alpha
+        self.bce = nn.BCEWithLogitsLoss()
+        self.beta = beta
+        self.dice = DiceLoss(classes=classes)
+        self.classes = classes
+
+    def forward(self, input, target):
+        target_expanded = expand_as_one_hot(target.long(), self.classes)
+        assert input.size() == target_expanded.size(
+            ), "'input' and 'target' must have the same shape"
+        loss_1 = self.alpha * self.bce(input, target_expanded)
+        loss_2, channel_score = self.beta * self.dice(input, target_expanded)
+        return loss_1 + loss_2, channel_score
 
 
 class _AbstractDiceLoss(nn.Module):
@@ -1644,6 +1670,7 @@ class OutputTransition(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_black0017_MedicalZooPytorch(_paritybench_base):
@@ -1655,48 +1682,61 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
         self._check(BlueBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_002(self):
-        self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(CNN(*[], **{'classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_003(self):
-        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvInit(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_004(self):
-        self._check(DownBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(InConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DownBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
+    @_fails_compile()
     def test_007(self):
-        self._check(LUConv(*[], **{'nchan': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(DownTransition(*[], **{'inChans': 4, 'nConvs': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_008(self):
-        self._check(OutConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(OutputTransition(*[], **{'in_channels': 4, 'classes': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(InConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(PEXP(*[], **{'n_input': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(InputTransition(*[], **{'in_channels': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_011(self):
-        self._check(ResidualConv(*[], **{'nin': 4, 'nout': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LUConv(*[], **{'nchan': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_012(self):
-        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(OutConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_013(self):
-        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(OutputTransition(*[], **{'in_channels': 4, 'classes': 4, 'elu': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     def test_014(self):
-        self._check(UpBlock1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(PEXP(*[], **{'n_input': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_015(self):
+        self._check(ResidualConv(*[], **{'nin': 4, 'nout': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_016(self):
+        self._check(SkipLastTargetChannelWrapper(*[], **{'loss': MSELoss()}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+
+    def test_018(self):
+        self._check(UpBlock1(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    def test_019(self):
         self._check(UpBlock2(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_016(self):
+    def test_020(self):
         self._check(_MaskingLossWrapper(*[], **{'loss': MSELoss(), 'ignore_index': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

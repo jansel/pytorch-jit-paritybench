@@ -14,10 +14,13 @@ train = _module
 utils = _module
 word_embedding = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -69,10 +72,13 @@ from torch.nn.utils import clip_grad_norm_
 import torch.backends.cudnn as cudnn
 
 
-_global_config['max_answers'] = 4
+import torchvision.transforms as transforms
 
 
 _global_config['v_feat_norm'] = 4
+
+
+_global_config['max_answers'] = 4
 
 
 _global_config['output_features'] = 4
@@ -1295,6 +1301,7 @@ class TextProcessor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_KaihuaTang_VQA2_0_Recent_Approachs_2018_pytorch(_paritybench_base):
@@ -1303,40 +1310,43 @@ class Test_KaihuaTang_VQA2_0_Recent_Approachs_2018_pytorch(_paritybench_base):
     def test_000(self):
         self._check(Attention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(BiAttention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(Counter(*[], **{'objects': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(Counter(*[], **{'objects': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(DyIntraModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(FCNet(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(Fusion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(InterModalityUpdate(*[], **{'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
-        self._check(MultiBlock(*[], **{'num_block': 1, 'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_inter_head': 4, 'num_intra_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
-
-    @_fails_compile()
     def test_008(self):
-        self._check(OneSideInterModalityUpdate(*[], **{'src_size': 4, 'tgt_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(MultiBlock(*[], **{'num_block': 4, 'v_size': 4, 'q_size': 4, 'output_size': 4, 'num_inter_head': 4, 'num_intra_head': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     @_fails_compile()
     def test_009(self):
+        self._check(OneSideInterModalityUpdate(*[], **{'src_size': 4, 'tgt_size': 4, 'output_size': 4, 'num_head': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_010(self):
         self._check(PiecewiseLin(*[], **{'n': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(PseudoCoord(*[], **{}), [torch.rand([4, 4, 4])], {})
 

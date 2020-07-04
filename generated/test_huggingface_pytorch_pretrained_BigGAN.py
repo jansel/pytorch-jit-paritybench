@@ -9,10 +9,13 @@ model = _module
 utils = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -357,7 +360,144 @@ def split_s3_path(url):
     return bucket_name, s3_path
 
 
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def get_from_cache(url, cache_dir=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url)
+    else:
+        response = requests.head(url, allow_redirects=True)
+        if response.status_code != 200:
+            raise IOError('HEAD request failed for url {} with status code {}'
+                .format(url, response.status_code))
+        etag = response.headers.get('ETag')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path):
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info('%s not found in cache, downloading to %s', url,
+                temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file)
+            else:
+                http_get(url, temp_file)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path
+                )
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w', encoding='utf-8') as meta_file:
+                json.dump(meta, meta_file)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.
+            format(url_or_filename))
+
+
+class BigGAN(nn.Module):
+    """BigGAN Generator."""
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None,
+        *inputs, **kwargs):
+        if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
+            model_file = PRETRAINED_MODEL_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
+                pretrained_model_name_or_path]
+        else:
+            model_file = os.path.join(pretrained_model_name_or_path,
+                WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path,
+                CONFIG_NAME)
+        try:
+            resolved_model_file = cached_path(model_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
+                )
+        except EnvironmentError:
+            logger.error(
+                'Wrong model name, should be a valid path to a folder containing a {} file and a {} file or a model name in {}'
+                .format(WEIGHTS_NAME, CONFIG_NAME,
+                PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
+            raise
+        logger.info('loading model {} from cache at {}'.format(
+            pretrained_model_name_or_path, resolved_model_file))
+        config = BigGANConfig.from_json_file(resolved_config_file)
+        logger.info('Model config {}'.format(config))
+        model = cls(config, *inputs, **kwargs)
+        state_dict = torch.load(resolved_model_file, map_location='cpu' if 
+            not torch.is_available() else None)
+        model.load_state_dict(state_dict, strict=False)
+        return model
+
+    def __init__(self, config):
+        super(BigGAN, self).__init__()
+        self.config = config
+        self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=
+            False)
+        self.generator = Generator(config)
+
+    def forward(self, z, class_label, truncation):
+        assert 0 < truncation <= 1
+        embed = self.embeddings(class_label)
+        cond_vector = torch.cat((z, embed), dim=1)
+        z = self.generator(cond_vector, truncation)
+        return z
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_huggingface_pytorch_pretrained_BigGAN(_paritybench_base):

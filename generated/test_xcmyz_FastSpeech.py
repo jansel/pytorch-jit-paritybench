@@ -39,10 +39,13 @@ glow = _module
 inference = _module
 mel2samp = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -523,10 +526,10 @@ class WaveGlow(torch.nn.Module):
         spect = spect.contiguous().view(spect.size(0), spect.size(1), -1
             ).permute(0, 2, 1)
         if spect.type() == 'torch.cuda.HalfTensor':
-            audio = torch.cuda.HalfTensor(spect.size(0), self.
+            audio = torch.HalfTensor(spect.size(0), self.
                 n_remaining_channels, spect.size(2)).normal_()
         else:
-            audio = torch.cuda.FloatTensor(spect.size(0), self.
+            audio = torch.FloatTensor(spect.size(0), self.
                 n_remaining_channels, spect.size(2)).normal_()
         audio = torch.autograd.Variable(sigma * audio)
         for k in reversed(range(self.n_flows)):
@@ -541,11 +544,11 @@ class WaveGlow(torch.nn.Module):
             audio = self.convinv[k](audio, reverse=True)
             if k % self.n_early_every == 0 and k > 0:
                 if spect.type() == 'torch.cuda.HalfTensor':
-                    z = torch.cuda.HalfTensor(spect.size(0), self.
-                        n_early_size, spect.size(2)).normal_()
+                    z = torch.HalfTensor(spect.size(0), self.n_early_size,
+                        spect.size(2)).normal_()
                 else:
-                    z = torch.cuda.FloatTensor(spect.size(0), self.
-                        n_early_size, spect.size(2)).normal_()
+                    z = torch.FloatTensor(spect.size(0), self.n_early_size,
+                        spect.size(2)).normal_()
                 audio = torch.cat((sigma * z, audio), 1)
         audio = audio.permute(0, 2, 1).contiguous().view(audio.size(0), -1
             ).data
@@ -1493,6 +1496,18 @@ def get_non_pad_mask(seq):
     return seq.ne(Constants.PAD).type(torch.float).unsqueeze(-1)
 
 
+_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+
+
+_pad = '_'
+
+
+_punctuation = "!'(),.:;? "
+
+
+_special = '-'
+
+
 class ScaledDotProductAttention(nn.Module):
     """ Scaled Dot-Product Attention """
 
@@ -1764,10 +1779,10 @@ class WaveGlow(torch.nn.Module):
         spect = spect.contiguous().view(spect.size(0), spect.size(1), -1
             ).permute(0, 2, 1)
         if spect.type() == 'torch.cuda.HalfTensor':
-            audio = torch.cuda.HalfTensor(spect.size(0), self.
+            audio = torch.HalfTensor(spect.size(0), self.
                 n_remaining_channels, spect.size(2)).normal_()
         else:
-            audio = torch.cuda.FloatTensor(spect.size(0), self.
+            audio = torch.FloatTensor(spect.size(0), self.
                 n_remaining_channels, spect.size(2)).normal_()
         audio = torch.autograd.Variable(sigma * audio)
         for k in reversed(range(self.n_flows)):
@@ -1782,11 +1797,11 @@ class WaveGlow(torch.nn.Module):
             audio = self.convinv[k](audio, reverse=True)
             if k % self.n_early_every == 0 and k > 0:
                 if spect.type() == 'torch.cuda.HalfTensor':
-                    z = torch.cuda.HalfTensor(spect.size(0), self.
-                        n_early_size, spect.size(2)).normal_()
+                    z = torch.HalfTensor(spect.size(0), self.n_early_size,
+                        spect.size(2)).normal_()
                 else:
-                    z = torch.cuda.FloatTensor(spect.size(0), self.
-                        n_early_size, spect.size(2)).normal_()
+                    z = torch.FloatTensor(spect.size(0), self.n_early_size,
+                        spect.size(2)).normal_()
                 audio = torch.cat((sigma * z, audio), 1)
         audio = audio.permute(0, 2, 1).contiguous().view(audio.size(0), -1
             ).data
@@ -1804,6 +1819,7 @@ class WaveGlow(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xcmyz_FastSpeech(_paritybench_base):

@@ -45,10 +45,13 @@ one_hot_embedding = _module
 visualizations = _module
 vis_image = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -65,6 +68,12 @@ import torch.nn.functional as F
 
 
 import torch.backends.cudnn as cudnn
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision
 
 
 from torch.autograd import Variable
@@ -707,6 +716,7 @@ class SSD512(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kuangliu_torchcv(_paritybench_base):
@@ -715,11 +725,18 @@ class Test_kuangliu_torchcv(_paritybench_base):
         self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(L2Norm(*[], **{'in_features': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPNSSD512(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(RetinaNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(FocalLoss(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {})
 
     def test_003(self):
+        self._check(L2Norm(*[], **{'in_features': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(RetinaNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_005(self):
         self._check(VGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

@@ -10,10 +10,13 @@ test_functions = _module
 vae = _module
 vqvae = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,10 +41,22 @@ from torch.distributions.normal import Normal
 from torch.distributions import kl_divergence
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 import numpy as np
 
 
+from torchvision.utils import save_image
+
+
 import time
+
+
+from torchvision.utils import make_grid
 
 
 def weights_init(m):
@@ -213,46 +228,6 @@ class GatedActivation(nn.Module):
         return F.tanh(x) * F.sigmoid(y)
 
 
-class GatedMaskedConv2d(nn.Module):
-
-    def __init__(self, mask_type, dim, kernel, residual=True, n_classes=10):
-        super().__init__()
-        assert kernel % 2 == 1, None
-        self.mask_type = mask_type
-        self.residual = residual
-        self.class_cond_embedding = nn.Embedding(n_classes, 2 * dim)
-        kernel_shp = kernel // 2 + 1, kernel
-        padding_shp = kernel // 2, kernel // 2
-        self.vert_stack = nn.Conv2d(dim, dim * 2, kernel_shp, 1, padding_shp)
-        self.vert_to_horiz = nn.Conv2d(2 * dim, 2 * dim, 1)
-        kernel_shp = 1, kernel // 2 + 1
-        padding_shp = 0, kernel // 2
-        self.horiz_stack = nn.Conv2d(dim, dim * 2, kernel_shp, 1, padding_shp)
-        self.horiz_resid = nn.Conv2d(dim, dim, 1)
-        self.gate = GatedActivation()
-
-    def make_causal(self):
-        self.vert_stack.weight.data[:, :, (-1)].zero_()
-        self.horiz_stack.weight.data[:, :, :, (-1)].zero_()
-
-    def forward(self, x_v, x_h, h):
-        if self.mask_type == 'A':
-            self.make_causal()
-        h = self.class_cond_embedding(h)
-        h_vert = self.vert_stack(x_v)
-        h_vert = h_vert[:, :, :x_v.size(-1), :]
-        out_v = self.gate(h_vert + h[:, :, (None), (None)])
-        h_horiz = self.horiz_stack(x_h)
-        h_horiz = h_horiz[:, :, :, :x_h.size(-2)]
-        v2h = self.vert_to_horiz(h_vert)
-        out = self.gate(v2h + h_horiz + h[:, :, (None), (None)])
-        if self.residual:
-            out_h = self.horiz_resid(out) + x_h
-        else:
-            out_h = self.horiz_resid(out)
-        return out_v, out_h
-
-
 class GatedPixelCNN(nn.Module):
 
     def __init__(self, input_dim=256, dim=64, n_layers=15, n_classes=10):
@@ -292,6 +267,7 @@ class GatedPixelCNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ritheshkumar95_pytorch_vqvae(_paritybench_base):

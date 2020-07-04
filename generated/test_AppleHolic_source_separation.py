@@ -13,10 +13,13 @@ train = _module
 train_jointly = _module
 trainer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,6 +60,33 @@ from torch.utils.data import Dataset
 
 
 from torch.utils.data import DataLoader
+
+
+class ComplexConvBlock(nn.Module):
+    """
+    Convolution block
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size:
+        int, padding: int=0, layers: int=4, bn_func=nn.BatchNorm1d,
+        act_func=nn.LeakyReLU, skip_res: bool=False):
+        super().__init__()
+        self.blocks = nn.ModuleList()
+        self.skip_res = skip_res
+        for idx in range(layers):
+            in_ = in_channels if idx == 0 else out_channels
+            self.blocks.append(nn.Sequential(*[bn_func(in_), act_func(),
+                ComplexConv1d(in_, out_channels, kernel_size, padding=
+                padding)]))
+
+    def forward(self, x: torch.tensor) ->torch.tensor:
+        temp = x
+        for idx, block in enumerate(self.blocks):
+            x = block(x)
+        if temp.size() != x.size() or self.skip_res:
+            return x
+        else:
+            return x + temp
 
 
 class _ComplexConvNd(nn.Module):
@@ -114,6 +144,7 @@ class ComplexActLayer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_AppleHolic_source_separation(_paritybench_base):

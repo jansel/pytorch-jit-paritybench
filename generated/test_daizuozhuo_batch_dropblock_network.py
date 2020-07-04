@@ -24,10 +24,13 @@ serialization = _module
 transforms = _module
 validation_metrics = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -68,6 +71,18 @@ from torch import optim
 
 
 from torch.utils.data import dataloader
+
+
+from torchvision import transforms
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.resnet import resnet50
+
+
+from torchvision.transforms import functional
 
 
 import math
@@ -644,24 +659,37 @@ class CrossEntropyLabelSmooth(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
-        self._check(BatchCrop(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BFE(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
     def test_001(self):
+        self._check(BatchCrop(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(BatchDrop(*[], **{'h_ratio': 4, 'w_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(CBAM_Module(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-
     def test_004(self):
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+
+    def test_005(self):
+        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(ResNetBuilder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(Resnet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 

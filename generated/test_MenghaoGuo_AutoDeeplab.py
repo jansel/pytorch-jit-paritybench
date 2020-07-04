@@ -18,10 +18,13 @@ mypath = _module
 operations = _module
 train_autodeeplab = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -46,6 +49,10 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
+    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
+
+
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
     count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
@@ -57,10 +64,6 @@ OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
     stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine),
     'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2,
     affine=affine)}
-
-
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
-    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
 
 
 class MixedOp(nn.Module):
@@ -243,6 +246,7 @@ class ASPP(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_MenghaoGuo_AutoDeeplab(_paritybench_base):

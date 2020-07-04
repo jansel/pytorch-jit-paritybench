@@ -286,10 +286,13 @@ dl_z_mvp_mnist_vae = _module
 dl_z_mvp_projector = _module
 nlp_contrib_models = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -323,6 +326,9 @@ from typing import Tuple
 import collections
 
 
+from numbers import Number
+
+
 import torch.nn as nn
 
 
@@ -339,6 +345,9 @@ from typing import List
 
 
 from torch import nn
+
+
+import torchvision
 
 
 from abc import ABC
@@ -471,6 +480,22 @@ import torch.optim as optim
 
 
 from torch.utils.data import TensorDataset
+
+
+LateAddCallbak = Callable[['Registry'], None]
+
+
+class RegistryException(Exception):
+    """Exception class for all registry errors."""
+
+    def __init__(self, message):
+        """
+        Init.
+
+        Args:
+            message: exception message
+        """
+        super().__init__(message)
 
 
 class ABN(nn.Module):
@@ -3448,6 +3473,7 @@ class ClassifyVAE(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_catalyst_team_catalyst(_paritybench_base):
@@ -3501,7 +3527,7 @@ class Test_catalyst_team_catalyst(_paritybench_base):
         self._check(LamaPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
 
     def test_014(self):
-        self._check(Lambda(*[], **{'lambda_fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Lambda(*[], **{'lambda_fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_015(self):
@@ -3543,7 +3569,7 @@ class Test_catalyst_team_catalyst(_paritybench_base):
         self._check(RMSNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_026(self):
-        self._check(ResidualWrapper(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ResidualWrapper(*[], **{'net': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_027(self):
@@ -3559,7 +3585,7 @@ class Test_catalyst_team_catalyst(_paritybench_base):
 
     @_fails_compile()
     def test_030(self):
-        self._check(TemporalDropLastWrapper(*[], **{'net': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TemporalDropLastWrapper(*[], **{'net': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_031(self):

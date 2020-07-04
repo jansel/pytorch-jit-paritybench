@@ -24,10 +24,13 @@ lr_scheduler = _module
 metrics = _module
 rle = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,9 @@ from collections import OrderedDict
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import torchvision
 
 
 import torch.nn.functional as functional
@@ -680,6 +686,7 @@ class UNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_tugstugi_pytorch_saltnet(_paritybench_base):

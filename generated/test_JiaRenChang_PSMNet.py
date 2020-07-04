@@ -19,10 +19,13 @@ submodule = _module
 submission = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -39,6 +42,9 @@ import torch
 
 
 import torch.nn as nn
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -252,6 +258,7 @@ class feature_extraction(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_JiaRenChang_PSMNet(_paritybench_base):
@@ -259,7 +266,10 @@ class Test_JiaRenChang_PSMNet(_paritybench_base):
     def test_000(self):
         self._check(disparityregression(*[], **{'maxdisp': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
+        self._check(feature_extraction(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    @_fails_compile()
+    def test_002(self):
         self._check(matchshifted(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), 0], {})
 

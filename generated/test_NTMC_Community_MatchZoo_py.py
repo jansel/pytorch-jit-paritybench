@@ -144,10 +144,13 @@ test_metrics = _module
 test_utils = _module
 test_trainer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -188,6 +191,77 @@ import torch.optim as optim
 
 
 from torch import optim
+
+
+def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
+    dictionary: nn.ModuleDict, target: str) ->nn.Module:
+    """
+    Parse loss and activation.
+
+    :param identifier: activation identifier, one of
+            - String: name of a activation
+            - Torch Modele subclass
+            - Torch Module instance (it will be returned unchanged).
+    :param dictionary: nn.ModuleDict instance. Map string identifier to
+        nn.Module instance.
+    :return: A :class:`nn.Module` instance
+    """
+    if isinstance(identifier, str):
+        if identifier in dictionary:
+            return dictionary[identifier]
+        else:
+            raise ValueError(f'Could not interpret {target} identifier: ' +
+                str(identifier))
+    elif isinstance(identifier, nn.Module):
+        return identifier
+    elif issubclass(identifier, nn.Module):
+        return identifier()
+    else:
+        raise ValueError(f'Could not interpret {target} identifier: ' + str
+            (identifier))
+
+
+activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()
+    ], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()
+    ], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], [
+    'logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()],
+    ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.
+    LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus
+    ()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], [
+    'softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink',
+    nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
+
+
+def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module],
+    nn.Module]) ->nn.Module:
+    """
+    Retrieves a torch Module instance.
+
+    :param identifier: activation identifier, one of
+            - String: name of a activation
+            - Torch Modele subclass
+            - Torch Module instance (it will be returned unchanged).
+    :return: A :class:`nn.Module` instance
+
+    Examples::
+        >>> from torch import nn
+        >>> from matchzoo.utils import parse_activation
+
+    Use `str` as activation:
+        >>> activation = parse_activation('relu')
+        >>> type(activation)
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    Use :class:`torch.nn.Module` subclasses as activation:
+        >>> type(parse_activation(nn.ReLU))
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    Use :class:`torch.nn.Module` instances as activation:
+        >>> type(parse_activation(nn.ReLU()))
+        <class 'torch.nn.modules.activation.ReLU'>
+
+    """
+    return _parse(identifier, activation, 'activation')
 
 
 class RankCrossEntropyLoss(nn.Module):
@@ -782,77 +856,6 @@ class SemanticComposite(nn.Module):
         return encoding
 
 
-def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
-    dictionary: nn.ModuleDict, target: str) ->nn.Module:
-    """
-    Parse loss and activation.
-
-    :param identifier: activation identifier, one of
-            - String: name of a activation
-            - Torch Modele subclass
-            - Torch Module instance (it will be returned unchanged).
-    :param dictionary: nn.ModuleDict instance. Map string identifier to
-        nn.Module instance.
-    :return: A :class:`nn.Module` instance
-    """
-    if isinstance(identifier, str):
-        if identifier in dictionary:
-            return dictionary[identifier]
-        else:
-            raise ValueError(f'Could not interpret {target} identifier: ' +
-                str(identifier))
-    elif isinstance(identifier, nn.Module):
-        return identifier
-    elif issubclass(identifier, nn.Module):
-        return identifier()
-    else:
-        raise ValueError(f'Could not interpret {target} identifier: ' + str
-            (identifier))
-
-
-activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()
-    ], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()
-    ], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], [
-    'logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()],
-    ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.
-    LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus
-    ()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], [
-    'softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink',
-    nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
-
-
-def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module],
-    nn.Module]) ->nn.Module:
-    """
-    Retrieves a torch Module instance.
-
-    :param identifier: activation identifier, one of
-            - String: name of a activation
-            - Torch Modele subclass
-            - Torch Module instance (it will be returned unchanged).
-    :return: A :class:`nn.Module` instance
-
-    Examples::
-        >>> from torch import nn
-        >>> from matchzoo.utils import parse_activation
-
-    Use `str` as activation:
-        >>> activation = parse_activation('relu')
-        >>> type(activation)
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    Use :class:`torch.nn.Module` subclasses as activation:
-        >>> type(parse_activation(nn.ReLU))
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    Use :class:`torch.nn.Module` instances as activation:
-        >>> type(parse_activation(nn.ReLU()))
-        <class 'torch.nn.modules.activation.ReLU'>
-
-    """
-    return _parse(identifier, activation, 'activation')
-
-
 class SpatialGRU(nn.Module):
     """
     Spatial GRU Module.
@@ -1035,6 +1038,7 @@ class StackedBRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NTMC_Community_MatchZoo_py(_paritybench_base):

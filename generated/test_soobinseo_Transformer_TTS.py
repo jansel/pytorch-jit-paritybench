@@ -16,10 +16,13 @@ train_postnet = _module
 train_transformer = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -98,6 +101,50 @@ class Conv(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
+
+
+_characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? "
+
+
+_eos = '~'
+
+
+_pad = '_'
+
+
+class EncoderPrenet(nn.Module):
+    """
+    Pre-network for Encoder consists of convolution networks.
+    """
+
+    def __init__(self, embedding_size, num_hidden):
+        super(EncoderPrenet, self).__init__()
+        self.embedding_size = embedding_size
+        self.embed = nn.Embedding(len(symbols), embedding_size, padding_idx=0)
+        self.conv1 = Conv(in_channels=embedding_size, out_channels=
+            num_hidden, kernel_size=5, padding=int(np.floor(5 / 2)), w_init
+            ='relu')
+        self.conv2 = Conv(in_channels=num_hidden, out_channels=num_hidden,
+            kernel_size=5, padding=int(np.floor(5 / 2)), w_init='relu')
+        self.conv3 = Conv(in_channels=num_hidden, out_channels=num_hidden,
+            kernel_size=5, padding=int(np.floor(5 / 2)), w_init='relu')
+        self.batch_norm1 = nn.BatchNorm1d(num_hidden)
+        self.batch_norm2 = nn.BatchNorm1d(num_hidden)
+        self.batch_norm3 = nn.BatchNorm1d(num_hidden)
+        self.dropout1 = nn.Dropout(p=0.2)
+        self.dropout2 = nn.Dropout(p=0.2)
+        self.dropout3 = nn.Dropout(p=0.2)
+        self.projection = Linear(num_hidden, num_hidden)
+
+    def forward(self, input_):
+        input_ = self.embed(input_)
+        input_ = input_.transpose(1, 2)
+        input_ = self.dropout1(t.relu(self.batch_norm1(self.conv1(input_))))
+        input_ = self.dropout2(t.relu(self.batch_norm2(self.conv2(input_))))
+        input_ = self.dropout3(t.relu(self.batch_norm3(self.conv3(input_))))
+        input_ = input_.transpose(1, 2)
+        input_ = self.projection(input_)
+        return input_
 
 
 class FFN(nn.Module):
@@ -538,6 +585,7 @@ class ModelPostNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_soobinseo_Transformer_TTS(_paritybench_base):

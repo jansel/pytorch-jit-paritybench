@@ -103,10 +103,13 @@ test_transposed_conv1d = _module
 test_pretrained_accuracy = _module
 conftest = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -248,6 +251,12 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
 from torch.utils.data import Dataset
 
 
@@ -276,13 +285,16 @@ class ZeroLsbTruncBitWidth(torch.jit.ScriptModule):
         return zero_hw_sentinel
 
 
+MIN_INT_BIT_WIDTH = 2
+
+
+_global_config['IGNORE_MISSING_KEYS'] = 4
+
+
 NON_ZERO_EPSILON = 1e-06
 
 
 REMOVE_ZERO_BIT_WIDTH = 0.1
-
-
-_global_config['IGNORE_MISSING_KEYS'] = 4
 
 
 class RemoveBitwidthParameter(torch.jit.ScriptModule):
@@ -1035,6 +1047,16 @@ class PowerOfTwo(torch.jit.ScriptModule):
         return 2.0 ** x
 
 
+class RoundSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(RoundSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return round_ste(x)
+
+
 class AffineRescaling(torch.jit.ScriptModule):
 
     def __init__(self, affine_shape):
@@ -1061,6 +1083,93 @@ class AffineRescaling(torch.jit.ScriptModule):
 
 
 SCALING_SCALAR_SHAPE = ()
+
+
+@torch.jit.script
+def over_batch_over_output_channels(x):
+    return x.shape[0], x.shape[1], -1
+
+
+class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverBatchOverOutputChannelView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_batch_over_output_channels(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_batch_over_tensor(x):
+    return x.shape[0], -1
+
+
+class OverBatchOverTensorView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverBatchOverTensorView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_batch_over_tensor(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_output_channels(x):
+    return x.shape[0], -1
+
+
+class OverOutputChannelView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverOutputChannelView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_output_channels(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+@torch.jit.script
+def over_tensor(x):
+    return -1
+
+
+class OverTensorView(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(OverTensorView, self).__init__()
+
+    @torch.jit.script_method
+    def shape(self, x: torch.Tensor):
+        return over_tensor(x)
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        shape = self.shape(x)
+        return x.view(shape)
+
+
+class StatsInputViewShapeImpl(object):
+    OVER_TENSOR = OverTensorView
+    OVER_OUTPUT_CHANNELS = OverOutputChannelView
+    OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
+    OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
 
 
 @torch.jit.script
@@ -1338,100 +1447,146 @@ def pack_quant_tensor(tensor, scale, bit_width):
     return QuantTensor._make([tensor, scale, bit_width])
 
 
-OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
+class QuantLayer(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, compute_output_scale, compute_output_bit_width,
+        return_quant_tensor):
+        self.compute_output_scale = compute_output_scale
+        self.compute_output_bit_width = compute_output_bit_width
+        self.return_quant_tensor = return_quant_tensor
+
+    def unpack_input(self, input):
+        if isinstance(input, QuantTensor):
+            return input
+        else:
+            return input, None, None
+
+    def pack_output(self, output, output_scale, output_bit_width):
+        if self.return_quant_tensor:
+            return QuantTensor(tensor=output, scale=output_scale, bit_width
+                =output_bit_width)
+        else:
+            return output
 
 
-SCALING_MIN_VAL = 2e-09
+class HadamardClassifier(QuantLayer, nn.Module):
+
+    def __init__(self, in_channels, out_channels, fixed_scale=False,
+        compute_output_scale: bool=False, compute_output_bit_width: bool=
+        False, return_quant_tensor: bool=False):
+        QuantLayer.__init__(self, compute_output_scale=compute_output_scale,
+            compute_output_bit_width=compute_output_bit_width,
+            return_quant_tensor=return_quant_tensor)
+        nn.Module.__init__(self)
+        if hadamard is None:
+            raise Exception('Hadamard layer requires scipy to be installed.')
+        self.out_channels = out_channels
+        self.in_channels = in_channels
+        sz = 2 ** int(math.ceil(math.log(max(in_channels, out_channels), 2)))
+        mat = torch.from_numpy(hadamard(sz)).float()
+        self.register_buffer('proj', mat)
+        init_scale = 1.0 / math.sqrt(self.out_channels)
+        if fixed_scale:
+            self.register_buffer('scale', torch.tensor(init_scale))
+        else:
+            self.scale = nn.Parameter(torch.tensor(init_scale))
+        self.eps = 1e-08
+
+    def forward(self, x):
+        output_scale = None
+        output_bit_width = None
+        x, input_scale, input_bit_width = self.unpack_input(x)
+        norm = x.norm(p='fro', keepdim=True) + self.eps
+        x = x / norm
+        out = -self.scale * nn.functional.linear(x, self.proj[:self.
+            out_channels, :self.in_channels])
+        if self.compute_output_scale:
+            output_scale = input_scale * self.scale / norm
+        if self.compute_output_bit_width:
+            output_bit_width = self.max_output_bit_width(input_bit_width)
+        return self.pack_output(out, output_scale, output_bit_width)
+
+    def max_output_bit_width(self, input_bit_width):
+        max_input_val = max_uint(bit_width=input_bit_width, narrow_range=False)
+        max_output_val = max_input_val * self.in_channels
+        output_bit_width = ceil_ste(torch.log2(max_output_val))
+        return output_bit_width
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        state_dict = super(HadamardClassifier, self).state_dict(destination,
+            prefix, keep_vars)
+        del state_dict[prefix + 'proj']
+        return state_dict
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata,
+        strict, missing_keys, unexpected_keys, error_msgs):
+        super(HadamardClassifier, self)._load_from_state_dict(state_dict,
+            prefix, local_metadata, strict, missing_keys, unexpected_keys,
+            error_msgs)
+        proj_key = prefix + 'proj'
+        if proj_key in missing_keys:
+            missing_keys.remove(proj_key)
 
 
-@torch.jit.script
-def over_batch_over_output_channels(x):
-    return x.shape[0], x.shape[1], -1
+class QuantAccumulator(QuantLayer, Module):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        QuantLayer.__init__(self, compute_output_scale=True,
+            compute_output_bit_width=True, return_quant_tensor=True)
+        Module.__init__(self)
+
+    @property
+    def acc_quant_proxy(self):
+        return self._act_quant_proxy
+
+    @acc_quant_proxy.setter
+    def acc_quant_proxy(self, act_quant_proxy):
+        self._acc_quant_proxy = act_quant_proxy
+
+    def forward(self, input):
+        tensor, input_scale, input_bit_width = self.unpack_input(input)
+        output, output_scale, output_bit_width = self.acc_quant_proxy(tensor,
+            input_scale, input_bit_width)
+        return self.pack_output(output, output_scale, output_bit_width)
 
 
-class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
+class QuantActivation(QuantLayer, Module):
+    __metaclass__ = ABCMeta
 
-    def __init__(self) ->None:
-        super(OverBatchOverOutputChannelView, self).__init__()
+    def __init__(self, return_quant_tensor):
+        QuantLayer.__init__(self, compute_output_scale=True,
+            compute_output_bit_width=True, return_quant_tensor=
+            return_quant_tensor)
+        Module.__init__(self)
 
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_output_channels(x)
+    @property
+    def act_quant_proxy(self):
+        return self._act_quant_proxy
 
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
+    @act_quant_proxy.setter
+    def act_quant_proxy(self, act_quant_proxy):
+        self._act_quant_proxy = act_quant_proxy
 
+    def quant_act_scale(self):
+        if isinstance(self.act_quant_proxy.fused_activation_quant_proxy.
+            tensor_quant, IdentityQuant):
+            raise Exception(
+                "Can't generate scaling factor without quantization enabled")
+        zero_hw_sentinel = self.act_quant_proxy.zero_hw_sentinel
+        scaling_impl = (self.act_quant_proxy.fused_activation_quant_proxy.
+            tensor_quant.scaling_impl)
+        current_status = scaling_impl.training
+        scaling_impl.eval()
+        _, out, _ = self.act_quant_proxy(zero_hw_sentinel)
+        scaling_impl.train(current_status)
+        return out
 
-@torch.jit.script
-def over_batch_over_tensor(x):
-    return x.shape[0], -1
-
-
-class OverBatchOverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverBatchOverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_output_channels(x):
-    return x.shape[0], -1
-
-
-class OverOutputChannelView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverOutputChannelView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_tensor(x):
-    return -1
-
-
-class OverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-class StatsInputViewShapeImpl(object):
-    OVER_TENSOR = OverTensorView
-    OVER_OUTPUT_CHANNELS = OverOutputChannelView
-    OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
-    OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
-
-
-ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+    def forward(self, input):
+        tensor, _, _ = self.unpack_input(input)
+        output, output_scale, output_bit_width = self.act_quant_proxy(tensor)
+        return self.pack_output(output, output_scale, output_bit_width)
 
 
 class TensorClamp(torch.jit.ScriptModule):
@@ -1445,6 +1600,15 @@ class TensorClamp(torch.jit.ScriptModule):
         return tensor_clamp(x, min_val=min_val, max_val=max_val)
 
 
+OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
+
+
+ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+
+
+SCALING_MIN_VAL = 2e-09
+
+
 class TensorClampSte(torch.jit.ScriptModule):
 
     def __init__(self) ->None:
@@ -1454,6 +1618,20 @@ class TensorClampSte(torch.jit.ScriptModule):
     def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val:
         torch.Tensor):
         return tensor_clamp_ste(x, min_val, max_val)
+
+
+_global_config['REINIT_WEIGHT_QUANT_ON_LOAD'] = 4
+
+
+def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias, affine_only):
+    mul_factor = bn_weight
+    add_factor = bn_bias * torch.sqrt(bn_var + bn_eps)
+    add_factor = add_factor - bn_mean * (bn_weight - 1.0)
+    if not affine_only:
+        mul_factor = mul_factor / torch.sqrt(bn_var + bn_eps)
+        add_factor = add_factor - bn_mean
+        add_factor = add_factor / torch.sqrt(bn_var + bn_eps)
+    return mul_factor, add_factor
 
 
 class ScaleBias(nn.Module):
@@ -1552,19 +1730,71 @@ LAST_FC_IN_FEATURES = 512
 LAST_FC_PER_OUT_CH_SCALING = False
 
 
-FC_OUT_FEATURES = [64, 64, 64]
+class ConstScalarClamp(torch.jit.ScriptModule):
+    __constants__ = ['min_val', 'max_val']
 
+    def __init__(self, min_val, max_val) ->None:
+        super(ConstScalarClamp, self).__init__()
+        self.min_val = min_val
+        self.max_val = max_val
 
-HIDDEN_DROPOUT = 0.2
-
-
-IN_DROPOUT = 0.2
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.clamp(x, min=self.min_val, max=self.max_val)
 
 
 ACT_PER_OUT_CH_SCALING = False
 
 
+HARD_TANH_MAX = 1.0
+
+
+HARD_TANH_MIN = -1.0
+
+
+NARROW_RANGE_ENABLED = True
+
+
+def get_act_quant(act_bit_width, act_quant_type):
+    return QuantHardTanh(quant_type=act_quant_type, bit_width=act_bit_width,
+        bit_width_impl_type=BIT_WIDTH_IMPL_TYPE, min_val=HARD_TANH_MIN,
+        max_val=HARD_TANH_MAX, scaling_impl_type=ACT_SCALING_IMPL_TYPE,
+        restrict_scaling_type=SCALING_VALUE_TYPE, scaling_per_channel=
+        ACT_PER_OUT_CH_SCALING, narrow_range=NARROW_RANGE_ENABLED)
+
+
 BIAS_ENABLED = False
+
+
+CONV_PER_OUT_CH_SCALING = False
+
+
+KERNEL_SIZE = 3
+
+
+WEIGHT_SCALING_CONST = 1.0
+
+
+def get_quant_conv2d(in_ch, out_ch, bit_width, quant_type):
+    return QuantConv2d(in_channels=in_ch, kernel_size=KERNEL_SIZE,
+        out_channels=out_ch, weight_quant_type=quant_type, weight_bit_width
+        =bit_width, weight_narrow_range=NARROW_RANGE_ENABLED,
+        weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE,
+        weight_scaling_const=WEIGHT_SCALING_CONST,
+        weight_scaling_per_output_channel=CONV_PER_OUT_CH_SCALING,
+        weight_restrict_scaling_type=SCALING_VALUE_TYPE,
+        weight_bit_width_impl_type=BIT_WIDTH_IMPL_TYPE, bias=BIAS_ENABLED)
+
+
+def get_quant_linear(in_features, out_features, per_out_ch_scaling,
+    bit_width, quant_type):
+    return QuantLinear(bias=BIAS_ENABLED, in_features=in_features,
+        out_features=out_features, weight_quant_type=quant_type,
+        weight_bit_width=bit_width, weight_scaling_const=
+        WEIGHT_SCALING_CONST, weight_bit_width_impl_type=
+        BIT_WIDTH_IMPL_TYPE, weight_scaling_per_output_channel=
+        per_out_ch_scaling, weight_scaling_impl_type=
+        WEIGHT_SCALING_IMPL_TYPE, weight_narrow_range=NARROW_RANGE_ENABLED)
 
 
 def get_quant_type(bit_width):
@@ -1574,6 +1804,161 @@ def get_quant_type(bit_width):
         return QuantType.BINARY
     else:
         return QuantType.INT
+
+
+class CNV(Module):
+
+    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width
+        =None, in_bit_width=None, in_ch=3):
+        super(CNV, self).__init__()
+        weight_quant_type = get_quant_type(weight_bit_width)
+        act_quant_type = get_quant_type(act_bit_width)
+        in_quant_type = get_quant_type(in_bit_width)
+        max_in_val = 1 - 2 ** -7
+        self.conv_features = ModuleList()
+        self.linear_features = ModuleList()
+        self.conv_features.append(QuantHardTanh(bit_width=in_bit_width,
+            quant_type=in_quant_type, max_val=max_in_val,
+            restrict_scaling_type=RestrictValueType.POWER_OF_TWO,
+            scaling_impl_type=ScalingImplType.CONST))
+        for out_ch, is_pool_enabled in CNV_OUT_CH_POOL:
+            self.conv_features.append(get_quant_conv2d(in_ch=in_ch, out_ch=
+                out_ch, bit_width=weight_bit_width, quant_type=
+                weight_quant_type))
+            in_ch = out_ch
+            self.conv_features.append(BatchNorm2d(in_ch, eps=0.0001))
+            self.conv_features.append(get_act_quant(act_bit_width,
+                act_quant_type))
+            if is_pool_enabled:
+                self.conv_features.append(MaxPool2d(kernel_size=2))
+        for in_features, out_features in INTERMEDIATE_FC_FEATURES:
+            self.linear_features.append(get_quant_linear(in_features=
+                in_features, out_features=out_features, per_out_ch_scaling=
+                INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=
+                weight_bit_width, quant_type=weight_quant_type))
+            self.linear_features.append(BatchNorm1d(out_features, eps=0.0001))
+            self.linear_features.append(get_act_quant(act_bit_width,
+                act_quant_type))
+        self.linear_features.append(get_quant_linear(in_features=
+            LAST_FC_IN_FEATURES, out_features=num_classes,
+            per_out_ch_scaling=LAST_FC_PER_OUT_CH_SCALING, bit_width=
+            weight_bit_width, quant_type=weight_quant_type))
+        self.linear_features.append(TensorNorm())
+        for m in self.modules():
+            if isinstance(m, QuantConv2d) or isinstance(m, QuantLinear):
+                torch.nn.init.uniform_(m.weight.data, -1, 1)
+
+    def clip_weights(self, min_val, max_val):
+        for mod in self.conv_features:
+            if isinstance(mod, QuantConv2d):
+                mod.weight.data.clamp_(min_val, max_val)
+        for mod in self.linear_features:
+            if isinstance(mod, QuantLinear):
+                mod.weight.data.clamp_(min_val, max_val)
+
+    def forward(self, x):
+        x = 2.0 * x - torch.tensor([1.0], device=x.device)
+        for mod in self.conv_features:
+            x = mod(x)
+        x = x.view(x.shape[0], -1)
+        for mod in self.linear_features:
+            x = mod(x)
+        return x
+
+
+FC_OUT_FEATURES = [64, 64, 64]
+
+
+HIDDEN_DROPOUT = 0.2
+
+
+IN_DROPOUT = 0.2
+
+
+class LFC(Module):
+
+    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width
+        =None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
+        super(LFC, self).__init__()
+        weight_quant_type = get_quant_type(weight_bit_width)
+        act_quant_type = get_quant_type(act_bit_width)
+        in_quant_type = get_quant_type(in_bit_width)
+        self.features = ModuleList()
+        self.features.append(get_act_quant(in_bit_width, in_quant_type))
+        self.features.append(Dropout(p=IN_DROPOUT))
+        in_features = reduce(mul, in_features)
+        for out_features in FC_OUT_FEATURES:
+            self.features.append(get_quant_linear(in_features=in_features,
+                out_features=out_features, per_out_ch_scaling=
+                INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=
+                weight_bit_width, quant_type=weight_quant_type))
+            in_features = out_features
+            self.features.append(BatchNorm1d(num_features=in_features))
+            self.features.append(get_act_quant(act_bit_width, act_quant_type))
+            self.features.append(Dropout(p=HIDDEN_DROPOUT))
+        self.features.append(get_quant_linear(in_features=in_features,
+            out_features=num_classes, per_out_ch_scaling=
+            LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width,
+            quant_type=weight_quant_type))
+        self.features.append(BatchNorm1d(num_features=num_classes))
+        for m in self.modules():
+            if isinstance(m, QuantLinear):
+                torch.nn.init.uniform_(m.weight.data, -1, 1)
+
+    def clip_weights(self, min_val, max_val):
+        for mod in self.features:
+            if isinstance(mod, QuantLinear):
+                mod.weight.data.clamp_(min_val, max_val)
+
+    def forward(self, x):
+        x = x.view(x.shape[0], -1)
+        x = 2.0 * x - torch.tensor([1.0], device=x.device)
+        for mod in self.features:
+            x = mod(x)
+        return x
+
+
+class SFC(Module):
+
+    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width
+        =None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
+        super(SFC, self).__init__()
+        weight_quant_type = get_quant_type(weight_bit_width)
+        act_quant_type = get_quant_type(act_bit_width)
+        in_quant_type = get_quant_type(in_bit_width)
+        self.features = ModuleList()
+        self.features.append(get_act_quant(in_bit_width, in_quant_type))
+        self.features.append(Dropout(p=IN_DROPOUT))
+        in_features = reduce(mul, in_features)
+        for out_features in FC_OUT_FEATURES:
+            self.features.append(get_quant_linear(in_features=in_features,
+                out_features=out_features, per_out_ch_scaling=
+                INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=
+                weight_bit_width, quant_type=weight_quant_type))
+            in_features = out_features
+            self.features.append(BatchNorm1d(num_features=in_features))
+            self.features.append(get_act_quant(act_bit_width, act_quant_type))
+            self.features.append(Dropout(p=HIDDEN_DROPOUT))
+        self.features.append(get_quant_linear(in_features=in_features,
+            out_features=num_classes, per_out_ch_scaling=
+            LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width,
+            quant_type=weight_quant_type))
+        self.features.append(BatchNorm1d(num_features=num_classes))
+        for m in self.modules():
+            if isinstance(m, QuantLinear):
+                torch.nn.init.uniform_(m.weight.data, -1, 1)
+
+    def clip_weights(self, min_val, max_val):
+        for mod in self.features:
+            if isinstance(mod, QuantLinear):
+                mod.weight.data.clamp_(min_val, max_val)
+
+    def forward(self, x):
+        x = x.view(x.shape[0], -1)
+        x = 2.0 * x - torch.tensor([1.0], device=x.device)
+        for mod in self.features:
+            x = mod(x)
+        return x
 
 
 class TFC(Module):
@@ -1706,7 +2091,10 @@ class DwsConvBlock(nn.Module):
 ENABLE_BIAS_QUANT = False
 
 
-FIRST_LAYER_BIT_WIDTH = 8
+WEIGHT_NARROW_RANGE = True
+
+
+WEIGHT_SCALING_PER_OUTPUT_CHANNEL = True
 
 
 ACT_MAX_VAL = 1
@@ -1719,6 +2107,97 @@ ACT_RETURN_QUANT_TENSOR = False
 
 
 ACT_SCALING_PER_CHANNEL = False
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size,
+        weight_bit_width, act_bit_width, stride=1, padding=0, groups=1,
+        bn_eps=1e-05, activation_scaling_per_channel=False):
+        super(ConvBlock, self).__init__()
+        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels
+            =out_channels, kernel_size=kernel_size, stride=stride, padding=
+            padding, groups=groups, bias=False, bit_width=weight_bit_width)
+        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
+        self.activation = make_quant_relu(bit_width=act_bit_width,
+            per_channel_broadcastable_shape=(1, out_channels, 1, 1),
+            scaling_per_channel=activation_scaling_per_channel,
+            return_quant_tensor=True)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.activation(x)
+        return x
+
+
+FIRST_LAYER_BIT_WIDTH = 8
+
+
+class MobileNet(nn.Module):
+
+    def __init__(self, channels, first_stage_stride, bit_width, in_channels
+        =3, num_classes=1000):
+        super(MobileNet, self).__init__()
+        init_block_channels = channels[0][0]
+        self.features = Sequential()
+        init_block = ConvBlock(in_channels=in_channels, out_channels=
+            init_block_channels, kernel_size=3, stride=2, weight_bit_width=
+            FIRST_LAYER_BIT_WIDTH, activation_scaling_per_channel=True,
+            act_bit_width=bit_width)
+        self.features.add_module('init_block', init_block)
+        in_channels = init_block_channels
+        for i, channels_per_stage in enumerate(channels[1:]):
+            stage = Sequential()
+            pw_activation_scaling_per_channel = i < len(channels[1:]) - 1
+            for j, out_channels in enumerate(channels_per_stage):
+                stride = 2 if j == 0 and (i != 0 or first_stage_stride) else 1
+                mod = DwsConvBlock(in_channels=in_channels, out_channels=
+                    out_channels, stride=stride, bit_width=bit_width,
+                    pw_activation_scaling_per_channel=
+                    pw_activation_scaling_per_channel)
+                stage.add_module('unit{}'.format(j + 1), mod)
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        self.final_pool = make_quant_avg_pool(kernel_size=7, stride=1,
+            signed=False, bit_width=bit_width)
+        self.output = make_quant_linear(in_channels, num_classes, bias=True,
+            enable_bias_quant=True, bit_width=bit_width,
+            weight_scaling_per_output_channel=False)
+
+    def forward(self, x):
+        quant_tensor = self.features(x)
+        x, scale, bit_width = self.final_pool(quant_tensor)
+        x = x.view(x.size(0), -1)
+        out = self.output(pack_quant_tensor(x, scale, bit_width))
+        return out
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride,
+        padding, weight_bit_width, act_bit_width, act_scaling_per_channel,
+        bias, groups=1, bn_eps=1e-05, shared_act=None, return_quant_tensor=
+        False):
+        super(ConvBlock, self).__init__()
+        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels
+            =out_channels, kernel_size=kernel_size, stride=stride, padding=
+            padding, groups=groups, bias=bias, bit_width=weight_bit_width,
+            weight_scaling_per_output_channel=True)
+        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
+        if shared_act is None:
+            self.activ = make_quant_relu(bit_width=act_bit_width,
+                scaling_per_channel=act_scaling_per_channel,
+                per_channel_broadcastable_shape=(1, out_channels, 1, 1),
+                return_quant_tensor=return_quant_tensor)
+        else:
+            self.activ = shared_act
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.activ(x)
+        return x
 
 
 class ProxylessBlock(nn.Module):
@@ -1797,6 +2276,71 @@ def make_hadamard_classifier(in_channels, out_channels, fixed_scale=
 HARD_TANH_THRESHOLD = 10.0
 
 
+class ProxylessNAS(nn.Module):
+
+    def __init__(self, channels, init_block_channels, final_block_channels,
+        residuals, shortcuts, kernel_sizes, expansions, bit_width,
+        depthwise_bit_width, first_layer_weight_bit_width,
+        hadamard_classifier, bn_eps=0.001, in_channels=3, num_classes=1000):
+        super(ProxylessNAS, self).__init__()
+        self.features = nn.Sequential()
+        init_block = ConvBlock(in_channels=in_channels, out_channels=
+            init_block_channels, kernel_size=3, stride=2, padding=1, groups
+            =1, bn_eps=bn_eps, act_scaling_per_channel=False, bias=False,
+            act_bit_width=bit_width, weight_bit_width=
+            first_layer_weight_bit_width)
+        self.features.add_module('init_block', init_block)
+        in_channels = init_block_channels
+        shared_act = None
+        for i, channels_per_stage in enumerate(channels):
+            stage = nn.Sequential()
+            residuals_per_stage = residuals[i]
+            shortcuts_per_stage = shortcuts[i]
+            kernel_sizes_per_stage = kernel_sizes[i]
+            expansions_per_stage = expansions[i]
+            for j, out_channels in enumerate(channels_per_stage):
+                residual = residuals_per_stage[j] == 1
+                shortcut = shortcuts_per_stage[j] == 1
+                kernel_size = kernel_sizes_per_stage[j]
+                expansion = expansions_per_stage[j]
+                stride = 2 if j == 0 and i != 0 else 1
+                if not shortcut:
+                    shared_act = make_quant_hard_tanh(bit_width=bit_width,
+                        return_quant_tensor=True)
+                unit = ProxylessUnit(in_channels=in_channels, out_channels=
+                    out_channels, kernel_size=kernel_size, stride=stride,
+                    bn_eps=bn_eps, expansion=expansion, residual=residual,
+                    shortcut=shortcut, bit_width=bit_width,
+                    depthwise_bit_width=depthwise_bit_width, shared_act=
+                    shared_act)
+                stage.add_module('unit{}'.format(j + 1), unit)
+                in_channels = out_channels
+            self.features.add_module('stage{}'.format(i + 1), stage)
+        final_block = ConvBlock(in_channels=in_channels, out_channels=
+            final_block_channels, kernel_size=1, stride=1, padding=0,
+            groups=1, bn_eps=bn_eps, act_scaling_per_channel=False,
+            act_bit_width=bit_width, weight_bit_width=bit_width, bias=False,
+            return_quant_tensor=True)
+        self.features.add_module('final_block', final_block)
+        in_channels = final_block_channels
+        self.final_pool = make_quant_avg_pool(kernel_size=7, stride=1,
+            signed=False, bit_width=bit_width)
+        if hadamard_classifier:
+            self.output = make_hadamard_classifier(in_channels=in_channels,
+                out_channels=num_classes)
+        else:
+            self.output = make_quant_linear(in_channels=in_channels,
+                out_channels=num_classes, bias=True, enable_bias_quant=True,
+                bit_width=bit_width, weight_scaling_per_output_channel=False)
+
+    def forward(self, x):
+        x = self.features(x)
+        x, scale, bit_width = self.final_pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.output(pack_quant_tensor(x, scale, bit_width))
+        return x
+
+
 def make_layers(cfg, batch_norm, bit_width):
     layers = []
     in_channels = 3
@@ -1816,7 +2360,40 @@ def make_layers(cfg, batch_norm, bit_width):
     return nn.Sequential(*layers)
 
 
-WEIGHT_NARROW_RANGE = True
+class QuantVGG(nn.Module):
+
+    def __init__(self, cfg, batch_norm, bit_width=8, num_classes=1000):
+        super(QuantVGG, self).__init__()
+        self.features = make_layers(cfg, batch_norm, bit_width)
+        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        self.classifier = nn.Sequential(make_quant_linear(512 * 7 * 7, 4096,
+            bias=True, bit_width=bit_width), make_quant_relu(bit_width), nn
+            .Dropout(), make_quant_linear(4096, 4096, bias=True, bit_width=
+            bit_width), make_quant_relu(bit_width), nn.Dropout(),
+            make_quant_linear(4096, num_classes, bias=False, bit_width=
+            bit_width, weight_scaling_per_output_channel=False))
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                    nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
 
 class AudioPreprocessor(nn.Module):
@@ -2089,6 +2666,679 @@ THREE_CHECK = re.compile('([0-9]{3})([.,][0-9]{1,2})?([!.?])?$')
 TIME_CHECK = re.compile('([0-9]{1,2}):([0-9]{2})(am|pm)?')
 
 
+class NumberCleaner:
+
+    def __init__(self):
+        super().__init__()
+        self.reset()
+
+    def reset(self):
+        self.curr_num = []
+        self.currency = None
+
+    def format_final_number(self, whole_num, decimal):
+        if self.currency:
+            return_string = inflect.number_to_words(whole_num)
+            return_string += ' dollar' if whole_num == 1 else ' dollars'
+            if decimal:
+                return_string += ' and ' + inflect.number_to_words(decimal)
+                return_string += ' cent' if whole_num == decimal else ' cents'
+            self.reset()
+            return return_string
+        self.reset()
+        if decimal:
+            whole_num += '.' + decimal
+            return inflect.number_to_words(whole_num)
+        else:
+
+            def convert_to_word(match):
+                return ' ' + inflect.number_to_words(match.group(0)) + ' '
+            return re.sub('[0-9,]+', convert_to_word, whole_num)
+
+    def clean(self, match):
+        ws = match.group(2)
+        number = match.group(3)
+        _proceeding_symbol = match.group(7)
+        time_match = TIME_CHECK.match(number)
+        if time_match:
+            string = ws + inflect.number_to_words(time_match.group(1)) + '{}{}'
+            mins = int(time_match.group(2))
+            min_string = ''
+            if mins != 0:
+                min_string = ' ' + inflect.number_to_words(time_match.group(2))
+            ampm_string = ''
+            if time_match.group(3):
+                ampm_string = ' ' + time_match.group(3)
+            return string.format(min_string, ampm_string)
+        ord_match = ORD_CHECK.match(number)
+        if ORD_CHECK.match(number):
+            return ws + inflect.number_to_words(ord_match.group(0))
+        if self.currency is None:
+            self.currency = match.group(1) or CURRENCY_CHECK.match(number)
+        three_match = THREE_CHECK.match(match.group(6))
+        if three_match:
+            self.curr_num.append(number)
+            return ' '
+        else:
+            whole_num = ''.join(self.curr_num) + number
+            decimal = None
+            decimal_match = DECIMAL_CHECK.search(whole_num)
+            if decimal_match:
+                decimal = decimal_match.group(1)[1:]
+                whole_num = whole_num[:-len(decimal) - 1]
+            whole_num = re.sub('\\.', '', whole_num)
+            return ws + self.format_final_number(whole_num, decimal)
+
+
+def clean_numbers(string):
+    cleaner = NumberCleaner()
+    string = NUM_CHECK.sub(cleaner.clean, string)
+    return string
+
+
+def clean_punctuations(string, table, punctuation_to_replace):
+    for punc, replacement in punctuation_to_replace.items():
+        string = re.sub('\\{}'.format(punc), ' {} '.format(replacement), string
+            )
+    string = string.translate(table)
+    return string
+
+
+def warn_common_chars(string):
+    if re.search('[£€]', string):
+        print(
+            "WARNING: Your transcript contains one of '£' or '€' which we donot currently handle"
+            )
+
+
+def clean_text(string, table, punctuation_to_replace):
+    warn_common_chars(string)
+    string = unidecode(string)
+    string = string.lower()
+    string = re.sub('\\s+', ' ', string)
+    string = clean_numbers(string)
+    string = clean_abbreviations(string)
+    string = clean_punctuations(string, table, punctuation_to_replace)
+    string = re.sub('\\s+', ' ', string).strip()
+    return string
+
+
+class ManifestEN(ManifestBase):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def normalize_text(text, labels, logger=None):
+        punctuation = string.punctuation
+        punctuation_to_replace = {'+': 'plus', '&': 'and', '%': 'percent'}
+        for char in punctuation_to_replace:
+            punctuation = punctuation.replace(char, '')
+        for l in labels:
+            punctuation = punctuation.replace(l, '')
+        table = str.maketrans(punctuation, ' ' * len(punctuation))
+        try:
+            text = clean_text(text, table, punctuation_to_replace)
+        except BaseException:
+            if logger:
+                logger.warning('WARNING: Normalizing {} failed'.format(text))
+            else:
+                print('WARNING: Normalizing {} failed'.format(text))
+            return None
+        return text
+
+
+class AudioDataset(Dataset):
+    """
+    Dataset that loads tensors via a json file containing paths to audio
+    files, transcripts, and durations (in seconds). Each new line is a
+    different sample. Example below:
+
+    {"audio_filepath": "/path/to/audio.wav", "text_filepath":
+    "/path/to/audio.txt", "duration": 23.147}
+    ...
+    {"audio_filepath": "/path/to/audio.wav", "text": "the
+    transcription", offset": 301.75, "duration": 0.82, "utt":
+    "utterance_id", "ctm_utt": "en_4156", "side": "A"}
+
+    Args:
+        manifest_filepath: Path to manifest json as described above. Can
+            be comma-separated paths.
+        labels: String containing all the possible characters to map to
+        featurizer: Initialized featurizer class that converts paths of
+            audio to feature tensors
+        max_duration: If audio exceeds this length, do not include in dataset
+        min_duration: If audio is less than this length, do not include
+            in dataset
+        max_utts: Limit number of utterances
+        blank_index: blank character index, default = -1
+        unk_index: unk_character index, default = -1
+        normalize: whether to normalize transcript text (default): True
+        bos_id: Id of beginning of sequence symbol to append if not None
+        eos_id: Id of end of sequence symbol to append if not None
+        load_audio: Boolean flag indicate whether do or not load audio
+    """
+
+    def __init__(self, manifest_filepath, labels, featurizer, max_duration=
+        None, min_duration=None, max_utts=0, blank_index=-1, unk_index=-1,
+        normalize=True, trim=False, bos_id=None, eos_id=None, logger=False,
+        load_audio=True, manifest_class=ManifestEN):
+        m_paths = manifest_filepath.split(',')
+        self.manifest = manifest_class(m_paths, labels, max_duration=
+            max_duration, min_duration=min_duration, max_utts=max_utts,
+            blank_index=blank_index, unk_index=unk_index, normalize=
+            normalize, logger=logger)
+        self.featurizer = featurizer
+        self.trim = trim
+        self.eos_id = eos_id
+        self.bos_id = bos_id
+        self.load_audio = load_audio
+        if logger:
+            logger.info(
+                'Dataset loaded with {0:.2f} hours. Filtered {1:.2f} hours.'
+                .format(self.manifest.duration / 3600, self.manifest.
+                filtered_duration / 3600))
+
+    def __getitem__(self, index):
+        sample = self.manifest[index]
+        if self.load_audio:
+            duration = sample['duration'] if 'duration' in sample else 0
+            offset = sample['offset'] if 'offset' in sample else 0
+            features = self.featurizer.process(sample['audio_filepath'],
+                offset=offset, duration=duration, trim=self.trim)
+            f, fl = features, torch.tensor(features.shape[0]).long()
+        else:
+            f, fl = None, None
+        t, tl = sample['tokens'], len(sample['tokens'])
+        if self.bos_id is not None:
+            t = [self.bos_id] + t
+            tl += 1
+        if self.eos_id is not None:
+            t = t + [self.eos_id]
+            tl += 1
+        return f, fl, torch.tensor(t).long(), torch.tensor(tl).long()
+
+    def __len__(self):
+        return len(self.manifest)
+
+
+class Perturbation(object):
+
+    def max_augmentation_length(self, length):
+        return length
+
+    def perturb(self, data):
+        raise NotImplementedError
+
+
+class GainPerturbation(Perturbation):
+
+    def __init__(self, min_gain_dbfs=-10, max_gain_dbfs=10, rng=None):
+        self._min_gain_dbfs = min_gain_dbfs
+        self._max_gain_dbfs = max_gain_dbfs
+        self._rng = random.Random() if rng is None else rng
+
+    def perturb(self, data):
+        gain = self._rng.uniform(self._min_gain_dbfs, self._max_gain_dbfs)
+        data._samples = data._samples * 10.0 ** (gain / 20.0)
+
+
+class AudioSegment(object):
+    """Monaural audio segment abstraction.
+    :param samples: Audio samples [num_samples x num_channels].
+    :type samples: ndarray.float32
+    :param sample_rate: Audio sample rate.
+    :type sample_rate: int
+    :raises TypeError: If the sample data type is not float or int.
+    """
+
+    def __init__(self, samples, sample_rate, target_sr=None, trim=False,
+        trim_db=60):
+        """Create audio segment from samples.
+        Samples are convert float32 internally, with int scaled to [-1, 1].
+        """
+        samples = self._convert_samples_to_float32(samples)
+        if target_sr is not None and target_sr != sample_rate:
+            samples = librosa.core.resample(samples, sample_rate, target_sr)
+            sample_rate = target_sr
+        if trim:
+            samples, _ = librosa.effects.trim(samples, trim_db)
+        self._samples = samples
+        self._sample_rate = sample_rate
+        if self._samples.ndim >= 2:
+            self._samples = np.mean(self._samples, 1)
+
+    def __eq__(self, other):
+        """Return whether two objects are equal."""
+        if type(other) is not type(self):
+            return False
+        if self._sample_rate != other._sample_rate:
+            return False
+        if self._samples.shape != other._samples.shape:
+            return False
+        if np.any(self.samples != other._samples):
+            return False
+        return True
+
+    def __ne__(self, other):
+        """Return whether two objects are unequal."""
+        return not self.__eq__(other)
+
+    def __str__(self):
+        """Return human-readable representation of segment."""
+        return (
+            '%s: num_samples=%d, sample_rate=%d, duration=%.2fsec, rms=%.2fdB'
+             % (type(self), self.num_samples, self.sample_rate, self.
+            duration, self.rms_db))
+
+    @staticmethod
+    def _convert_samples_to_float32(samples):
+        """Convert sample type to float32.
+        Audio sample type is usually integer or float-point.
+        Integers will be scaled to [-1, 1] in float32.
+        """
+        float32_samples = samples.astype('float32')
+        if samples.dtype in np.sctypes['int']:
+            bits = np.iinfo(samples.dtype).bits
+            float32_samples *= 1.0 / 2 ** (bits - 1)
+        elif samples.dtype in np.sctypes['float']:
+            pass
+        else:
+            raise TypeError('Unsupported sample type: %s.' % samples.dtype)
+        return float32_samples
+
+    @classmethod
+    def from_file(cls, filename, target_sr=None, int_values=False, offset=0,
+        duration=0, trim=False):
+        """
+        Load a file supported by librosa and return as an AudioSegment.
+        :param filename: path of file to load
+        :param target_sr: the desired sample rate
+        :param int_values: if true, load samples as 32-bit integers
+        :param offset: offset in seconds when loading audio
+        :param duration: duration in seconds when loading audio
+        :return: numpy array of samples
+        """
+        with sf.SoundFile(filename, 'r') as f:
+            dtype = 'int32' if int_values else 'float32'
+            sample_rate = f.samplerate
+            if offset > 0:
+                f.seek(int(offset * sample_rate))
+            if duration > 0:
+                samples = f.read(int(duration * sample_rate), dtype=dtype)
+            else:
+                samples = f.read(dtype=dtype)
+        samples = samples.transpose()
+        return cls(samples, sample_rate, target_sr=target_sr, trim=trim)
+
+    @classmethod
+    def segment_from_file(cls, filename, target_sr=None, n_segments=0, trim
+        =False):
+        """Grabs n_segments number of samples from filename randomly from the
+        file as opposed to at a specified offset.
+        """
+        with sf.SoundFile(filename, 'r') as f:
+            sample_rate = f.samplerate
+            if n_segments > 0 and len(f) > n_segments:
+                max_audio_start = len(f) - n_segments
+                audio_start = random.randint(0, max_audio_start)
+                f.seek(audio_start)
+                samples = f.read(n_segments, dtype='float32')
+            else:
+                samples = f.read(dtype='float32')
+        samples = samples.transpose()
+        return cls(samples, sample_rate, target_sr=target_sr, trim=trim)
+
+    @property
+    def samples(self):
+        return self._samples.copy()
+
+    @property
+    def sample_rate(self):
+        return self._sample_rate
+
+    @property
+    def num_samples(self):
+        return self._samples.shape[0]
+
+    @property
+    def duration(self):
+        return self._samples.shape[0] / float(self._sample_rate)
+
+    @property
+    def rms_db(self):
+        mean_square = np.mean(self._samples ** 2)
+        return 10 * np.log10(mean_square)
+
+    def gain_db(self, gain):
+        self._samples *= 10.0 ** (gain / 20.0)
+
+    def pad(self, pad_size, symmetric=False):
+        """Add zero padding to the sample. The pad size is given in number
+        of samples.
+        If symmetric=True, `pad_size` will be added to both sides. If false,
+        `pad_size`
+        zeros will be added only to the end.
+        """
+        self._samples = np.pad(self._samples, (pad_size if symmetric else 0,
+            pad_size), mode='constant')
+
+    def subsegment(self, start_time=None, end_time=None):
+        """Cut the AudioSegment between given boundaries.
+        Note that this is an in-place transformation.
+        :param start_time: Beginning of subsegment in seconds.
+        :type start_time: float
+        :param end_time: End of subsegment in seconds.
+        :type end_time: float
+        :raise ValueError: If start_time or end_time is incorrectly set,
+        e.g. out
+                           of bounds in time.
+        """
+        start_time = 0.0 if start_time is None else start_time
+        end_time = self.duration if end_time is None else end_time
+        if start_time < 0.0:
+            start_time = self.duration + start_time
+        if end_time < 0.0:
+            end_time = self.duration + end_time
+        if start_time < 0.0:
+            raise ValueError(
+                'The slice start position (%f s) is out of bounds.' %
+                start_time)
+        if end_time < 0.0:
+            raise ValueError(
+                'The slice end position (%f s) is out of bounds.' % end_time)
+        if start_time > end_time:
+            raise ValueError(
+                'The slice start position (%f s) is later than the end position (%f s).'
+                 % (start_time, end_time))
+        if end_time > self.duration:
+            raise ValueError(
+                'The slice end position (%f s) is out of bounds (> %f s)' %
+                (end_time, self.duration))
+        start_sample = int(round(start_time * self._sample_rate))
+        end_sample = int(round(end_time * self._sample_rate))
+        self._samples = self._samples[start_sample:end_sample]
+
+
+class ImpulsePerturbation(Perturbation):
+
+    def __init__(self, manifest_path=None, rng=None):
+        self._manifest = ManifestEN(manifest_path)
+        self._rng = random.Random() if rng is None else rng
+
+    def perturb(self, data):
+        impulse_record = self._rng.sample(self._manifest.data, 1)[0]
+        impulse = AudioSegment.from_file(impulse_record['audio_filepath'],
+            target_sr=data.sample_rate)
+        data._samples = signal.fftconvolve(data.samples, impulse.samples,
+            'full')
+
+
+class NoisePerturbation(Perturbation):
+
+    def __init__(self, manifest_path=None, min_snr_db=40, max_snr_db=50,
+        max_gain_db=300.0, rng=None):
+        self._manifest = ManifestEN(manifest_path)
+        self._rng = random.Random() if rng is None else rng
+        self._min_snr_db = min_snr_db
+        self._max_snr_db = max_snr_db
+        self._max_gain_db = max_gain_db
+
+    def perturb(self, data):
+        snr_db = self._rng.uniform(self._min_snr_db, self._max_snr_db)
+        noise_record = self._rng.sample(self._manifest.data, 1)[0]
+        noise = AudioSegment.from_file(noise_record['audio_filepath'],
+            target_sr=data.sample_rate)
+        noise_gain_db = min(data.rms_db - noise.rms_db - snr_db, self.
+            _max_gain_db)
+        start_time = self._rng.uniform(0.0, noise.duration - data.duration)
+        noise.subsegment(start_time=start_time, end_time=start_time + data.
+            duration)
+        noise.gain_db(noise_gain_db)
+        data._samples = data._samples + noise.samples
+
+
+class ShiftPerturbation(Perturbation):
+
+    def __init__(self, min_shift_ms=-5.0, max_shift_ms=5.0, rng=None):
+        self._min_shift_ms = min_shift_ms
+        self._max_shift_ms = max_shift_ms
+        self._rng = random.Random() if rng is None else rng
+
+    def perturb(self, data):
+        shift_ms = self._rng.uniform(self._min_shift_ms, self._max_shift_ms)
+        if abs(shift_ms) / 1000 > data.duration:
+            return
+        shift_samples = int(shift_ms * data.sample_rate // 1000)
+        if shift_samples < 0:
+            data._samples[-shift_samples:] = data._samples[:shift_samples]
+            data._samples[:-shift_samples] = 0
+        elif shift_samples > 0:
+            data._samples[:-shift_samples] = data._samples[shift_samples:]
+            data._samples[-shift_samples:] = 0
+
+
+class SpeedPerturbation(Perturbation):
+
+    def __init__(self, min_speed_rate=0.85, max_speed_rate=1.15, rng=None):
+        self._min_rate = min_speed_rate
+        self._max_rate = max_speed_rate
+        self._rng = random.Random() if rng is None else rng
+
+    def max_augmentation_length(self, length):
+        return length * self._max_rate
+
+    def perturb(self, data):
+        speed_rate = self._rng.uniform(self._min_rate, self._max_rate)
+        if speed_rate <= 0:
+            raise ValueError('speed_rate should be greater than zero.')
+        data._samples = librosa.effects.time_stretch(data._samples, speed_rate)
+
+
+perturbation_types = {'speed': SpeedPerturbation, 'gain': GainPerturbation,
+    'impulse': ImpulsePerturbation, 'shift': ShiftPerturbation, 'noise':
+    NoisePerturbation}
+
+
+class AudioAugmentor(object):
+
+    def __init__(self, perturbations=None, rng=None):
+        self._rng = random.Random() if rng is None else rng
+        self._pipeline = perturbations if perturbations is not None else []
+
+    def perturb(self, segment):
+        for prob, p in self._pipeline:
+            if self._rng.random() < prob:
+                p.perturb(segment)
+        return
+
+    def max_augmentation_length(self, length):
+        newlen = length
+        for prob, p in self._pipeline:
+            newlen = p.max_augmentation_length(newlen)
+        return newlen
+
+    @classmethod
+    def from_config(cls, config):
+        ptbs = []
+        for p in config:
+            if p['aug_type'] not in perturbation_types:
+                print(p['aug_type'], 'perturbation not known. Skipping.')
+                continue
+            perturbation = perturbation_types[p['aug_type']]
+            ptbs.append((p['prob'], perturbation(**p['cfg'])))
+        return cls(perturbations=ptbs)
+
+
+class WaveformFeaturizer(object):
+
+    def __init__(self, sample_rate=16000, int_values=False, augmentor=None):
+        self.augmentor = (augmentor if augmentor is not None else
+            AudioAugmentor())
+        self.sample_rate = sample_rate
+        self.int_values = int_values
+
+    def max_augmentation_length(self, length):
+        return self.augmentor.max_augmentation_length(length)
+
+    def process(self, file_path, offset=0, duration=0, trim=False):
+        audio = AudioSegment.from_file(file_path, target_sr=self.
+            sample_rate, int_values=self.int_values, offset=offset,
+            duration=duration, trim=trim)
+        return self.process_segment(audio)
+
+    def process_segment(self, audio_segment):
+        self.augmentor.perturb(audio_segment)
+        return torch.tensor(audio_segment.samples, dtype=torch.float)
+
+    @classmethod
+    def from_config(cls, input_config, perturbation_configs=None):
+        if perturbation_configs is not None:
+            aa = AudioAugmentor.from_config(perturbation_configs)
+        else:
+            aa = None
+        sample_rate = input_config.get('sample_rate', 16000)
+        int_values = input_config.get('int_values', False)
+        return cls(sample_rate=sample_rate, int_values=int_values, augmentor=aa
+            )
+
+
+def seq_collate_fn(batch, token_pad_value=0):
+    """collate batch of audio sig, audio len, tokens, tokens len
+
+    Args:
+        batch (Optional[FloatTensor], Optional[LongTensor], LongTensor,
+               LongTensor):  A tuple of tuples of signal, signal lengths,
+               encoded tokens, and encoded tokens length.  This collate func
+               assumes the signals are 1d torch tensors (i.e. mono audio).
+
+    """
+    _, audio_lengths, _, tokens_lengths = zip(*batch)
+    max_audio_len = 0
+    has_audio = audio_lengths[0] is not None
+    if has_audio:
+        max_audio_len = max(audio_lengths).item()
+    max_tokens_len = max(tokens_lengths).item()
+    audio_signal, tokens = [], []
+    for sig, sig_len, tokens_i, tokens_i_len in batch:
+        if has_audio:
+            sig_len = sig_len.item()
+            if sig_len < max_audio_len:
+                pad = 0, max_audio_len - sig_len
+                sig = torch.nn.functional.pad(sig, pad)
+            audio_signal.append(sig)
+        tokens_i_len = tokens_i_len.item()
+        if tokens_i_len < max_tokens_len:
+            pad = 0, max_tokens_len - tokens_i_len
+            tokens_i = torch.nn.functional.pad(tokens_i, pad, value=
+                token_pad_value)
+        tokens.append(tokens_i)
+    if has_audio:
+        audio_signal = torch.stack(audio_signal)
+        audio_lengths = torch.stack(audio_lengths)
+    else:
+        audio_signal, audio_lengths = None, None
+    tokens = torch.stack(tokens)
+    tokens_lengths = torch.stack(tokens_lengths)
+    return audio_signal, audio_lengths, tokens, tokens_lengths
+
+
+class AudioToTextDataLayer(nn.Module):
+    """Data Layer for general ASR tasks.
+
+    Module which reads ASR labeled data. It accepts comma-separated
+    JSON manifest files describing the correspondence between wav audio files
+    and their transcripts. JSON files should be of the following format::
+
+        {"audio_filepath": path_to_wav_0, "duration": time_in_sec_0, "text": transcript_0}
+        ...
+        {"audio_filepath": path_to_wav_n, "duration": time_in_sec_n, "text": transcript_n}
+
+    Args:
+        manifest_filepath (str): Dataset parameter.
+            Path to JSON containing data.
+        labels (list): Dataset parameter.
+            List of characters that can be output by the ASR model.
+            For Jasper, this is the 28 character set {a-z '}. The CTC blank
+            symbol is automatically added later for models using ctc.
+        batch_size (int): batch size
+        sample_rate (int): Target sampling rate for data. Audio files will be
+            resampled to sample_rate if it is not already.
+            Defaults to 16000.
+        int_values (bool): Bool indicating whether the audio file is saved as
+            int data or float data.
+            Defaults to False.
+        eos_id (str): Dataset parameter.
+            End of string symbol used for seq2seq models.
+            Defaults to None.
+        min_duration (float): Dataset parameter.
+            All training files which have a duration less than min_duration
+            are dropped. Note: Duration is read from the manifest JSON.
+            Defaults to 0.1.
+        max_duration (float): Dataset parameter.
+            All training files which have a duration more than max_duration
+            are dropped. Note: Duration is read from the manifest JSON.
+            Defaults to None.
+        normalize_transcripts (bool): Dataset parameter.
+            Whether to use automatic text cleaning.
+            It is highly recommended to manually clean text for best results.
+            Defaults to True.
+        trim_silence (bool): Whether to use trim silence from beginning and end
+            of audio signal using librosa.effects.trim().
+            Defaults to False.
+        load_audio (bool): Dataset parameter.
+            Controls whether the dataloader loads the audio signal and
+            transcript or just the transcript.
+            Defaults to True.
+        drop_last (bool): See PyTorch DataLoader.
+            Defaults to False.
+        shuffle (bool): See PyTorch DataLoader.
+            Defaults to True.
+        num_workers (int): See PyTorch DataLoader.
+            Defaults to 0.
+        perturb_config (dict): Currently disabled.
+    """
+
+    def __init__(self, *, manifest_filepath, labels, batch_size,
+        sample_rate=16000, int_values=False, bos_id=None, eos_id=None,
+        pad_id=None, min_duration=0.1, max_duration=None,
+        normalize_transcripts=True, trim_silence=False, load_audio=True,
+        drop_last=False, shuffle=True, num_workers=4, placement='cpu', **kwargs
+        ):
+        super().__init__()
+        self._featurizer = WaveformFeaturizer(sample_rate=sample_rate,
+            int_values=int_values, augmentor=None)
+        dataset_params = {'manifest_filepath': manifest_filepath, 'labels':
+            labels, 'featurizer': self._featurizer, 'max_duration':
+            max_duration, 'min_duration': min_duration, 'normalize':
+            normalize_transcripts, 'trim': trim_silence, 'bos_id': bos_id,
+            'eos_id': eos_id, 'logger': None, 'load_audio': load_audio}
+        self._dataset = AudioDataset(**dataset_params)
+        if placement == 'cuda':
+            None
+            sampler = torch.utils.data.distributed.DistributedSampler(self.
+                _dataset)
+        else:
+            sampler = None
+        pad_id = 0 if pad_id is None else pad_id
+        self._dataloader = torch.utils.data.DataLoader(dataset=self.
+            _dataset, batch_size=batch_size, collate_fn=partial(
+            seq_collate_fn, token_pad_value=pad_id), drop_last=drop_last,
+            shuffle=shuffle if sampler is None else False, sampler=sampler,
+            num_workers=num_workers)
+
+    def __len__(self):
+        return len(self._dataset)
+
+    @property
+    def dataset(self):
+        return None
+
+    @property
+    def data_iterator(self):
+        return self._dataloader
+
+
 class GreedyCTCDecoder(nn.Module):
     """
     Greedy decoder that computes the argmax over a softmax distribution
@@ -2311,6 +3561,64 @@ class FilterbankFeatures(nn.Module):
 BIAS_CONFIGS = False
 
 
+def make_quantconv1d(feat_in, feat_out, kernel_size, stride, padding,
+    bit_width, dilation=1, group=1):
+    return quant_nn.QuantConv1d(in_channels=feat_in, out_channels=feat_out,
+        kernel_size=kernel_size, stride=stride, padding=padding, dilation=
+        dilation, groups=group, weight_bit_width=bit_width,
+        weight_quant_type=QUANT_TYPE, weight_narrow_range=
+        WEIGHT_NARROW_RANGE, weight_scaling_impl_type=
+        WEIGHT_SCALING_IMPL_TYPE, weight_scaling_stats_op=
+        WEIGHT_SCALING_STATS_OP, weight_scaling_min_val=SCALING_MIN_VAL,
+        bias_bit_width=bit_width, bias_quant_type=QUANT_TYPE_BIAS,
+        bias_narrow_range=BIAS_CONFIGS, compute_output_scale=BIAS_CONFIGS,
+        compute_output_bit_width=BIAS_CONFIGS, return_quant_tensor=False)
+
+
+class MaskedConv1d(nn.Module):
+    __constants__ = ['use_conv_mask', 'real_out_channels', 'heads']
+
+    def __init__(self, in_channels, out_channels, kernel_size,
+        scaling_per_channel, bit_width, stride=1, padding=0, dilation=1,
+        groups=1, heads=-1, bias=False, use_mask=True):
+        super(MaskedConv1d, self).__init__()
+        if not (heads == -1 or groups == in_channels):
+            raise ValueError('Only use heads for depthwise convolutions')
+        self.real_out_channels = out_channels
+        if heads != -1:
+            in_channels = heads
+            out_channels = heads
+            groups = heads
+        self.conv = make_quantconv1d(in_channels, out_channels, kernel_size,
+            bias=bias, stride=stride, padding=padding, dilation=dilation,
+            groups=groups, scaling_per_channel=scaling_per_channel,
+            bit_width=bit_width)
+        self.is_depthwise = (in_channels == out_channels and in_channels ==
+            groups)
+        self.use_mask = use_mask
+        self.heads = heads
+
+    def get_seq_len(self, lens):
+        return (lens + 2 * self.conv.padding[0] - self.conv.dilation[0] * (
+            self.conv.kernel_size[0] - 1) - 1) / self.conv.stride[0] + 1
+
+    def forward(self, x, lens):
+        if self.use_mask:
+            lens = lens
+            max_len = x.size(2)
+            mask = torch.arange(max_len).expand(len(lens), max_len
+                ) >= lens.unsqueeze(1)
+            x = x.masked_fill(mask.unsqueeze(1), 0)
+            lens = self.get_seq_len(lens)
+        sh = x.shape
+        if self.heads != -1:
+            x = x.view(-1, self.heads, sh[-1])
+        out = self.conv(x)
+        if self.heads != -1:
+            out = out.view(sh[0], self.real_out_channels, -1)
+        return out, lens
+
+
 class GroupShuffle(nn.Module):
 
     def __init__(self, groups, channels):
@@ -2332,6 +3640,282 @@ def get_same_padding(kernel_size, stride, dilation):
     if dilation > 1:
         return dilation * kernel_size // 2 - 1
     return kernel_size // 2
+
+
+def make_jasper_activation(activation, channels, bit_width,
+    absolute_act_val, scaling_per_channel):
+    brevitas_activation = brevitas_activations[activation]
+    return brevitas_activation(bit_width=bit_width, scaling_per_channel=
+        scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=
+        ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, max_val=
+        absolute_act_val, per_channel_broadcastable_shape=(1, channels, 1),
+        scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=False)
+
+
+def make_norm_scale(bit_width, absolute_act_val, scaling_per_channel):
+    return quant_nn.QuantHardTanh(bit_width=bit_width, scaling_per_channel=
+        scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=
+        ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, max_val=
+        absolute_act_val, min_val=-absolute_act_val,
+        scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=True)
+
+
+class JasperBlock(nn.Module):
+    __constants__ = ['conv_mask', 'separable', 'residual_mode', 'res', 'mconv']
+
+    def __init__(self, inplanes, planes, bit_width, absolute_act_val,
+        activation_inner_scaling_per_output_channel,
+        activation_other_scaling_per_output_channel,
+        weight_scaling_per_output_channel, repeat=3, kernel_size=11, stride
+        =1, dilation=1, padding='same', dropout=0.2, activation=None,
+        residual=True, groups=1, separable=False, heads=-1, normalization=
+        'batch', norm_groups=1, residual_mode='add', residual_panes=[],
+        conv_mask=False, fused_bn=False):
+        super(JasperBlock, self).__init__()
+        if padding != 'same':
+            raise ValueError("currently only 'same' padding is supported")
+        self.fused_bn = fused_bn
+        padding_val = get_same_padding(kernel_size[0], stride[0], dilation[0])
+        self.conv_mask = conv_mask
+        self.separable = separable
+        self.residual_mode = residual_mode
+        self.quant_normalization = make_norm_scale(bit_width=bit_width,
+            absolute_act_val=absolute_act_val, scaling_per_channel=
+            activation_other_scaling_per_output_channel)
+        self.conv_module_to_merge = []
+        inplanes_loop = inplanes
+        conv = nn.ModuleList()
+        self.norm_depthwise = nn.ModuleList()
+        for _ in range(repeat - 1):
+            if separable:
+                self.norm_depthwise.extend([make_norm_scale(bit_width=
+                    bit_width, absolute_act_val=absolute_act_val,
+                    scaling_per_channel=
+                    activation_other_scaling_per_output_channel)])
+            conv.extend(self._get_conv_bn_layer(inplanes_loop, planes,
+                kernel_size=kernel_size, stride=stride, dilation=dilation,
+                padding=padding_val, groups=groups, heads=heads, separable=
+                separable, normalization=normalization, norm_groups=
+                norm_groups, bit_width=bit_width, scaling_per_channel=
+                weight_scaling_per_output_channel))
+            conv.extend(self._get_act_dropout_layer(drop_prob=dropout,
+                activation=activation, channels=planes, bit_width=bit_width,
+                absolute_act_val=absolute_act_val, scaling_per_channel=
+                activation_inner_scaling_per_output_channel))
+            inplanes_loop = planes
+        if separable:
+            self.norm_depthwise.extend([make_norm_scale(bit_width=bit_width,
+                absolute_act_val=absolute_act_val, scaling_per_channel=
+                activation_other_scaling_per_output_channel)])
+        conv.extend(self._get_conv_bn_layer(inplanes_loop, planes,
+            kernel_size=kernel_size, stride=stride, dilation=dilation,
+            padding=padding_val, groups=groups, heads=heads, separable=
+            separable, normalization=normalization, norm_groups=norm_groups,
+            bit_width=bit_width, scaling_per_channel=
+            weight_scaling_per_output_channel))
+        self.mconv = conv
+        res_panes = residual_panes.copy()
+        self.dense_residual = residual
+        if residual:
+            res_list = nn.ModuleList()
+            if len(residual_panes) == 0:
+                res_panes = [inplanes]
+                self.dense_residual = False
+            for ip in res_panes:
+                res_list.append(nn.ModuleList(self._get_conv_bn_layer(ip,
+                    planes, kernel_size=1, normalization=normalization,
+                    norm_groups=norm_groups, bit_width=bit_width,
+                    scaling_per_channel=weight_scaling_per_output_channel)))
+            self.res = res_list
+        else:
+            self.res = None
+        self.mout = nn.Sequential(*self._get_act_dropout_layer(drop_prob=
+            dropout, activation=activation, channels=inplanes_loop,
+            absolute_act_val=absolute_act_val, scaling_per_channel=
+            activation_other_scaling_per_output_channel, bit_width=bit_width))
+
+    def _get_conv(self, in_channels, out_channels, bit_width,
+        scaling_per_channel, kernel_size=11, stride=1, dilation=1, padding=
+        0, bias=False, groups=1, heads=-1, separable=False):
+        use_mask = self.conv_mask
+        if use_mask:
+            return MaskedConv1d(in_channels, out_channels, kernel_size,
+                stride=stride, dilation=dilation, padding=padding, bias=
+                bias, groups=groups, heads=heads, use_mask=use_mask,
+                scaling_per_channel=scaling_per_channel, bit_width=bit_width)
+        else:
+            return make_quantconv1d(in_channels, out_channels, kernel_size,
+                stride=stride, dilation=dilation, padding=padding, groups=
+                groups, bias=bias, scaling_per_channel=scaling_per_channel,
+                bit_width=bit_width)
+
+    def _get_conv_bn_layer(self, in_channels, out_channels, bit_width,
+        scaling_per_channel, kernel_size=11, stride=1, dilation=1, padding=
+        0, bias=False, groups=1, heads=-1, separable=False, normalization=
+        'batch', norm_groups=1):
+        if norm_groups == -1:
+            norm_groups = out_channels
+        if separable:
+            layers = [self._get_conv(in_channels, in_channels, kernel_size=
+                kernel_size, stride=stride, dilation=dilation, padding=
+                padding, groups=in_channels, heads=heads, bias=bias,
+                scaling_per_channel=scaling_per_channel, bit_width=
+                bit_width), self._get_conv(in_channels, out_channels,
+                kernel_size=1, stride=1, dilation=1, padding=0, groups=
+                groups, bias=bias, scaling_per_channel=scaling_per_channel,
+                bit_width=bit_width)]
+        else:
+            layers = [self._get_conv(in_channels, out_channels, kernel_size
+                =kernel_size, scaling_per_channel=scaling_per_channel,
+                bit_width=bit_width, stride=stride, bias=bias, dilation=
+                dilation, padding=padding, groups=groups)]
+        if normalization == 'group':
+            layers.append(nn.GroupNorm(num_groups=norm_groups, num_channels
+                =out_channels))
+        elif normalization == 'instance':
+            layers.append(nn.GroupNorm(num_groups=out_channels,
+                num_channels=out_channels))
+        elif normalization == 'layer':
+            layers.append(nn.GroupNorm(num_groups=1, num_channels=out_channels)
+                )
+        elif normalization == 'batch':
+            if self.fused_bn:
+                self.conv_module_to_merge.append(layers[-1])
+                layers.append(nn.Identity())
+            else:
+                layers.append(nn.BatchNorm1d(out_channels, eps=0.001,
+                    momentum=0.1))
+        else:
+            raise ValueError(
+                f'Normalization method ({normalization}) does not match one of [batch, layer, group, instance].'
+                )
+        if groups > 1:
+            layers.append(GroupShuffle(groups, out_channels))
+        return layers
+
+    def _get_act_dropout_layer(self, channels, bit_width, absolute_act_val,
+        scaling_per_channel, drop_prob=0.2, activation=None):
+        if activation is None:
+            raise Exception('Activation required')
+        layers = [make_jasper_activation(activation, channels, bit_width=
+            bit_width, absolute_act_val=absolute_act_val,
+            scaling_per_channel=scaling_per_channel), nn.Dropout(p=drop_prob)]
+        return layers
+
+    def forward(self, input_: Tuple[List[Tensor], Optional[Tensor]]):
+        lens_orig = None
+        xs = input_[0]
+        if len(input_) == 2:
+            xs, lens_orig = input_
+        out = xs[-1]
+        count_norm = 0
+        lens = lens_orig
+        check_flag = False
+        for i, l in enumerate(self.mconv):
+            if isinstance(l, MaskedConv1d):
+                out, lens = l(out, lens)
+                check_flag = check_flag or l.is_depthwise
+                if l.is_depthwise:
+                    out, scale, bit = self.norm_depthwise[count_norm](out)
+                    count_norm += 1
+            else:
+                out = l(out)
+        if check_flag:
+            assert len(self.norm_depthwise) == count_norm
+        if self.res is not None:
+            out = self.quant_normalization(out)
+            if self.training:
+                out, scale, bit = out
+            for i, layer in enumerate(self.res):
+                res_out = xs[i]
+                for j, res_layer in enumerate(layer):
+                    if isinstance(res_layer, MaskedConv1d):
+                        res_out, _ = res_layer(res_out, lens_orig)
+                    else:
+                        res_out = res_layer(res_out)
+                res_out = self.quant_normalization(res_out)
+                if self.training:
+                    res_out, scale, bit = res_out
+                if self.residual_mode == 'add':
+                    out = out + res_out
+                else:
+                    out = torch.max(out, res_out)
+        if isinstance(out, QuantTensor):
+            out, scale, bit = out
+        out = self.mout(out)
+        if self.res is not None and self.dense_residual:
+            return xs + [out], lens
+        return [out], lens
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata,
+        strict, missing_keys, unexpected_keys, error_msgs):
+        if self.fused_bn:
+            self.fuse_bn(state_dict, prefix)
+        super(JasperBlock, self)._load_from_state_dict(state_dict, prefix,
+            local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+    def fuse_bn(self, state_dict, prefix):
+        index = 0
+        flag = False
+        keys_to_check = []
+        keys_to_delete = []
+        for k in state_dict.keys():
+            if k.startswith(prefix):
+                keys_to_check.append(k)
+                if k.split('.')[-1] == 'running_mean':
+                    flag = True
+        if flag:
+            for name in keys_to_check:
+                prefix_long = name.split('.')[:-1]
+                if name.split('.')[-1] == 'running_mean':
+                    bn_prefix = '.'.join(prefix_long)
+                    module_number = int(prefix_long[-1])
+                    conv_name = prefix_long[:-1] + [str(module_number - 1)] + [
+                        'conv']
+                    conv_name = '.'.join(conv_name)
+                    conv_mod = self.conv_module_to_merge[index]
+                    index = index + 1
+                    bn_weight_key = '.'.join([bn_prefix, 'weight'])
+                    bn_bias_key = '.'.join([bn_prefix, 'bias'])
+                    bn_running_mean_key = '.'.join([bn_prefix, 'running_mean'])
+                    bn_running_var_key = '.'.join([bn_prefix, 'running_var'])
+                    bn_num_batches_traked_key = '.'.join([bn_prefix,
+                        'num_batches_tracked'])
+                    keys_to_delete = keys_to_delete + [bn_bias_key]
+                    keys_to_delete = keys_to_delete + [bn_weight_key]
+                    keys_to_delete = keys_to_delete + [bn_running_mean_key]
+                    keys_to_delete = keys_to_delete + [bn_running_var_key]
+                    keys_to_delete = keys_to_delete + [
+                        bn_num_batches_traked_key]
+                    mul_factor, add_factor = mul_add_from_bn(bn_mean=
+                        state_dict[bn_running_mean_key], bn_var=state_dict[
+                        bn_running_var_key], bn_eps=0.001, bn_weight=
+                        state_dict[bn_weight_key], bn_bias=state_dict[
+                        bn_bias_key], affine_only=False)
+                    if isinstance(conv_mod, MaskedConv1d):
+                        conv_mod = conv_mod.conv
+                    mul_shape = conv_mod.per_output_channel_broadcastable_shape
+                    conv_weight_key = conv_name + '.weight'
+                    conv_bias_key = conv_name + '.bias'
+                    result = state_dict[conv_weight_key] * mul_factor.view(
+                        mul_shape)
+                    state_dict[conv_weight_key] = result
+                    if (conv_mod.bias is not None and conv_bias_key in
+                        state_dict):
+                        state_dict[conv_bias_key] += add_factor
+                    elif conv_mod.bias is not None and not conv_bias_key in state_dict:
+                        state_dict[conv_bias_key] = add_factor
+                    else:
+                        if torch.is_available():
+                            add_factor = add_factor
+                        conv_mod.bias = nn.Parameter(add_factor)
+                        state_dict[conv_bias_key] = add_factor
+                else:
+                    state_dict[name] = state_dict[name]
+        for k in list(state_dict.keys()):
+            if k in keys_to_delete:
+                del state_dict[k]
+        assert len(self.conv_module_to_merge) == index
 
 
 class SpecAugment(nn.Module):
@@ -2628,6 +4212,75 @@ def make_tanh_activation(bit_width):
         scaling_min_val=SCALING_MIN_VAL, return_quant_tensor=False)
 
 
+def make_transpconv1d(feat_in, feat_out, kernel_size, stride, padding,
+    bit_width, dilation=1):
+    return quant_nn.QuantConvTranspose1d(in_channels=feat_in, out_channels=
+        feat_out, kernel_size=kernel_size, stride=stride, padding=padding,
+        dilation=dilation, weight_bit_width=bit_width, weight_quant_type=
+        QUANT_TYPE, weight_narrow_range=WEIGHT_NARROW_RANGE,
+        weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE,
+        weight_scaling_stats_op=WEIGHT_SCALING_STATS_OP,
+        weight_scaling_min_val=SCALING_MIN_VAL, bias_bit_width=bit_width,
+        bias_quant_type=QUANT_TYPE_BIAS, bias_narrow_range=BIAS_CONFIGS,
+        compute_output_scale=BIAS_CONFIGS, compute_output_bit_width=
+        BIAS_CONFIGS, return_quant_tensor=False)
+
+
+class Generator(nn.Module):
+
+    def __init__(self, mel_channel, bit_width, last_layer_bit_width):
+        super(Generator, self).__init__()
+        self.mel_channel = mel_channel
+        self.generator = nn.Sequential(nn.utils.weight_norm(
+            make_quantconv1d(mel_channel, 512, kernel_size=7, stride=1,
+            padding=3, bit_width=bit_width)), make_leakyRelu_activation(
+            bit_width=bit_width), nn.utils.weight_norm(make_transpconv1d(
+            512, 256, kernel_size=16, stride=8, padding=4, bit_width=
+            bit_width)), ResStack(256, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(256, 128, kernel_size=16, stride=8, padding=4,
+            bit_width=bit_width)), ResStack(128, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(128, 64, kernel_size=4, stride=2, padding=1,
+            bit_width=bit_width)), ResStack(64, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_transpconv1d(64, 32, kernel_size=4, stride=2, padding=1,
+            bit_width=bit_width)), ResStack(32, bit_width=bit_width),
+            make_leakyRelu_activation(bit_width), nn.utils.weight_norm(
+            make_quantconv1d(32, 1, kernel_size=7, stride=1, padding=3,
+            bit_width=bit_width)), make_tanh_activation(bit_width=
+            last_layer_bit_width))
+
+    def forward(self, mel):
+        mel = (mel + 5.0) / 5.0
+        return self.generator(mel)
+
+    def eval(self, inference=False):
+        super(Generator, self).eval()
+        if inference:
+            self.remove_weight_norm()
+
+    def remove_weight_norm(self):
+        for idx, layer in enumerate(self.generator):
+            if len(layer.state_dict()) != 0:
+                try:
+                    nn.utils.remove_weight_norm(layer)
+                except:
+                    layer.remove_weight_norm()
+
+    def inference(self, mel):
+        hop_length = 256
+        zero = torch.full((1, self.mel_channel, 10), -11.5129)
+        mel = torch.cat((mel, zero), dim=2)
+        audio = self.forward(mel)
+        audio = audio.squeeze()
+        audio = audio[:-(hop_length * 10)]
+        audio = MAX_WAV_VALUE * audio
+        audio = audio.clamp(min=-MAX_WAV_VALUE, max=MAX_WAV_VALUE - 1)
+        audio = audio.short()
+        return audio
+
+
 class ResStack(nn.Module):
 
     def __init__(self, channel, bit_width):
@@ -2753,7 +4406,7 @@ class STFT(torch.nn.Module):
         input_data = F.pad(input_data.unsqueeze(1), (int(self.filter_length /
             2), int(self.filter_length / 2), 0, 0), mode='reflect')
         input_data = input_data.squeeze(1)
-        if torch.cuda.is_available():
+        if torch.is_available():
             forward_transform = F.conv1d(input_data, Variable(self.
                 forward_basis, requires_grad=False), stride=self.hop_length,
                 padding=0).cpu()
@@ -2858,6 +4511,7 @@ class TacotronSTFT(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Xilinx_brevitas(_paritybench_base):

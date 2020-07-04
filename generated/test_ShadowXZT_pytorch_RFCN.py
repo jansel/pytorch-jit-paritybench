@@ -60,10 +60,13 @@ timer = _module
 vgg16 = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -121,6 +124,66 @@ class FC(nn.Module):
         if self.relu is not None:
             x = self.relu(x)
         return x
+
+
+class PSRoIPoolingFunction(Function):
+
+    def __init__(self, pooled_height, pooled_width, spatial_scale,
+        group_size, output_dim):
+        self.pooled_width = int(pooled_width)
+        self.pooled_height = int(pooled_height)
+        self.spatial_scale = float(spatial_scale)
+        self.group_size = int(group_size)
+        self.output_dim = int(output_dim)
+        self.output = None
+        self.mappingchannel = None
+        self.rois = None
+        self.feature_size = None
+
+    def forward(self, features, rois):
+        batch_size, num_channels, data_height, data_width = features.size()
+        num_rois = rois.size()[0]
+        output = torch.zeros(num_rois, self.output_dim, self.pooled_height,
+            self.pooled_width)
+        mappingchannel = torch.IntTensor(num_rois, self.output_dim, self.
+            pooled_height, self.pooled_width).zero_()
+        output = output.cuda()
+        mappingchannel = mappingchannel.cuda()
+        psroi_pooling.psroi_pooling_forward_cuda(self.pooled_height, self.
+            pooled_width, self.spatial_scale, self.group_size, self.
+            output_dim, features, rois, output, mappingchannel)
+        self.output = output
+        self.mappingchannel = mappingchannel
+        self.rois = rois
+        self.feature_size = features.size()
+        return output
+
+    def backward(self, grad_output):
+        assert self.feature_size is not None and grad_output.is_cuda
+        batch_size, num_channels, data_height, data_width = self.feature_size
+        grad_input = torch.zeros(batch_size, num_channels, data_height,
+            data_width).cuda()
+        psroi_pooling.psroi_pooling_backward_cuda(self.pooled_height, self.
+            pooled_width, self.spatial_scale, self.output_dim, grad_output,
+            self.rois, grad_input, self.mappingchannel)
+        return grad_input, None
+
+
+class PSRoIPool(Module):
+
+    def __init__(self, pooled_height, pooled_width, spatial_scale,
+        group_size, output_dim):
+        super(PSRoIPool, self).__init__()
+        self.pooled_width = int(pooled_width)
+        self.pooled_height = int(pooled_height)
+        self.spatial_scale = float(spatial_scale)
+        self.group_size = int(group_size)
+        self.output_dim = int(output_dim)
+
+    def forward(self, features, rois):
+        return PSRoIPoolingFunction(self.pooled_height, self.pooled_width,
+            self.spatial_scale, self.group_size, self.output_dim)(features,
+            rois)
 
 
 class RoIPoolFunction(Function):
@@ -265,6 +328,7 @@ class VGG16(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ShadowXZT_pytorch_RFCN(_paritybench_base):

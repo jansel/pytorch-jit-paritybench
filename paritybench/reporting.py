@@ -35,10 +35,7 @@ class ErrorAggregator(object):
 
     def __init__(self, context=None, log=None):
         super(ErrorAggregator, self).__init__()
-        if context:
-            self.context = re.sub(r"\.zip$", ".py", context)
-        else:
-            self.context = ""
+        self.context = context or ""
         self.error_groups = []
         self.bigram_to_group_ids = defaultdict(list)
         self.log = log or logging.getLogger(__name__)

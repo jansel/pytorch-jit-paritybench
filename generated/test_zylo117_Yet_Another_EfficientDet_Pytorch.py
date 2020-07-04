@@ -23,10 +23,13 @@ replicate = _module
 unittest = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -49,6 +52,9 @@ import torch.nn as nn
 
 
 import numpy as np
+
+
+from torchvision.ops.boxes import nms as nms_torch
 
 
 import itertools
@@ -75,6 +81,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 
+from torchvision import transforms
+
+
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
@@ -85,6 +94,12 @@ import functools
 
 
 from torch.nn.parallel.data_parallel import DataParallel
+
+
+from torchvision.ops import nms
+
+
+from torchvision.ops.boxes import batched_nms
 
 
 from typing import Union
@@ -251,7 +266,7 @@ class FocalLoss(nn.Module):
             bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
             classification = torch.clamp(classification, 0.0001, 1.0 - 0.0001)
             if bbox_annotation.shape[0] == 0:
-                if torch.cuda.is_available():
+                if torch.is_available():
                     alpha_factor = torch.ones_like(classification) * alpha
                     alpha_factor = alpha_factor
                     alpha_factor = 1.0 - alpha_factor
@@ -276,7 +291,7 @@ class FocalLoss(nn.Module):
             IoU = calc_iou(anchor[:, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones_like(classification) * -1
-            if torch.cuda.is_available():
+            if torch.is_available():
                 targets = targets
             targets[(torch.lt(IoU_max, 0.4)), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
@@ -286,7 +301,7 @@ class FocalLoss(nn.Module):
             targets[positive_indices, assigned_annotations[positive_indices,
                 4].long()] = 1
             alpha_factor = torch.ones_like(targets) * alpha
-            if torch.cuda.is_available():
+            if torch.is_available():
                 alpha_factor = alpha_factor
             alpha_factor = torch.where(torch.eq(targets, 1.0), alpha_factor,
                 1.0 - alpha_factor)
@@ -297,7 +312,7 @@ class FocalLoss(nn.Module):
                 torch.log(1.0 - classification))
             cls_loss = focal_weight * bce
             zeros = torch.zeros_like(cls_loss)
-            if torch.cuda.is_available():
+            if torch.is_available():
                 zeros = zeros
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
             classification_losses.append(cls_loss.sum() / torch.clamp(
@@ -330,7 +345,7 @@ class FocalLoss(nn.Module):
                     9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), 
                     regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
-            elif torch.cuda.is_available():
+            elif torch.is_available():
                 regression_losses.append(torch.tensor(0).to(dtype))
             else:
                 regression_losses.append(torch.tensor(0))
@@ -1720,6 +1735,7 @@ class CustomDataParallel(nn.DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
@@ -1743,24 +1759,32 @@ class Test_zylo117_Yet_Another_EfficientDet_Pytorch(_paritybench_base):
     def test_005(self):
         self._check(Conv2dStaticSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_006(self):
+        self._check(CustomDataParallel(*[], **{'module': _mock_layer(), 'num_gpus': False}), [], {'input': torch.rand([4, 4])})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    def test_008(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_009(self):
         self._check(MaxPool2dStaticSamePadding(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_010(self):
         self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_011(self):
         self._check(Regressor(*[], **{'in_channels': 4, 'num_anchors': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_012(self):
         self._check(SeparableConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_013(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -90,10 +90,13 @@ image_pool = _module
 util2 = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -110,6 +113,9 @@ import torch
 
 
 import torch.nn.functional as F
+
+
+import torchvision
 
 
 import random
@@ -205,6 +211,9 @@ from math import pi
 from collections import OrderedDict
 
 
+from torchvision import models
+
+
 class RenderType:
     RGB = 0
     Silhouette = 1
@@ -289,6 +298,166 @@ class Renderer(object):
             self.anti_aliasing, self.near, self.far, self.rasterizer_eps,
             self.background_color)
         return images
+
+
+class TargetType:
+    geometry = 1 << 0
+    reproject = 1 << 1
+    normal = 1 << 2
+    depth = 1 << 3
+    pretrain = geometry
+    finetune = reproject
+    full = geometry | reproject
+    extend = geometry | reproject | normal | depth
+
+
+class Derenderer3d(Module):
+
+    def __init__(self, mode, image_size, render_size):
+        super(Derenderer3d, self).__init__()
+        self.mode = mode
+        self.image_size = image_size
+        self.render_size = render_size
+        self.derenderer = Derenderer()
+        self._force_no_sample = False
+        if mode & TargetType.reproject:
+            self.objs = [ShapenetObj(class_id='02958343', obj_id=
+                '137f67657cdc9da5f985cd98f7d73e9a'), ShapenetObj(class_id=
+                '02958343', obj_id='5343e944a7753108aa69dfdc5532bb13'),
+                ShapenetObj(class_id='02958343', obj_id=
+                '3776e4d1e2587fd3253c03b7df20edd5'), ShapenetObj(class_id=
+                '02958343', obj_id='3ba5bce1b29f0be725f689444c7effe2'),
+                ShapenetObj(class_id='02958343', obj_id=
+                '53a031dd120e81dc3aa562f24645e326'), ShapenetObj(class_id=
+                '02924116', obj_id='7905d83af08a0ca6dafc1d33c05cbcf8'),
+                ShapenetObj(class_id='02958343', obj_id=
+                'a0fe4aac120d5f8a5145cad7315443b3'), ShapenetObj(class_id=
+                '02958343', obj_id='cd7feedd6041209131ac5fb37e6c8324')]
+            self.ffds = [FFD(obj.vertices, constraints=[FFD.Constraint.
+                symmetry(axis=FFD.Constraint.Axis.z), FFD.Constraint.
+                homogeneity(axis=FFD.Constraint.Axis.y, index=[0, 1])]) for
+                obj in self.objs]
+            self.perspective_transform = PerspectiveTransform()
+            self.renderer = Renderer(image_size=render_size)
+
+    def forward(self, images, roi_norms, focals):
+        _mroi_norms = torch.stack([roi_norms[:, (2)] + roi_norms[:, (0)], 
+            roi_norms[:, (3)] + roi_norms[:, (1)]], dim=1) / 2.0
+        _droi_norms = torch.stack([roi_norms[:, (2)] - roi_norms[:, (0)], 
+            roi_norms[:, (3)] - roi_norms[:, (1)]], dim=1)
+        _blob = {'_roi_norms': roi_norms, '_mroi_norms': _mroi_norms,
+            '_droi_norms': _droi_norms, '_focals': focals}
+        _blob.update(self.derenderer(images, _mroi_norms, _droi_norms))
+        if not self.mode & TargetType.reproject:
+            return _blob
+        _blob.update(self.render(_blob))
+        return _blob
+
+    def render(self, blob):
+        _mroi_norms = blob['_mroi_norms']
+        _droi_norms = blob['_droi_norms']
+        _focals = blob['_focals']
+        _theta_deltas = blob['_theta_deltas']
+        _translation2ds = blob['_translation2ds']
+        _log_scales = blob['_log_scales']
+        _log_depths = blob['_log_depths']
+        _class_probs = blob['_class_probs']
+        _ffd_coeffs = blob['_ffd_coeffs']
+        batch_size = len(_focals)
+        _thetas = torch.unsqueeze(torch.atan2(_theta_deltas[:, (1)],
+            _theta_deltas[:, (0)]), dim=1)
+        _rotations = torch.cat([torch.cos(_thetas / 2), torch.zeros(
+            batch_size, 1), torch.sin(_thetas / 2), torch.zeros(batch_size,
+            1)], dim=1)
+        _areas = torch.unsqueeze(_droi_norms[:, (0)] * _droi_norms[:, (1)],
+            dim=1)
+        _scales = torch.exp(_log_scales)
+        _depths = torch.sqrt(torch.exp(_log_depths) / _areas)
+        _center2ds = _mroi_norms + _translation2ds * _droi_norms
+        _translation_units = torch.stack([_center2ds[:, (1)], -_center2ds[:,
+            (0)], -torch.ones(batch_size)], dim=1)
+        _translation_units = _translation_units / torch.norm(_translation_units
+            , p=2, dim=1, keepdim=True)
+        _translations = _depths * _translation_units
+        _alphas = -(_thetas - torch.atan(_translations[:, 0:1] /
+            _translations[:, 2:3]))
+        _alphas = torch.remainder(_alphas + np.pi, 2 * np.pi) - np.pi
+        if self.training and not self._force_no_sample:
+            _class_dists = Categorical(_class_probs)
+            _class_samples = _class_dists.sample()
+            _class_log_probs = _class_dists.log_prob(_class_samples)
+        else:
+            _class_max_probs, _class_samples = torch.max(_class_probs, dim=1)
+            _class_log_probs = torch.log(_class_max_probs)
+        if self.training:
+            _perspective_translation_units = torch.stack([_mroi_norms[:, (1
+                )], -_mroi_norms[:, (0)], -torch.ones(batch_size)], dim=1)
+            _perspective_translation_units = (
+                _perspective_translation_units / torch.norm(
+                _perspective_translation_units, p=2, dim=1, keepdim=True))
+            _perspective_translations = (_depths *
+                _perspective_translation_units)
+            _zooms = self.image_size / _focals / torch.max(_droi_norms, dim
+                =1, keepdim=True)[0]
+        else:
+            _zoom_tos = self.render_size / (2.0 * _focals)
+            _zooms = []
+        device = torch.current_device()
+        _masks = []
+        _normals = []
+        _depth_maps = []
+        for size in range(batch_size):
+            None
+            sys.stdout.flush()
+            _class_sample = int(_class_samples[size])
+            _ffd_coeff = _ffd_coeffs[size][_class_sample]
+            vertices = self.ffds[_class_sample](_ffd_coeff)
+            faces = self.objs[_class_sample].faces
+            __vertices = vertices.unsqueeze(dim=0)
+            __faces = faces.unsqueeze(dim=0)
+            __scales = _scales[size].unsqueeze(dim=0)
+            __rotations = _rotations[size].unsqueeze(dim=0)
+            __translations = _translations[size].unsqueeze(dim=0)
+            if self.training:
+                __perspective_translations = _perspective_translations[size
+                    ].unsqueeze(dim=0)
+                __zooms = _zooms[size].unsqueeze(dim=0)
+                __vertices = self.perspective_transform(__vertices, scales=
+                    __scales, rotations=__rotations, translations=
+                    __translations, perspective_translations=
+                    __perspective_translations, zooms=__zooms)
+            else:
+                __zoom_tos = _zoom_tos[size].unsqueeze(dim=0)
+                __vertices, __zooms = self.perspective_transform(__vertices,
+                    scales=__scales, rotations=__rotations, translations=
+                    __translations, perspective_translations=__translations,
+                    zoom_tos=__zoom_tos)
+                _zooms.append(__zooms)
+            self.renderer.viewing_angle = np.arctan(self.render_size / (2.0 *
+                _focals[size].item())) / np.pi * 180
+            __masks = self.renderer(vertices=__vertices, faces=__faces,
+                render_type=RenderType.Silhouette)
+            _masks.append(__masks)
+            if self.mode & TargetType.normal:
+                __normals = self.renderer(vertices=__vertices, faces=
+                    __faces, render_type=RenderType.Normal)
+                _normals.append(__normals)
+            if self.mode & TargetType.depth:
+                __depth_maps = self.renderer(vertices=__vertices, faces=
+                    __faces, render_type=RenderType.Depth)
+                _depth_maps.append(__depth_maps)
+        if not self.training:
+            _zooms = torch.cat(_zooms, dim=0)
+        _masks = torch.cat(_masks, dim=0)
+        if self.mode & TargetType.normal:
+            _normals = torch.cat(_normals, dim=0)
+        if self.mode & TargetType.depth:
+            _depth_maps = torch.cat(_depth_maps, dim=0)
+        return {'_thetas': _thetas, '_alphas': _alphas, '_rotations':
+            _rotations, '_scales': _scales, '_depths': _depths,
+            '_center2ds': _center2ds, '_translations': _translations,
+            '_class_log_probs': _class_log_probs, '_zooms': _zooms,
+            '_masks': _masks, '_normals': _normals, '_depth_maps': _depth_maps}
 
 
 class Derenderer(Module):
@@ -407,6 +576,39 @@ class RenderFunction(Function):
                 grad_var.data)
         return (grad_vertices, None, grad_textures, None, None, None, None,
             None, None)
+
+
+class Renderer(Module):
+
+    def __init__(self, image_size=256, viewing_angle=30):
+        super(Renderer, self).__init__()
+        self.image_size = image_size
+        self.viewing_angle = viewing_angle
+        self.eye = Tensor([0, 0, 0])
+        self.camera_mode = 'look'
+        self.camera_direction = Tensor([0, 0, -1])
+        self.camera_up = Tensor([0, 1, 0])
+
+    def forward(self, vertices, faces, textures=None, render_type=
+        RenderType.RGB):
+        _renderer = _Renderer()
+        _renderer.image_size = self.image_size
+        _renderer.viewing_angle = self.viewing_angle
+        vertices = vertices * Tensor([-1, 1, 1])
+        eye = self.eye
+        camera_mode = self.camera_mode
+        camera_direction = self.camera_direction
+        camera_up = self.camera_up
+        batch_size = len(vertices)
+        eye = eye[(None), :].expand(batch_size, -1)
+        camera_direction = camera_direction[(None), :].expand(batch_size, -1)
+        camera_up = camera_up[(None), :].expand(batch_size, -1)
+        images = RenderFunction.apply(vertices, faces, textures, _renderer,
+            render_type, eye, camera_mode, camera_direction, camera_up)
+        if render_type == RenderType.Normal:
+            x, y, z = torch.unbind(images, dim=1)
+            images = torch.stack([-x, y, z], dim=1)
+        return images
 
 
 class FFD(Module):
@@ -2679,6 +2881,62 @@ class Resnet(nn.Module):
         return x
 
 
+class ResnetDilated(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8):
+        super(ResnetDilated, self).__init__()
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=4))
+        elif dilate_scale == 16:
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=2))
+        self.conv1 = orig_resnet.conv1
+        self.bn1 = orig_resnet.bn1
+        self.relu1 = orig_resnet.relu1
+        self.conv2 = orig_resnet.conv2
+        self.bn2 = orig_resnet.bn2
+        self.relu2 = orig_resnet.relu2
+        self.conv3 = orig_resnet.conv3
+        self.bn3 = orig_resnet.bn3
+        self.relu3 = orig_resnet.relu3
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
+
+    def forward(self, x, return_feature_maps=False):
+        conv_out = []
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        conv_out.append(x)
+        x = self.layer2(x)
+        conv_out.append(x)
+        x = self.layer3(x)
+        conv_out.append(x)
+        x = self.layer4(x)
+        conv_out.append(x)
+        if return_feature_maps:
+            return conv_out
+        return [x]
+
+
 class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
     """Applies Batch Normalization over a 4d input that is seen as a mini-batch
     of 3d inputs
@@ -2989,6 +3247,117 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+class BaseModel(torch.nn.Module):
+
+    def name(self):
+        return 'BaseModel'
+
+    def initialize(self, opt):
+        self.opt = opt
+        self.gpu_ids = opt.gpu_ids
+        self.isTrain = opt.isTrain
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+
+    def set_input(self, input):
+        self.input = input
+
+    def forward(self):
+        pass
+
+    def test(self):
+        pass
+
+    def get_image_paths(self):
+        pass
+
+    def optimize_parameters(self):
+        pass
+
+    def get_current_visuals(self):
+        return self.input
+
+    def get_current_errors(self):
+        return {}
+
+    def save(self, label):
+        pass
+
+    def save_network(self, network, network_label, epoch_label, gpu_ids):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(network.cpu().state_dict(), save_path)
+        if len(gpu_ids) and torch.is_available():
+            network
+
+    def load_network(self, network, network_label, epoch_label, save_dir=''):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        if not save_dir:
+            save_dir = self.save_dir
+        save_path = os.path.join(save_dir, save_filename)
+        if not os.path.isfile(save_path):
+            None
+            if network_label == 'G':
+                raise 'Generator must exist!'
+        else:
+            None
+            pretrained_dict = torch.load(save_path)
+            if next(iter(pretrained_dict.keys()))[:6] == 'module':
+                new_pretrained_dict = OrderedDict()
+                for k, v in pretrained_dict.items():
+                    new_pretrained_dict[k[7:]] = v
+                pretrained_dict = new_pretrained_dict
+            try:
+                network.load_state_dict(pretrained_dict)
+            except:
+                model_dict = network.state_dict()
+                try:
+                    pretrained_dict = {k: v for k, v in pretrained_dict.
+                        items() if k in model_dict}
+                    network.load_state_dict(pretrained_dict)
+                    None
+                except:
+                    None
+                    if sys.version_info >= (3, 0):
+                        not_initialized = set()
+                    else:
+                        not_initialized = Set()
+                    for k, v in pretrained_dict.items():
+                        if v.size() == model_dict[k].size():
+                            model_dict[k] = v
+                    for k, v in model_dict.items():
+                        if k not in pretrained_dict or v.size(
+                            ) != pretrained_dict[k].size():
+                            not_initialized.add(k.split('.')[0])
+                    None
+                    network.load_state_dict(model_dict)
+
+    def get_z_random(self, batchSize, nz, random_type='gauss'):
+        z = self.Tensor(batchSize, nz)
+        if random_type == 'uni':
+            z.copy_(torch.rand(batchSize, nz) * 2.0 - 1.0)
+        elif random_type == 'gauss':
+            z.copy_(torch.randn(batchSize, nz))
+            z = Variable(z)
+        return z
+
+    def print_networks(self, verbose):
+        None
+        for name in self.model_names:
+            if isinstance(name, str):
+                net = getattr(self, 'net' + name)
+                num_params = 0
+                for param in net.parameters():
+                    num_params += param.numel()
+                if verbose:
+                    None
+                None
+        None
+
+    def update_learning_rate():
+        pass
 
 
 class GANLoss(nn.Module):
@@ -3371,27 +3740,56 @@ class Vgg19(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ysymyth_3D_SDN(_paritybench_base):
     pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseModel(*[], **{}), [], {})
 
     @_fails_compile()
     def test_001(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     @_fails_compile()
     def test_002(self):
-        self._check(RPN(*[], **{'anchors_per_location': 4, 'anchor_stride': 1, 'depth': 1}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(Derenderer3d(*[], **{'mode': 4, 'image_size': 4, 'render_size': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(DictGatherDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    def test_004(self):
+        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(LocalEnhancer(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(RPN(*[], **{'anchors_per_location': 4, 'anchor_stride': 1, 'depth': 1}), [torch.rand([4, 1, 4, 4])], {})
+
+    @_fails_compile()
+    def test_009(self):
         self._check(SamePad2d(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_010(self):
         self._check(TopDownLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_012(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

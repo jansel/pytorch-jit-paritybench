@@ -36,10 +36,13 @@ loss_buffer = _module
 pose_util = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +64,9 @@ import torch.nn.functional as F
 from collections import OrderedDict
 
 
+import torchvision
+
+
 from torch.nn import init
 
 
@@ -74,6 +80,9 @@ import functools
 
 
 import numpy as np
+
+
+from torchvision import transforms
 
 
 class GANLoss(nn.Module):
@@ -1133,14 +1142,14 @@ class NLayerDiscriminator(nn.Module):
         self.model = nn.Sequential(*sequence)
 
     def forward(self, input):
-        if len(self.gpu_ids) and isinstance(input.data, torch.cuda.FloatTensor
-            ):
+        if len(self.gpu_ids) and isinstance(input.data, torch.FloatTensor):
             return nn.parallel.data_parallel(self.model, input)
         else:
             return self.model(input)
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ly015_intrinsic_flow(_paritybench_base):

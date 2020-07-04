@@ -12,10 +12,13 @@ train_nth_farthest = _module
 train_rmc = _module
 train_rnn = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -690,16 +693,7 @@ class RNNModel(nn.Module):
 output_size = 1
 
 
-_global_config['numblocks'] = 1
-
-
-_global_config['input_size'] = 4
-
-
-_global_config['forgetbias'] = 4
-
-
-_global_config['inputbias'] = 4
+_global_config['numheads'] = 4
 
 
 _global_config['headsize'] = 4
@@ -708,7 +702,16 @@ _global_config['headsize'] = 4
 _global_config['memslots'] = 4
 
 
-_global_config['numheads'] = 4
+_global_config['inputbias'] = 4
+
+
+_global_config['forgetbias'] = 4
+
+
+_global_config['input_size'] = 4
+
+
+_global_config['numblocks'] = 4
 
 
 class RRNN(nn.Module):
@@ -758,6 +761,7 @@ class RRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_L0SG_relational_rnn_pytorch(_paritybench_base):

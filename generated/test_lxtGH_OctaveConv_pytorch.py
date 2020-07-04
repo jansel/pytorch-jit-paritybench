@@ -26,10 +26,13 @@ utils = _module
 main_imagenet = _module
 test_speed = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,15 @@ import torch.optim as optim
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
 
 
 import warnings
@@ -1821,8 +1833,9 @@ class SoftCrossEntropyLoss(nn.NLLLoss):
         input = F.log_softmax(input, 1)
         return self.criterion(input, one_hot)
 
-import unittest
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
@@ -1843,18 +1856,20 @@ class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
         self._check(FirstOctaveConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(GELayerv2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GELayerv1(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_006(self):
-        self._check(SELayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GELayerv2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GELayerv3(*[], **{'inplane': 4}), [torch.rand([4, 4, 64, 64])], {})
 
-    @unittest.skip("crashes")
     def test_008(self):
-        self._check(SoftCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(SELayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
+        self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
         self._check(eca_layer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

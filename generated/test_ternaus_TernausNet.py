@@ -5,10 +5,13 @@ setup = _module
 ternausnet = _module
 models = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -21,10 +24,16 @@ __version__ = '1.0.0'
 import torch
 
 
+import torchvision
+
+
 from torch import nn
 
 
 from torch.nn import functional as F
+
+
+from torchvision import models
 
 
 def conv3x3(in_: int, out: int) ->nn.Module:
@@ -212,6 +221,7 @@ class UNet16(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ternaus_TernausNet(_paritybench_base):
@@ -224,4 +234,11 @@ class Test_ternaus_TernausNet(_paritybench_base):
 
     def test_002(self):
         self._check(DecoderBlockV2(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
+        self._check(UNet11(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(UNet16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

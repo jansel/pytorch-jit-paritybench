@@ -41,10 +41,13 @@ learning = _module
 log = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -58,6 +61,9 @@ import torch
 
 
 import torch.nn as nn
+
+
+from torchtext.vocab import Vectors
 
 
 from torch.nn.utils.rnn import pack_padded_sequence
@@ -155,7 +161,7 @@ class BaseModel(nn.Module):
 
     def load(self, path=None):
         path = path if path else self.save_path
-        map_location = None if torch.cuda.is_available() else 'cpu'
+        map_location = None if torch.is_available() else 'cpu'
         model_path = os.path.join(path, 'model.pkl')
         self.load_state_dict(torch.load(model_path, map_location=map_location))
         logger.info('loadding model from {}'.format(model_path))
@@ -220,8 +226,150 @@ def light_tokenize(sequence: str):
     return [sequence]
 
 
+class TextCNN(BaseModel):
+
+    def __init__(self, args):
+        super(TextCNN, self).__init__(args)
+        self.class_num = args.class_num
+        self.chanel_num = 1
+        self.filter_num = args.filter_num
+        self.filter_sizes = args.filter_sizes
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding_dimension = args.embedding_dim
+        self.embedding = nn.Embedding(self.vocabulary_size, self.
+            embedding_dimension).to(DEVICE)
+        if args.static:
+            logger.info('logging word vectors from {}'.format(args.vector_path)
+                )
+            vectors = Vectors(args.vector_path).vectors
+            self.embedding = self.embedding.from_pretrained(vectors, freeze
+                =not args.non_static).to(DEVICE)
+        if args.multichannel:
+            self.embedding2 = nn.Embedding(self.vocabulary_size, self.
+                embedding_dimension).from_pretrained(args.vectors).to(DEVICE)
+            self.chanel_num += 1
+        else:
+            self.embedding2 = None
+        self.convs = nn.ModuleList([nn.Conv2d(self.chanel_num, self.
+            filter_num, (size, self.embedding_dimension)) for size in self.
+            filter_sizes]).to(DEVICE)
+        self.dropout = nn.Dropout(args.dropout).to(DEVICE)
+        self.fc = nn.Linear(len(self.filter_sizes) * self.filter_num, self.
+            class_num).to(DEVICE)
+
+    def forward(self, x):
+        if self.embedding2:
+            x = torch.stack((self.embedding(x), self.embedding2(x)), dim=1).to(
+                DEVICE)
+        else:
+            x = self.embedding(x).to(DEVICE)
+            x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(item, item.size(2)).squeeze(2) for item in x]
+        x = torch.cat(x, 1)
+        x = self.dropout(x)
+        logits = self.fc(x)
+        return logits
+
+
+def adjust_learning_rate(optimizer, new_lr):
+    """
+    Shrinks learning rate by a specified factor.
+
+    :param optimizer: optimizer whose learning rates must be decayed
+    :param new_lr: new learning rate
+    """
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+
+
+def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>',
+    end_e1_token='</e1>', begin_e2_token='<e2>', end_e2_token='</e2>'):
+    assert entity1 in sentence
+    assert entity2 in sentence
+    sentence = sentence.replace(entity1, begin_e1_token + entity1 +
+        end_e1_token)
+    sentence = sentence.replace(entity2, begin_e2_token + entity2 +
+        end_e2_token)
+    sentence = ' '.join(jieba.cut(sentence))
+    sentence = sentence.replace('< e1 >', begin_e1_token)
+    sentence = sentence.replace('< / e1 >', end_e1_token)
+    sentence = sentence.replace('< e2 >', begin_e2_token)
+    sentence = sentence.replace('< / e2 >', end_e2_token)
+    return sentence.split()
+
+
+def post_process(arr, _):
+    return [[int(item) for item in arr_item] for arr_item in arr]
+
+
+p1 = torch.nn.PairwiseDistance(p=1)
+
+
+def l1_score(head, rel, tail):
+    return p1(tail - head, rel)
+
+
+p2 = torch.nn.PairwiseDistance(p=2)
+
+
+def l2_score(head, rel, tail):
+    return p2(tail - head, rel)
+
+
+class TransE(BaseModel):
+
+    def __init__(self, args):
+        super(TransE, self).__init__(args)
+        self.entity_num = args.entity_num
+        self.rel_num = args.rel_num
+        self.embedding_dimension = args.embedding_dim
+        self.entity_embedding = nn.Embedding(self.entity_num, self.
+            embedding_dimension).to(DEVICE)
+        self.rel_embedding = nn.Embedding(self.rel_num, self.
+            embedding_dimension).to(DEVICE)
+        if args.score_func == 'l1':
+            self.score_func = l1_score
+        else:
+            self.score_func = l2_score
+
+    def init_weights(self):
+        nn.init.xavier_normal_(self.entity_embedding.weight)
+        nn.init.xavier_normal_(self.rel_embedding.weight)
+
+    def forward(self, head, rel, tail):
+        vec_head = self.entity_embedding(head).view(-1, self.
+            embedding_dimension)
+        vec_rel = self.rel_embedding(rel).view(-1, self.embedding_dimension)
+        vec_tail = self.entity_embedding(tail).view(-1, self.
+            embedding_dimension)
+        vec_head = F.normalize(vec_head)
+        vec_rel = F.normalize(vec_rel)
+        vec_tail = F.normalize(vec_tail)
+        return self.score_func(vec_head, vec_rel, vec_tail)
+
+
+MODELS = {'TransE': TransE}
+
+
+def get_neg_batch(head, tail, entity_num):
+    neg_head = head.clone()
+    neg_tail = tail.clone()
+    if random.random() > 0.5:
+        offset_tensor = torch.randint_like(neg_head, entity_num)
+        neg_head = (neg_head + offset_tensor) % entity_num
+    else:
+        offset_tensor = torch.randint_like(neg_tail, entity_num)
+        neg_tail = (neg_tail + offset_tensor) % entity_num
+    return neg_head, neg_tail
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_smilelight_lightKG(_paritybench_base):
     pass
+    def test_000(self):
+        self._check(TransE(*[], **{'args': _mock_config(save_path=4, entity_num=4, rel_num=4, embedding_dim=4, score_func=4)}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+

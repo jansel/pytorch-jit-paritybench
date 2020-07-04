@@ -13,10 +13,13 @@ transformations = _module
 utils = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -173,12 +176,12 @@ class DataParallelModel(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DataParallelModel, self).__init__()
-        if not torch.cuda.is_available():
+        if not torch.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -290,12 +293,12 @@ class DataParallelCriterion(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DataParallelCriterion, self).__init__()
-        if not torch.cuda.is_available():
+        if not torch.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -344,6 +347,7 @@ class ParameterModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_belskikh_kekas(_paritybench_base):

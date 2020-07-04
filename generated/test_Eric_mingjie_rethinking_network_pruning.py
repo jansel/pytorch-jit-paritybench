@@ -98,10 +98,13 @@ main_E = _module
 main_finetune = _module
 prune = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -117,6 +120,9 @@ import numpy as np
 import torch
 
 
+import torchvision
+
+
 import torch.nn as nn
 
 
@@ -127,6 +133,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import math
@@ -147,6 +159,12 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data as data
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
 from torch.nn import init
 
 
@@ -154,6 +172,9 @@ import torch.utils.model_zoo as model_zoo
 
 
 import torch.nn.init as init
+
+
+import torchvision.datasets as dset
 
 
 import torch.nn.parallel
@@ -169,6 +190,9 @@ import torch.utils.data
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.models as models
 
 
 import warnings
@@ -2325,13 +2349,17 @@ class VGG(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Eric_mingjie_rethinking_network_pruning(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NetworkBlock(*[], **{'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

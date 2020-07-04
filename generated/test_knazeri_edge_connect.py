@@ -18,10 +18,13 @@ utils = _module
 test = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -50,6 +53,12 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torchvision import models
+
+
+import torchvision.models as models
 
 
 import torch.optim as optim
@@ -372,7 +381,7 @@ class BaseModel(nn.Module):
     def load(self):
         if os.path.exists(self.gen_weights_path):
             None
-            if torch.cuda.is_available():
+            if torch.is_available():
                 data = torch.load(self.gen_weights_path)
             else:
                 data = torch.load(self.gen_weights_path, map_location=lambda
@@ -381,7 +390,7 @@ class BaseModel(nn.Module):
             self.iteration = data['iteration']
         if self.config.MODE == 1 and os.path.exists(self.dis_weights_path):
             None
-            if torch.cuda.is_available():
+            if torch.is_available():
                 data = torch.load(self.dis_weights_path)
             else:
                 data = torch.load(self.dis_weights_path, map_location=lambda
@@ -454,10 +463,20 @@ class ResnetBlock(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_knazeri_edge_connect(_paritybench_base):
     pass
     def test_000(self):
+        self._check(PerceptualLoss(*[], **{}), [], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])})
+
+    def test_001(self):
         self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(StyleLoss(*[], **{}), [], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])})
+
+    def test_003(self):
+        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

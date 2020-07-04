@@ -130,10 +130,13 @@ word_prediction_model = _module
 word_predictor = _module
 setup = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -793,6 +796,174 @@ class TransformerEmbedding(nn.Module):
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
         return x, encoder_padding_mask, positions
+
+
+def load_to_cpu(path: str) ->Dict[str, Any]:
+    """
+    This is just fairseq's utils.load_checkpoint_to_cpu(), except we don't try
+    to upgrade the state dict for backward compatibility - to make cases
+    where we only care about loading the model params easier to unit test.
+    """
+    with PathManager.open(path, 'rb') as f:
+        state = torch.load(f, map_location=lambda s, _: torch.serialization
+            .default_restore_location(s, 'cpu'))
+    return state
+
+
+def load_to_gpu(path: str) ->Dict[str, Any]:
+    """
+    Similar to load_to_cpu, but load model to cuda
+    """
+    with PathManager.open(path, 'rb') as f:
+        state = torch.load(f, map_location=lambda s, _: torch.serialization
+            .default_restore_location(s, 'cuda'))
+    return state
+
+
+def load_models_from_checkpoints(checkpoint_filenames, src_dict_filename,
+    dst_dict_filename, lexical_dict_paths=None, use_cuda=False):
+    src_dict = dictionary.Dictionary.load(src_dict_filename)
+    dst_dict = dictionary.Dictionary.load(dst_dict_filename)
+    models = []
+    for filename in checkpoint_filenames:
+        if use_cuda:
+            checkpoint_data = load_to_gpu(filename)
+        else:
+            checkpoint_data = load_to_cpu(filename)
+        if lexical_dict_paths is not None:
+            assert checkpoint_data['args'
+                ].vocab_reduction_params is not None, 'lexical dictionaries can only be replaced in vocab-reduction models'
+            checkpoint_data['args'].vocab_reduction_params[
+                'lexical_dictionaries'] = lexical_dict_paths
+        task = DictionaryHolderTask(src_dict, dst_dict)
+        architecture = checkpoint_data['args'].arch
+        if architecture == 'rnn':
+            model = rnn.RNNModel.build_model(checkpoint_data['args'], task)
+        elif architecture == 'char_source':
+            model = char_source_model.CharSourceModel.build_model(
+                checkpoint_data['args'], task)
+        elif architecture == 'char_source_transformer':
+            model = (char_source_transformer_model.
+                CharSourceTransformerModel.build_model(checkpoint_data[
+                'args'], task))
+        elif architecture == 'rnn_word_pred':
+            model = word_prediction_model.RNNWordPredictionModel.build_model(
+                checkpoint_data['args'], task)
+        elif architecture == 'ptt_transformer':
+            model = transformer.TransformerModel.build_model(checkpoint_data
+                ['args'], task)
+        elif architecture == 'hybrid_transformer_rnn':
+            model = (hybrid_transformer_rnn.HybridTransformerRNNModel.
+                build_model(checkpoint_data['args'], task))
+        elif architecture == 'char_source_hybrid':
+            model = char_source_hybrid.CharSourceHybridModel.build_model(
+                checkpoint_data['args'], task)
+        elif architecture == 'dual_decoder_kd':
+            model = dual_decoder_kd_model.DualDecoderKDModel.build_model(
+                checkpoint_data['args'], task)
+        elif architecture == 'hybrid_dual_decoder_kd':
+            model = (hybrid_dual_decoder_kd_model.HybridDualDecoderKDModel.
+                build_model(checkpoint_data['args'], task))
+        elif 'semi_supervised' in architecture:
+            model_args = copy.deepcopy(checkpoint_data['args'])
+            model_args.source_vocab_file = src_dict_filename
+            model_args.target_vocab_file = dst_dict_filename
+            task = tasks.setup_task(model_args)
+            model = ARCH_MODEL_REGISTRY[model_args.arch].build_model(model_args
+                , task)
+        elif architecture == 'latent_var_transformer':
+            task = tasks.setup_task(checkpoint_data['args'])
+            model = latent_var_models.LatentVarModel.build_model(
+                checkpoint_data['args'], task)
+        elif architecture == 'fb_levenshtein_transformer':
+            task = tasks.setup_task(checkpoint_data['args'])
+            model = (levenshtein_transformer.LevenshteinTransformerModel.
+                build_model(checkpoint_data['args'], task))
+        else:
+            raise RuntimeError(f'Architecture not supported: {architecture}')
+        model.load_state_dict(checkpoint_data['model'])
+        if hasattr(model, 'get_student_model'):
+            model = model.get_student_model()
+        if isinstance(model, semi_supervised.SemiSupervisedModel):
+            if (model_args.source_lang is not None and model_args.
+                target_lang is not None):
+                direction = (model_args.source_lang + '-' + model_args.
+                    target_lang)
+            else:
+                direction = 'src-tgt'
+            models.append(model.models[direction])
+        else:
+            models.append(model)
+    return models, src_dict, dst_dict
+
+
+class EncoderEnsemble(nn.Module):
+
+    def __init__(self, models, src_dict=None):
+        super().__init__()
+        self.models = models
+        self.src_dict = src_dict
+        for i, model in enumerate(self.models):
+            model.prepare_for_onnx_export_()
+            if hasattr(model, 'get_student_model'):
+                model = model.get_student_model()
+                self.models[i] = model
+            self._modules[f'model_{i}'] = model
+        self.enable_precompute_reduced_weights = False
+
+    def forward(self, src_tokens, src_lengths):
+        src_tokens_seq_first = src_tokens.t()
+        futures = []
+        for model in self.models:
+            model.eval()
+            futures.append(torch.jit._fork(model.encoder,
+                src_tokens_seq_first, src_lengths))
+        return self.get_outputs(src_tokens, futures)
+
+    def get_outputs(self, src_tokens, encoder_futures):
+        outputs = []
+        output_names = []
+        states = []
+        possible_translation_tokens = None
+        if hasattr(self.models[0].decoder, 'vocab_reduction_module'):
+            vocab_reduction_module = self.models[0
+                ].decoder.vocab_reduction_module
+            if vocab_reduction_module is not None:
+                possible_translation_tokens = vocab_reduction_module(src_tokens
+                    =src_tokens, decoder_input_tokens=None)
+        reduced_weights = {}
+        for i, model in enumerate(self.models):
+            if self.enable_precompute_reduced_weights and hasattr(model.
+                decoder, '_precompute_reduced_weights'
+                ) and possible_translation_tokens is not None:
+                reduced_weights[i] = torch.jit._fork(model.decoder.
+                    _precompute_reduced_weights, possible_translation_tokens)
+        for i, (model, future) in enumerate(zip(self.models, encoder_futures)):
+            encoder_out = torch.jit._wait(future)
+            encoder_outputs = encoder_out[0]
+            outputs.append(encoder_outputs)
+            output_names.append(f'encoder_output_{i}')
+            if hasattr(model.decoder, '_init_prev_states'):
+                states.extend(model.decoder._init_prev_states(encoder_out))
+            if self.enable_precompute_reduced_weights and hasattr(model.
+                decoder, '_precompute_reduced_weights'
+                ) and possible_translation_tokens is not None:
+                states.extend(torch.jit._wait(reduced_weights[i]))
+        if possible_translation_tokens is not None:
+            outputs.append(possible_translation_tokens)
+            output_names.append('possible_translation_tokens')
+        for i, state in enumerate(states):
+            outputs.append(state)
+            output_names.append(f'initial_state_{i}')
+        self.output_names = output_names
+        return tuple(outputs)
+
+    @classmethod
+    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename,
+        dst_dict_filename, lexical_dict_paths=None):
+        models, src_dict, _ = load_models_from_checkpoints(checkpoint_filenames
+            , src_dict_filename, dst_dict_filename, lexical_dict_paths)
+        return cls(models, src_dict=src_dict)
 
 
 class DecoderBatchedStepEnsemble(nn.Module):
@@ -2811,6 +2982,281 @@ class LayerNormLSTMCellBackend(nn.LSTMCell):
         return hy, cy
 
 
+class AANDecoderLayer(nn.Module):
+    """
+    Based on https://arxiv.org/abs/1805.00631
+    """
+
+    def __init__(self, args):
+        super().__init__()
+        self.embed_dim = args.decoder_embed_dim
+        self.cross_self_attention = getattr(args, 'cross_self_attention', False
+            )
+        self.avg_attn = AverageAttention(self.embed_dim, dropout=args.
+            attention_dropout)
+        self.aan_gating_fc = fairseq_transformer.Linear(self.embed_dim * 2,
+            self.embed_dim)
+        self.dropout = args.dropout
+        self.activation_fn = utils.get_activation_fn(activation=getattr(
+            args, 'activation_fn', 'relu'))
+        self.activation_dropout = getattr(args, 'activation_dropout', 0)
+        if self.activation_dropout == 0:
+            self.activation_dropout = getattr(args, 'relu_dropout', 0)
+        self.normalize_before = args.decoder_normalize_before
+        export = getattr(args, 'char_inputs', False)
+        self.avg_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.encoder_attn = MultiheadAttention(self.embed_dim, args.
+            decoder_attention_heads, kdim=getattr(args, 'encoder_embed_dim',
+            None), vdim=getattr(args, 'encoder_embed_dim', None), dropout=
+            args.attention_dropout, encoder_decoder_attention=True)
+        self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.fc1 = fairseq_transformer.Linear(self.embed_dim, args.
+            decoder_ffn_embed_dim)
+        self.fc2 = fairseq_transformer.Linear(args.decoder_ffn_embed_dim,
+            self.embed_dim)
+        self.final_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.need_attn = True
+        self.onnx_trace = False
+
+    def prepare_for_onnx_export_(self):
+        self.onnx_trace = True
+
+    def forward(self, x, encoder_out=None, encoder_padding_mask=None,
+        incremental_state=None, prev_self_attn_state=None, prev_attn_state=
+        None, self_attn_mask=None, self_attn_padding_mask=None, need_attn=
+        False, need_head_weights=False):
+        """
+        Args:
+            x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
+            encoder_padding_mask (ByteTensor, optional): binary
+                ByteTensor of shape `(batch, src_len)` where padding
+                elements are indicated by ``1``.
+            need_attn (bool, optional): return attention weights
+            need_head_weights (bool, optional): return attention weights
+                for each head (default: return average over heads).
+
+        Returns:
+            encoded output of shape `(seq_len, batch, embed_dim)`
+
+        The following are used for export tracing:
+            prev_self_attn_state: [prev_sum, prev_pos]
+                assumes AverageAttention without mask trick
+            prev_attn_state: [prev_key, prev_value]
+        """
+        if need_head_weights:
+            need_attn = True
+        residual = x
+        x = self.maybe_layer_norm(self.avg_attn_layer_norm, x, before=True)
+        if prev_self_attn_state is not None:
+            if incremental_state is None:
+                incremental_state = {}
+            prev_sum, prev_pos = prev_self_attn_state
+            prev_sum = prev_sum.unsqueeze(0)
+            saved_state = {'prev_sum': prev_sum, 'prev_pos': prev_pos}
+            self.avg_attn._set_input_buffer(incremental_state, saved_state)
+        x, _ = self.avg_attn(value=x, mask_future_timesteps=True,
+            incremental_state=incremental_state, mask_trick=self.training)
+        gate = torch.sigmoid(self.aan_gating_fc(torch.cat([residual, x],
+            dim=-1)))
+        x = gate * x + (1 - gate) * residual
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = residual + x
+        x = self.maybe_layer_norm(self.avg_attn_layer_norm, x, after=True)
+        if self.encoder_attn is not None:
+            residual = x
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
+                before=True)
+            if prev_attn_state is not None:
+                if incremental_state is None:
+                    incremental_state = {}
+                prev_key, prev_value = prev_attn_state[:2]
+                saved_state = {'prev_key': prev_key, 'prev_value': prev_value}
+                if len(prev_attn_state) >= 3:
+                    saved_state['prev_key_padding_mask'] = prev_attn_state[2]
+                self.encoder_attn._set_input_buffer(incremental_state,
+                    saved_state)
+            x, attn = self.encoder_attn(query=x, key=encoder_out, value=
+                encoder_out, key_padding_mask=encoder_padding_mask,
+                incremental_state=incremental_state, static_kv=True,
+                need_weights=need_attn or not self.training and self.
+                need_attn, need_head_weights=need_head_weights)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = residual + x
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
+                after=True)
+        residual = x
+        x = self.maybe_layer_norm(self.final_layer_norm, x, before=True)
+        x = self.activation_fn(self.fc1(x))
+        x = F.dropout(x, p=self.activation_dropout, training=self.training)
+        x = self.fc2(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = residual + x
+        x = self.maybe_layer_norm(self.final_layer_norm, x, after=True)
+        if self.onnx_trace and incremental_state is not None:
+            saved_state = self.avg_attn._get_input_buffer(incremental_state)
+            prev_sum = saved_state['prev_sum']
+            prev_sum = prev_sum.squeeze(0)
+            prev_pos = saved_state['prev_pos']
+            self_attn_state = prev_sum, prev_pos
+            return x, attn, self_attn_state
+        return x, attn, None
+
+    def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
+        assert before ^ after
+        if after ^ self.normalize_before:
+            return layer_norm(x)
+        else:
+            return x
+
+    def make_generation_fast_(self, need_attn=False, **kwargs):
+        self.need_attn = need_attn
+
+
+class TransformerAANDecoderLayer(nn.Module):
+    """Decoder layer block.
+    In the original paper each operation (multi-head attention, encoder
+    attention or FFN) is postprocessed with: `dropout -> add residual ->
+    layernorm`. In the tensor2tensor code they suggest that learning is more
+    robust when preprocessing each layer with layernorm and postprocessing with:
+    `dropout -> add residual`. We default to the approach in the paper, but the
+    tensor2tensor approach can be enabled by setting
+    *args.decoder_normalize_before* to ``True``.
+    Args:
+        args (argparse.Namespace): parsed command-line arguments
+        no_encoder_attn (bool, optional): whether to attend to encoder outputs.
+            Default: ``False``
+    """
+
+    def __init__(self, args, no_encoder_attn=False):
+        super().__init__()
+        self.embed_dim = args.decoder_embed_dim
+        self.dropout = args.dropout
+        self.relu_dropout = args.relu_dropout
+        self.more_dropouts = args.decoder_aan_more_dropouts
+        if args.decoder_attn_window_size <= 0:
+            self.avg_attn = AverageAttention(self.embed_dim, dropout=args.
+                attention_dropout)
+        else:
+            self.avg_attn = AverageWindowAttention(self.embed_dim, dropout=
+                args.attention_dropout, window_size=args.
+                decoder_attn_window_size)
+        self.aan_layer_norm = LayerNorm(self.embed_dim)
+        if args.no_decoder_aan_ffn:
+            self.aan_ffn = None
+        else:
+            aan_ffn_hidden_dim = (args.decoder_ffn_embed_dim if args.
+                decoder_aan_ffn_use_embed_dim else args.decoder_ffn_embed_dim)
+            self.aan_ffn = FeedForwardNetwork(self.embed_dim,
+                aan_ffn_hidden_dim, self.embed_dim, num_layers=2, dropout=
+                args.relu_dropout)
+        if args.no_decoder_aan_gating:
+            self.aan_gating_fc = None
+        else:
+            self.aan_gating_fc = Linear(self.embed_dim * 2, self.embed_dim * 2)
+        self.normalize_before = args.decoder_normalize_before
+        if no_encoder_attn:
+            self.encoder_attn = None
+            self.encoder_attn_layer_norm = None
+        else:
+            self.encoder_attn = MultiheadAttention(self.embed_dim, args.
+                decoder_attention_heads, kdim=args.encoder_embed_dim, vdim=
+                args.encoder_embed_dim, dropout=args.attention_dropout,
+                encoder_decoder_attention=True)
+            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim)
+        self.ffn = FeedForwardNetwork(self.embed_dim, args.
+            decoder_ffn_embed_dim, self.embed_dim, num_layers=2, dropout=
+            args.relu_dropout)
+        self.final_layer_norm = LayerNorm(self.embed_dim)
+        self.need_attn = True
+        self.onnx_trace = False
+
+    def prepare_for_onnx_export_(self):
+        self.onnx_trace = True
+
+    def forward(self, x, encoder_out, encoder_padding_mask,
+        incremental_state, prev_self_attn_state=None, prev_attn_state=None,
+        self_attn_mask=None, self_attn_padding_mask=None):
+        """
+        Args:
+            x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
+            encoder_padding_mask (ByteTensor): binary ByteTensor of shape
+                `(batch, src_len)` where padding elements are indicated by ``1``.
+        Returns:
+            encoded output of shape `(batch, src_len, embed_dim)`
+        """
+        residual = x
+        if 'residual' in self.more_dropouts:
+            residual = F.dropout(residual, p=self.dropout, training=self.
+                training)
+        if prev_self_attn_state is not None:
+            if incremental_state is None:
+                incremental_state = {}
+            prev_key, prev_value = prev_self_attn_state
+            saved_state = {'prev_key': prev_key, 'prev_value': prev_value}
+            self.avg_attn._set_input_buffer(incremental_state, saved_state)
+        x, _ = self.avg_attn(value=x, mask_future_timesteps=True,
+            incremental_state=incremental_state, mask_trick=self.training)
+        if 'after_avg' in self.more_dropouts:
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        if self.aan_layer_norm is not None:
+            x = self.maybe_layer_norm(self.aan_layer_norm, x, before=True)
+        if self.aan_ffn is not None:
+            x = self.aan_ffn(x)
+            if 'after_ffn' in self.more_dropouts:
+                x = F.dropout(x, p=self.dropout, training=self.training)
+        if self.aan_gating_fc is not None:
+            i, f = self.aan_gating_fc(torch.cat([residual, x], dim=-1)).chunk(
+                2, dim=-1)
+            x = torch.sigmoid(f) * residual + torch.sigmoid(i) * x
+            if 'after_gating' in self.more_dropouts:
+                x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = residual + x
+        if self.aan_layer_norm is not None:
+            x = self.maybe_layer_norm(self.aan_layer_norm, x, after=True)
+        attn = None
+        if self.encoder_attn is not None:
+            residual = x
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
+                before=True)
+            if prev_attn_state is not None:
+                if incremental_state is None:
+                    incremental_state = {}
+                prev_key, prev_value = prev_attn_state
+                saved_state = {'prev_key': prev_key, 'prev_value': prev_value}
+                self.encoder_attn._set_input_buffer(incremental_state,
+                    saved_state)
+            x, attn = self.encoder_attn(query=x, key=encoder_out, value=
+                encoder_out, key_padding_mask=encoder_padding_mask,
+                incremental_state=incremental_state, static_kv=True,
+                need_weights=not self.training and self.need_attn)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = residual + x
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
+                after=True)
+        residual = x
+        x = self.maybe_layer_norm(self.final_layer_norm, x, before=True)
+        x = self.ffn(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = residual + x
+        x = self.maybe_layer_norm(self.final_layer_norm, x, after=True)
+        return x, attn
+
+    def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
+        assert before ^ after
+        if after ^ self.normalize_before:
+            return layer_norm(x)
+        else:
+            return x
+
+    def make_generation_fast_(self, need_attn=False, **kwargs):
+        self.need_attn = need_attn
+
+    def extra_repr(self):
+        return 'dropout={}, more_dropouts={}'.format(self.dropout, self.
+            more_dropouts)
+
+
 class FeedForwardNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size=None, output_size=None,
@@ -3065,30 +3511,35 @@ class WordPredictor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorch_translate(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
+        self._check(BiLSTM(*[], **{'num_layers': 1, 'bidirectional': 4, 'embed_dim': 4, 'hidden_dim': 4, 'dropout': 0.5, 'residual_level': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_001(self):
         self._check(ContextEmbedding(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(FeedForwardNetwork(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(HighwayLayer(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(MultiheadAttention(*[], **{'nheads': 4, 'd_model': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(OutputProjection(*[], **{'out_embed_dim': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(WordPredictor(*[], **{'encoder_output_dim': 4, 'hidden_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

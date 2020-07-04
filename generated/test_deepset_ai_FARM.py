@@ -88,10 +88,13 @@ test_question_answering = _module
 test_s3e_pooling = _module
 test_tokenization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -402,6 +405,1829 @@ def run_split_on_punc(text, never_split=None):
     return [''.join(x) for x in output]
 
 
+TRACTOR_SMALL = """ 
+              ______
+               |o  |   !
+   __          |:`_|---'-.
+  |__|______.-/ _ \\-----.|       
+ (o)(o)------'\\ _ /     ( )      
+ """
+
+
+def calc_chunksize(num_dicts, min_chunksize=4, max_chunksize=2000,
+    max_processes=128):
+    num_cpus = min(mp.cpu_count() - 1 or 1, max_processes)
+    dicts_per_cpu = np.ceil(num_dicts / num_cpus)
+    multiprocessing_chunk_size = int(np.clip(np.ceil(dicts_per_cpu / 5),
+        a_min=min_chunksize, a_max=max_chunksize))
+    if num_dicts != 1:
+        while num_dicts % multiprocessing_chunk_size == 1:
+            multiprocessing_chunk_size -= -1
+    dict_batches_to_process = int(num_dicts / multiprocessing_chunk_size)
+    num_processes = min(num_cpus, dict_batches_to_process) or 1
+    return multiprocessing_chunk_size, num_processes
+
+
+def get_dict_checksum(payload_dict):
+    """
+    Get MD5 checksum for a dict.
+    """
+    checksum = hashlib.md5(json.dumps(payload_dict, sort_keys=True).encode(
+        'utf-8')).hexdigest()
+    return checksum
+
+
+def grouper(iterable, n, worker_id=0, total_workers=1):
+    """
+    Split an iterable into a list of n-sized chunks. Each element in the chunk is a tuple of (index_num, element).
+
+    Example:
+
+    >>> list(grouper('ABCDEFG', 3))
+    [[(0, 'A'), (1, 'B'), (2, 'C')], [(3, 'D'), (4, 'E'), (5, 'F')], [(6, 'G')]]
+
+
+
+    Use with the StreamingDataSilo
+
+    When StreamingDataSilo is used with multiple PyTorch DataLoader workers, the generator
+    yielding dicts(that gets converted to datasets) is replicated across the workers.
+
+    To avoid duplicates, we split the dicts across workers by creating a new generator for
+    each worker using this method.
+
+    Input --> [dictA, dictB, dictC, dictD, dictE, ...] with total worker=3 and n=2
+
+    Output for worker 1: [(dictA, dictB), (dictG, dictH), ...]
+    Output for worker 2: [(dictC, dictD), (dictI, dictJ), ...]
+    Output for worker 3: [(dictE, dictF), (dictK, dictL), ...]
+
+    This method also adds an index number to every dict yielded similar to the grouper().
+
+    :param iterable: a generator object that yields dicts
+    :type iterable: generator
+    :param n: the dicts are grouped in n-sized chunks that gets converted to datasets
+    :type n: int
+    :param worker_id: the worker_id for the PyTorch DataLoader
+    :type worker_id: int
+    :param total_workers: total number of workers for the PyTorch DataLoader
+    :type total_workers: int
+    """
+
+    def get_iter_start_pos(gen):
+        start_pos = worker_id * n
+        for i in gen:
+            if start_pos:
+                start_pos -= 1
+                continue
+            yield i
+
+    def filter_elements_per_worker(gen):
+        x = n
+        y = (total_workers - 1) * n
+        for i in gen:
+            if x:
+                yield i
+                x -= 1
+            elif y != 1:
+                y -= 1
+                continue
+            else:
+                x = n
+                y = (total_workers - 1) * n
+    iterable = iter(enumerate(iterable))
+    iterable = get_iter_start_pos(iterable)
+    if total_workers > 1:
+        iterable = filter_elements_per_worker(iterable)
+    return iter(lambda : list(islice(iterable, n)), [])
+
+
+WORKER_F = ' 0 \n/w\\\n/ \\\n'
+
+
+WORKER_M = " 0 \n/|\\\n/'\\\n"
+
+
+WORKER_X = " 0 \n/w\\\n/'\\\n"
+
+
+def log_ascii_workers(n, logger):
+    m_worker_lines = WORKER_M.split('\n')
+    f_worker_lines = WORKER_F.split('\n')
+    x_worker_lines = WORKER_X.split('\n')
+    all_worker_lines = []
+    for i in range(n):
+        rand = np.random.randint(low=0, high=3)
+        if rand % 3 == 0:
+            all_worker_lines.append(f_worker_lines)
+        elif rand % 3 == 1:
+            all_worker_lines.append(m_worker_lines)
+        else:
+            all_worker_lines.append(x_worker_lines)
+    zipped = zip(*all_worker_lines)
+    for z in zipped:
+        logger.info('  '.join(z))
+
+
+def span_to_string(start_t, end_t, token_offsets, clear_text):
+    if start_t == -1 and end_t == -1:
+        return '', 0, 0
+    n_tokens = len(token_offsets)
+    end_t += 1
+    end_t = min(end_t, n_tokens)
+    start_ch = token_offsets[start_t]
+    if end_t == n_tokens:
+        end_ch = len(clear_text)
+    else:
+        end_ch = token_offsets[end_t]
+    return clear_text[start_ch:end_ch].strip(), start_ch, end_ch
+
+
+class DocumentPred:
+    """ Contains a collection of Span predictions for one document. Used in Question Answering. Also contains all
+    attributes needed to generate the appropriate output json"""
+
+    def __init__(self, id, document_text, question, preds, no_ans_gap,
+        token_offsets, context_window_size, question_id=None):
+        self.id = id
+        self.preds = preds
+        self.n_samples = preds[0].n_samples
+        self.document_text = document_text
+        self.question = question
+        self.question_id = question_id
+        self.no_ans_gap = no_ans_gap
+        self.token_offsets = token_offsets
+        self.context_window_size = context_window_size
+
+    def __str__(self):
+        preds_str = '\n'.join([f'{p}' for p in self.preds])
+        ret = (
+            f'id: {self.id}\ndocument: {self.document_text}\npreds:\n{preds_str}'
+            )
+        return ret
+
+    def __repr__(self):
+        return str(self)
+
+    def to_json(self):
+        answers = self.answers_to_json()
+        ret = {'task': 'qa', 'predictions': [{'question': self.question,
+            'question_id': self.question_id, 'ground_truth': None,
+            'answers': answers, 'no_ans_gap': self.no_ans_gap}]}
+        return ret
+
+    def answers_to_json(self):
+        ret = []
+        for span in self.preds:
+            string = span.pred_str
+            start_t = span.start
+            end_t = span.end
+            score = span.score
+            classification = span.classification
+            _, ans_start_ch, ans_end_ch = span_to_string(start_t, end_t,
+                self.token_offsets, self.document_text)
+            context_string, context_start_ch, context_end_ch = (self.
+                create_context(ans_start_ch, ans_end_ch, self.document_text))
+            curr = {'score': score, 'probability': -1, 'answer': string,
+                'offset_answer_start': ans_start_ch, 'offset_answer_end':
+                ans_end_ch, 'context': context_string, 'classification':
+                classification, 'offset_context_start': context_start_ch,
+                'offset_context_end': context_end_ch, 'document_id': self.id}
+            ret.append(curr)
+        return ret
+
+    def create_context(self, ans_start_ch, ans_end_ch, clear_text):
+        if ans_start_ch == 0 and ans_end_ch == 0:
+            return '', 0, 0
+        else:
+            len_text = len(clear_text)
+            midpoint = int((ans_end_ch - ans_start_ch) / 2) + ans_start_ch
+            half_window = int(self.context_window_size / 2)
+            context_start_ch = midpoint - half_window
+            context_end_ch = midpoint + half_window
+            overhang_start = max(0, -context_start_ch)
+            overhang_end = max(0, context_end_ch - len_text)
+            context_start_ch -= overhang_end
+            context_start_ch = max(0, context_start_ch)
+            context_end_ch += overhang_start
+            context_end_ch = min(len_text, context_end_ch)
+        context_string = clear_text[context_start_ch:context_end_ch]
+        return context_string, context_start_ch, context_end_ch
+
+    def to_squad_eval(self):
+        preds = [x.to_list() for x in self.preds]
+        ret = {'id': self.id, 'preds': preds}
+        return ret
+
+
+class Span:
+
+    def __init__(self, start, end, score=None, sample_idx=None, n_samples=
+        None, classification=None, unit=None, pred_str=None, id=None, level
+        =None):
+        self.start = start
+        self.end = end
+        self.score = score
+        self.unit = unit
+        self.sample_idx = sample_idx
+        self.classification = classification
+        self.n_samples = n_samples
+        self.pred_str = pred_str
+        self.id = id
+        self.level = level
+
+    def to_list(self):
+        return [self.pred_str, self.start, self.end, self.score, self.
+            sample_idx]
+
+    def __str__(self):
+        if self.pred_str is None:
+            pred_str = 'is_impossible'
+        else:
+            pred_str = self.pred_str
+        ret = f'answer: {pred_str}\nscore: {self.score}'
+        return ret
+
+    def __repr__(self):
+        return str(self)
+
+
+SAMPLE = """
+      .--.        _____                       _      
+    .'_\\/_'.     / ____|                     | |     
+    '. /\\ .'    | (___   __ _ _ __ ___  _ __ | | ___ 
+      "||"       \\___ \\ / _` | '_ ` _ \\| '_ \\| |/ _ \\ 
+       || /\\     ____) | (_| | | | | | | |_) | |  __/
+    /\\ ||//\\)   |_____/ \\__,_|_| |_| |_| .__/|_|\\___|
+   (/\\||/                             |_|           
+______\\||/___________________________________________                     
+"""
+
+
+class Sample(object):
+    """A single training/test sample. This should contain the input and the label. Is initialized with
+    the human readable clear_text. Over the course of data preprocessing, this object is populated
+    with tokenized and featurized versions of the data."""
+
+    def __init__(self, id, clear_text, tokenized=None, features=None):
+        """
+        :param id: The unique id of the sample
+        :type id: str
+        :param clear_text: A dictionary containing various human readable fields (e.g. text, label).
+        :type clear_text: dict
+        :param tokenized: A dictionary containing the tokenized version of clear text plus helpful meta data: offsets (start position of each token in the original text) and start_of_word (boolean if a token is the first one of a word).
+        :type tokenized: dict
+        :param features: A dictionary containing features in a vectorized format needed by the model to process this sample.
+        :type features: dict
+
+        """
+        self.id = id
+        self.clear_text = clear_text
+        self.features = features
+        self.tokenized = tokenized
+
+    def __str__(self):
+        if self.clear_text:
+            clear_text_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
+                self.clear_text.items()])
+            if len(clear_text_str) > 10000:
+                clear_text_str = clear_text_str[:10000] + f"""
+THE REST IS TOO LONG TO DISPLAY. Remaining chars :{len(clear_text_str) - 10000}"""
+        else:
+            clear_text_str = 'None'
+        if self.features:
+            if isinstance(self.features, list):
+                features = self.features[0]
+            else:
+                features = self.features
+            feature_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
+                features.items()])
+        else:
+            feature_str = 'None'
+        if self.tokenized:
+            tokenized_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
+                self.tokenized.items()])
+            if len(tokenized_str) > 10000:
+                tokenized_str = tokenized_str[:10000] + f"""
+THE REST IS TOO LONG TO DISPLAY. Remaining chars: {len(tokenized_str) - 10000}"""
+        else:
+            tokenized_str = 'None'
+        s = f"""
+{SAMPLE}
+ID: {self.id}
+Clear Text: 
+ 	{clear_text_str}
+Tokenized: 
+ 	{tokenized_str}
+Features: 
+ 	{feature_str}
+_____________________________________________________"""
+        return s
+
+
+class SampleBasket:
+    """ An object that contains one source text and the one or more samples that will be processed. This
+    is needed for tasks like question answering where the source text can generate multiple input - label
+    pairs."""
+
+    def __init__(self, id: str, raw: dict, external_id=None, samples=None):
+        """
+        :param id: A unique identifying id. Used for identification within FARM.
+        :type id: str
+        :param external_id: Used for identification outside of FARM. E.g. if another framework wants to pass along its own id with the results.
+        :type external_id: str
+        :param raw: Contains the various data needed to form a sample. It is ideally in human readable form.
+        :type raw: dict
+        :param samples: An optional list of Samples used to populate the basket at initialization.
+        :type samples: Sample
+        """
+        self.id = id
+        self.external_id = external_id
+        self.raw = raw
+        self.samples = samples
+
+
+class Tokenizer:
+    """
+    Simple Wrapper for Tokenizers from the transformers package. Enables loading of different Tokenizer classes with a uniform interface.
+    """
+
+    @classmethod
+    def load(cls, pretrained_model_name_or_path, tokenizer_class=None, **kwargs
+        ):
+        """
+        Enables loading of different Tokenizer classes with a uniform interface. Either infer the class from
+        `pretrained_model_name_or_path` or define it manually via `tokenizer_class`.
+
+        :param pretrained_model_name_or_path:  The path of the saved pretrained model or its name (e.g. `bert-base-uncased`)
+        :type pretrained_model_name_or_path: str
+        :param tokenizer_class: (Optional) Name of the tokenizer class to load (e.g. `BertTokenizer`)
+        :type tokenizer_class: str
+        :param kwargs:
+        :return: Tokenizer
+        """
+        pretrained_model_name_or_path = str(pretrained_model_name_or_path)
+        if tokenizer_class is None:
+            if 'albert' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'AlbertTokenizer'
+            elif 'xlm-roberta' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'XLMRobertaTokenizer'
+            elif 'roberta' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'RobertaTokenizer'
+            elif 'distilbert' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'DistilBertTokenizer'
+            elif 'bert' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'BertTokenizer'
+            elif 'xlnet' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'XLNetTokenizer'
+            elif 'electra' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'ElectraTokenizer'
+            elif 'word2vec' in pretrained_model_name_or_path.lower(
+                ) or 'glove' in pretrained_model_name_or_path.lower(
+                ) or 'fasttext' in pretrained_model_name_or_path.lower():
+                tokenizer_class = 'EmbeddingTokenizer'
+            else:
+                raise ValueError(
+                    f"Could not infer tokenizer_class from name '{pretrained_model_name_or_path}'. Set arg `tokenizer_class` in Tokenizer.load() to one of: AlbertTokenizer, XLMRobertaTokenizer, RobertaTokenizer, DistilBertTokenizer, BertTokenizer, or XLNetTokenizer."
+                    )
+            logger.info(f"Loading tokenizer of type '{tokenizer_class}'")
+        if tokenizer_class == 'AlbertTokenizer':
+            ret = AlbertTokenizer.from_pretrained(pretrained_model_name_or_path
+                , keep_accents=True, **kwargs)
+        elif tokenizer_class == 'XLMRobertaTokenizer':
+            ret = XLMRobertaTokenizer.from_pretrained(
+                pretrained_model_name_or_path, **kwargs)
+        elif tokenizer_class == 'RobertaTokenizer':
+            ret = RobertaTokenizer.from_pretrained(
+                pretrained_model_name_or_path, **kwargs)
+        elif tokenizer_class == 'DistilBertTokenizer':
+            ret = DistilBertTokenizer.from_pretrained(
+                pretrained_model_name_or_path, **kwargs)
+        elif tokenizer_class == 'BertTokenizer':
+            ret = BertTokenizer.from_pretrained(pretrained_model_name_or_path,
+                **kwargs)
+        elif tokenizer_class == 'XLNetTokenizer':
+            ret = XLNetTokenizer.from_pretrained(pretrained_model_name_or_path,
+                keep_accents=True, **kwargs)
+        elif tokenizer_class == 'ElectraTokenizer':
+            ret = ElectraTokenizer.from_pretrained(
+                pretrained_model_name_or_path, **kwargs)
+        elif tokenizer_class == 'EmbeddingTokenizer':
+            ret = EmbeddingTokenizer.from_pretrained(
+                pretrained_model_name_or_path, **kwargs)
+        if ret is None:
+            raise Exception('Unable to load tokenizer')
+        else:
+            return ret
+
+
+def convert_features_to_dataset(features):
+    """
+    Converts a list of feature dictionaries (one for each sample) into a PyTorch Dataset.
+
+    :param features: A list of dictionaries. Each dictionary corresponds to one sample. Its keys are the
+                     names of the type of feature and the keys are the features themselves.
+    :Return: a Pytorch dataset and a list of tensor names.
+    """
+    if len(features) == 0:
+        return None, None
+    tensor_names = list(features[0].keys())
+    all_tensors = []
+    for t_name in tensor_names:
+        try:
+            cur_tensor = torch.tensor([sample[t_name] for sample in
+                features], dtype=torch.long)
+        except ValueError:
+            cur_tensor = torch.tensor([sample[t_name] for sample in
+                features], dtype=torch.float32)
+        all_tensors.append(cur_tensor)
+    dataset = TensorDataset(*all_tensors)
+    return dataset, tensor_names
+
+
+def is_json(x):
+    if issubclass(type(x), Path):
+        return True
+    try:
+        json.dumps(x)
+        return True
+    except:
+        return False
+
+
+def convert_qa_input_dict(infer_dict):
+    """ Input dictionaries in QA can either have ["context", "qas"] (internal format) as keys or
+    ["text", "questions"] (api format). This function converts the latter into the former"""
+    try:
+        if 'context' in infer_dict and 'qas' in infer_dict:
+            return infer_dict
+        questions = infer_dict['questions']
+        text = infer_dict['text']
+        document_id = infer_dict.get('document_id', None)
+        qas = [{'question': q, 'id': None, 'answers': [], 'is_impossible': 
+            False} for i, q in enumerate(questions)]
+        converted = {'qas': qas, 'context': text, 'document_id': document_id}
+        return converted
+    except KeyError:
+        raise Exception('Input does not have the expected format')
+
+
+def chunk_into_passages(doc_offsets, doc_stride, passage_len_t, doc_text):
+    """ Returns a list of dictionaries which each describe the start, end and id of a passage
+    that is formed when chunking a document using a sliding window approach. """
+    passage_spans = []
+    passage_id = 0
+    doc_len_t = len(doc_offsets)
+    while True:
+        passage_start_t = passage_id * doc_stride
+        passage_end_t = passage_start_t + passage_len_t
+        passage_start_c = doc_offsets[passage_start_t]
+        if passage_end_t >= doc_len_t - 1:
+            passage_end_c = len(doc_text)
+        else:
+            end_ch_idx = doc_offsets[passage_end_t + 1]
+            raw_passage_text = doc_text[:end_ch_idx]
+            passage_end_c = len(raw_passage_text.strip())
+        passage_span = {'passage_start_t': passage_start_t, 'passage_end_t':
+            passage_end_t, 'passage_start_c': passage_start_c,
+            'passage_end_c': passage_end_c, 'passage_id': passage_id}
+        passage_spans.append(passage_span)
+        passage_id += 1
+        if passage_end_t >= doc_len_t:
+            break
+    return passage_spans
+
+
+def offset_to_token_idx(token_offsets, ch_idx):
+    """ Returns the idx of the token at the given character idx"""
+    n_tokens = len(token_offsets)
+    for i in range(n_tokens):
+        if i + 1 == n_tokens or token_offsets[i] <= ch_idx < token_offsets[
+            i + 1]:
+            return i
+
+
+def process_answers(answers, doc_offsets, passage_start_c, passage_start_t):
+    """TODO Write Comment"""
+    answers_clear = []
+    answers_tokenized = []
+    for answer in answers:
+        answer_text = answer['text']
+        answer_len_c = len(answer_text)
+        answer_start_c = answer['offset']
+        answer_end_c = answer_start_c + answer_len_c - 1
+        answer_start_t = offset_to_token_idx(doc_offsets, answer_start_c)
+        answer_end_t = offset_to_token_idx(doc_offsets, answer_end_c)
+        answer_start_c -= passage_start_c
+        answer_end_c -= passage_start_c
+        answer_start_t -= passage_start_t
+        answer_end_t -= passage_start_t
+        curr_answer_clear = {'text': answer_text, 'start_c': answer_start_c,
+            'end_c': answer_end_c}
+        curr_answer_tokenized = {'start_t': answer_start_t, 'end_t':
+            answer_end_t, 'answer_type': answer['answer_type']}
+        answers_clear.append(curr_answer_clear)
+        answers_tokenized.append(curr_answer_tokenized)
+    return answers_clear, answers_tokenized
+
+
+def create_samples_qa(dictionary, max_query_len, max_seq_len, doc_stride,
+    n_special_tokens):
+    """
+    This method will split question-document pairs from the SampleBasket into question-passage pairs which will
+    each form one sample. The "t" and "c" in variables stand for token and character respectively.
+    """
+    question_tokens = dictionary['question_tokens'][:max_query_len]
+    question_len_t = len(question_tokens)
+    question_offsets = dictionary['question_offsets']
+    doc_tokens = dictionary['document_tokens']
+    doc_offsets = dictionary['document_offsets']
+    doc_text = dictionary['document_text']
+    doc_start_of_word = dictionary['document_start_of_word']
+    samples = []
+    passage_len_t = max_seq_len - question_len_t - n_special_tokens
+    passage_spans = chunk_into_passages(doc_offsets, doc_stride,
+        passage_len_t, doc_text)
+    for passage_span in passage_spans:
+        passage_start_t = passage_span['passage_start_t']
+        passage_end_t = passage_span['passage_end_t']
+        passage_start_c = passage_span['passage_start_c']
+        passage_end_c = passage_span['passage_end_c']
+        passage_id = passage_span['passage_id']
+        passage_offsets = doc_offsets[passage_start_t:passage_end_t]
+        passage_start_of_word = doc_start_of_word[passage_start_t:passage_end_t
+            ]
+        passage_offsets = [(x - passage_offsets[0]) for x in passage_offsets]
+        passage_tokens = doc_tokens[passage_start_t:passage_end_t]
+        passage_text = dictionary['document_text'][passage_start_c:
+            passage_end_c]
+        answers_clear, answers_tokenized = process_answers(dictionary[
+            'answers'], doc_offsets, passage_start_c, passage_start_t)
+        clear_text = {'passage_text': passage_text, 'question_text':
+            dictionary['question_text'], 'passage_id': passage_id,
+            'answers': answers_clear}
+        tokenized = {'passage_start_t': passage_start_t, 'passage_tokens':
+            passage_tokens, 'passage_offsets': passage_offsets,
+            'passage_start_of_word': passage_start_of_word,
+            'question_tokens': question_tokens, 'question_offsets':
+            question_offsets, 'question_start_of_word': dictionary[
+            'question_start_of_word'][:max_query_len], 'answers':
+            answers_tokenized, 'document_offsets': doc_offsets}
+        samples.append(Sample(id=passage_id, clear_text=clear_text,
+            tokenized=tokenized))
+    return samples
+
+
+DOWNSTREAM_TASK_MAP = {'gnad':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/gnad.tar.gz'
+    , 'germeval14':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval14.tar.gz'
+    , 'germeval18':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval18.tar.gz'
+    , 'squad20':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/squad20.tar.gz'
+    , 'conll03detrain':
+    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.train'
+    , 'conll03dedev':
+    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testa'
+    , 'conll03detest':
+    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testb'
+    , 'conll03entrain':
+    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.train'
+    , 'conll03endev':
+    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testa'
+    , 'conll03entest':
+    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testb'
+    , 'cord_19':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cord_19.tar.gz'
+    , 'lm_finetune_nips':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/lm_finetune_nips.tar.gz'
+    , 'toxic-comments':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/toxic-comments.tar.gz'
+    , 'cola':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cola.tar.gz'
+    , 'asnq_binary':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/asnq_binary.tar.gz'
+    , 'germeval17':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval17.tar.gz'
+    , 'natural_questions':
+    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/natural_questions.tar.gz'
+    }
+
+
+def _get_md5checksum(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, 'rb') as f:
+        for chunk in iter(lambda : f.read(4096), b''):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+
+def _conll03get(dataset, directory, language):
+    with open(directory / f'{dataset}.txt', 'wb') as file:
+        response = get(DOWNSTREAM_TASK_MAP[f'conll03{language}{dataset}'])
+        file.write(response.content)
+    if f'conll03{language}{dataset}' == 'conll03detrain':
+        if 'ae4be68b11dc94e0001568a9095eb391' != _get_md5checksum(str(
+            directory / f'{dataset}.txt')):
+            logger.error(
+                f"""Someone has changed the file for conll03detrain. This data was collected from an external github repository.
+Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
+                )
+    elif f'conll03{language}{dataset}' == 'conll03detest':
+        if 'b8514f44366feae8f317e767cf425f28' != _get_md5checksum(str(
+            directory / f'{dataset}.txt')):
+            logger.error(
+                f"""Someone has changed the file for conll03detest. This data was collected from an external github repository.
+Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
+                )
+    elif f'conll03{language}{dataset}' == 'conll03entrain':
+        if '11a942ce9db6cc64270372825e964d26' != _get_md5checksum(str(
+            directory / f'{dataset}.txt')):
+            logger.error(
+                f"""Someone has changed the file for conll03entrain. This data was collected from an external github repository.
+Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
+                )
+
+
+def http_get(url, temp_file, proxies=None):
+    req = requests.get(url, stream=True, proxies=proxies)
+    content_length = req.headers.get('Content-Length')
+    total = int(content_length) if content_length is not None else None
+    progress = tqdm(unit='B', total=total)
+    for chunk in req.iter_content(chunk_size=1024):
+        if chunk:
+            progress.update(len(chunk))
+            temp_file.write(chunk)
+    progress.close()
+
+
+def _download_extract_downstream_data(input_file, proxies=None):
+    full_path = Path(os.path.realpath(input_file))
+    directory = full_path.parent
+    taskname = directory.stem
+    datadir = directory.parent
+    logger.info('downloading and extracting file {} to dir {}'.format(
+        taskname, datadir))
+    if 'conll03-' in taskname:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        for dataset in ['train', 'dev', 'test']:
+            if 'de' in taskname:
+                _conll03get(dataset, directory, 'de')
+            elif 'en' in taskname:
+                _conll03get(dataset, directory, 'en')
+            else:
+                logger.error('Cannot download {}. Unknown data source.'.
+                    format(taskname))
+    elif taskname not in DOWNSTREAM_TASK_MAP:
+        logger.error('Cannot download {}. Unknown data source.'.format(
+            taskname))
+    else:
+        if os.name == 'nt':
+            delete_tmp_file = False
+        else:
+            delete_tmp_file = True
+        with tempfile.NamedTemporaryFile(delete=delete_tmp_file) as temp_file:
+            http_get(DOWNSTREAM_TASK_MAP[taskname], temp_file, proxies=proxies)
+            temp_file.flush()
+            temp_file.seek(0)
+            if 'germeval14' in taskname:
+                if '2c9d5337d7a25b9a4bf6f5672dd091bc' != _get_md5checksum(
+                    temp_file.name):
+                    logger.error(
+                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
+                        )
+            elif 'germeval18' in taskname:
+                if '23244fa042dcc39e844635285c455205' != _get_md5checksum(
+                    temp_file.name):
+                    logger.error(
+                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
+                        )
+            elif 'gnad' in taskname:
+                if 'ef62fe3f59c1ad54cf0271d8532b8f22' != _get_md5checksum(
+                    temp_file.name):
+                    logger.error(
+                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
+                        )
+            elif 'germeval17' in taskname:
+                if 'f1bf67247dcfe7c3c919b7b20b3f736e' != _get_md5checksum(
+                    temp_file.name):
+                    logger.error(
+                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
+                        )
+            tfile = tarfile.open(temp_file.name)
+            tfile.extractall(datadir)
+
+
+def read_squad_file(filename, proxies=None):
+    """Read a SQuAD json file"""
+    if not os.path.exists(filename):
+        logger.info(
+            f" Couldn't find {filename} locally. Trying to download ...")
+        _download_extract_downstream_data(filename, proxies)
+    with open(filename, 'r', encoding='utf-8') as reader:
+        input_data = json.load(reader)['data']
+    return input_data
+
+
+def combine_vecs(question_vec, passage_vec, tokenizer, spec_tok_val=-1):
+    """ Combine a question_vec and passage_vec in a style that is appropriate to the model. Will add slots in
+    the returned vector for special tokens like [CLS] where the value is determine by spec_tok_val."""
+    vec = tokenizer.build_inputs_with_special_tokens(token_ids_0=
+        question_vec, token_ids_1=passage_vec)
+    spec_toks_mask = tokenizer.get_special_tokens_mask(token_ids_0=
+        question_vec, token_ids_1=passage_vec)
+    combined = [(v if not special_token else spec_tok_val) for v,
+        special_token in zip(vec, spec_toks_mask)]
+    return combined
+
+
+def convert_id(id_string):
+    """
+    Splits a string id into parts. If it is an id generated in the SQuAD pipeline it simple splits the id by the dashes
+    and converts the parts to ints. If it is generated by the non-SQuAD pipeline, it splits the id by the dashes and
+    converts references to "train" or "infer" into ints.
+    :param id_string:
+    :return:
+    """
+    ret = []
+    datasets = ['train', 'infer']
+    id_list = id_string.split('-')
+    for x in id_list:
+        if x in datasets:
+            ret.append(datasets.index(x))
+        else:
+            ret.append(int(x))
+    return ret
+
+
+def answer_in_passage(start_idx, end_idx, passage_len):
+    if passage_len > start_idx > 0 and passage_len > end_idx > 0:
+        return True
+    return False
+
+
+def generate_labels(answers, passage_len_t, question_len_t, tokenizer,
+    max_answers, answer_type_list=None):
+    """
+    Creates QA label for each answer in answers. The labels are the index of the start and end token
+    relative to the passage. They are contained in an array of size (max_answers, 2).
+    -1 used to fill array since there the number of answers is often less than max_answers.
+    The index values take in to consideration the question tokens, and also special tokens such as [CLS].
+    When the answer is not fully contained in the passage, or the question
+    is impossible to answer, the start_idx and end_idx are 0 i.e. start and end are on the very first token
+    (in most models, this is the [CLS] token). Note that in our implementation NQ has 4 labels
+    ["is_impossible", "yes", "no", "span"] and this is what answer_type_list should look like"""
+    label_idxs = np.full((max_answers, 2), fill_value=-1)
+    answer_types = np.full(max_answers, fill_value=-1)
+    if len(answers) == 0:
+        label_idxs[(0), :] = 0
+        answer_types[:] = 0
+        return label_idxs, answer_types
+    for i, answer in enumerate(answers):
+        answer_type = answer['answer_type']
+        start_idx = answer['start_t']
+        end_idx = answer['end_t']
+        start_vec_question = [0] * question_len_t
+        end_vec_question = [0] * question_len_t
+        start_vec_passage = [0] * passage_len_t
+        end_vec_passage = [0] * passage_len_t
+        if answer_in_passage(start_idx, end_idx, passage_len_t):
+            start_vec_passage[start_idx] = 1
+            end_vec_passage[end_idx] = 1
+        start_vec = combine_vecs(start_vec_question, start_vec_passage,
+            tokenizer, spec_tok_val=0)
+        end_vec = combine_vecs(end_vec_question, end_vec_passage, tokenizer,
+            spec_tok_val=0)
+        start_label_present = 1 in start_vec
+        end_label_present = 1 in end_vec
+        if start_label_present is False and end_label_present is False:
+            start_vec[0] = 1
+            end_vec[0] = 1
+            answer_type = 'is_impossible'
+        elif start_label_present is False or end_label_present is False:
+            raise Exception(
+                'The label vectors are lacking either a start or end label')
+        assert sum(start_vec) == 1
+        assert sum(end_vec) == 1
+        start_idx = start_vec.index(1)
+        end_idx = end_vec.index(1)
+        label_idxs[i, 0] = start_idx
+        label_idxs[i, 1] = end_idx
+        if answer_type_list:
+            answer_types[i] = answer_type_list.index(answer_type)
+    assert np.max(label_idxs) > -1
+    return label_idxs, answer_types
+
+
+def get_roberta_seq_2_start(input_ids):
+    first_backslash_s = input_ids.index(2)
+    second_backslash_s = input_ids.index(2, first_backslash_s + 1)
+    return second_backslash_s + 1
+
+
+def sample_to_features_qa(sample, tokenizer, max_seq_len, answer_type_list=
+    None, max_answers=6):
+    """ Prepares data for processing by the model. Supports cases where there are
+    multiple answers for the one question/document pair. max_answers is by default set to 6 since
+    that is the most number of answers in the squad2.0 dev set."""
+    question_tokens = sample.tokenized['question_tokens']
+    question_start_of_word = sample.tokenized['question_start_of_word']
+    question_len_t = len(question_tokens)
+    passage_start_t = sample.tokenized['passage_start_t']
+    passage_tokens = sample.tokenized['passage_tokens']
+    passage_start_of_word = sample.tokenized['passage_start_of_word']
+    passage_len_t = len(passage_tokens)
+    answers = sample.tokenized['answers']
+    sample_id = convert_id(sample.id)
+    labels, answer_types = generate_labels(answers, passage_len_t,
+        question_len_t, tokenizer, answer_type_list=answer_type_list,
+        max_answers=max_answers)
+    start_of_word = combine_vecs(question_start_of_word,
+        passage_start_of_word, tokenizer, spec_tok_val=0)
+    encoded = tokenizer.encode_plus(text=sample.tokenized['question_tokens'
+        ], text_pair=sample.tokenized['passage_tokens'], add_special_tokens
+        =True, max_length=None, truncation_strategy='only_second',
+        return_token_type_ids=True, return_tensors=None)
+    input_ids = encoded['input_ids']
+    segment_ids = encoded['token_type_ids']
+    if tokenizer.__class__.__name__ in ['RobertaTokenizer',
+        'XLMRobertaTokenizer']:
+        seq_2_start_t = get_roberta_seq_2_start(input_ids)
+    else:
+        seq_2_start_t = segment_ids.index(1)
+    padding_mask = [1] * len(input_ids)
+    pad_idx = tokenizer.pad_token_id
+    padding = [pad_idx] * (max_seq_len - len(input_ids))
+    zero_padding = [0] * (max_seq_len - len(input_ids))
+    input_ids += padding
+    padding_mask += zero_padding
+    segment_ids += zero_padding
+    start_of_word += zero_padding
+    if tokenizer.__class__.__name__ in ['XLMRobertaTokenizer',
+        'RobertaTokenizer']:
+        segment_ids = np.zeros_like(segment_ids)
+    feature_dict = {'input_ids': input_ids, 'padding_mask': padding_mask,
+        'segment_ids': segment_ids, 'answer_type_ids': answer_types, 'id':
+        sample_id, 'passage_start_t': passage_start_t, 'start_of_word':
+        start_of_word, 'labels': labels, 'seq_2_start_t': seq_2_start_t}
+    return [feature_dict]
+
+
+SPECIAL_TOKENIZER_CHARS = '^(##|Ġ|▁)'
+
+
+def _words_to_tokens(words, word_offsets, tokenizer):
+    """
+    Tokenize "words" into subword tokens while keeping track of offsets and if a token is the start of a word.
+
+    :param words: list of words.
+    :type words: list
+    :param word_offsets: Character indices where each word begins in the original text
+    :type word_offsets: list
+    :param tokenizer: Tokenizer (e.g. from Tokenizer.load())
+    :return: tokens, offsets, start_of_word
+
+    """
+    tokens = []
+    token_offsets = []
+    start_of_word = []
+    idx = 0
+    for w, w_off in zip(words, word_offsets):
+        idx += 1
+        if idx % 500000 == 0:
+            logger.info(idx)
+        if len(w) == 0:
+            continue
+        elif len(tokens) == 0:
+            tokens_word = tokenizer.tokenize(w)
+        else:
+            try:
+                tokens_word = tokenizer.tokenize(w, add_prefix_space=True)
+            except TypeError:
+                tokens_word = tokenizer.tokenize(w)
+        if len(tokens_word) == 0:
+            continue
+        tokens += tokens_word
+        first_tok = True
+        for tok in tokens_word:
+            token_offsets.append(w_off)
+            orig_tok = re.sub(SPECIAL_TOKENIZER_CHARS, '', tok)
+            w_off += len(orig_tok)
+            if first_tok:
+                start_of_word.append(True)
+                first_tok = False
+            else:
+                start_of_word.append(False)
+    assert len(tokens) == len(token_offsets) == len(start_of_word)
+    return tokens, token_offsets, start_of_word
+
+
+def tokenize_with_metadata(text, tokenizer):
+    """
+    Performing tokenization while storing some important metadata for each token:
+
+    * offsets: (int) Character index where the token begins in the original text
+    * start_of_word: (bool) If the token is the start of a word. Particularly helpful for NER and QA tasks.
+
+    We do this by first doing whitespace tokenization and then applying the model specific tokenizer to each "word".
+
+    .. note::  We don't assume to preserve exact whitespaces in the tokens!
+               This means: tabs, new lines, multiple whitespace etc will all resolve to a single " ".
+               This doesn't make a difference for BERT + XLNet but it does for RoBERTa.
+               For RoBERTa it has the positive effect of a shorter sequence length, but some information about whitespace
+               type is lost which might be helpful for certain NLP tasks ( e.g tab for tables).
+
+    :param text: Text to tokenize
+    :type text: str
+    :param tokenizer: Tokenizer (e.g. from Tokenizer.load())
+    :return: Dictionary with "tokens", "offsets" and "start_of_word"
+    :rtype: dict
+
+    """
+    text = re.sub('\\s', ' ', text)
+    words = text.split(' ')
+    word_offsets = []
+    cumulated = 0
+    for idx, word in enumerate(words):
+        word_offsets.append(cumulated)
+        cumulated += len(word) + 1
+    tokens, offsets, start_of_word = _words_to_tokens(words, word_offsets,
+        tokenizer)
+    tokenized = {'tokens': tokens, 'offsets': offsets, 'start_of_word':
+        start_of_word}
+    return tokenized
+
+
+def convert_iob_to_simple_tags(preds, spans):
+    contains_named_entity = len([x for x in preds if 'B-' in x]) != 0
+    simple_tags = []
+    merged_spans = []
+    open_tag = False
+    for pred, span in zip(preds, spans):
+        if not ('B-' in pred or 'I-' in pred):
+            if open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+                open_tag = False
+            continue
+        elif 'B-' in pred:
+            if open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+            cur_tag = pred.replace('B-', '')
+            cur_span = span
+            open_tag = True
+        elif 'I-' in pred:
+            this_tag = pred.replace('I-', '')
+            if open_tag and this_tag == cur_tag:
+                cur_span['end'] = span['end']
+            elif open_tag:
+                merged_spans.append(cur_span)
+                simple_tags.append(cur_tag)
+                open_tag = False
+    if open_tag:
+        merged_spans.append(cur_span)
+        simple_tags.append(cur_tag)
+        open_tag = False
+    if contains_named_entity and len(simple_tags) == 0:
+        raise Exception(
+            'Predicted Named Entities lost when converting from IOB to simple tags. Please check the formatof the training data adheres to either adheres to IOB2 format or is converted when read_ner_file() is called.'
+            )
+    return simple_tags, merged_spans
+
+
+def loss_per_head_sum(loss_per_head, global_step=None, batch=None):
+    """
+    Input: loss_per_head (list of tensors), global_step (int), batch (dict)
+    Output: aggregated loss (tensor)
+    """
+    return sum(loss_per_head)
+
+
+class AdaptiveModel(nn.Module, BaseAdaptiveModel):
+    """ PyTorch implementation containing all the modelling needed for your NLP task. Combines a language
+    model and a prediction head. Allows for gradient flow back to the language model component."""
+
+    def __init__(self, language_model, prediction_heads,
+        embeds_dropout_prob, lm_output_types, device, loss_aggregation_fn=None
+        ):
+        """
+        :param language_model: Any model that turns token ids into vector representations
+        :type language_model: LanguageModel
+        :param prediction_heads: A list of models that take embeddings and return logits for a given task
+        :type prediction_heads: list
+        :param embeds_dropout_prob: The probability that a value in the embeddings returned by the
+           language model will be zeroed.
+        :param embeds_dropout_prob: float
+        :param lm_output_types: How to extract the embeddings from the final layer of the language model. When set
+                                to "per_token", one embedding will be extracted per input token. If set to
+                                "per_sequence", a single embedding will be extracted to represent the full
+                                input sequence. Can either be a single string, or a list of strings,
+                                one for each prediction head.
+        :type lm_output_types: list or str
+        :param device: The device on which this model will operate. Either "cpu" or "cuda".
+        :param loss_aggregation_fn: Function to aggregate the loss of multiple prediction heads.
+                                    Input: loss_per_head (list of tensors), global_step (int), batch (dict)
+                                    Output: aggregated loss (tensor)
+                                    Default is a simple sum:
+                                    `lambda loss_per_head, global_step=None, batch=None: sum(tensors)`
+                                    However, you can pass more complex functions that depend on the
+                                    current step (e.g. for round-robin style multitask learning) or the actual
+                                    content of the batch (e.g. certain labels)
+                                    Note: The loss at this stage is per sample, i.e one tensor of
+                                    shape (batchsize) per prediction head.
+        :type loss_aggregation_fn: function
+        """
+        super(AdaptiveModel, self).__init__()
+        self.device = device
+        self.language_model = language_model
+        self.lm_output_dims = language_model.get_output_dims()
+        self.prediction_heads = nn.ModuleList([ph for ph in prediction_heads])
+        self.fit_heads_to_lm()
+        for head in self.prediction_heads:
+            if head.model_type == 'language_modelling':
+                head.set_shared_weights(language_model.model.embeddings.
+                    word_embeddings.weight)
+        self.dropout = nn.Dropout(embeds_dropout_prob)
+        self.lm_output_types = [lm_output_types] if isinstance(lm_output_types,
+            str) else lm_output_types
+        assert len(self.lm_output_types) == len(self.prediction_heads)
+        self.log_params()
+        if not loss_aggregation_fn:
+            loss_aggregation_fn = loss_per_head_sum
+        self.loss_aggregation_fn = loss_aggregation_fn
+
+    def fit_heads_to_lm(self):
+        """This iterates over each prediction head and ensures that its input dimensionality matches the output
+        dimensionality of the language model. If it doesn't, it is resized so it does fit"""
+        for ph in self.prediction_heads:
+            ph.resize_input(self.lm_output_dims)
+            ph
+
+    def save(self, save_dir):
+        """
+        Saves the language model and prediction heads. This will generate a config file
+        and model weights for each.
+
+        :param save_dir: path to save to
+        :type save_dir: Path
+        """
+        os.makedirs(save_dir, exist_ok=True)
+        self.language_model.save(save_dir)
+        for i, ph in enumerate(self.prediction_heads):
+            ph.save(save_dir, i)
+
+    @classmethod
+    def load(cls, load_dir, device, strict=True, lm_name=None, processor=None):
+        """
+        Loads an AdaptiveModel from a directory. The directory must contain:
+
+        * language_model.bin
+        * language_model_config.json
+        * prediction_head_X.bin  multiple PH possible
+        * prediction_head_X_config.json
+        * processor_config.json config for transforming input
+        * vocab.txt vocab file for language model, turning text to Wordpiece Tokens
+
+        :param load_dir: location where adaptive model is stored
+        :type load_dir: Path
+        :param device: to which device we want to sent the model, either cpu or cuda
+        :type device: torch.device
+        :param lm_name: the name to assign to the loaded language model
+        :type lm_name: str
+        :param strict: whether to strictly enforce that the keys loaded from saved model match the ones in
+                       the PredictionHead (see torch.nn.module.load_state_dict()).
+                       Set to `False` for backwards compatibility with PHs saved with older version of FARM.
+        :type strict: bool
+        :param processor: populates prediction head with information coming from tasks
+        :type processor: Processor
+        """
+        if lm_name:
+            language_model = LanguageModel.load(load_dir, farm_lm_name=lm_name)
+        else:
+            language_model = LanguageModel.load(load_dir)
+        _, ph_config_files = cls._get_prediction_head_files(load_dir)
+        prediction_heads = []
+        ph_output_type = []
+        for config_file in ph_config_files:
+            head = PredictionHead.load(config_file, strict=strict)
+            prediction_heads.append(head)
+            ph_output_type.append(head.ph_output_type)
+        model = cls(language_model, prediction_heads, 0.1, ph_output_type,
+            device)
+        if processor:
+            model.connect_heads_with_processor(processor.tasks)
+        return model
+
+    def logits_to_loss_per_head(self, logits, **kwargs):
+        """
+        Collect losses from each prediction head.
+
+        :param logits: logits, can vary in shape and type, depending on task.
+        :type logits: object
+        :return: The per sample per prediciton head loss whose first two dimensions have length n_pred_heads, batch_size
+        """
+        all_losses = []
+        for head, logits_for_one_head in zip(self.prediction_heads, logits):
+            assert hasattr(head, 'label_tensor_name'
+                ), f"Label_tensor_names are missing inside the {head.task_name} Prediction Head. Did you connect the model with the processor through either 'model.connect_heads_with_processor(processor.tasks)' or by passing the processor to the Adaptive Model?"
+            all_losses.append(head.logits_to_loss(logits=
+                logits_for_one_head, **kwargs))
+        return all_losses
+
+    def logits_to_loss(self, logits, global_step=None, **kwargs):
+        """
+        Get losses from all prediction heads & reduce to single loss *per sample*.
+
+        :param logits: logits, can vary in shape and type, depending on task
+        :type logits: object
+        :param global_step: number of current training step
+        :type global_step: int
+        :param kwargs: placeholder for passing generic parameters.
+                       Note: Contains the batch (as dict of tensors), when called from Trainer.train().
+        :type kwargs: object
+        :return loss: torch.tensor that is the per sample loss (len: batch_size)
+        """
+        all_losses = self.logits_to_loss_per_head(logits, **kwargs)
+        loss = self.loss_aggregation_fn(all_losses, global_step=global_step,
+            batch=kwargs)
+        return loss
+
+    def prepare_labels(self, **kwargs):
+        """
+        Label conversion to original label space, per prediction head.
+
+        :param label_maps: dictionary for mapping ids to label strings
+        :type label_maps: dict[int:str]
+        :return: labels in the right format
+        """
+        all_labels = []
+        for head in self.prediction_heads:
+            labels = head.prepare_labels(**kwargs)
+            all_labels.append(labels)
+        return all_labels
+
+    def forward(self, **kwargs):
+        """
+        Push data through the whole model and returns logits. The data will propagate through the language
+        model and each of the attached prediction heads.
+
+        :param kwargs: Holds all arguments that need to be passed to the language model and prediction head(s).
+        :return: all logits as torch.tensor or multiple tensors.
+        """
+        sequence_output, pooled_output = self.forward_lm(**kwargs)
+        all_logits = []
+        if len(self.prediction_heads) > 0:
+            for head, lm_out in zip(self.prediction_heads, self.lm_output_types
+                ):
+                if lm_out == 'per_token':
+                    output = self.dropout(sequence_output)
+                elif lm_out == 'per_sequence' or lm_out == 'per_sequence_continuous':
+                    output = self.dropout(pooled_output)
+                elif lm_out == 'per_token_squad':
+                    output = self.dropout(sequence_output)
+                else:
+                    raise ValueError(
+                        'Unknown extraction strategy from language model: {}'
+                        .format(lm_out))
+                all_logits.append(head(output))
+        else:
+            all_logits.append((sequence_output, pooled_output))
+        return all_logits
+
+    def forward_lm(self, **kwargs):
+        """
+        Forward pass for the language model
+
+        :param kwargs:
+        :return:
+        """
+        try:
+            extraction_layer = self.language_model.extraction_layer
+        except:
+            extraction_layer = -1
+        if extraction_layer == -1:
+            sequence_output, pooled_output = self.language_model(**kwargs,
+                output_all_encoded_layers=False)
+        else:
+            self.language_model.enable_hidden_states_output()
+            sequence_output, pooled_output, all_hidden_states = (self.
+                language_model(**kwargs))
+            sequence_output = all_hidden_states[extraction_layer]
+            pooled_output = None
+            self.language_model.disable_hidden_states_output()
+        return sequence_output, pooled_output
+
+    def log_params(self):
+        """
+        Logs paramteres to generic logger MlLogger
+        """
+        params = {'lm_type': self.language_model.__class__.__name__,
+            'lm_name': self.language_model.name, 'prediction_heads': ','.
+            join([head.__class__.__name__ for head in self.prediction_heads
+            ]), 'lm_output_types': ','.join(self.lm_output_types)}
+        try:
+            MlLogger.log_params(params)
+        except Exception as e:
+            logger.warning(f"ML logging didn't work: {e}")
+
+    def verify_vocab_size(self, vocab_size):
+        """ Verifies that the model fits to the tokenizer vocabulary.
+        They could diverge in case of custom vocabulary added via tokenizer.add_tokens()"""
+        model_vocab_len = self.language_model.model.resize_token_embeddings(
+            new_num_tokens=None).num_embeddings
+        msg = (
+            f"Vocab size of tokenizer {vocab_size} doesn't match with model {model_vocab_len}. If you added a custom vocabulary to the tokenizer, make sure to supply 'n_added_tokens' to LanguageModel.load() and BertStyleLM.load()"
+            )
+        assert vocab_size == model_vocab_len, msg
+        for head in self.prediction_heads:
+            if head.model_type == 'language_modelling':
+                ph_decoder_len = head.decoder.weight.shape[0]
+                assert vocab_size == ph_decoder_len, msg
+
+    def get_language(self):
+        return self.language_model.language
+
+    def convert_to_transformers(self):
+        if len(self.prediction_heads) != 1:
+            raise ValueError(
+                f'Currently conversion only works for models with a SINGLE prediction head. Your model has {len(self.prediction_heads)}'
+                )
+        elif len(self.prediction_heads[0].layer_dims) != 2:
+            raise ValueError(
+                f"""Currently conversion only works for PredictionHeads that are a single layer Feed Forward NN with dimensions [LM_output_dim, number_classes].
+            Your PredictionHead has {str(self.prediction_heads[0].layer_dims)} dimensions."""
+                )
+        if self.prediction_heads[0].model_type == 'span_classification':
+            transformers_model = AutoModelForQuestionAnswering.from_config(self
+                .language_model.model.config)
+            setattr(transformers_model, transformers_model.
+                base_model_prefix, self.language_model.model)
+            transformers_model.qa_outputs.load_state_dict(self.
+                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+        elif self.prediction_heads[0].model_type == 'language_modelling':
+            transformers_model = AutoModelWithLMHead.from_config(self.
+                language_model.model.config)
+            setattr(transformers_model, transformers_model.
+                base_model_prefix, self.language_model.model)
+            ph_state_dict = self.prediction_heads[0].state_dict()
+            ph_state_dict['transform.dense.weight'] = ph_state_dict.pop(
+                'dense.weight')
+            ph_state_dict['transform.dense.bias'] = ph_state_dict.pop(
+                'dense.bias')
+            ph_state_dict['transform.LayerNorm.weight'] = ph_state_dict.pop(
+                'LayerNorm.weight')
+            ph_state_dict['transform.LayerNorm.bias'] = ph_state_dict.pop(
+                'LayerNorm.bias')
+            transformers_model.cls.predictions.load_state_dict(ph_state_dict)
+            logger.warning(
+                'Currently only the Masked Language Modeling component of the prediction head is converted, not the Next Sentence Prediction or Sentence Order Prediction components'
+                )
+        elif self.prediction_heads[0].model_type == 'text_classification':
+            if self.language_model.model.base_model_prefix == 'roberta':
+                logger.error(
+                    'Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.'
+                    )
+                raise NotImplementedError
+            self.language_model.model.config.id2label = {id: label for id,
+                label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.label2id = {label: id for id,
+                label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.finetuning_task = (
+                'text_classification')
+            self.language_model.model.config.language = (self.
+                language_model.language)
+            self.language_model.model.config.num_labels = (self.
+                prediction_heads[0].num_labels)
+            transformers_model = (AutoModelForSequenceClassification.
+                from_config(self.language_model.model.config))
+            setattr(transformers_model, transformers_model.
+                base_model_prefix, self.language_model.model)
+            transformers_model.classifier.load_state_dict(self.
+                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+        elif self.prediction_heads[0].model_type == 'token_classification':
+            self.language_model.model.config.id2label = {id: label for id,
+                label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.label2id = {label: id for id,
+                label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.finetuning_task = (
+                'token_classification')
+            self.language_model.model.config.language = (self.
+                language_model.language)
+            self.language_model.model.config.num_labels = (self.
+                prediction_heads[0].num_labels)
+            transformers_model = AutoModelForTokenClassification.from_config(
+                self.language_model.model.config)
+            setattr(transformers_model, transformers_model.
+                base_model_prefix, self.language_model.model)
+            transformers_model.classifier.load_state_dict(self.
+                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+        else:
+            raise NotImplementedError(
+                f'FARM -> Transformers conversion is not supported yet for prediction heads of type {self.prediction_heads[0].model_type}'
+                )
+        pass
+        return transformers_model
+
+    @classmethod
+    def convert_from_transformers(cls, model_name_or_path, device,
+        task_type, processor=None):
+        """
+        Load a (downstream) model from huggingface's transformers format. Use cases:
+         - continue training in FARM (e.g. take a squad QA model and fine-tune on your own data)
+         - compare models without switching frameworks
+         - use model directly for inference
+
+        :param model_name_or_path: local path of a saved model or name of a public one.
+                                              Exemplary public names:
+                                              - distilbert-base-uncased-distilled-squad
+                                              - deepset/bert-large-uncased-whole-word-masking-squad2
+
+                                              See https://huggingface.co/models for full list
+        :param device: "cpu" or "cuda"
+        :param task_type: One of :
+                          - 'question_answering'
+                          - 'text_classification'
+                          - 'embeddings'
+                          More tasks coming soon ...
+        :param processor: populates prediction head with information coming from tasks
+        :type processor: Processor
+        :return: AdaptiveModel
+        """
+        lm = LanguageModel.load(model_name_or_path)
+        if task_type == 'question_answering':
+            ph = QuestionAnsweringHead.load(model_name_or_path)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
+                embeds_dropout_prob=0.1, lm_output_types='per_token',
+                device=device)
+        elif task_type == 'text_classification':
+            if 'roberta' in model_name_or_path:
+                logger.error(
+                    'Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.'
+                    )
+                raise NotImplementedError
+            ph = TextClassificationHead.load(model_name_or_path)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
+                embeds_dropout_prob=0.1, lm_output_types='per_sequence',
+                device=device)
+        elif task_type == 'ner':
+            ph = TokenClassificationHead.load(model_name_or_path)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
+                embeds_dropout_prob=0.1, lm_output_types='per_token',
+                device=device)
+        elif task_type == 'embeddings':
+            adaptive_model = cls(language_model=lm, prediction_heads=[],
+                embeds_dropout_prob=0.1, lm_output_types=['per_token',
+                'per_sequence'], device=device)
+        else:
+            raise NotImplementedError(
+                f"Huggingface's transformer models of type {task_type} are not supported yet"
+                )
+        if processor:
+            adaptive_model.connect_heads_with_processor(processor.tasks)
+        return adaptive_model
+
+    def convert_to_onnx(self, output_path, opset_version=11, optimize_for=None
+        ):
+        """
+        Convert a PyTorch AdaptiveModel to ONNX.
+
+        The conversion is trace-based by performing a forward pass on the model with a input batch.
+
+        :param output_path: model dir to write the model and config files
+        :type output_path: Path
+        :param opset_version: ONNX opset version
+        :type opset_version: int
+        :param optimize_for: optimize the exported model for a target device. Available options
+                             are "gpu_tensor_core" (GPUs with tensor core like V100 or T4),
+                             "gpu_without_tensor_core" (most other GPUs), and "cpu".
+        :type optimize_for: str
+        :return:
+        """
+        if type(self.prediction_heads[0]) is not QuestionAnsweringHead:
+            raise NotImplementedError
+        tokenizer = Tokenizer.load(pretrained_model_name_or_path=
+            'deepset/bert-base-cased-squad2')
+        label_list = ['start_token', 'end_token']
+        metric = 'squad'
+        max_seq_len = 384
+        batch_size = 1
+        processor = SquadProcessor(tokenizer=tokenizer, max_seq_len=
+            max_seq_len, label_list=label_list, metric=metric,
+            train_filename='stub-file', dev_filename=None, test_filename=
+            None, data_dir='stub-dir')
+        data_silo = DataSilo(processor=processor, batch_size=1, distributed
+            =False, automatic_loading=False)
+        sample_dict = [{'context':
+            'The Normans were the people who in the 10th and 11th centuries gave their name to Normandy, a region in France. They were descended from Norse ("Norman" comes from "Norseman") raiders and pirates from Denmark, Iceland and Norway who, under their leader Rollo, agreed to swear fealty to King Charles III of West Francia.'
+            , 'qas': [{'question': 'In what country is Normandy located?',
+            'id': '56ddde6b9a695914005b9628', 'answers': [{'text': 'France',
+            'answer_start': 159}], 'is_impossible': False}]}]
+        data_silo._load_data(train_dicts=sample_dict)
+        data_loader = data_silo.get_data_loader('train')
+        data = next(iter(data_loader))
+        data = list(data.values())
+        inputs = {'input_ids': data[0].reshape(batch_size, max_seq_len),
+            'padding_mask': data[1].reshape(batch_size, max_seq_len),
+            'segment_ids': data[2].reshape(batch_size, max_seq_len)}
+        model = ONNXWrapper.load_from_adaptive_model(self)
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        with torch.no_grad():
+            symbolic_names = {(0): 'batch_size', (1): 'max_seq_len'}
+            torch.onnx.export(model, args=tuple(inputs.values()), f=
+                output_path / 'model.onnx'.format(opset_version),
+                opset_version=opset_version, do_constant_folding=True,
+                input_names=['input_ids', 'padding_mask', 'segment_ids'],
+                output_names=['logits'], dynamic_axes={'input_ids':
+                symbolic_names, 'padding_mask': symbolic_names,
+                'segment_ids': symbolic_names, 'logits': symbolic_names})
+        if optimize_for:
+            optimize_args = Namespace(disable_attention=False,
+                disable_bias_gelu=False, disable_embed_layer_norm=False,
+                opt_level=99, disable_skip_layer_norm=False,
+                disable_bias_skip_layer_norm=False, hidden_size=768,
+                verbose=False, input='onnx-export/model.onnx', model_type=
+                'bert', num_heads=12, output='onnx-export/model.onnx')
+            if optimize_for == 'gpu_tensor_core':
+                optimize_args.float16 = True
+                optimize_args.input_int32 = True
+            elif optimize_for == 'gpu_without_tensor_core':
+                optimize_args.float16 = False
+                optimize_args.input_int32 = True
+            elif optimize_for == 'cpu':
+                logger.info('')
+                optimize_args.float16 = False
+                optimize_args.input_int32 = False
+            else:
+                raise NotImplementedError(
+                    f"ONNXRuntime model optimization is not available for {optimize_for}. Choose one of 'gpu_tensor_core'(V100 or T4), 'gpu_without_tensor_core' or 'cpu'."
+                    )
+            optimize_onnx_model(optimize_args)
+        else:
+            logger.info(
+                "Exporting unoptimized ONNX model. To enable optimization, supply 'optimize_for' parameter with the target device.'"
+                )
+        for i, ph in enumerate(self.prediction_heads):
+            ph.save_config(output_path, i)
+        processor.save(output_path)
+        onnx_model_config = {'onnx_opset_version': opset_version,
+            'language': self.get_language()}
+        with open(output_path / 'model_config.json', 'w') as f:
+            json.dump(onnx_model_config, f)
+        logger.info(f'Model exported at path {output_path}')
+
+
+OUTPUT_DIM_NAMES = ['dim', 'hidden_size', 'd_model']
+
+
+def s3e_pooling(token_embs, token_ids, token_weights, centroids,
+    token_to_cluster, mask, svd_components=None):
+    """
+    Pooling of word/token embeddings as described by Wang et al in their paper
+    "Efficient Sentence Embedding via Semantic Subspace Analysis"
+    (https://arxiv.org/abs/2002.09620)
+    Adjusted their implementation from here: https://github.com/BinWang28/Sentence-Embedding-S3E
+
+    This method takes a fitted "s3e model" and token embeddings from a language model and returns sentence embeddings
+    using the S3E Method. The model can be fitted via `fit_s3e_on_corpus()`.
+
+    Usage: See `examples/embeddings_extraction_s3e_pooling.py`
+
+    :param token_embs: numpy array of shape (batch_size, max_seq_len, emb_dim) containing the embeddings for each token
+    :param token_ids: numpy array of shape (batch_size, max_seq_len) containing the ids for each token in the vocab
+    :param token_weights: dict with key=token_id, value= weight in corpus
+    :param centroids: numpy array of shape (n_cluster, emb_dim) that describes the centroids of our clusters in the embedding space
+    :param token_to_cluster: numpy array of shape (vocab_size, 1) where token_to_cluster[i] = cluster_id that token with id i belongs to
+    :param svd_components: Components from a truncated singular value decomposition (SVD, aka LSA) to be
+                           removed from the final sentence embeddings in a postprocessing step.
+                           SVD must be fit on representative sample of sentence embeddings first and can
+                           then be removed from all subsequent embeddings in this function.
+                           We expect the sklearn.decomposition.TruncatedSVD.fit(<your_embeddings>)._components to be passed here.
+    :return: embeddings matrix of shape (batch_size, emb_dim + (n_clusters*n_clusters+1)/2)
+    """
+    embeddings = []
+    n_clusters = centroids.shape[0]
+    emb_dim = token_embs.shape[2]
+    n_samples = token_embs.shape[0]
+    token_ids[mask] = -1
+    for sample_idx in range(n_samples):
+        stage_vec = [{}]
+        for tok_idx, tok_id in enumerate(token_ids[(sample_idx), :]):
+            if tok_id != -1:
+                stage_vec[-1][tok_id] = token_embs[sample_idx, tok_idx]
+        stage_vec.append({})
+        for k, v in stage_vec[-2].items():
+            cluster = token_to_cluster[k]
+            if cluster in stage_vec[-1]:
+                stage_vec[-1][cluster].append(stage_vec[-2][k] *
+                    token_weights[k])
+            else:
+                stage_vec[-1][cluster] = []
+                stage_vec[-1][cluster].append(stage_vec[-2][k] *
+                    token_weights[k])
+        for k, v in stage_vec[-1].items():
+            centroid_vec = centroids[k]
+            v = [(wv - centroid_vec) for wv in v]
+            stage_vec[-1][k] = np.sum(v, 0)
+        sentvec = []
+        vec = np.zeros(emb_dim)
+        for key, value in stage_vec[0].items():
+            vec = vec + value * token_weights[key]
+        sentvec.append(vec / len(stage_vec[0].keys()))
+        matrix = np.zeros((n_clusters, emb_dim))
+        for j in range(n_clusters):
+            if j in stage_vec[-1]:
+                matrix[(j), :] = stage_vec[-1][j]
+        matrix_no_mean = matrix - matrix.mean(1)[:, (np.newaxis)]
+        cov = matrix_no_mean.dot(matrix_no_mean.T)
+        iu1 = np.triu_indices(cov.shape[0])
+        iu2 = np.triu_indices(cov.shape[0], 1)
+        cov[iu2] = cov[iu2] * np.sqrt(2)
+        vec = cov[iu1]
+        vec = vec / np.linalg.norm(vec)
+        sentvec.append(vec)
+        sentvec = np.concatenate(sentvec)
+        embeddings.append(sentvec)
+    embeddings = np.vstack(embeddings)
+    if svd_components is not None:
+        embeddings = embeddings - embeddings.dot(svd_components.transpose()
+            ) * svd_components
+    return embeddings
+
+
+class LanguageModel(nn.Module):
+    """
+    The parent class for any kind of model that can embed language into a semantic vector space. Practically
+    speaking, these models read in tokenized sentences and return vectors that capture the meaning of sentences
+    or of tokens.
+    """
+    subclasses = {}
+
+    def __init_subclass__(cls, **kwargs):
+        """ This automatically keeps track of all available subclasses.
+        Enables generic load() or all specific LanguageModel implementation.
+        """
+        super().__init_subclass__(**kwargs)
+        cls.subclasses[cls.__name__] = cls
+
+    def forward(self, input_ids, padding_mask, **kwargs):
+        raise NotImplementedError
+
+    @classmethod
+    def from_scratch(cls, model_type, vocab_size):
+        if model_type.lower() == 'bert':
+            model = Bert
+        return model.from_scratch(vocab_size)
+
+    @classmethod
+    def load(cls, pretrained_model_name_or_path, n_added_tokens=0,
+        language_model_class=None, **kwargs):
+        """
+        Load a pretrained language model either by
+
+        1. specifying its name and downloading it
+        2. or pointing to the directory it is saved in.
+
+        Available remote models:
+
+        * bert-base-uncased
+        * bert-large-uncased
+        * bert-base-cased
+        * bert-large-cased
+        * bert-base-multilingual-uncased
+        * bert-base-multilingual-cased
+        * bert-base-chinese
+        * bert-base-german-cased
+        * roberta-base
+        * roberta-large
+        * xlnet-base-cased
+        * xlnet-large-cased
+        * xlm-roberta-base
+        * xlm-roberta-large
+        * albert-base-v2
+        * albert-large-v2
+        * distilbert-base-german-cased
+        * distilbert-base-multilingual-cased
+        * google/electra-small-discriminator
+        * google/electra-base-discriminator
+        * google/electra-large-discriminator
+
+        See all supported model variations here: https://huggingface.co/models
+
+        The appropriate language model class is inferred automatically from `pretrained_model_name_or_path`
+        or can be manually supplied via `language_model_class`.
+
+        :param pretrained_model_name_or_path: The path of the saved pretrained model or its name.
+        :type pretrained_model_name_or_path: str
+        :param language_model_class: (Optional) Name of the language model class to load (e.g. `Bert`)
+        :type language_model_class: str
+
+        """
+        config_file = Path(pretrained_model_name_or_path
+            ) / 'language_model_config.json'
+        if os.path.exists(config_file):
+            config = json.load(open(config_file))
+            language_model = cls.subclasses[config['name']].load(
+                pretrained_model_name_or_path)
+        else:
+            if language_model_class is None:
+                pretrained_model_name_or_path = str(
+                    pretrained_model_name_or_path)
+                if ('xlm' in pretrained_model_name_or_path and 'roberta' in
+                    pretrained_model_name_or_path):
+                    language_model_class = 'XLMRoberta'
+                elif 'roberta' in pretrained_model_name_or_path:
+                    language_model_class = 'Roberta'
+                elif 'albert' in pretrained_model_name_or_path:
+                    language_model_class = 'Albert'
+                elif 'distilbert' in pretrained_model_name_or_path:
+                    language_model_class = 'DistilBert'
+                elif 'bert' in pretrained_model_name_or_path:
+                    language_model_class = 'Bert'
+                elif 'xlnet' in pretrained_model_name_or_path:
+                    language_model_class = 'XLNet'
+                elif 'electra' in pretrained_model_name_or_path:
+                    language_model_class = 'Electra'
+                elif 'word2vec' in pretrained_model_name_or_path.lower(
+                    ) or 'glove' in pretrained_model_name_or_path.lower():
+                    language_model_class = 'WordEmbedding_LM'
+            if language_model_class:
+                language_model = cls.subclasses[language_model_class].load(
+                    pretrained_model_name_or_path, **kwargs)
+            else:
+                language_model = None
+        if not language_model:
+            raise Exception(
+                f"Model not found for {pretrained_model_name_or_path}. Either supply the local path for a saved model or one of bert/roberta/xlnet/albert/distilbert models that can be downloaded from remote. Ensure that the model class name can be inferred from the directory name when loading a Transformers' model. Here's a list of available models: https://farm.deepset.ai/api/modeling.html#farm.modeling.language_model.LanguageModel.load"
+                )
+        if n_added_tokens != 0:
+            model_emb_size = language_model.model.resize_token_embeddings(
+                new_num_tokens=None).num_embeddings
+            vocab_size = model_emb_size + n_added_tokens
+            logger.info(
+                f'Resizing embedding layer of LM from {model_emb_size} to {vocab_size} to cope with custom vocab.'
+                )
+            language_model.model.resize_token_embeddings(vocab_size)
+            model_emb_size = language_model.model.resize_token_embeddings(
+                new_num_tokens=None).num_embeddings
+            assert vocab_size == model_emb_size
+        return language_model
+
+    def get_output_dims(self):
+        config = self.model.config
+        for odn in OUTPUT_DIM_NAMES:
+            if odn in dir(config):
+                return getattr(config, odn)
+        else:
+            raise Exception(
+                'Could not infer the output dimensions of the language model')
+
+    def freeze(self, layers):
+        """ To be implemented"""
+        raise NotImplementedError()
+
+    def unfreeze(self):
+        """ To be implemented"""
+        raise NotImplementedError()
+
+    def save_config(self, save_dir):
+        save_filename = Path(save_dir) / 'language_model_config.json'
+        with open(save_filename, 'w') as file:
+            setattr(self.model.config, 'name', self.__class__.__name__)
+            setattr(self.model.config, 'language', self.language)
+            string = self.model.config.to_json_string()
+            file.write(string)
+
+    def save(self, save_dir):
+        """
+        Save the model state_dict and its config file so that it can be loaded again.
+
+        :param save_dir: The directory in which the model should be saved.
+        :type save_dir: str
+        """
+        save_name = Path(save_dir) / 'language_model.bin'
+        model_to_save = self.model.module if hasattr(self.model, 'module'
+            ) else self.model
+        torch.save(model_to_save.state_dict(), save_name)
+        self.save_config(save_dir)
+
+    @classmethod
+    def _get_or_infer_language_from_name(cls, language, name):
+        if language is not None:
+            return language
+        else:
+            return cls._infer_language_from_name(name)
+
+    @classmethod
+    def _infer_language_from_name(cls, name):
+        known_languages = ('german', 'english', 'chinese', 'indian',
+            'french', 'polish', 'spanish', 'multilingual')
+        matches = [lang for lang in known_languages if lang in name]
+        if len(matches) == 0:
+            language = 'english'
+            logger.warning(
+                """Could not automatically detect from language model name what language it is. 
+	 We guess it's an *ENGLISH* model ... 
+	 If not: Init the language model by supplying the 'language' param."""
+                )
+        elif len(matches) > 1:
+            raise ValueError(
+                f"""Could not automatically detect from language model name what language it is.
+	 Found multiple matches: {matches}
+	 Please init the language model by manually supplying the 'language' as a parameter.
+"""
+                )
+        else:
+            language = matches[0]
+            logger.info(
+                f'Automatically detected language from language model name: {language}'
+                )
+        return language
+
+    def formatted_preds(self, logits, samples, ignore_first_token=True,
+        padding_mask=None, input_ids=None, **kwargs):
+        """
+        Extracting vectors from language model (e.g. for extracting sentence embeddings).
+        Different pooling strategies and layers are available and will be determined from the object attributes
+        `extraction_layer` and `extraction_strategy`. Both should be set via the Inferencer:
+        Example:  Inferencer(extraction_strategy='cls_token', extraction_layer=-1)
+
+        :param logits: Tuple of (sequence_output, pooled_output) from the language model.
+                       Sequence_output: one vector per token, pooled_output: one vector for whole sequence
+        :param samples: For each item in logits we need additional meta information to format the prediction (e.g. input text).
+                        This is created by the Processor and passed in here from the Inferencer.
+        :param ignore_first_token: Whether to include the first token for pooling operations (e.g. reduce_mean).
+                                   Many models have here a special token like [CLS] that you don't want to include into your average of token embeddings.
+        :param padding_mask: Mask for the padding tokens. Those will also not be included in the pooling operations to prevent a bias by the number of padding tokens.
+        :param input_ids: ids of the tokens in the vocab
+        :param kwargs: kwargs
+        :return: list of dicts containing preds, e.g. [{"context": "some text", "vec": [-0.01, 0.5 ...]}]
+        """
+        if not hasattr(self, 'extraction_layer') or not hasattr(self,
+            'extraction_strategy'):
+            raise ValueError(
+                "`extraction_layer` or `extraction_strategy` not specified for LM. Make sure to set both, e.g. via Inferencer(extraction_strategy='cls_token', extraction_layer=-1)`"
+                )
+        sequence_output = logits[0][0]
+        pooled_output = logits[0][1]
+        if self.extraction_strategy == 'pooled':
+            if self.extraction_layer != -1:
+                raise ValueError(
+                    f'Pooled output only works for the last layer, but got extraction_layer = {self.extraction_layer}. Please set `extraction_layer=-1`.)'
+                    )
+            vecs = pooled_output.cpu().numpy()
+        elif self.extraction_strategy == 'per_token':
+            vecs = sequence_output.cpu().numpy()
+        elif self.extraction_strategy == 'reduce_mean':
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.
+                extraction_strategy, ignore_first_token=ignore_first_token)
+        elif self.extraction_strategy == 'reduce_max':
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.
+                extraction_strategy, ignore_first_token=ignore_first_token)
+        elif self.extraction_strategy == 'cls_token':
+            vecs = sequence_output[:, (0), :].cpu().numpy()
+        elif self.extraction_strategy == 's3e':
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.
+                extraction_strategy, ignore_first_token=ignore_first_token,
+                input_ids=input_ids, s3e_stats=self.s3e_stats)
+        else:
+            raise NotImplementedError
+        preds = []
+        for vec, sample in zip(vecs, samples):
+            pred = {}
+            pred['context'] = sample.tokenized['tokens']
+            pred['vec'] = vec
+            preds.append(pred)
+        return preds
+
+    def _pool_tokens(self, sequence_output, padding_mask, strategy,
+        ignore_first_token, input_ids=None, s3e_stats=None):
+        token_vecs = sequence_output.cpu().numpy()
+        padding_mask = padding_mask.cpu().numpy()
+        ignore_mask_2d = padding_mask == 0
+        if ignore_first_token:
+            ignore_mask_2d[:, (0)] = True
+        ignore_mask_3d = np.zeros(token_vecs.shape, dtype=bool)
+        ignore_mask_3d[:, :, :] = ignore_mask_2d[:, :, (np.newaxis)]
+        if strategy == 'reduce_max':
+            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d
+                ).max(axis=1).data
+        if strategy == 'reduce_mean':
+            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d
+                ).mean(axis=1).data
+        if strategy == 's3e':
+            input_ids = input_ids.cpu().numpy()
+            pooled_vecs = s3e_pooling(token_embs=token_vecs, token_ids=
+                input_ids, token_weights=s3e_stats['token_weights'],
+                centroids=s3e_stats['centroids'], token_to_cluster=
+                s3e_stats['token_to_cluster'], svd_components=s3e_stats.get
+                ('svd_components', None), mask=padding_mask == 0)
+        return pooled_vecs
+
+
 class WrappedDataParallel(DataParallel):
     """
     A way of adapting attributes of underlying class to parallel mode. See: https://pytorch.org/tutorials/beginner/former_torchies/parallelism_tutorial.html#dataparallel
@@ -428,16 +2254,6 @@ class WrappedDDP(DistributedDataParallel):
             return super().__getattr__(name)
         except AttributeError:
             return getattr(self.module, name)
-
-
-def is_json(x):
-    if issubclass(type(x), Path):
-        return True
-    try:
-        json.dumps(x)
-        return True
-    except:
-        return False
 
 
 class PredictionHead(nn.Module):
@@ -624,10 +2440,15 @@ class FeedForwardBlock(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_deepset_ai_FARM(_paritybench_base):
     pass
     def test_000(self):
         self._check(FeedForwardBlock(*[], **{'layer_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(WrappedDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 

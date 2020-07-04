@@ -110,10 +110,13 @@ blob = _module
 timer = _module
 visualization = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -150,6 +153,9 @@ import torch.nn.functional as F
 import warnings
 
 
+from torchvision.ops import nms
+
+
 from torch.nn import functional as F
 
 
@@ -184,6 +190,9 @@ from torch.nn.parallel.replicate import replicate
 
 
 from torch.nn.parallel.parallel_apply import parallel_apply
+
+
+import torchvision.models as models
 
 
 from torch.nn.modules.utils import _pair
@@ -2828,6 +2837,21 @@ class DCNv2Function(Function):
         return n, channels_out, height_out, width_out
 
 
+class DeformConv(nn.Module):
+
+    def __init__(self, chi, cho):
+        super(DeformConv, self).__init__()
+        self.actf = nn.Sequential(nn.BatchNorm2d(cho, momentum=0.1), nn.
+            ReLU(inplace=True))
+        self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1,
+            dilation=1, deformable_groups=1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.actf(x)
+        return x
+
+
 class IDAUp(nn.Module):
 
     def __init__(self, o, channels, up_f):
@@ -4323,12 +4347,12 @@ class _DataParallel(Module):
     def __init__(self, module, device_ids=None, output_device=None, dim=0,
         chunk_sizes=None):
         super(_DataParallel, self).__init__()
-        if not torch.cuda.is_available():
+        if not torch.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -5912,6 +5936,60 @@ def _sigmoid(x):
     return y
 
 
+class CtdetLoss(torch.nn.Module):
+
+    def __init__(self, opt):
+        super(CtdetLoss, self).__init__()
+        self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
+        self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else RegLoss(
+            ) if opt.reg_loss == 'sl1' else None
+        self.crit_wh = torch.nn.L1Loss(reduction='sum'
+            ) if opt.dense_wh else NormRegL1Loss(
+            ) if opt.norm_wh else RegWeightedL1Loss(
+            ) if opt.cat_spec_wh else self.crit_reg
+        self.opt = opt
+
+    def forward(self, outputs, batch):
+        opt = self.opt
+        hm_loss, wh_loss, off_loss = 0, 0, 0
+        for s in range(opt.num_stacks):
+            output = outputs[s]
+            if not opt.mse_loss:
+                output['hm'] = _sigmoid(output['hm'])
+            if opt.eval_oracle_hm:
+                output['hm'] = batch['hm']
+            if opt.eval_oracle_wh:
+                output['wh'] = torch.from_numpy(gen_oracle_map(batch['wh'].
+                    detach().cpu().numpy(), batch['ind'].detach().cpu().
+                    numpy(), output['wh'].shape[3], output['wh'].shape[2]))
+            if opt.eval_oracle_offset:
+                output['reg'] = torch.from_numpy(gen_oracle_map(batch['reg'
+                    ].detach().cpu().numpy(), batch['ind'].detach().cpu().
+                    numpy(), output['reg'].shape[3], output['reg'].shape[2]))
+            hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
+            if opt.wh_weight > 0:
+                if opt.dense_wh:
+                    mask_weight = batch['dense_wh_mask'].sum() + 0.0001
+                    wh_loss += self.crit_wh(output['wh'] * batch[
+                        'dense_wh_mask'], batch['dense_wh'] * batch[
+                        'dense_wh_mask']) / mask_weight / opt.num_stacks
+                elif opt.cat_spec_wh:
+                    wh_loss += self.crit_wh(output['wh'], batch[
+                        'cat_spec_mask'], batch['ind'], batch['cat_spec_wh']
+                        ) / opt.num_stacks
+                else:
+                    wh_loss += self.crit_reg(output['wh'], batch['reg_mask'
+                        ], batch['ind'], batch['wh']) / opt.num_stacks
+            if opt.reg_offset and opt.off_weight > 0:
+                off_loss += self.crit_reg(output['reg'], batch['reg_mask'],
+                    batch['ind'], batch['reg']) / opt.num_stacks
+        loss = (opt.hm_weight * hm_loss + opt.wh_weight * wh_loss + opt.
+            off_weight * off_loss)
+        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'wh_loss': wh_loss,
+            'off_loss': off_loss}
+        return loss, loss_stats
+
+
 class DddLoss(torch.nn.Module):
 
     def __init__(self, opt):
@@ -6046,6 +6124,7 @@ class MultiPoseLoss(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_chenjun2hao_CenterFace_pytorch(_paritybench_base):
@@ -6128,12 +6207,16 @@ class Test_chenjun2hao_CenterFace_pytorch(_paritybench_base):
     def test_022(self):
         self._check(fully_connected(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4])], {})
 
+    @_fails_compile()
     def test_023(self):
-        self._check(hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(hardnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_024(self):
-        self._check(hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_025(self):
+        self._check(hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_026(self):
         self._check(residual(*[], **{'k': 4, 'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 

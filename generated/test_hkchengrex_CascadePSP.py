@@ -52,10 +52,13 @@ metrics_compute = _module
 model_saver = _module
 util = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -89,6 +92,15 @@ import math
 from torch.utils import model_zoo
 
 
+from torchvision.models.densenet import densenet121
+
+
+from torchvision.models.densenet import densenet161
+
+
+from torchvision.models.squeezenet import squeezenet1_1
+
+
 from torch import nn
 
 
@@ -120,6 +132,40 @@ from torch import optim
 
 
 from torch.utils.data import ConcatDataset
+
+
+def conv3x3(in_planes, out_planes, stride=1, dilation=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        padding=dilation, dilation=dilation, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
+        ):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride=stride, dilation=dilation
+            )
+        self.bn1 = SynchronizedBatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes, stride=1, dilation=dilation)
+        self.bn2 = SynchronizedBatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -832,13 +878,18 @@ class RefinementModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hkchengrex_CascadePSP(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_001(self):
+        self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
         self._check(SobelOperator(*[], **{'epsilon': 4}), [torch.rand([4, 4, 4, 4])], {})
 

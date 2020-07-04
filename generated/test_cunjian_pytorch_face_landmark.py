@@ -46,10 +46,13 @@ predictor = _module
 ssd = _module
 box_utils_numpy = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -63,6 +66,9 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import torchvision.models as models
 
 
 import torch
@@ -84,6 +90,12 @@ import time
 
 
 import torch.nn.init as init
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
 
 
 from torch.nn import Conv2d
@@ -550,8 +562,8 @@ class SSD(nn.Module):
         if device:
             self.device = device
         else:
-            self.device = torch.device('cuda:0' if torch.cuda.is_available(
-                ) else 'cpu')
+            self.device = torch.device('cuda:0' if torch.is_available() else
+                'cpu')
         if is_test:
             self.config = config
             self.priors = config.priors
@@ -657,6 +669,7 @@ class SSD(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cunjian_pytorch_face_landmark(_paritybench_base):
@@ -674,5 +687,23 @@ class Test_cunjian_pytorch_face_landmark(_paritybench_base):
         self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(Mb_Tiny(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_005(self):
+        self._check(Mb_Tiny_RFB(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(MobileNet_GDConv(*[], **{'num_classes': 4}), [torch.rand([4, 3, 256, 256])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(MobileNet_GDConv_56(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(MobileNet_GDConv_SE(*[], **{'num_classes': 4}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_009(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 

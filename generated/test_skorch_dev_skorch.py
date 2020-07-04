@@ -52,10 +52,13 @@ test_utils = _module
 toy = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -80,7 +83,13 @@ from torch import nn
 import torch.nn as nn
 
 
+from torchvision import models
+
+
 from torch.nn.functional import binary_cross_entropy_with_logits
+
+
+from torchvision.transforms.functional import to_pil_image
 
 
 from torch.autograd import Variable
@@ -440,6 +449,7 @@ class MLPModule(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_skorch_dev_skorch(_paritybench_base):
@@ -455,4 +465,7 @@ class Test_skorch_dev_skorch(_paritybench_base):
     @_fails_compile()
     def test_002(self):
         self._check(MLPModule(*[], **{}), [torch.rand([20, 20])], {})
+
+    def test_003(self):
+        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

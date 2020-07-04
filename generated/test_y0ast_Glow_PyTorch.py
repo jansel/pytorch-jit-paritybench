@@ -7,10 +7,13 @@ modules = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -24,6 +27,12 @@ import torch
 
 
 import torch.nn.functional as F
+
+
+from torchvision import transforms
+
+
+from torchvision import datasets
 
 
 import math
@@ -42,6 +51,93 @@ import torch.optim as optim
 
 
 import torch.utils.data as data
+
+
+def get_block(in_channels, out_channels, hidden_channels):
+    block = nn.Sequential(Conv2d(in_channels, hidden_channels), nn.ReLU(
+        inplace=False), Conv2d(hidden_channels, hidden_channels,
+        kernel_size=(1, 1)), nn.ReLU(inplace=False), Conv2dZeros(
+        hidden_channels, out_channels))
+    return block
+
+
+def split_feature(tensor, type='split'):
+    """
+    type = ["split", "cross"]
+    """
+    C = tensor.size(1)
+    if type == 'split':
+        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
+    elif type == 'cross':
+        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
+
+
+class FlowStep(nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, actnorm_scale,
+        flow_permutation, flow_coupling, LU_decomposed):
+        super().__init__()
+        self.flow_coupling = flow_coupling
+        self.actnorm = ActNorm2d(in_channels, actnorm_scale)
+        if flow_permutation == 'invconv':
+            self.invconv = InvertibleConv1x1(in_channels, LU_decomposed=
+                LU_decomposed)
+            self.flow_permutation = lambda z, logdet, rev: self.invconv(z,
+                logdet, rev)
+        elif flow_permutation == 'shuffle':
+            self.shuffle = Permute2d(in_channels, shuffle=True)
+            self.flow_permutation = lambda z, logdet, rev: (self.shuffle(z,
+                rev), logdet)
+        else:
+            self.reverse = Permute2d(in_channels, shuffle=False)
+            self.flow_permutation = lambda z, logdet, rev: (self.reverse(z,
+                rev), logdet)
+        if flow_coupling == 'additive':
+            self.block = get_block(in_channels // 2, in_channels // 2,
+                hidden_channels)
+        elif flow_coupling == 'affine':
+            self.block = get_block(in_channels // 2, in_channels,
+                hidden_channels)
+
+    def forward(self, input, logdet=None, reverse=False):
+        if not reverse:
+            return self.normal_flow(input, logdet)
+        else:
+            return self.reverse_flow(input, logdet)
+
+    def normal_flow(self, input, logdet):
+        assert input.size(1) % 2 == 0
+        z, logdet = self.actnorm(input, logdet=logdet, reverse=False)
+        z, logdet = self.flow_permutation(z, logdet, False)
+        z1, z2 = split_feature(z, 'split')
+        if self.flow_coupling == 'additive':
+            z2 = z2 + self.block(z1)
+        elif self.flow_coupling == 'affine':
+            h = self.block(z1)
+            shift, scale = split_feature(h, 'cross')
+            scale = torch.sigmoid(scale + 2.0)
+            z2 = z2 + shift
+            z2 = z2 * scale
+            logdet = torch.sum(torch.log(scale), dim=[1, 2, 3]) + logdet
+        z = torch.cat((z1, z2), dim=1)
+        return z, logdet
+
+    def reverse_flow(self, input, logdet):
+        assert input.size(1) % 2 == 0
+        z1, z2 = split_feature(input, 'split')
+        if self.flow_coupling == 'additive':
+            z2 = z2 - self.block(z1)
+        elif self.flow_coupling == 'affine':
+            h = self.block(z1)
+            shift, scale = split_feature(h, 'cross')
+            scale = torch.sigmoid(scale + 2.0)
+            z2 = z2 / scale
+            z2 = z2 - shift
+            logdet = -torch.sum(torch.log(scale), dim=[1, 2, 3]) + logdet
+        z = torch.cat((z1, z2), dim=1)
+        z, logdet = self.flow_permutation(z, logdet, True)
+        z, logdet = self.actnorm(z, logdet=logdet, reverse=True)
+        return z, logdet
 
 
 class FlowNet(nn.Module):
@@ -108,17 +204,6 @@ def gaussian_likelihood(mean, logs, x):
 def gaussian_sample(mean, logs, temperature=1):
     z = torch.normal(mean, torch.exp(logs) * temperature)
     return z
-
-
-def split_feature(tensor, type='split'):
-    """
-    type = ["split", "cross"]
-    """
-    C = tensor.size(1)
-    if type == 'split':
-        return tensor[:, :C // 2, (...)], tensor[:, C // 2:, (...)]
-    elif type == 'cross':
-        return tensor[:, 0::2, (...)], tensor[:, 1::2, (...)]
 
 
 def uniform_binning_correction(x, n_bits=8):
@@ -505,6 +590,7 @@ class InvertibleConv1x1(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_y0ast_Glow_PyTorch(_paritybench_base):

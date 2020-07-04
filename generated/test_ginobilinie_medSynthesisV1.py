@@ -12,14 +12,18 @@ loss_functions = _module
 nnBuildUnits = _module
 runCTRecon3d = _module
 runTesting_Recon = _module
+runTesting_Reconv2 = _module
 shuffleDataAmongSubjects_2d = _module
 shuffleDataAmongSubjects_3d = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1429,9 +1433,9 @@ class myWeightedDiceLoss4Organs(nn.Module):
             .size(3), targets.size(2))
         assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs
             .size(4), targets.size(3))
-        eps = Variable(torch.cuda.FloatTensor(1).fill_(1e-06))
-        one = Variable(torch.cuda.FloatTensor(1).fill_(1.0))
-        two = Variable(torch.cuda.FloatTensor(1).fill_(2.0))
+        eps = Variable(torch.FloatTensor(1).fill_(1e-06))
+        one = Variable(torch.FloatTensor(1).fill_(1.0))
+        two = Variable(torch.FloatTensor(1).fill_(2.0))
         inputSZ = inputs.size()
         inputs = F.softmax(inputs, dim=1)
         numOfCategories = inputSZ[1]
@@ -1439,9 +1443,9 @@ class myWeightedDiceLoss4Organs(nn.Module):
             ), 'organ weights is not matched with organs (bg should be included)'
         results_one_hot = inputs
         target1 = Variable(torch.unsqueeze(targets.data, 1))
-        targets_one_hot = Variable(torch.cuda.FloatTensor(inputSZ).zero_())
+        targets_one_hot = Variable(torch.FloatTensor(inputSZ).zero_())
         targets_one_hot.scatter_(1, target1, 1)
-        out = Variable(torch.cuda.FloatTensor(1).zero_(), requires_grad=True)
+        out = Variable(torch.FloatTensor(1).zero_(), requires_grad=True)
         for organID in range(0, numOfCategories):
             target = targets_one_hot[:, (organID), (...)].contiguous().view(
                 -1, 1).squeeze(1)
@@ -1454,7 +1458,7 @@ class myWeightedDiceLoss4Organs(nn.Module):
             union = result_sum + target_sum + two * eps
             IoU = intersect / union
             out = out + self.organWeights[organID] * (one - two * IoU)
-        denominator = Variable(torch.cuda.FloatTensor(1).fill_(sum(self.
+        denominator = Variable(torch.FloatTensor(1).fill_(sum(self.
             organWeights)))
         out = out / denominator
         return out
@@ -1484,9 +1488,9 @@ class GeneralizedDiceLoss4Organs(nn.Module):
             .size(3), targets.size(2))
         assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs
             .size(4), targets.size(3))
-        eps = Variable(torch.cuda.FloatTensor(1).fill_(1e-06))
-        one = Variable(torch.cuda.FloatTensor(1).fill_(1.0))
-        two = Variable(torch.cuda.FloatTensor(1).fill_(2.0))
+        eps = Variable(torch.FloatTensor(1).fill_(1e-06))
+        one = Variable(torch.FloatTensor(1).fill_(1.0))
+        two = Variable(torch.FloatTensor(1).fill_(2.0))
         inputSZ = inputs.size()
         inputs = F.softmax(inputs, dim=1)
         numOfCategories = inputSZ[1]
@@ -1494,18 +1498,18 @@ class GeneralizedDiceLoss4Organs(nn.Module):
             ), 'organ weights is not matched with organs (bg should be included)'
         results_one_hot = inputs
         target1 = Variable(torch.unsqueeze(targets.data, 1))
-        targets_one_hot = Variable(torch.cuda.FloatTensor(inputSZ).zero_())
+        targets_one_hot = Variable(torch.FloatTensor(inputSZ).zero_())
         targets_one_hot.scatter_(1, target1, 1)
-        out = Variable(torch.cuda.FloatTensor(1).zero_(), requires_grad=True)
-        intersect = Variable(torch.cuda.FloatTensor(1).fill_(0.0))
-        union = Variable(torch.cuda.FloatTensor(1).fill_(0.0))
+        out = Variable(torch.FloatTensor(1).zero_(), requires_grad=True)
+        intersect = Variable(torch.FloatTensor(1).fill_(0.0))
+        union = Variable(torch.FloatTensor(1).fill_(0.0))
         for organID in range(0, numOfCategories):
             target = targets_one_hot[:, (organID), (...)].contiguous().view(
                 -1, 1).squeeze(1)
             result = results_one_hot[:, (organID), (...)].contiguous().view(
                 -1, 1).squeeze(1)
             if torch.sum(target).cpu().data[0] == 0:
-                organWeight = Variable(torch.cuda.FloatTensor(1).fill_(0.0))
+                organWeight = Variable(torch.FloatTensor(1).fill_(0.0))
             else:
                 organWeight = 1 / (torch.sum(target) ** 2 + eps)
             intersect_vec = result * target
@@ -1617,6 +1621,7 @@ class FeatureExtractor(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ginobilinie_medSynthesisV1(_paritybench_base):
@@ -1637,40 +1642,48 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
     def test_004(self):
         self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_005(self):
-        self._check(conv23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UNet_LRes(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 64, 64])], {})
 
     def test_006(self):
-        self._check(conv23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(conv23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(conv23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(conv23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
-        self._check(convTranspose23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(conv23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(convTranspose23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(convTranspose23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(convTranspose23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(convTranspose23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
+        self._check(convTranspose23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
         self._check(convUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(dropout23DUnit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_014(self):
         self._check(maxPool23DUinit(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
-        self._check(residualUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
-
+    @_fails_compile()
     def test_015(self):
-        self._check(unetConvUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(myFocalLoss(*[], **{'class_num': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_016(self):
+        self._check(residualUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_017(self):
+        self._check(unetConvUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_018(self):
         self._check(upsampleUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

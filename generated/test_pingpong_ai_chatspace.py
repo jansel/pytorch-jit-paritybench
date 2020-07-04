@@ -27,10 +27,13 @@ evaluation_test = _module
 inference_test = _module
 jit_evaluation_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -213,6 +216,7 @@ class ChatSpaceModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pingpong_ai_chatspace(_paritybench_base):
@@ -227,5 +231,5 @@ class Test_pingpong_ai_chatspace(_paritybench_base):
         self._check(SequentialFNN(*[], **{'config': _mock_config(cnn_features=4)}), [torch.rand([16, 16, 4])], {})
 
     def test_003(self):
-        self._check(TimeDistributed(*[], **{'layer': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(TimeDistributed(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

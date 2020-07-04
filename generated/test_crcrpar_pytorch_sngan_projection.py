@@ -20,10 +20,13 @@ inception = _module
 train_64 = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -57,10 +60,22 @@ import math
 from torch.nn import utils
 
 
+from torchvision import models
+
+
 import torch.utils.data as data
 
 
 import torch.optim as optim
+
+
+import torchvision
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.transforms as transforms
 
 
 import numpy
@@ -584,6 +599,7 @@ class InceptionV3(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_crcrpar_pytorch_sngan_projection(_paritybench_base):
@@ -594,4 +610,8 @@ class Test_crcrpar_pytorch_sngan_projection(_paritybench_base):
 
     def test_001(self):
         self._check(OptimizedBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ResNetGenerator(*[], **{}), [torch.rand([128, 128])], {})
 

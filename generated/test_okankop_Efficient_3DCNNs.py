@@ -42,10 +42,13 @@ video_jpg_kinetics = _module
 video_jpg_ucf101_hmdb51 = _module
 validation = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -792,6 +795,7 @@ class SqueezeNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_okankop_Efficient_3DCNNs(_paritybench_base):
@@ -808,4 +812,15 @@ class Test_okankop_Efficient_3DCNNs(_paritybench_base):
 
     def test_003(self):
         self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_004(self):
+        self._check(ShuffleNet(*[], **{'groups': 1}), [torch.rand([4, 3, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_005(self):
+        self._check(ShuffleNetV2(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
+
+    def test_006(self):
+        self._check(SqueezeNet(*[], **{'sample_size': 4, 'sample_duration': 4}), [torch.rand([4, 3, 64, 64, 64])], {})
 

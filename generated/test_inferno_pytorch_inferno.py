@@ -116,10 +116,13 @@ test_model_utils = _module
 test_partial_cls = _module
 test_train_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -139,6 +142,12 @@ import numpy
 
 
 import torch.nn as nn
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from collections import OrderedDict
@@ -265,6 +274,72 @@ class CheapConvBlock(nn.Module):
         return x
 
 
+def require_dict_kwargs(kwargs, msg=None):
+    """ Ensure arguments passed kwargs are either None or a dict.
+        If arguments are neither a dict nor None a RuntimeError
+        is thrown
+    Args:
+        kwargs (object): possible dict or None
+        msg (None, optional): Error msg
+
+    Returns:
+        dict: kwargs dict
+
+    Raises:
+        RuntimeError: if the passed value is neither a dict nor None
+            this error is raised
+    """
+    if kwargs is None:
+        return dict()
+    elif isinstance(kwargs, dict):
+        return kwargs
+    elif msg is None:
+        raise RuntimeError(
+            'value passed as keyword argument dict is neither None nor a dict')
+    else:
+        raise RuntimeError('%s' % str(msg))
+
+
+class MySideLossUNet(nn.Module):
+
+    def __init__(self, in_channels, out_channels, depth=3):
+        super(MySideLossUNet, self).__init__()
+        self.depth = depth
+        self.unet = ResBlockUNet(in_channels=in_channels, out_channels=
+            in_channels * 2, dim=2, unet_kwargs=dict(depth=depth),
+            side_out_parts=['bottom', 'up'])
+        self.n_channels_per_output = self.unet.n_channels_per_output
+        upscale_factor = 2 ** self.depth
+        conv_and_scale = []
+        for n_channels in self.n_channels_per_output:
+            conv = Conv2D(in_channels=n_channels, out_channels=out_channels,
+                kernel_size=1)
+            if upscale_factor > 1:
+                upsample = nn.Upsample(scale_factor=upscale_factor)
+                conv_and_scale.append(nn.Sequential(conv, upsample))
+            else:
+                conv_and_scale.append(conv)
+            upscale_factor //= 2
+        self.conv_and_scale = nn.ModuleList(conv_and_scale)
+        self.n_channels_combined = (self.depth + 1
+            ) * out_channels + in_channels * 2
+        self.final_block = nn.Sequential(ResBlock(dim=2, in_channels=self.
+            n_channels_combined, out_channels=self.n_channels_combined),
+            ResBlock(in_channels=self.n_channels_combined, out_channels=
+            out_channels, dim=2, activated=False))
+
+    def forward(self, input):
+        outs = self.unet(input)
+        assert len(outs) == len(self.n_channels_per_output)
+        preds = [None] * len(outs)
+        for i, out in enumerate(outs):
+            preds[i] = self.conv_and_scale[i](out)
+        preds = tuple(preds)
+        combined = torch.cat(preds + (outs[-1],), 1)
+        final_res = self.final_block(combined)
+        return preds + (final_res,)
+
+
 class MySideLoss(nn.Module):
     """Wrap a criterion. Collect regularization losses from model and combine with wrapped criterion.
     """
@@ -303,6 +378,413 @@ class RegularizedLinear(nn.Linear):
         self._losses['l1_weight_regularization'] = torch.abs(self.weight).sum(
             ) * self.l1_weight
         return output
+
+
+def assert_(condition, message='', exception_type=AssertionError):
+    """Like assert, but with arbitrary exception types."""
+    if not condition:
+        raise exception_type(message)
+
+
+class Graph(nn.Module):
+    """
+    A graph structure to build networks with complex architectures. The resulting graph model
+    can be used like any other `torch.nn.Module`. The graph structure used behind the scenes
+    is a `networkx.DiGraph`. This internal graph is exposed by the `apply_on_graph` method,
+    which can be used with any NetworkX function (e.g. for plotting with matplotlib or GraphViz).
+
+    Examples
+    --------
+    The naive inception module (without the max-pooling for simplicity) with ELU-layers of 64 units
+    can be built as following, (assuming 64 input channels):
+
+        >>> from inferno.extensions.layers.reshape import Concatenate
+        >>> from inferno.extensions.layers.convolutional import ConvELU2D
+        >>> import torch
+        >>> # Build the model
+        >>> inception_module = Graph()
+        >>> inception_module.add_input_node('input')
+        >>> inception_module.add_node('conv1x1', ConvELU2D(64, 64, 3), previous='input')
+        >>> inception_module.add_node('conv3x3', ConvELU2D(64, 64, 3), previous='input')
+        >>> inception_module.add_node('conv5x5', ConvELU2D(64, 64, 3), previous='input')
+        >>> inception_module.add_node('cat', Concatenate(),
+        >>>                           previous=['conv1x1', 'conv3x3', 'conv5x5'])
+        >>> inception_module.add_output_node('output', 'cat')
+        >>> # Build dummy variable
+        >>> input = torch.rand(1, 64, 100, 100)
+        >>> # Get output
+        >>> output = inception_module(input)
+
+    """
+
+    def __init__(self, graph=None):
+        """
+        Construct the graph object.
+
+        Parameters
+        ----------
+            graph : networkx.DiGraph or NNGraph
+                Graph to build the object from (optional).
+        """
+        super(Graph, self).__init__()
+        self._thread_to_graph_mapping = {}
+        self._creator_thread = threading.get_ident()
+        self._creator_pid = mp.current_process().pid
+        if graph is not None:
+            self.graph = graph
+        else:
+            self.graph = NNGraph()
+
+    @property
+    def graph(self):
+        graph = self._thread_to_graph_mapping.get(threading.get_ident())
+        if graph is None:
+            creator_thread_graph = self._thread_to_graph_mapping.get(self.
+                _creator_thread)
+            assert creator_thread_graph is not None
+            graph = creator_thread_graph.copy()
+            self._thread_to_graph_mapping.update({threading.get_ident(): graph}
+                )
+        return graph
+
+    @graph.setter
+    def graph(self, value):
+        assert_(isinstance(value, NNGraph), exception_type=TypeError)
+        self._thread_to_graph_mapping.update({threading.get_ident(): value})
+
+    def is_node_in_graph(self, name):
+        """
+        Checks whether a node is in the graph.
+
+        Parameters
+        ----------
+        name : str
+            Name of the node.
+
+        Returns
+        -------
+        bool
+        """
+        return name in self.graph.nodes
+
+    def is_source_node(self, name):
+        """
+        Checks whether a given node (by name) is a source node.
+        A source node has no incoming edges.
+
+        Parameters
+        ----------
+        name : str
+            Name of the node.
+
+        Returns
+        -------
+        bool
+
+        Raises
+        ------
+        AssertionError
+            if node is not found in the graph.
+        """
+        assert self.is_node_in_graph(name)
+        return self.graph.in_degree(name) == 0
+
+    def is_sink_node(self, name):
+        """
+        Checks whether a given node (by name) is a sink node.
+        A sink node has no outgoing edges.
+
+        Parameters
+        ----------
+        name : str
+            Name of the node.
+
+        Returns
+        -------
+        bool
+
+        Raises
+        ------
+        AssertionError
+            if node is not found in the graph.
+        """
+        assert self.is_node_in_graph(name)
+        return self.graph.out_degree(name) == 0
+
+    @property
+    def output_nodes(self):
+        """
+        Gets a list of output nodes. The order is relevant and is the same as that
+        in which the forward method returns its outputs.
+
+        Returns
+        -------
+        list
+            A list of names (str) of the output nodes.
+        """
+        return [name for name, node_attributes in self.graph.nodes.items() if
+            node_attributes.get('is_output_node', False)]
+
+    @property
+    def input_nodes(self):
+        """
+        Gets a list of input nodes. The order is relevant and is the same as that
+        in which the forward method accepts its inputs.
+
+        Returns
+        -------
+        list
+            A list of names (str) of the input nodes.
+        """
+        return [name for name, node_attributes in self.graph.nodes.items() if
+            node_attributes.get('is_input_node', False)]
+
+    @property
+    def graph_is_valid(self):
+        """Checks if the graph is valid."""
+        is_dag = is_directed_acyclic_graph(self.graph)
+        output_nodes_are_sinks = all([self.is_sink_node(name) for name in
+            self.output_nodes])
+        input_nodes_are_sources = all([self.is_source_node(name) for name in
+            self.input_nodes])
+        is_valid = (is_dag and output_nodes_are_sinks and
+            input_nodes_are_sources)
+        return is_valid
+
+    def assert_graph_is_valid(self):
+        """Asserts that the graph is valid."""
+        assert is_directed_acyclic_graph(self.graph), 'Graph is not a DAG.'
+        for name in self.output_nodes:
+            assert self.is_sink_node(name
+                ), 'Output node {} is not a sink.'.format(name)
+            assert not self.is_source_node(name
+                ), "Output node {} is a source node. Make sure it's connected.".format(
+                name)
+        for name in self.input_nodes:
+            assert self.is_source_node(name
+                ), 'Input node {} is not a source.'.format(name)
+            assert not self.is_sink_node(name
+                ), "Input node {} is a sink node. Make sure it's connected.".format(
+                name)
+
+    def add_node(self, name, module, previous=None):
+        """
+        Add a node to the graph.
+
+        Parameters
+        ----------
+        name : str
+            Name of the node. Nodes are identified by their names.
+
+        module : torch.nn.Module
+            Torch module for this node.
+
+        previous : str or list of str
+            (List of) name(s) of the previous node(s).
+
+        Returns
+        -------
+        Graph
+            self
+        """
+        assert isinstance(module, nn.Module)
+        self.add_module(name, module)
+        self.graph.add_node(name)
+        if previous is not None:
+            for _previous in pyu.to_iterable(previous):
+                self.add_edge(_previous, name)
+        return self
+
+    def add_input_node(self, name):
+        """
+        Add an input to the graph. The order in which input nodes are added is the
+        order in which the forward method accepts its inputs.
+
+        Parameters
+        ----------
+        name : str
+            Name of the input node.
+
+        Returns
+        -------
+        Graph
+            self
+        """
+        self.add_module(name, Identity())
+        self.graph.add_node(name, is_input_node=True)
+        return self
+
+    def add_output_node(self, name, previous=None):
+        """
+        Add an output to the graph. The order in which output nodes are added is the
+        order in which the forward method returns its outputs.
+
+        Parameters
+        ----------
+        name : str
+            Name of the output node.
+
+        Returns
+        -------
+        Graph
+            self
+        """
+        self.graph.add_node(name, is_output_node=True)
+        if previous is not None:
+            for _previous in pyu.to_iterable(previous):
+                self.add_edge(_previous, name)
+        return self
+
+    def add_edge(self, from_node, to_node):
+        """
+        Add an edge between two nodes.
+
+        Parameters
+        ----------
+        from_node : str
+            Name of the source node.
+        to_node : str
+            Name of the target node.
+
+        Returns
+        -------
+        Graph
+            self
+
+        Raises
+        ------
+        AssertionError
+            if either of the two nodes is not in the graph,
+            or if the edge is not 'legal'.
+        """
+        assert self.is_node_in_graph(from_node)
+        assert self.is_node_in_graph(to_node)
+        self.graph.add_edge(from_node, to_node)
+        assert self.graph_is_valid
+        return self
+
+    def apply_on_graph(self, function, *args, **kwargs):
+        """Applies a `function` on the internal graph."""
+        return function(self, *args, **kwargs)
+
+    def get_module_for_nodes(self, names):
+        """
+        Gets the `torch.nn.Module` object for nodes corresponding to `names`.
+
+        Parameters
+        ----------
+        names : str or list of str
+            Names of the nodes to fetch the modules of.
+
+        Returns
+        -------
+        list or torch.nn.Module
+            Module or a list of modules corresponding to `names`.
+
+        """
+        names = pyu.to_iterable(names)
+        modules = []
+        for name in names:
+            assert self.is_node_in_graph(name
+                ), "Node '{}' is not in graph.".format(name)
+            module = getattr(self, name, None)
+            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(
+                name)
+            modules.append(module)
+        return pyu.from_iterable(modules)
+
+    def to_device(self, names, target_device, device_ordinal=None,
+        asynchronous=False):
+        """Transfer nodes in the network to a specified device."""
+        names = pyu.to_iterable(names)
+        for name in names:
+            assert self.is_node_in_graph(name
+                ), "Node '{}' is not in graph.".format(name)
+            module = getattr(self, name, None)
+            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(
+                name)
+            module_on_device = OnDevice(module, target_device,
+                device_ordinal=device_ordinal, asynchronous=asynchronous)
+            setattr(self, name, module_on_device)
+        return self
+
+    def get_parameters_for_nodes(self, names, named=False):
+        """Get parameters of all nodes listed in `names`."""
+        if not named:
+            parameters = (parameter for module in pyu.to_iterable(self.
+                get_module_for_nodes(names)) for parameter in module.
+                parameters())
+        else:
+            parameters = ((name, parameter) for module in pyu.to_iterable(
+                self.get_module_for_nodes(names)) for name, parameter in
+                module.named_parameters())
+        return parameters
+
+    def clear_payloads(self, graph=None):
+        graph = self.graph if graph is None else graph
+        for edge in list(graph.edges(data=True)):
+            source, target, _ = edge
+            if 'payload' in graph[source][target]:
+                del graph[source][target]['payload']
+
+    def forward_through_node(self, name, input=None):
+        if input is None:
+            assert not self.is_source_node(name
+                ), "Node '{}' did not get an input but is a source node.".format(
+                name)
+            incoming_edges = self.graph.in_edges(name)
+            input = []
+            for incoming, this in incoming_edges:
+                input.append(self.graph[incoming][this]['payload'])
+                del self.graph[incoming][this]['payload']
+        else:
+            assert self.is_node_in_graph(name)
+            input = [input]
+        try:
+            outputs = pyu.to_iterable(getattr(self, name)(*input))
+        except Exception as e:
+            input_spec_string = '\n'.join(['--[{}]-{}-->[{}]'.format(
+                incoming, tuple(_input.size()), this) for (incoming, this),
+                _input in zip(self.graph.in_edges(name), input)])
+            message = "In node '{}': {}\nInputs to this node were:\n{}".format(
+                name, str(e), input_spec_string)
+            raise type(e)(message).with_traceback(sys.exc_info()[2])
+        if not self.is_sink_node(name):
+            outgoing_edges = self.graph.out_edges(name)
+            if len(outputs) == 1:
+                outputs *= len(outgoing_edges)
+            assert len(outputs) == len(outgoing_edges
+                ), "Number of outputs from the model ({}) does not match the number of out-edges ({}) in the graph for this node ('{}').".format(
+                len(outputs), len(outgoing_edges), name)
+            for (this, outgoing), output in zip(outgoing_edges, outputs):
+                self.graph[this][outgoing].update({'payload': output})
+        del input
+        gc.collect()
+        return pyu.from_iterable(outputs)
+
+    def forward(self, *inputs):
+        self.assert_graph_is_valid()
+        input_nodes = self.input_nodes
+        output_nodes = self.output_nodes
+        assert len(inputs) == len(input_nodes
+            ), 'Was expecting {} arguments for as many input nodes, got {}.'.format(
+            len(input_nodes), len(inputs))
+        for input, input_node in zip(inputs, input_nodes):
+            self.forward_through_node(input_node, input=input)
+        toposorted = topological_sort(self.graph)
+        toposorted = [name for name in toposorted if name not in
+            input_nodes and name not in output_nodes]
+        toposorted = [name for name in toposorted if not self.is_sink_node(
+            name)]
+        for node in toposorted:
+            self.forward_through_node(node)
+        outputs = []
+        for output_node in output_nodes:
+            outputs_from_node = [self.graph[incoming][this]['payload'] for 
+                incoming, this in self.graph.in_edges(output_node)]
+            outputs.append(pyu.from_iterable(outputs_from_node))
+        self.clear_payloads()
+        return pyu.from_iterable(outputs)
 
 
 class Sequential1(nn.Sequential):
@@ -347,12 +829,6 @@ class NotTorchModuleError(TypeError):
 
 class ShapeError(ValueError):
     pass
-
-
-def assert_(condition, message='', exception_type=AssertionError):
-    """Like assert, but with arbitrary exception types."""
-    if not condition:
-        raise exception_type(message)
 
 
 class As2DCriterion(nn.Module):
@@ -1541,6 +2017,7 @@ class UNetBase(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_inferno_pytorch_inferno(_paritybench_base):
@@ -1560,31 +2037,34 @@ class Test_inferno_pytorch_inferno(_paritybench_base):
         self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(GlobalConv2D(*[], **{'in_channels': _mock_layer, 'out_channels': 4, 'kernel_size': 4, 'local_conv_type': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(RegularizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(SELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(Sequential1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
+    def test_009(self):
         self._check(SorensenDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_009(self):
+    def test_010(self):
         self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(View(*[], **{'as_shape': [4, 4]}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

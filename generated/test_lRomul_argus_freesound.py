@@ -42,10 +42,13 @@ stacking_val_predict = _module
 train_folds = _module
 train_stacking = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -1246,79 +1249,83 @@ class FCNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lRomul_argus_freesound(_paritybench_base):
     pass
     def test_000(self):
+        self._check(AuxBlock(*[], **{'last_fc': 4, 'num_classes': 4, 'base_size': 4, 'dropout': 0.5}), [torch.rand([4, 32, 4, 32])], {})
+
+    def test_001(self):
         self._check(AuxSkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(BCEMaxOutlierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_002(self):
+    def test_003(self):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(BidirectionalLSTM(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_005(self):
+    def test_006(self):
         self._check(ChannelAttention(*[], **{'in_planes': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_006(self):
+    def test_007(self):
         self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(ConvolutionalBlockAttentionModule(*[], **{'in_planes': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(FeatureExtractor(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(LSoftLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_011(self):
         self._check(LqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(NoisyCuratedLoss(*[], **{'noisy_loss': MSELoss(), 'curated_loss': MSELoss()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_013(self):
         self._check(OnlyNoisyLSoftLoss(*[], **{'beta': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_014(self):
         self._check(OnlyNoisyLqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_015(self):
         self._check(RnnAuxSkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_015(self):
+    def test_016(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_017(self):
         self._check(SEScale(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_017(self):
+    def test_018(self):
         self._check(SimpleAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_018(self):
+    def test_019(self):
         self._check(SimpleKaggle(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_019(self):
+    def test_020(self):
         self._check(SkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_020(self):
+    def test_021(self):
         self._check(SkipBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_021(self):
+    def test_022(self):
         self._check(SpatialAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

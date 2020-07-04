@@ -78,10 +78,13 @@ third_party = _module
 mmskl = _module
 publish_model = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -109,6 +112,12 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 import time
 
 
@@ -133,7 +142,13 @@ from abc import ABCMeta
 from abc import abstractmethod
 
 
+import torchvision
+
+
 import math
+
+
+import torchvision.transforms as transforms
 
 
 def get_hop_distance(num_node, edge, max_hop=1):
@@ -414,9 +429,9 @@ class Model(nn.Module):
 
     def forward(self, x):
         N, C, T, V, M = x.size()
-        m = torch.cat((torch.cuda.FloatTensor(N, C, 1, V, M).zero_(), x[:,
-            :, 1:-1] - 0.5 * x[:, :, 2:] - 0.5 * x[:, :, :-2], torch.cuda.
-            FloatTensor(N, C, 1, V, M).zero_()), 2)
+        m = torch.cat((torch.FloatTensor(N, C, 1, V, M).zero_(), x[:, :, 1:
+            -1] - 0.5 * x[:, :, 2:] - 0.5 * x[:, :, :-2], torch.FloatTensor
+            (N, C, 1, V, M).zero_()), 2)
         res = self.origin_stream(x) + self.motion_stream(m)
         return res
 
@@ -1307,6 +1322,7 @@ class Gconv(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_open_mmlab_mmskeleton(_paritybench_base):

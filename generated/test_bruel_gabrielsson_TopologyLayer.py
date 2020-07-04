@@ -39,10 +39,13 @@ plot_dionysus = _module
 process = _module
 star_dionysus = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -65,6 +68,15 @@ from torch.utils.data import DataLoader
 
 
 from torch.utils.data import sampler
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as T
+
+
+from torchvision.utils import save_image
 
 
 import numpy as np
@@ -188,6 +200,19 @@ def init_tri_complex(width, height):
 
 class TopLoss(nn.Module):
 
+    def __init__(self, size):
+        super(TopLoss, self).__init__()
+        self.pdfn = LevelSetLayer2D(size=size, sublevel=False)
+        self.topfn = PartialSumBarcodeLengths(dim=1, skip=1)
+        self.topfn2 = SumBarcodeLengths(dim=0)
+
+    def forward(self, beta):
+        dgminfo = self.pdfn(beta)
+        return self.topfn(dgminfo) + self.topfn2(dgminfo)
+
+
+class TopLoss(nn.Module):
+
     def __init__(self):
         super(TopLoss, self).__init__()
         self.pdfn = AlphaLayer(maxdim=0)
@@ -223,6 +248,18 @@ def init_line_complex(p):
         for j in c:
             f.append(j)
     return f
+
+
+class TopLoss(nn.Module):
+
+    def __init__(self, p):
+        super(TopLoss, self).__init__()
+        self.pdfn = LevelSetLayer1D(p, False)
+        self.topfn = SumBarcodeLengths()
+
+    def forward(self, beta):
+        dgms, issublevel = self.pdfn(beta)
+        return self.topfn((dgms[0], issublevel))
 
 
 class TopLoss2(nn.Module):
@@ -787,6 +824,7 @@ class RipsLayer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):

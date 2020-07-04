@@ -90,10 +90,13 @@ test_model = _module
 test_module = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -104,6 +107,9 @@ __version__ = '1.0.0'
 
 
 import warnings
+
+
+from torchvision.datasets import *
 
 
 import torch
@@ -226,6 +232,9 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils import data
 
 
+import torchvision.transforms as transform
+
+
 from torch.nn.parallel.scatter_gather import gather
 
 
@@ -236,6 +245,87 @@ import torch.backends.cudnn as cudnn
 
 
 from torch.autograd import gradcheck
+
+
+class Bottleneck(nn.Module):
+    """ResNet Bottleneck
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, radix=1,
+        cardinality=1, bottleneck_width=64, avd=False, avd_first=False,
+        dilation=1, is_first=False, rectified_conv=False, rectify_avg=False,
+        norm_layer=None, dropblock_prob=0.0, last_gamma=False):
+        super(Bottleneck, self).__init__()
+        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
+        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False
+            )
+        self.bn1 = norm_layer(group_width)
+        self.dropblock_prob = dropblock_prob
+        self.radix = radix
+        self.avd = avd and (stride > 1 or is_first)
+        self.avd_first = avd_first
+        if self.avd:
+            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
+            stride = 1
+        if dropblock_prob > 0.0:
+            self.dropblock1 = DropBlock2D(dropblock_prob, 3)
+            if radix == 1:
+                self.dropblock2 = DropBlock2D(dropblock_prob, 3)
+            self.dropblock3 = DropBlock2D(dropblock_prob, 3)
+        if radix > 1:
+            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=
+                3, stride=stride, padding=dilation, dilation=dilation,
+                groups=cardinality, bias=False, radix=radix, rectify=
+                rectified_conv, rectify_avg=rectify_avg, norm_layer=
+                norm_layer, dropblock_prob=dropblock_prob)
+        elif rectified_conv:
+            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False, average_mode=rectify_avg)
+            self.bn2 = norm_layer(group_width)
+        else:
+            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3,
+                stride=stride, padding=dilation, dilation=dilation, groups=
+                cardinality, bias=False)
+            self.bn2 = norm_layer(group_width)
+        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias
+            =False)
+        self.bn3 = norm_layer(planes * 4)
+        if last_gamma:
+            from torch.nn.init import zeros_
+            zeros_(self.bn3.weight)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.dilation = dilation
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock1(out)
+        out = self.relu(out)
+        if self.avd and self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv2(out)
+        if self.radix == 1:
+            out = self.bn2(out)
+            if self.dropblock_prob > 0.0:
+                out = self.dropblock2(out)
+            out = self.relu(out)
+        if self.avd and not self.avd_first:
+            out = self.avd_layer(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.dropblock_prob > 0.0:
+            out = self.dropblock3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class ResNet(nn.Module):
@@ -397,6 +487,41 @@ class ResNet(nn.Module):
             x = self.drop(x)
         x = self.fc(x)
         return x
+
+
+class BasicBlock(nn.Module):
+    """WideResNet BasicBlock
+    """
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, expansion=1,
+        downsample=None, previous_dilation=1, dropout=0.0, **kwargs):
+        super(BasicBlock, self).__init__()
+        self.bn1 = ABN(inplanes)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=
+            stride, padding=dilation, dilation=dilation, bias=False)
+        self.bn2 = ABN(planes)
+        self.conv2 = nn.Conv2d(planes, planes * expansion, kernel_size=3,
+            stride=1, padding=previous_dilation, dilation=previous_dilation,
+            bias=False)
+        self.downsample = downsample
+        self.drop = None
+        if dropout > 0.0:
+            self.drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        if self.downsample:
+            bn1 = self.bn1(x)
+            residual = self.downsample(bn1)
+        else:
+            residual = x.clone()
+            bn1 = self.bn1(x)
+        out = self.conv1(bn1)
+        out = self.bn2(out)
+        if self.drop:
+            out = self.drops(out)
+        out = self.conv2(out)
+        out = out + residual
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -943,6 +1068,79 @@ def short_hash(name):
     return _model_sha1[name][:8]
 
 
+def resnet101s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-101 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet101s', root=
+            root)), strict=False)
+    return model
+
+
+def resnet152s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-152 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet152s', root=
+            root)), strict=False)
+    return model
+
+
+def resnet50s(pretrained=False, root='~/.encoding/models', **kwargs):
+    """Constructs a ResNetS-50 model as in PSPNet.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    kwargs['deep_stem'] = True
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(torch.load(get_model_file('resnet50s', root=
+            root)), strict=False)
+    return model
+
+
+class DeepTen(nn.Module):
+
+    def __init__(self, nclass, backbone):
+        super(DeepTen, self).__init__()
+        self.backbone = backbone
+        if self.backbone == 'resnet50':
+            self.pretrained = resnet50s(pretrained=True, dilated=False)
+        elif self.backbone == 'resnet101':
+            self.pretrained = resnet101s(pretrained=True, dilated=False)
+        elif self.backbone == 'resnet152':
+            self.pretrained = resnet152s(pretrained=True, dilated=False)
+        else:
+            raise RuntimeError('unknown backbone: {}'.format(self.backbone))
+        n_codes = 32
+        self.head = nn.Sequential(nn.Conv2d(2048, 128, 1), nn.BatchNorm2d(
+            128), nn.ReLU(inplace=True), Encoding(D=128, K=n_codes), View(-
+            1, 128 * n_codes), Normalize(), nn.Linear(128 * n_codes, nclass))
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        x = self.pretrained.conv1(x)
+        x = self.pretrained.bn1(x)
+        x = self.pretrained.relu(x)
+        x = self.pretrained.maxpool(x)
+        x = self.pretrained.layer1(x)
+        x = self.pretrained.layer2(x)
+        x = self.pretrained.layer3(x)
+        x = self.pretrained.layer4(x)
+        return self.head(x)
+
+
 class GlobalPooling(nn.Module):
 
     def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
@@ -1126,20 +1324,6 @@ def resnet152(pretrained=False, root='~/.encoding/models', **kwargs):
     return model
 
 
-def resnet152s(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNetS-152 model as in PSPNet.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    kwargs['deep_stem'] = True
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet152s', root=
-            root)), strict=False)
-    return model
-
-
 def resnet50(pretrained=False, root='~/.encoding/models', **kwargs):
     """Constructs a ResNet-50 model.
 
@@ -1158,20 +1342,6 @@ def resnet50d(pretrained=False, root='~/.encoding/models', **kwargs):
         avg_down=True, **kwargs)
     if pretrained:
         model.load_state_dict(torch.load(get_model_file('resnet50d', root=
-            root)), strict=False)
-    return model
-
-
-def resnet50s(pretrained=False, root='~/.encoding/models', **kwargs):
-    """Constructs a ResNetS-50 model as in PSPNet.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    kwargs['deep_stem'] = True
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(torch.load(get_model_file('resnet50s', root=
             root)), strict=False)
     return model
 
@@ -1400,7 +1570,7 @@ class MultiEvalModule(DataParallel):
         stride_rate = 2.0 / 3.0
         crop_size = self.crop_size
         stride = int(crop_size * stride_rate)
-        with torch.cuda.device_of(image):
+        with torch.device_of(image):
             scores = image.new().resize_(batch, self.nclass, h, w).zero_()
         for scale in self.scales:
             long_size = int(math.ceil(self.base_size * scale))
@@ -1440,7 +1610,7 @@ class MultiEvalModule(DataParallel):
                 assert ph >= height and pw >= width
                 h_grids = int(math.ceil(1.0 * (ph - crop_size) / stride)) + 1
                 w_grids = int(math.ceil(1.0 * (pw - crop_size) / stride)) + 1
-                with torch.cuda.device_of(image):
+                with torch.device_of(image):
                     outputs = image.new().resize_(batch, self.nclass, ph, pw
                         ).zero_()
                     count_norm = image.new().resize_(batch, 1, ph, pw).zero_()
@@ -2848,6 +3018,104 @@ def _act_forward(ctx, x):
         assert activation == 'none'
 
 
+class SyncBatchNorm(_BatchNorm):
+    """Cross-GPU Synchronized Batch normalization (SyncBN)
+
+    Standard BN [1]_ implementation only normalize the data within each device (GPU).
+    SyncBN normalizes the input within the whole mini-batch.
+    We follow the sync-onece implmentation described in the paper [2]_ .
+    Please see the design idea in the `notes <./notes/syncbn.html>`_.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    The mean and standard-deviation are calculated per-channel over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        sync: a boolean value that when set to ``True``, synchronize across
+            different gpus. Default: ``True``
+        activation : str
+            Name of the activation functions, one of: `leaky_relu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> m = SyncBatchNorm(100)
+        >>> net = torch.nn.DataParallel(m)
+        >>> output = net(input)
+        >>> # for Inpace ABN
+        >>> ABN = partial(SyncBatchNorm, activation='leaky_relu', slope=0.01, sync=True, inplace=True)
+    """
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True,
+        activation='none', slope=0.01, inplace=True):
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
+            =momentum, affine=True)
+        self.activation = activation
+        self.inplace = False if activation == 'none' else inplace
+        self.slope = slope
+        self.devices = list(range(torch.device_count()))
+        self.sync = sync if len(self.devices) > 1 else False
+        self.worker_ids = self.devices[1:]
+        self.master_queue = Queue(len(self.worker_ids))
+        self.worker_queues = [Queue(1) for _ in self.worker_ids]
+
+    def _check_input_dim(self, x):
+        pass
+
+    def forward(self, x):
+        if not self.training:
+            return super().forward(x)
+        input_shape = x.size()
+        x = x.view(input_shape[0], self.num_features, -1)
+        if x.get_device() == self.devices[0]:
+            extra = {'is_master': True, 'master_queue': self.master_queue,
+                'worker_queues': self.worker_queues, 'worker_ids': self.
+                worker_ids}
+        else:
+            extra = {'is_master': False, 'master_queue': self.master_queue,
+                'worker_queue': self.worker_queues[self.worker_ids.index(x.
+                get_device())]}
+        if self.inplace:
+            return inp_syncbatchnorm(x, self.weight, self.bias, self.
+                running_mean, self.running_var, extra, self.sync, self.
+                training, self.momentum, self.eps, self.activation, self.slope
+                ).view(input_shape)
+        else:
+            return syncbatchnorm(x, self.weight, self.bias, self.
+                running_mean, self.running_var, extra, self.sync, self.
+                training, self.momentum, self.eps, self.activation, self.slope
+                ).view(input_shape)
+
+    def extra_repr(self):
+        if self.activation == 'none':
+            return 'sync={}'.format(self.sync)
+        else:
+            return 'sync={}, act={}, slope={}, inplace={}'.format(self.sync,
+                self.activation, self.slope, self.inplace)
+
+
 class DataParallelModel(DataParallel):
     """Implements data parallelism at the module level.
 
@@ -2985,6 +3253,7 @@ class DataParallelCriterion(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zhanghang1989_PyTorch_Encoding(_paritybench_base):
@@ -2994,44 +3263,63 @@ class Test_zhanghang1989_PyTorch_Encoding(_paritybench_base):
 
     @_fails_compile()
     def test_001(self):
-        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelCriterion(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_002(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
+    @_fails_compile()
     def test_003(self):
-        self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FCNHead(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_005(self):
-        self._check(Inspiration(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(LabelSmoothing(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
+        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(Inspiration(*[], **{'C': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_009(self):
+        self._check(LabelSmoothing(*[], **{}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_010(self):
         self._check(Mean(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(MixtureOfSoftMaxACF(*[], **{'n_mix': 4, 'd_k': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+    def test_011(self):
+        self._check(MixtureOfSoftMaxACF(*[], **{'n_mix': 4, 'd_k': 4}), [torch.rand([4, 4, 4]), torch.rand([16, 1, 4]), torch.rand([4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_012(self):
         self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_013(self):
         self._check(RFConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_011(self):
+    def test_014(self):
         self._check(Sum(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_015(self):
         self._check(UpsampleConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    @_fails_compile()
+    def test_016(self):
+        self._check(Xception65(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_017(self):
+        self._check(Xception71(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_018(self):
         self._check(rSoftMax(*[], **{'radix': 4, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
 

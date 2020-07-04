@@ -84,10 +84,13 @@ setup = _module
 test = _module
 test_narma10_prediction = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -95,6 +98,9 @@ _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torchvision
 
 
 import torch.nn as nn
@@ -293,6 +299,113 @@ class BDESN(nn.Module):
         return self.esn_cell.get_spectral_raduis()
 
 
+class BDESNCell(nn.Module):
+    """
+    Bi-directional Echo State Network module
+    """
+
+    def __init__(self, input_dim, hidden_dim, spectral_radius=0.9,
+        bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None,
+        sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=
+        torch.tanh, leaky_rate=1.0, create_cell=True):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param hidden_dim: Hidden layer dimension
+        :param spectral_radius: Reservoir's spectral radius
+        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
+        :param input_scaling: Scaling of the input weight matrix, default 1.
+        :param w: Internal weights matrix
+        :param w_in: Input-reservoir weights matrix
+        :param w_bias: Bias weights matrix
+        :param sparsity:
+        :param input_set:
+        :param w_sparsity:
+        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
+        """
+        super(BDESNCell, self).__init__()
+        if create_cell:
+            self.esn_cell = LiESNCell(leaky_rate, False, input_dim,
+                hidden_dim, spectral_radius, bias_scaling, input_scaling, w,
+                w_in, w_bias, None, sparsity, input_set, w_sparsity,
+                nonlin_func)
+
+    @property
+    def w(self):
+        """
+        Hidden weight matrix
+        :return:
+        """
+        return self.esn_cell.w
+
+    @property
+    def w_in(self):
+        """
+        Input matrix
+        :return:
+        """
+        return self.esn_cell.w_in
+
+    def reset(self):
+        """
+        Reset learning
+        :return:
+        """
+        self.output.reset()
+        self.train(True)
+
+    def get_w_out(self):
+        """
+        Output matrix
+        :return:
+        """
+        return self.output.w_out
+
+    def set_w(self, w):
+        """
+        Set W
+        :param w:
+        :return:
+        """
+        self.esn_cell.w = w
+
+    def forward(self, u, y=None):
+        """
+        Forward
+        :param u: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        forward_hidden_states = self.esn_cell(u)
+        backward_hidden_states = self.esn_cell(Variable(torch.from_numpy(np
+            .flip(u.data.numpy(), 1).copy())))
+        backward_hidden_states = Variable(torch.from_numpy(np.flip(
+            backward_hidden_states.data.numpy(), 1).copy()))
+        return torch.cat((forward_hidden_states, backward_hidden_states), dim=2
+            )
+
+    def finalize(self):
+        """
+        Finalize training with LU factorization
+        """
+        self.output.finalize()
+        self.train(False)
+
+    def reset_hidden(self):
+        """
+        Reset hidden layer
+        :return:
+        """
+        self.esn_cell.reset_hidden()
+
+    def get_spectral_radius(self):
+        """
+        Get W's spectral radius
+        :return: W's spectral radius
+        """
+        return self.esn_cell.get_spectral_raduis()
+
+
 class BDESNPCA(nn.Module):
     """
     Bi-directional Echo State Network module with PCA reduction
@@ -435,6 +548,482 @@ def generalized_squared_cosine(Sa, Ua, Sb, Ub):
     num = torch.pow(torch.norm(Vab), 2)
     den = torch.norm(torch.diag(Sa), p=2) * torch.norm(torch.diag(Sb), p=2)
     return num / den
+
+
+class ConceptorPool(object):
+    """
+    ConceptorPool
+    """
+
+    def __init__(self, conceptor_dim, conceptors=list(), esn=None, dtype=
+        torch.float32):
+        """
+        Constructor
+        :param conceptors:
+        """
+        self.conceptor_dim = conceptor_dim
+        self.conceptors = conceptors
+        self.name_to_conceptor = {}
+        self.esn = esn
+        self.dtype = dtype
+
+    @property
+    def A_SV(self):
+        """
+        Singular values of A
+        :return:
+        """
+        return ConceptorPool.compute_A_SV(self.conceptors)
+
+    @property
+    def A(self):
+        return ConceptorPool.compute_A(self.conceptors)
+
+    @property
+    def quota(self):
+        """
+        Quota
+        :return:
+        """
+        return ConceptorPool.compute_quota(self.conceptors)
+
+    def similarity_matrix(self):
+        """
+        Get similarity matrix
+        :return:
+        """
+        return ConceptorPool.compute_similarity_matrix(self.conceptors)
+
+    def finalize_conceptor(self, i):
+        """
+        Finalize conceptor
+        :param i:
+        :return:
+        """
+        self.conceptors[i].finalize()
+
+    def finalize(self):
+        """
+        Finalize all conceptors
+        :return:
+        """
+        for c in self.conceptors:
+            c.finalize()
+
+    def E_plus(self, p):
+        """
+        Positive evidence
+        :param x: states (x)
+        :return:
+        """
+        return ConceptorPool.compute_E_plus(self.conceptors, self.esn, p)
+
+    def E_other(self, p):
+        """
+        Evidence for other
+        :param p:
+        :return:
+        """
+        batch_size = p.shape[0]
+        time_length = p.shape[1]
+        evidences = torch.zeros(batch_size, time_length)
+        x = self.esn(u=p, return_states=True)
+        A = self.A
+        N = A.logical_not()
+        for b in range(batch_size):
+            for t in range(time_length):
+                evidences[b, t] = torch.mm(x[b, t].view(1, -1), N.get_C()).mm(x
+                    [b, t].view(-1, 1))
+        return torch.mean(evidences, dim=1)
+
+    def E_neg(self, p):
+        """
+        Negative evidence
+        :param p:
+        :return:
+        """
+        batch_size = p.shape[0]
+        n_conceptors = len(self.conceptors)
+        time_length = p.shape[1]
+        evidences = torch.zeros(batch_size, time_length, n_conceptors)
+        x = self.esn(u=p, return_states=True)
+        for b in range(batch_size):
+            for i, c in enumerate(self.conceptors):
+                other_c = list(self.conceptors)
+                other_c.remove(c)
+                A = ConceptorPool.compute_A(other_c)
+                N = A.logical_not()
+                for t in range(time_length):
+                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), N.
+                        get_C()).mm(x[b, t].view(-1, 1))
+        return torch.mean(evidences, dim=1)
+
+    def E(self, p):
+        """
+        Evidence for each conceptor
+        :return:
+        """
+        return (self.E_plus(p) + self.E_neg(p)) / 2.0
+
+    def add(self, aperture, name):
+        """
+        New conceptor
+        :param aperture: Aperture
+        :param name: Conceptor's name
+        :return: New conceptor
+        """
+        new_conceptor = Conceptor(self.conceptor_dim, aperture=aperture,
+            name=name, dtype=self.dtype)
+        self.conceptors.append(new_conceptor)
+        self.name_to_conceptor[name] = new_conceptor
+        return new_conceptor
+
+    def add_or(self, i, j):
+        """
+        Add an OR between conceptors
+        :param i:
+        :param j:
+        :return:
+        """
+        self.append(self.conceptors[i].logical_or(self.conceptors[j]))
+
+    def add_and(self, i, j):
+        """
+        Add an AND between conceptors
+        :param i:
+        :param j:
+        :return:
+        """
+        self.append(self.conceptors[i].logical_and(self.conceptors[j]))
+
+    def add_not(self, i):
+        """
+        Add an OR between conceptors
+        :param i:
+        :return:
+        """
+        self.append(self.conceptors[i].logical_not())
+
+    def add_A(self):
+        """
+        Add an OR between conceptors
+        :param i:
+        :return:
+        """
+        A = ConceptorPool.compute_A(self.conceptors)
+        self.append(A)
+
+    def add_Not_A(self):
+        """
+        Add an OR between conceptors
+        :param i:
+        :return:
+        """
+        A = ConceptorPool.compute_A(self.conceptors)
+        N = A.logical_not()
+        self.append(N)
+
+    def append(self, c):
+        """
+        Append a conceptor
+        :param c:
+        :return:
+        """
+        self.conceptors.append(c)
+        self.name_to_conceptor[c.name] = c
+
+    def morphing(self, mu):
+        """
+        Morphing pattern
+        :param conceptor_list:
+        :return:
+        """
+        for i, c in enumerate(self.conceptors):
+            if i == 0:
+                M = c.mul(mu[i])
+            else:
+                M += c.mul(mu[i])
+        return M
+
+    def __getitem__(self, item):
+        """
+        Get item
+        :param item:
+        :return:
+        """
+        if type(item) is int:
+            return self.conceptors[item]
+        elif type(item) is str:
+            return self.name_to_conceptor[item]
+
+    def __setitem__(self, key, value):
+        """
+        Set item
+        :param key:
+        :param value:
+        :return:
+        """
+        self.conceptors[key] = value
+
+    def __len__(self):
+        """
+        Length
+        :return:
+        """
+        return len(self.conceptors)
+
+    @staticmethod
+    def compute_similarity_matrix(conceptors):
+        """
+        Get similarity matrix
+        :return:
+        """
+        sim_matrix = torch.zeros(len(conceptors), len(conceptors))
+        for i, ca in enumerate(conceptors):
+            for j, cb in enumerate(conceptors):
+                sim_matrix[i, j] = ca.sim(cb)
+        return sim_matrix
+
+    @staticmethod
+    def compute_E_plus(conceptors, esn, p):
+        """
+        Positive evidence
+        :param x: states (x)
+        :return:
+        """
+        batch_size = p.shape[0]
+        n_conceptors = len(conceptors)
+        time_length = p.shape[1]
+        evidences = torch.zeros(batch_size, time_length, n_conceptors)
+        x = esn(u=p, return_states=True)
+        for b in range(batch_size):
+            for t in range(time_length):
+                for i, c in enumerate(conceptors):
+                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), c.
+                        get_C()).mm(x[b, t].view(-1, 1))
+        return torch.mean(evidences, dim=1)
+
+    @staticmethod
+    def compute_A_SV(conceptors):
+        """
+        Get singular values of A
+        :param conceptors:
+        :return:
+        """
+        A = ConceptorPool.compute_A(conceptors)
+        _, S, _ = torch.svd(A.get_C())
+        return S
+
+    @staticmethod
+    def compute_A(conceptors):
+        """
+        Compute A (OR of all conceptors)
+        :param conceptors:
+        :return:
+        """
+        for i, c in enumerate(conceptors):
+            if i == 0:
+                A = c
+            else:
+                A = c.logical_or(A)
+        A.name = 'A'
+        return A
+
+    @staticmethod
+    def compute_quota(conceptors):
+        """
+        Compute quota
+        :param conceptors:
+        :return:
+        """
+        S = ConceptorPool.compute_A_SV(conceptors)
+        return float(torch.mean(S))
+
+
+class ConceptorNet(nn.Module):
+    """
+    ESN-based ConceptorNet
+    """
+
+    def __init__(self, input_dim, hidden_dim, output_dim=None,
+        spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None,
+        w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0],
+        w_sparsity=None, leaky_rate=1.0, nonlin_func=torch.tanh,
+        learning_algo='inv', ridge_param=0.0, with_bias=True, seed=None,
+        washout=1, w_distrib='uniform', win_distrib='uniform',
+        wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0),
+        wbias_normal=(0.0, 1.0), w_ridge_param=0.0, dtype=torch.float32):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param hidden_dim: Hidden layer dimension
+        :param spectral_radius: Reservoir's spectral radius
+        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
+        :param input_scaling: Scaling of the input weight matrix, default 1.
+        :param w: Internation weights matrix
+        :param w_in: Input-reservoir weights matrix
+        :param w_bias: Bias weights matrix
+        :param w_fdb: Feedback weights matrix
+        :param sparsity:
+        :param input_set:
+        :param w_sparsity:
+        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
+        :param learning_algo: Which learning algorithm to use (inv, LU, grad)
+        """
+        super(ConceptorNet, self).__init__()
+        self.with_bias = with_bias
+        self.washout = washout
+        self.hidden_dim = hidden_dim
+        self.esn_cell = ConceptorNetCell(leaky_rate, False, input_dim,
+            hidden_dim, spectral_radius=spectral_radius, bias_scaling=
+            bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in,
+            w_bias=w_bias, sparsity=sparsity, input_set=input_set,
+            w_sparsity=w_sparsity, nonlin_func=nonlin_func, feedbacks=False,
+            feedbacks_dim=input_dim, wfdb_sparsity=None,
+            normalize_feedbacks=False, seed=seed, w_distrib=w_distrib,
+            win_distrib=win_distrib, wbias_distrib=wbias_distrib,
+            win_normal=win_normal, w_normal=w_normal, wbias_normal=
+            wbias_normal, dtype=dtype)
+        self.input_recreation = RRCell(hidden_dim, hidden_dim,
+            w_ridge_param, None, with_bias=False, learning_algo=
+            learning_algo, softmax_output=False, averaged=True, dtype=dtype)
+        if output_dim is not None:
+            self.output = RRCell(hidden_dim, output_dim, ridge_param, None,
+                with_bias=False, learning_algo=learning_algo,
+                softmax_output=False, averaged=True, dtype=dtype)
+        else:
+            self.output = None
+
+    @property
+    def hidden(self):
+        """
+        Hidden layer
+        :return:
+        """
+        return self.esn_cell.hidden
+
+    @property
+    def w(self):
+        """
+        Hidden weight matrix
+        :return:
+        """
+        return self.esn_cell.w
+
+    @property
+    def w_in(self):
+        """
+        Input matrix
+        :return:
+        """
+        return self.esn_cell.w_in
+
+    @property
+    def input_recreation_matrix(self):
+        """
+        Input recreation matrix
+        :return:
+        """
+        return self.input_recreation.get_w_out()
+
+    def arctanh(self, x):
+        """
+        Inverse tanh
+        :param x:
+        :return:
+        """
+        return 0.5 * torch.log((1 + x) / (1 - x))
+
+    def set_train(self):
+        """
+        Mode
+        :return:
+        """
+        self.train(True)
+        self.input_recreation.train(True)
+        if self.output is not None:
+            self.output.train(True)
+
+    def reset(self):
+        """
+        Reset learning
+        :return:
+        """
+        self.output.reset()
+        self.train(True)
+
+    def get_w_out(self):
+        """
+        Output matrix
+        :return:
+        """
+        return self.output.w_out
+
+    def set_w(self, w):
+        """
+        Set W
+        :param w:
+        :return:
+        """
+        self.esn_cell.w = w
+
+    def forward(self, u=None, y=None, c=None, reset_state=True, length=None,
+        mu=None, return_states=False, x0=None):
+        """
+        Forward
+        :param u: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        if self.training:
+            hidden_states = self.esn_cell(u, reset_state=reset_state, x0=x0)
+            batch_size = hidden_states.shape[0]
+            x = hidden_states[:, self.washout:]
+            time_length = x.shape[1]
+            x_tilda = hidden_states[:, self.washout - 1:-1]
+            bias = self.esn_cell.w_bias[0].expand(batch_size, time_length,
+                self.hidden_dim)
+            self.input_recreation(x_tilda, self.arctanh(x) - bias)
+            if self.output is not None and y is not None:
+                self.output(x, y[:, self.washout:])
+            return c(x)
+        elif c is None:
+            hidden_states = self.esn_cell(u, reset_state=reset_state, x0=x0)
+            if self.output is not None and not return_states:
+                return self.output(hidden_states)
+            else:
+                return hidden_states
+        else:
+            hidden_states = self.esn_cell(u=u, reset_state=reset_state,
+                input_recreation=self.input_recreation, conceptor=c, length
+                =length, mu=mu, x0=x0)
+            if self.output is not None:
+                return self.output(hidden_states)
+            else:
+                return self.input_recreation(hidden_states)
+
+    def finalize(self, train=False):
+        """
+        Finalize training with LU factorization
+        """
+        self.input_recreation.finalize()
+        if self.output is not None:
+            self.output.finalize()
+        self.train(train)
+
+    def reset_hidden(self):
+        """
+        Reset hidden layer
+        :return:
+        """
+        self.esn_cell.reset_hidden()
+
+    def get_spectral_radius(self):
+        """
+        Get W's spectral radius
+        :return: W's spectral radius
+        """
+        return self.esn_cell.get_spectral_raduis()
 
 
 class ESN(nn.Module):
@@ -2034,6 +2623,7 @@ class StackedESN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_nschaetti_EchoTorch(_paritybench_base):

@@ -26,10 +26,13 @@ util = _module
 image_pool = _module
 metrics = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -48,10 +51,25 @@ import copy
 import torch.nn as nn
 
 
+from torchvision.models import resnet50
+
+
+from torchvision.models import densenet121
+
+
+from torchvision.models import densenet201
+
+
 import torch.nn.functional as F
 
 
 import torch.autograd as autograd
+
+
+import torchvision.models as models
+
+
+import torchvision.transforms as transforms
 
 
 from torch.autograd import Variable
@@ -88,6 +106,9 @@ import torch.utils.data
 
 
 from torch.nn import Sequential
+
+
+import torchvision
 
 
 from torch.nn import functional as F
@@ -1425,40 +1446,54 @@ class DecoderCenter(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_TAMU_VITA_DeblurGANv2(_paritybench_base):
     pass
     def test_000(self):
-        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvBlock(*[], **{'num_in': 4, 'num_out': 4, 'norm_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(DecoderBlockV(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(DecoderCenter(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DecoderBlockV(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(DicsriminatorTail(*[], **{'nf_mult': 4, 'n_layers': 1}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(DecoderCenter(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
-        self._check(FPNHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DicsriminatorTail(*[], **{'nf_mult': 4, 'n_layers': 1}), [torch.rand([4, 256, 64, 64])], {})
 
     def test_005(self):
-        self._check(FPNSegHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(FPNHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
+        self._check(FPNSegHead(*[], **{'num_in': 4, 'num_mid': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
 
     def test_008(self):
-        self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_009(self):
-        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_010(self):
+        self._check(MultiScaleDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_011(self):
+        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_012(self):
+        self._check(ResnetGenerator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_013(self):
         self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(UNetSEResNext(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

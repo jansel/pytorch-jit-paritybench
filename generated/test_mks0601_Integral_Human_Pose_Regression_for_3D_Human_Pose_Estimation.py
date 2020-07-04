@@ -19,10 +19,13 @@ model = _module
 test = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -66,6 +69,15 @@ import torch.nn as nn
 
 
 from torch.nn import functional as F
+
+
+from torchvision.models.resnet import BasicBlock
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.resnet import model_urls
 
 
 from torch.nn.parallel.scatter_gather import gather
@@ -240,10 +252,10 @@ def _assert_no_grad(tensor):
     assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
 
 
-_global_config['depth_dim'] = 1
-
-
 _global_config['output_shape'] = 4
+
+
+_global_config['depth_dim'] = 1
 
 
 def soft_argmax(heatmaps, joint_num):
@@ -405,13 +417,18 @@ class ResPoseNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mks0601_Integral_Human_Pose_Regression_for_3D_Human_Pose_Estimation(_paritybench_base):
     pass
+    @_fails_compile()
     def test_000(self):
-        self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
     def test_001(self):
-        self._check(ResPoseNet(*[], **{'backbone': ReLU(), 'head': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ResPoseNet(*[], **{'backbone': _mock_layer(), 'head': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

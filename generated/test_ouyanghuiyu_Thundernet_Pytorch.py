@@ -60,10 +60,13 @@ rpn_to_onnx = _module
 test_net = _module
 trainval_net = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,10 +94,28 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as dset
+
+
+from torchvision.ops import nms
+
+
 import random
 
 
 import torch.nn.functional as F
+
+
+import torchvision.models as models
+
+
+from torchvision.ops import RoIAlign
+
+
+from torchvision.ops import RoIPool
 
 
 import functools
@@ -116,6 +137,9 @@ from torch.autograd import Function
 
 
 from torch.autograd.function import once_differentiable
+
+
+from torchvision import transforms as trans
 
 
 from torch.utils.data import RandomSampler
@@ -181,7 +205,7 @@ class SnetExtractor(nn.Module):
                     p.requires_grad = False
         if self.model_path is not None:
             None
-            if torch.cuda.is_available():
+            if torch.is_available():
                 state_dict = torch.load(self.model_path)['state_dict']
             else:
                 state_dict = torch.load(self.model_path, map_location=lambda
@@ -411,6 +435,70 @@ class _fasterRCNN(nn.Module):
     def create_architecture(self):
         self._init_modules()
         self._init_weights()
+
+
+class CEM(nn.Module):
+    """Context Enhancement Module"""
+
+    def __init__(self, in_channels1, in_channels2, in_channels3,
+        feat_stride, kernel_size=1, stride=1):
+        super(CEM, self).__init__()
+        self.feat_stride = feat_stride
+        downsample_size = CEM_FILTER
+        if feat_stride == 8:
+            self.conv3 = nn.Conv2d(in_channels1 // 2, downsample_size,
+                kernel_size, bias=True)
+        self.conv4 = nn.Conv2d(in_channels1, downsample_size, kernel_size,
+            bias=True)
+        self.conv5 = nn.Conv2d(in_channels2, downsample_size, kernel_size,
+            bias=True)
+        self.convlast = nn.Conv2d(in_channels3, downsample_size,
+            kernel_size, bias=True)
+        self._initialize_weights()
+
+    def forward(self, inputs):
+        if self.feat_stride == 8:
+            C3_lat = self.conv3(inputs[0])
+            C4_lat = self.conv4(inputs[1])
+            C4_lat = F.interpolate(C4_lat, size=[C3_lat.size(2), C3_lat.
+                size(3)], mode='nearest')
+            C5_lat = self.conv5(inputs[2])
+            C5_lat = F.interpolate(C5_lat, size=[C3_lat.size(2), C3_lat.
+                size(3)], mode='nearest')
+            C6_lat = self.convlast(inputs[3])
+            out = C3_lat + C4_lat + C5_lat + C6_lat
+        else:
+            C4_lat = self.conv4(inputs[0])
+            C5_lat = self.conv5(inputs[1])
+            C5_lat = F.interpolate(C5_lat, size=[C4_lat.size(2), C4_lat.
+                size(3)], mode='nearest')
+            C6_lat = self.convlast(inputs[2])
+            out = C4_lat + C5_lat + C6_lat
+        return out
+
+    def _initialize_weights(self):
+        for name, m in self.named_modules():
+            if isinstance(m, nn.Conv2d):
+                if 'first' in name:
+                    nn.init.normal_(m.weight, 0, 0.01)
+                else:
+                    nn.init.normal_(m.weight, 0, 1.0 / m.weight.shape[1])
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0001)
+                nn.init.constant_(m.running_mean, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0001)
+                nn.init.constant_(m.running_mean, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
 
 anchor_number = 25
@@ -1477,10 +1565,10 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
-_global_config['ANCHOR_SCALES'] = 4
-
-
 _global_config['ANCHOR_RATIOS'] = 4
+
+
+_global_config['ANCHOR_SCALES'] = 4
 
 
 class _RPN(nn.Module):
@@ -1883,6 +1971,59 @@ class PSROIPool(nn.Module):
         return tmpstr
 
 
+class PsRoIAlign(nn.Module):
+    """
+    Multi-scale RoIAlign pooling, which is useful for detection with or without FPN.
+
+    It infers the scale of the pooling via the heuristics present in the FPN paper.
+
+    Arguments:
+        featmap_names (List[str]): the names of the feature maps that will be used
+            for the pooling.
+        output_size (List[Tuple[int, int]] or List[int]): output size for the pooled region
+        sampling_ratio (int): sampling ratio for ROIAlign
+
+    Examples::
+
+    """
+
+    def __init__(self, output_size, sampling_ratio):
+        super(PsRoIAlign, self).__init__()
+        if isinstance(output_size, int):
+            output_size = output_size, output_size
+        self.sampling_ratio = sampling_ratio
+        self.output_size = tuple(output_size)
+        self.scales = spatial_scale
+
+    def convert_to_roi_format(self, boxes):
+        concat_boxes = torch.cat(boxes, dim=0)
+        device, dtype = concat_boxes.device, concat_boxes.dtype
+        ids = torch.cat([torch.full((len(b), 1), i, dtype=dtype, device=
+            device) for i, b in enumerate(boxes)], dim=0)
+        rois = torch.cat([ids, concat_boxes], dim=1)
+        return rois
+
+    def forward(self, x, boxes, image_shapes):
+        """
+        Arguments:
+            x (OrderedDict[Tensor]): feature maps for each level. They are assumed to have
+                all the same number of channels, but they can have different sizes.
+            boxes (List[Tensor[N, 4]]): boxes to be used to perform the pooling operation, in
+                (x1, y1, x2, y2) format and in the image reference size, not the feature map
+                reference.
+            image_shapes (List[Tuple[height, width]]): the sizes of each image before they
+                have been fed to a CNN to obtain feature maps. This allows us to infer the
+                scale factor for each one of the levels to be pooled.
+        Returns:
+            result (Tensor)
+        """
+        rois = self.convert_to_roi_format(boxes)
+        roi_align = PSROIAlignhandle(sampling_ratio=self.sampling_ratio,
+            spatial_scale=self.scales, roi_size=7, pooled_dim=CEM_FILTER //
+            (7 * 7))
+        return roi_align(x, rois)
+
+
 class PSROIAlignhandle(nn.Module):
 
     def __init__(self, spatial_scale=1.0 / 16.0, roi_size=7, sampling_ratio
@@ -1981,6 +2122,7 @@ class _fasterRCNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ouyanghuiyu_Thundernet_Pytorch(_paritybench_base):

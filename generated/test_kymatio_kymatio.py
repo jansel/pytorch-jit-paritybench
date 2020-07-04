@@ -69,10 +69,13 @@ test_tensorflow_scattering3d = _module
 test_torch_scattering3d = _module
 test_utils_scattering3d = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -113,6 +116,12 @@ import torch.nn.functional as F
 
 
 import torch.optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from numpy.random import RandomState
@@ -430,6 +439,7 @@ class ScatteringTorch(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kymatio_kymatio(_paritybench_base):
@@ -447,6 +457,10 @@ class Test_kymatio_kymatio(_paritybench_base):
     def test_003(self):
         self._check(Scattering2dCNN(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
+        self._check(Scattering2dResNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 8, 8])], {})
+
+    def test_005(self):
         self._check(View(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

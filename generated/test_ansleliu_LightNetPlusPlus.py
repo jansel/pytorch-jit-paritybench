@@ -51,10 +51,13 @@ metrics = _module
 parallel = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -62,6 +65,9 @@ _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torchvision.transforms as transforms
 
 
 import torch.backends.cudnn as cudnn
@@ -2433,6 +2439,7 @@ class DataParallelCriterion(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_ansleliu_LightNetPlusPlus(_paritybench_base):
@@ -2458,58 +2465,74 @@ class Test_ansleliu_LightNetPlusPlus(_paritybench_base):
 
     @_fails_compile()
     def test_006(self):
-        self._check(DropBlock2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelCriterion(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_007(self):
-        self._check(GPConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 
+    @_fails_compile()
     def test_008(self):
-        self._check(GaussianBlur(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DiceLoss2D(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_009(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DropBlock2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_010(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(GPConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_011(self):
+        self._check(GaussianBlur(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_012(self):
+        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_013(self):
+        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_014(self):
         self._check(LightHeadBlock(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_012(self):
+    def test_015(self):
         self._check(MBConvBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'expand_ratio': 4, 'kernel_size': 3, 'stride': 1, 'dilate': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_016(self):
         self._check(MDConv(*[], **{'in_planes': 4, 'kernel_sizes': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_014(self):
+    def test_017(self):
         self._check(ModifiedSCSEBlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_015(self):
+    def test_018(self):
         self._check(PABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 64, 64])], {})
 
-    def test_016(self):
+    def test_019(self):
         self._check(PBCSABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_017(self):
+    def test_020(self):
         self._check(SCSABlock(*[], **{'in_chns': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_018(self):
+    def test_021(self):
         self._check(SCSEBlock(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
 
-    def test_019(self):
+    def test_022(self):
         self._check(SEBlock(*[], **{'in_planes': 4, 'reduced_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_020(self):
+    @_fails_compile()
+    def test_023(self):
+        self._check(SoftJaccardLoss2D(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+
+    def test_024(self):
         self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_021(self):
+    def test_025(self):
         self._check(UnsharpMask(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_022(self):
+    def test_026(self):
         self._check(UnsharpMaskV2(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
 

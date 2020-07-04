@@ -155,10 +155,13 @@ learning_rate = _module
 model_saver = _module
 optimizer_scheduler = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -638,6 +641,124 @@ def bn(*args, **kwargs):
         return nn.BatchNorm2d(*args, **kwargs)
 
 
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dcn=None):
+        super(BasicBlock, self).__init__()
+        self.with_dcn = dcn is not None
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = bn(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.with_modulated_dcn = False
+        if self.with_dcn:
+            fallback_on_stride = dcn.get('fallback_on_stride', False)
+            self.with_modulated_dcn = dcn.get('modulated', False)
+        if not self.with_dcn or fallback_on_stride:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1,
+                bias=False)
+        else:
+            deformable_groups = dcn.get('deformable_groups', 1)
+            if not self.with_modulated_dcn:
+                conv_op = DeformConv
+                offset_channels = 18
+            else:
+                conv_op = ModulatedDeformConv
+                offset_channels = 27
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
+                offset_channels, kernel_size=3, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1,
+                deformable_groups=deformable_groups, bias=False)
+        self.bn2 = bn(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        if not self.with_dcn:
+            out = self.conv2(out)
+        elif self.with_modulated_dcn:
+            offset_mask = self.conv2_offset(out)
+            offset = offset_mask[:, :18, :, :]
+            mask = offset_mask[:, -9:, :, :].sigmoid()
+            out = self.conv2(out, offset, mask)
+        else:
+            offset = self.conv2_offset(out)
+            out = self.conv2(out, offset)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dcn=None):
+        super(Bottleneck, self).__init__()
+        self.with_dcn = dcn is not None
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = bn(planes)
+        fallback_on_stride = False
+        self.with_modulated_dcn = False
+        if self.with_dcn:
+            fallback_on_stride = dcn.get('fallback_on_stride', False)
+            self.with_modulated_dcn = dcn.get('modulated', False)
+        if not self.with_dcn or fallback_on_stride:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
+                stride, padding=1, bias=False)
+        else:
+            deformable_groups = dcn.get('deformable_groups', 1)
+            if not self.with_modulated_dcn:
+                conv_op = DeformConv
+                offset_channels = 18
+            else:
+                conv_op = ModulatedDeformConv
+                offset_channels = 27
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
+                offset_channels, kernel_size=3, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1,
+                stride=stride, deformable_groups=deformable_groups, bias=False)
+        self.bn2 = bn(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = bn(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.dcn = dcn
+        self.with_dcn = dcn is not None
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        if not self.with_dcn:
+            out = self.conv2(out)
+        elif self.with_modulated_dcn:
+            offset_mask = self.conv2_offset(out)
+            offset = offset_mask[:, :18, :, :]
+            mask = offset_mask[:, -9:, :, :].sigmoid()
+            out = self.conv2(out, offset, mask)
+        else:
+            offset = self.conv2_offset(out)
+            out = self.conv2(out, offset)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
 def constant_init(module, constant, bias=0):
     nn.init.constant_(module.weight, constant)
     if hasattr(module, 'bias'):
@@ -713,6 +834,62 @@ class ResNet(nn.Module):
         x4 = self.layer3(x3)
         x5 = self.layer4(x4)
         return x2, x3, x4, x5
+
+
+class ResnetDilated(nn.Module):
+
+    def __init__(self, orig_resnet, dilate_scale=8):
+        super(ResnetDilated, self).__init__()
+        from functools import partial
+        if dilate_scale == 8:
+            orig_resnet.layer3.apply(partial(self._nostride_dilate, dilate=2))
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=4))
+        elif dilate_scale == 16:
+            orig_resnet.layer4.apply(partial(self._nostride_dilate, dilate=2))
+        self.conv1 = orig_resnet.conv1
+        self.bn1 = orig_resnet.bn1
+        self.relu1 = orig_resnet.relu1
+        self.conv2 = orig_resnet.conv2
+        self.bn2 = orig_resnet.bn2
+        self.relu2 = orig_resnet.relu2
+        self.conv3 = orig_resnet.conv3
+        self.bn3 = orig_resnet.bn3
+        self.relu3 = orig_resnet.relu3
+        self.maxpool = orig_resnet.maxpool
+        self.layer1 = orig_resnet.layer1
+        self.layer2 = orig_resnet.layer2
+        self.layer3 = orig_resnet.layer3
+        self.layer4 = orig_resnet.layer4
+
+    def _nostride_dilate(self, m, dilate):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            if m.stride == (2, 2):
+                m.stride = 1, 1
+                if m.kernel_size == (3, 3):
+                    m.dilation = dilate // 2, dilate // 2
+                    m.padding = dilate // 2, dilate // 2
+            elif m.kernel_size == (3, 3):
+                m.dilation = dilate, dilate
+                m.padding = dilate, dilate
+
+    def forward(self, x, return_feature_maps=True):
+        conv_out = []
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        conv_out.append(x)
+        x = self.layer2(x)
+        conv_out.append(x)
+        x = self.layer3(x)
+        conv_out.append(x)
+        x = self.layer4(x)
+        conv_out.append(x)
+        if return_feature_maps:
+            return conv_out
+        return x
 
 
 class State:
@@ -814,6 +991,71 @@ class Configurable(metaclass=StateMeta):
             return {key: self.dump_obj(value) for key, value in obj.items()}
         else:
             return str(obj)
+
+
+class Charset(Configurable):
+    corups = State(default=string.hexdigits)
+    blank = State(default=0)
+    unknown = State(default=1)
+    blank_char = State('\t')
+    unknown_char = State('\n')
+    case_sensitive = State(default=False)
+
+    def __init__(self, corups=None, cmd={}, **kwargs):
+        self.load_all(**kwargs)
+        self._corpus = SortedSet(self._filter_corpus(corups))
+        if self.blank_char in self._corpus:
+            self._corpus.remove(self.blank_char)
+        if self.unknown_char in self._corpus:
+            self._corpus.remove(self.unknown_char)
+        self._charset = list(self._corpus)
+        self._charset.insert(self.blank, self.blank_char)
+        self._charset.insert(self.unknown, self.unknown_char)
+        self._charset_lut = {char: index for index, char in enumerate(self.
+            _charset)}
+
+    def _filter_corpus(self, corups):
+        return corups
+
+    def __getitem__(self, index):
+        return self._charset[index]
+
+    def index(self, x):
+        target = x
+        if not self.case_sensitive:
+            target = target.upper()
+        return self._charset_lut.get(target, self.unknown)
+
+    def is_empty(self, index):
+        return index == self.blank or index == self.unknown
+
+    def is_empty_char(self, x):
+        return x == self.blank_char or x == self.unknown_char
+
+    def __len__(self):
+        return len(self._charset)
+
+    def string_to_label(self, string_input, max_size=32):
+        length = max(max_size, len(string_input))
+        target = np.zeros((length,), dtype=np.int32)
+        for index, c in enumerate(string_input):
+            value = self.index(c)
+            target[index] = value
+        return target
+
+    def label_to_string(self, label):
+        ingnore = [self.unknown, self.blank]
+        return ''.join([self._charset[i] for i in label if i not in ingnore])
+
+
+class EnglishCharset(Charset):
+
+    def __init__(self, cmd={}, **kwargs):
+        corups = string.digits + string.ascii_uppercase
+        super().__init__(corups, cmd, **kwargs)
+
+
+DefaultCharset = EnglishCharset
 
 
 class Attn(nn.Module):
@@ -1617,6 +1859,189 @@ class SegDetector(nn.Module):
         return torch.reciprocal(1 + torch.exp(-self.k * (x - y)))
 
 
+class DiceLoss(nn.Module):
+    """
+    DiceLoss on binary.
+    For SegDetector without adaptive module.
+    """
+
+    def __init__(self, eps=1e-06):
+        super(DiceLoss, self).__init__()
+        self.loss = Loss(eps)
+
+    def forward(self, pred, batch):
+        loss = self.loss(pred['binary'], batch['gt'], batch['mask'])
+        return loss, dict(dice_loss=loss)
+
+
+class AdaptiveDiceLoss(nn.Module):
+    """
+    Integration of DiceLoss on both binary
+        prediction and thresh prediction.
+    """
+
+    def __init__(self, eps=1e-06):
+        super(AdaptiveDiceLoss, self).__init__()
+        self.main_loss = DiceLoss(eps)
+        self.thresh_loss = DiceLoss(eps)
+
+    def forward(self, pred, batch):
+        assert isinstance(pred, dict)
+        assert 'binary' in pred
+        assert 'thresh_binary' in pred
+        binary = pred['binary']
+        thresh_binary = pred['thresh_binary']
+        gt = batch['gt']
+        mask = batch['mask']
+        main_loss = self.main_loss(binary, gt, mask)
+        thresh_loss = self.thresh_loss(thresh_binary, gt, mask)
+        loss = main_loss + thresh_loss
+        return loss, dict(main_loss=main_loss, thresh_loss=thresh_loss)
+
+
+class AdaptiveInstanceDiceLoss(nn.Module):
+    """
+    InstanceDiceLoss on both binary and thresh_bianry.
+    """
+
+    def __init__(self, iou_thresh=0.2, thresh=0.3):
+        super(AdaptiveInstanceDiceLoss, self).__init__()
+        self.main_loss = DiceLoss()
+        self.main_instance_loss = InstanceDiceLoss()
+        self.thresh_loss = DiceLoss()
+        self.thresh_instance_loss = InstanceDiceLoss()
+        self.weights = nn.ParameterDict(dict(main=nn.Parameter(torch.ones(1
+            )), thresh=nn.Parameter(torch.ones(1)), main_instance=nn.
+            Parameter(torch.ones(1)), thresh_instance=nn.Parameter(torch.
+            ones(1))))
+
+    def partial_loss(self, weight, loss):
+        return loss / weight + torch.log(torch.sqrt(weight))
+
+    def forward(self, pred, batch):
+        main_loss = self.main_loss(pred['binary'], batch['gt'], batch['mask'])
+        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'],
+            batch['mask'])
+        main_instance_loss = self.main_instance_loss(pred['binary'], batch[
+            'gt'], batch['mask'])
+        thresh_instance_loss = self.thresh_instance_loss(pred[
+            'thresh_binary'], batch['gt'], batch['mask'])
+        loss = self.partial_loss(self.weights['main'], main_loss
+            ) + self.partial_loss(self.weights['thresh'], thresh_loss
+            ) + self.partial_loss(self.weights['main_instance'],
+            main_instance_loss) + self.partial_loss(self.weights[
+            'thresh_instance'], thresh_instance_loss)
+        metrics = dict(main_loss=main_loss, thresh_loss=thresh_loss,
+            main_instance_loss=main_instance_loss, thresh_instance_loss=
+            thresh_instance_loss)
+        metrics.update(self.weights)
+        return loss, metrics
+
+
+class L1DiceLoss(nn.Module):
+    """
+    L1Loss on thresh, DiceLoss on thresh_binary and binary.
+    """
+
+    def __init__(self, eps=1e-06, l1_scale=10):
+        super(L1DiceLoss, self).__init__()
+        self.dice_loss = AdaptiveDiceLoss(eps=eps)
+        self.l1_loss = MaskL1Loss()
+        self.l1_scale = l1_scale
+
+    def forward(self, pred, batch):
+        dice_loss, metrics = self.dice_loss(pred, batch)
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
+            'thresh_map'], batch['thresh_mask'])
+        loss = dice_loss + self.l1_scale * l1_loss
+        metrics.update(**l1_metric)
+        return loss, metrics
+
+
+class L1BalanceCELoss(nn.Module):
+    """
+    Balanced CrossEntropy Loss on `binary`,
+    MaskL1Loss on `thresh`,
+    DiceLoss on `thresh_binary`.
+    Note: The meaning of inputs can be figured out in `SegDetectorLossBuilder`.
+    """
+
+    def __init__(self, eps=1e-06, l1_scale=10, bce_scale=5):
+        super(L1BalanceCELoss, self).__init__()
+        self.dice_loss = DiceLoss(eps=eps)
+        self.l1_loss = MaskL1Loss()
+        self.bce_loss = BalanceCrossEntropyLoss()
+        self.l1_scale = l1_scale
+        self.bce_scale = bce_scale
+
+    def forward(self, pred, batch):
+        bce_loss = self.bce_loss(pred['binary'], batch['gt'], batch['mask'])
+        metrics = dict(bce_loss=bce_loss)
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
+            'thresh_map'], batch['thresh_mask'])
+        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'],
+            batch['mask'])
+        metrics['thresh_loss'] = dice_loss
+        loss = dice_loss + self.l1_scale * l1_loss + bce_loss * self.bce_scale
+        metrics.update(**l1_metric)
+        return loss, metrics
+
+
+class L1BCEMiningLoss(nn.Module):
+    """
+    Basicly the same with L1BalanceCELoss, where the bce loss map is used as
+        attention weigts for DiceLoss
+    """
+
+    def __init__(self, eps=1e-06, l1_scale=10, bce_scale=5):
+        super(L1BCEMiningLoss, self).__init__()
+        self.dice_loss = DiceLoss(eps=eps)
+        self.l1_loss = MaskL1Loss()
+        self.bce_loss = BalanceCrossEntropyLoss()
+        self.l1_scale = l1_scale
+        self.bce_scale = bce_scale
+
+    def forward(self, pred, batch):
+        bce_loss, bce_map = self.bce_loss(pred['binary'], batch['gt'],
+            batch['mask'], return_origin=True)
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
+            'thresh_map'], batch['thresh_mask'])
+        bce_map = (bce_map - bce_map.min()) / (bce_map.max() - bce_map.min())
+        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'],
+            batch['mask'], weights=bce_map + 1)
+        metrics = dict(bce_loss=bce_loss)
+        metrics['thresh_loss'] = dice_loss
+        loss = dice_loss + self.l1_scale * l1_loss + bce_loss * self.bce_scale
+        metrics.update(**l1_metric)
+        return loss, metrics
+
+
+class L1LeakyDiceLoss(nn.Module):
+    """
+    LeakyDiceLoss on binary,
+    MaskL1Loss on thresh,
+    DiceLoss on thresh_binary.
+    """
+
+    def __init__(self, eps=1e-06, coverage_scale=5, l1_scale=10):
+        super(L1LeakyDiceLoss, self).__init__()
+        self.main_loss = LeakyDiceLoss(coverage_scale=coverage_scale)
+        self.l1_loss = MaskL1Loss()
+        self.thresh_loss = DiceLoss(eps=eps)
+        self.l1_scale = l1_scale
+
+    def forward(self, pred, batch):
+        main_loss, metrics = self.main_loss(pred['binary'], batch['gt'],
+            batch['mask'])
+        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'],
+            batch['mask'])
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
+            'thresh_map'], batch['thresh_mask'])
+        metrics.update(**l1_metric, thresh_loss=thresh_loss)
+        loss = main_loss + thresh_loss + l1_loss * self.l1_scale
+        return loss, metrics
+
+
 def SimpleUpsampleHead(feature_channel, layer_channels):
     modules = []
     modules.append(nn.Conv2d(feature_channel, layer_channels[0],
@@ -1874,6 +2299,39 @@ class DetectionEnsembleModel(nn.Module):
         return {'heatmap': heatmap}
 
 
+class SegDetectorModel(nn.Module):
+
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
+        ):
+        super(SegDetectorModel, self).__init__()
+        self.model = BasicModel(args)
+        self.model = parallelize(self.model, distributed, local_rank)
+        self.criterion = SegDetectorLossBuilder(args['loss_class'], *args.
+            get('loss_args', []), **args.get('loss_kwargs', {})).build()
+        self.criterion = parallelize(self.criterion, distributed, local_rank)
+        self.device = device
+        self
+
+    @staticmethod
+    def model_name(args):
+        return os.path.join('seg_detector', args['backbone'], args[
+            'loss_class'])
+
+    def forward(self, batch, training=True):
+        data = batch['image']
+        for key, value in batch.items():
+            if value is not None:
+                if hasattr(value, 'to'):
+                    batch[key] = value
+        data = data.float()
+        pred = self.model(data, training=training)
+        if self.training:
+            loss_with_metrics = self.criterion(pred, batch)
+            loss, metrics = loss_with_metrics
+            return loss, pred, metrics
+        return pred
+
+
 class SequenceRecognitionModel(nn.Module):
 
     def __init__(self, args, device, distributed: bool=False, local_rank: int=0
@@ -1965,6 +2423,7 @@ class GridSamplingModel(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_Megvii_CSG_MegReader(_paritybench_base):
@@ -1985,13 +2444,21 @@ class Test_Megvii_CSG_MegReader(_paritybench_base):
 
     @_fails_compile()
     def test_004(self):
-        self._check(FPNTopDown(*[], **{'pyramid_channels': [4, 4], 'feature_channel': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(ClassificationDecoder(*[], **{}), [torch.rand([4, 256, 4, 256])], {})
 
     @_fails_compile()
     def test_005(self):
-        self._check(LeakyDiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(FPNTopDown(*[], **{'pyramid_channels': [4, 4], 'feature_channel': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_006(self):
+        self._check(LeakyDiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
         self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(PPMDeepsup(*[], **{}), [torch.rand([4, 4, 2048, 64, 64])], {})
 

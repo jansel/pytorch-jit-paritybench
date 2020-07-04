@@ -131,10 +131,13 @@ score = _module
 download_public_datasets = _module
 run_local_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -156,13 +159,22 @@ import copy
 import torch
 
 
+import torchvision.models as models
+
+
 from torch.utils import model_zoo
+
+
+from torchvision.models.resnet import model_urls
 
 
 import torch.nn as nn
 
 
 import random
+
+
+import torchvision as tv
 
 
 import numpy as np
@@ -181,6 +193,12 @@ from torch.utils.data import DataLoader
 
 
 import torch.optim as optim
+
+
+import torchvision.models.video.resnet as models
+
+
+from torchvision.models.video.resnet import model_urls
 
 
 from itertools import chain
@@ -648,7 +666,7 @@ class DropPath(torch.nn.Module):
         if self.training and self.drop_prob > 0.0:
             shape = list(x.shape[:1]) + [(1) for _ in x.shape[1:]]
             keep_prob = 1.0 - self.drop_prob
-            mask = torch.cuda.FloatTensor(*shape).bernoulli_(keep_prob)
+            mask = torch.FloatTensor(*shape).bernoulli_(keep_prob)
             if self._half:
                 mask = mask.half()
             x.div_(keep_prob)
@@ -1214,7 +1232,7 @@ class DropPath(torch.nn.Module):
         if self.training and self.drop_prob > 0.0:
             shape = list(x.shape[:1]) + [(1) for _ in x.shape[1:]]
             keep_prob = 1.0 - self.drop_prob
-            mask = torch.cuda.FloatTensor(*shape).bernoulli_(keep_prob)
+            mask = torch.FloatTensor(*shape).bernoulli_(keep_prob)
             if self._half:
                 mask = mask.half()
             x.div_(keep_prob)
@@ -1270,6 +1288,7 @@ class KeepByPass(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_DeepWisdom_AutoDL(_paritybench_base):
@@ -1337,5 +1356,5 @@ class Test_DeepWisdom_AutoDL(_paritybench_base):
         self._check(ToDevice(*[], **{}), [], {})
 
     def test_019(self):
-        self._check(Toggle(*[], **{'module': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Toggle(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

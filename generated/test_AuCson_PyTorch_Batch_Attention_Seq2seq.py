@@ -3,10 +3,13 @@ _module = sys.modules[__name__]
 del sys
 attentionRNN = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,9 +94,9 @@ class DynamicEncoder(nn.Module):
         embedded = self.embedding(input_seqs)
         embedded = embedded.transpose(0, 1)
         sort_idx = np.argsort(-input_lens)
-        unsort_idx = cuda_(torch.LongTensor(np.argsort(sort_idx)))
+        unsort_idx = torch.LongTensor(np.argsort(sort_idx))
         input_lens = input_lens[sort_idx]
-        sort_idx = cuda_(torch.LongTensor(sort_idx))
+        sort_idx = torch.LongTensor(sort_idx)
         embedded = embedded[sort_idx].transpose(0, 1)
         packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lens)
         outputs, hidden = self.gru(packed, hidden)
@@ -139,7 +142,7 @@ class Attn(nn.Module):
             for b in range(src_len.size(0)):
                 mask.append([0] * src_len[b].item() + [1] * (
                     encoder_outputs.size(1) - src_len[b].item()))
-            mask = cuda_(torch.ByteTensor(mask).unsqueeze(1))
+            mask = torch.ByteTensor(mask).unsqueeze(1)
             attn_energies = attn_energies.masked_fill(mask, -1e+18)
         return F.softmax(attn_energies).unsqueeze(1)
 
@@ -200,7 +203,24 @@ class BahdanauAttnDecoderRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_AuCson_PyTorch_Batch_Attention_Seq2seq(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(Attn(*[], **{'method': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(BahdanauAttnDecoderRNN(*[], **{'hidden_size': 4, 'embed_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(DynamicEncoder(*[], **{'input_size': 4, 'embed_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(EncoderRNN(*[], **{'input_size': 4, 'embed_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+

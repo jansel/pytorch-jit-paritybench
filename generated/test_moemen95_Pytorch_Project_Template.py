@@ -47,10 +47,13 @@ replay_memory = _module
 train_utils = _module
 voc_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -91,6 +94,12 @@ import torch.nn as nn
 
 
 import torch.nn.init as init
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 class BinaryCrossEntropy(nn.Module):
@@ -758,6 +767,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
@@ -765,30 +775,43 @@ class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
     def test_000(self):
         self._check(BinaryCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([4, 128])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_003(self):
+        self._check(DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_004(self):
         self._check(Discriminator(*[], **{'config': _mock_config(relu_slope=4, input_channels=4, num_filt_d=4)}), [torch.rand([4, 4, 64, 64])], {})
 
-    def test_004(self):
-        self._check(Example(*[], **{'config': _mock_config(input_channels=4, num_filters=4)}), [torch.rand([4, 4, 4, 4])], {})
-
+    @_fails_compile()
     def test_005(self):
-        self._check(Generator(*[], **{'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(ERF(*[], **{'config': _mock_config(num_classes=4, input_channels=4)}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_006(self):
-        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_007(self):
-        self._check(UpsamplerBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Example(*[], **{'config': _mock_config(input_channels=4, num_filters=4)}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_008(self):
+        self._check(Features(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+
+    def test_009(self):
+        self._check(Generator(*[], **{'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
+        self._check(UpsamplerBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_012(self):
         self._check(non_bottleneck_1d(*[], **{'n_channel': 4, 'drop_rate': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
 

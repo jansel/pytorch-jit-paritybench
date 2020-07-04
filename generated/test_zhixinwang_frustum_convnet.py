@@ -36,10 +36,13 @@ box_util = _module
 logger = _module
 training_states = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -83,6 +86,9 @@ import torch.optim as optim
 
 
 import torch.backends.cudnn as cudnn
+
+
+import torchvision
 
 
 def separable_conv2d(in_channels, out_channels, k, s=(1, 1), depth_multiplier=1
@@ -503,10 +509,10 @@ def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1
     return loss
 
 
-_global_config['LOSS'] = 4
-
-
 _global_config['IOU_THRESH'] = 4
+
+
+_global_config['LOSS'] = 4
 
 
 class PointNetDet(nn.Module):
@@ -764,6 +770,7 @@ class QueryDepthPoint(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zhixinwang_frustum_convnet(_paritybench_base):

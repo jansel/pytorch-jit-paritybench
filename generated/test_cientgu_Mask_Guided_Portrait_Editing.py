@@ -27,10 +27,13 @@ image_pool = _module
 util = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -58,7 +61,101 @@ from torch.autograd import Variable
 import numpy as np
 
 
+from torchvision import models
+
+
 import random
+
+
+import torchvision.transforms as transforms
+
+
+class BaseModel(torch.nn.Module):
+
+    def name(self):
+        return 'BaseModel'
+
+    def initialize(self, opt):
+        self.opt = opt
+        self.gpu_ids = opt.gpu_ids
+        self.isTrain = opt.isTrain
+        self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])
+            ) if self.gpu_ids else torch.device('cpu')
+        self.Tensor = torch.FloatTensor if self.gpu_ids else torch.Tensor
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+
+    def set_input(self, input):
+        self.input = input
+
+    def forward(self):
+        pass
+
+    def test(self):
+        pass
+
+    def get_image_paths(self):
+        pass
+
+    def optimize_parameters(self):
+        pass
+
+    def get_current_visuals(self):
+        return self.input
+
+    def get_current_errors(self):
+        return {}
+
+    def save(self, label):
+        pass
+
+    def save_network(self, network, network_label, epoch_label, gpu_ids):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(network.cpu().state_dict(), save_path)
+        if len(gpu_ids) and torch.is_available():
+            network
+
+    def load_network(self, network, network_label, epoch_label, save_dir=''):
+        save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
+        if not save_dir:
+            save_dir = self.save_dir
+        save_path = os.path.join(save_dir, save_filename)
+        if not os.path.isfile(save_path):
+            None
+        else:
+            try:
+                network.load_state_dict(torch.load(save_path))
+            except:
+                pretrained_dict = torch.load(save_path)
+                model_dict = network.state_dict()
+                try:
+                    pretrained_dict = {k: v for k, v in pretrained_dict.
+                        items() if k in model_dict}
+                    network.load_state_dict(pretrained_dict)
+                    if self.opt.verbose:
+                        None
+                except:
+                    None
+                    for k, v in pretrained_dict.items():
+                        None
+                        if v.size() == model_dict[k].size():
+                            None
+                            model_dict[k] = v
+                        else:
+                            None
+                    if sys.version_info >= (3, 0):
+                        not_initialized = set()
+                    else:
+                        not_initialized = Set()
+                    for k, v in model_dict.items():
+                        if k not in pretrained_dict or v.size(
+                            ) != pretrained_dict[k].size():
+                            not_initialized.add(k.split('.')[0])
+                    None
+                    network.load_state_dict(model_dict)
+
+    def update_learning_rate():
+        pass
 
 
 class BNInception(nn.Module):
@@ -1819,7 +1916,7 @@ class GramMatrixLoss(nn.Module):
         self.criterion = nn.MSELoss()
 
     def forward(self, x, y, label):
-        face_mask = (label == 1).type(torch.cuda.FloatTensor)
+        face_mask = (label == 1).type(torch.FloatTensor)
         mask = []
         mask.append(face_mask)
         x_vgg, y_vgg = self.vgg(x, layers_num=len(self.weights)), self.vgg(y,
@@ -2219,51 +2316,78 @@ class UnetSkipConnectionBlock(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_cientgu_Mask_Guided_Portrait_Editing(_paritybench_base):
     pass
     def test_000(self):
-        self._check(DecoderBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(BaseModel(*[], **{}), [], {})
 
     def test_001(self):
-        self._check(DecoderGenerator_512_64(*[], **{'norm_layer': 1}), [torch.rand([4, 512, 4, 4])], {})
+        self._check(DecoderBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
+        self._check(DecoderGenerator_512_64(*[], **{'norm_layer': 1}), [torch.rand([4, 512, 4, 4])], {})
+
+    def test_003(self):
+        self._check(DecoderGenerator_mask_eye(*[], **{'norm_layer': 1}), [torch.rand([512, 512])], {})
+
+    def test_004(self):
+        self._check(DecoderGenerator_mask_eye_image(*[], **{'norm_layer': 1}), [torch.rand([512, 512])], {})
+
+    def test_005(self):
+        self._check(DecoderGenerator_mask_mouth(*[], **{'norm_layer': 1}), [torch.rand([512, 512])], {})
+
+    def test_006(self):
+        self._check(DecoderGenerator_mask_skin(*[], **{'norm_layer': 1}), [torch.rand([512, 512])], {})
+
+    def test_007(self):
         self._check(DecoderResBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_008(self):
         self._check(EmbedGlobalBGGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_009(self):
         self._check(EmbedGlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_010(self):
         self._check(Encoder(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_011(self):
         self._check(EncoderBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_007(self):
+    def test_012(self):
         self._check(EncoderGenerator_256_512(*[], **{'norm_layer': 1}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_008(self):
+    def test_013(self):
         self._check(EncoderResBlock(*[], **{'channel_in': 4, 'channel_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_014(self):
+        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
     @_fails_compile()
-    def test_009(self):
+    def test_015(self):
+        self._check(LocalEnhancer(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_016(self):
         self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_010(self):
+    def test_017(self):
         self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_018(self):
         self._check(UnetGenerator(*[], **{'segment_classes': 4, 'input_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    @_fails_compile()
+    def test_019(self):
+        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

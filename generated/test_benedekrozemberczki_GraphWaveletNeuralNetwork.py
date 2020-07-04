@@ -7,10 +7,13 @@ main = _module
 param_parser = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -24,6 +27,57 @@ import time
 
 
 import torch
+
+
+class GraphWaveletNeuralNetwork(torch.nn.Module):
+    """
+    Graph Wavelet Neural Network class.
+    For details see: Graph Wavelet Neural Network.
+    Bingbing Xu, Huawei Shen, Qi Cao, Yunqi Qiu, Xueqi Cheng. ICLR, 2019
+    :param args: Arguments object.
+    :param ncount: Number of nodes.
+    :param feature_number: Number of features.
+    :param class_number: Number of classes.
+    :param device: Device used for training.
+    """
+
+    def __init__(self, args, ncount, feature_number, class_number, device):
+        super(GraphWaveletNeuralNetwork, self).__init__()
+        self.args = args
+        self.ncount = ncount
+        self.feature_number = feature_number
+        self.class_number = class_number
+        self.device = device
+        self.setup_layers()
+
+    def setup_layers(self):
+        """
+        Setting up a sparse and a dense layer.
+        """
+        self.convolution_1 = SparseGraphWaveletLayer(self.feature_number,
+            self.args.filters, self.ncount, self.device)
+        self.convolution_2 = DenseGraphWaveletLayer(self.args.filters, self
+            .class_number, self.ncount, self.device)
+
+    def forward(self, phi_indices, phi_values, phi_inverse_indices,
+        phi_inverse_values, feature_indices, feature_values):
+        """
+        Forward propagation pass.
+        :param phi_indices: Sparse wavelet matrix index pairs.
+        :param phi_values: Sparse wavelet matrix values.
+        :param phi_inverse_indices: Inverse wavelet matrix index pairs.
+        :param phi_inverse_values: Inverse wavelet matrix values.
+        :param feature_indices: Feature matrix index pairs.
+        :param feature_values: Feature matrix values.
+        :param predictions: Predicted node label vector.
+        """
+        deep_features_1 = self.convolution_1(phi_indices, phi_values,
+            phi_inverse_indices, phi_inverse_values, feature_indices,
+            feature_values, self.args.dropout)
+        deep_features_2 = self.convolution_2(phi_indices, phi_values,
+            phi_inverse_indices, phi_inverse_values, deep_features_1)
+        predictions = torch.nn.functional.log_softmax(deep_features_2, dim=1)
+        return predictions
 
 
 class GraphWaveletLayer(torch.nn.Module):
@@ -65,6 +119,7 @@ class GraphWaveletLayer(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_benedekrozemberczki_GraphWaveletNeuralNetwork(_paritybench_base):

@@ -21,10 +21,13 @@ joint_transforms = _module
 misc = _module
 transforms = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -38,6 +41,9 @@ import torch
 
 
 from torch import nn
+
+
+from torchvision import models
 
 
 import torch.nn.functional as F
@@ -71,6 +77,45 @@ class _DenseUpsamplingConvModule(nn.Module):
 
 
 root = '/media/b3-542/LIBRARY/Datasets/cityscapes'
+
+
+class ResNetDUC(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True):
+        super(ResNetDUC, self).__init__()
+        resnet = models.resnet152()
+        if pretrained:
+            resnet.load_state_dict(torch.load(res152_path))
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+            resnet.maxpool)
+        self.layer1 = resnet.layer1
+        self.layer2 = resnet.layer2
+        self.layer3 = resnet.layer3
+        self.layer4 = resnet.layer4
+        for n, m in self.layer3.named_modules():
+            if 'conv2' in n:
+                m.dilation = 2, 2
+                m.padding = 2, 2
+                m.stride = 1, 1
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        for n, m in self.layer4.named_modules():
+            if 'conv2' in n:
+                m.dilation = 4, 4
+                m.padding = 4, 4
+                m.stride = 1, 1
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        self.duc = _DenseUpsamplingConvModule(8, 2048, num_classes)
+
+    def forward(self, x):
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.duc(x)
+        return x
 
 
 class ResNetDUCHDC(nn.Module):
@@ -132,6 +177,59 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
     return torch.from_numpy(weight).float()
 
 
+class FCN16VGG(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True):
+        super(FCN16VGG, self).__init__()
+        vgg = models.vgg16()
+        if pretrained:
+            vgg.load_state_dict(torch.load(vgg16_caffe_path))
+        features, classifier = list(vgg.features.children()), list(vgg.
+            classifier.children())
+        features[0].padding = 100, 100
+        for f in features:
+            if 'MaxPool' in f.__class__.__name__:
+                f.ceil_mode = True
+            elif 'ReLU' in f.__class__.__name__:
+                f.inplace = True
+        self.features4 = nn.Sequential(*features[:24])
+        self.features5 = nn.Sequential(*features[24:])
+        self.score_pool4 = nn.Conv2d(512, num_classes, kernel_size=1)
+        self.score_pool4.weight.data.zero_()
+        self.score_pool4.bias.data.zero_()
+        fc6 = nn.Conv2d(512, 4096, kernel_size=7)
+        fc6.weight.data.copy_(classifier[0].weight.data.view(4096, 512, 7, 7))
+        fc6.bias.data.copy_(classifier[0].bias.data)
+        fc7 = nn.Conv2d(4096, 4096, kernel_size=1)
+        fc7.weight.data.copy_(classifier[3].weight.data.view(4096, 4096, 1, 1))
+        fc7.bias.data.copy_(classifier[3].bias.data)
+        score_fr = nn.Conv2d(4096, num_classes, kernel_size=1)
+        score_fr.weight.data.zero_()
+        score_fr.bias.data.zero_()
+        self.score_fr = nn.Sequential(fc6, nn.ReLU(inplace=True), nn.
+            Dropout(), fc7, nn.ReLU(inplace=True), nn.Dropout(), score_fr)
+        self.upscore2 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore16 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=32, stride=16, bias=False)
+        self.upscore2.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 4))
+        self.upscore16.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 32))
+
+    def forward(self, x):
+        x_size = x.size()
+        pool4 = self.features4(x)
+        pool5 = self.features5(pool4)
+        score_fr = self.score_fr(pool5)
+        upscore2 = self.upscore2(score_fr)
+        score_pool4 = self.score_pool4(0.01 * pool4)
+        upscore16 = self.upscore16(score_pool4[:, :, 5:5 + upscore2.size()[
+            2], 5:5 + upscore2.size()[3]] + upscore2)
+        return upscore16[:, :, 27:27 + x_size[2], 27:27 + x_size[3]
+            ].contiguous()
+
+
 class FCN32VGG(nn.Module):
 
     def __init__(self, num_classes, pretrained=True):
@@ -170,6 +268,81 @@ class FCN32VGG(nn.Module):
         score_fr = self.score_fr(pool5)
         upscore = self.upscore(score_fr)
         return upscore[:, :, 19:19 + x_size[2], 19:19 + x_size[3]].contiguous()
+
+
+class FCN8s(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, caffe=False):
+        super(FCN8s, self).__init__()
+        vgg = models.vgg16()
+        if pretrained:
+            if caffe:
+                vgg.load_state_dict(torch.load(vgg16_caffe_path))
+            else:
+                vgg.load_state_dict(torch.load(vgg16_path))
+        features, classifier = list(vgg.features.children()), list(vgg.
+            classifier.children())
+        """
+        100 padding for 2 reasons:
+            1) support very small input size
+            2) allow cropping in order to match size of different layers' feature maps
+        Note that the cropped part corresponds to a part of the 100 padding
+        Spatial information of different layers' feature maps cannot be align exactly because of cropping, which is bad
+        """
+        features[0].padding = 100, 100
+        for f in features:
+            if 'MaxPool' in f.__class__.__name__:
+                f.ceil_mode = True
+            elif 'ReLU' in f.__class__.__name__:
+                f.inplace = True
+        self.features3 = nn.Sequential(*features[:17])
+        self.features4 = nn.Sequential(*features[17:24])
+        self.features5 = nn.Sequential(*features[24:])
+        self.score_pool3 = nn.Conv2d(256, num_classes, kernel_size=1)
+        self.score_pool4 = nn.Conv2d(512, num_classes, kernel_size=1)
+        self.score_pool3.weight.data.zero_()
+        self.score_pool3.bias.data.zero_()
+        self.score_pool4.weight.data.zero_()
+        self.score_pool4.bias.data.zero_()
+        fc6 = nn.Conv2d(512, 4096, kernel_size=7)
+        fc6.weight.data.copy_(classifier[0].weight.data.view(4096, 512, 7, 7))
+        fc6.bias.data.copy_(classifier[0].bias.data)
+        fc7 = nn.Conv2d(4096, 4096, kernel_size=1)
+        fc7.weight.data.copy_(classifier[3].weight.data.view(4096, 4096, 1, 1))
+        fc7.bias.data.copy_(classifier[3].bias.data)
+        score_fr = nn.Conv2d(4096, num_classes, kernel_size=1)
+        score_fr.weight.data.zero_()
+        score_fr.bias.data.zero_()
+        self.score_fr = nn.Sequential(fc6, nn.ReLU(inplace=True), nn.
+            Dropout(), fc7, nn.ReLU(inplace=True), nn.Dropout(), score_fr)
+        self.upscore2 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore_pool4 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=4, stride=2, bias=False)
+        self.upscore8 = nn.ConvTranspose2d(num_classes, num_classes,
+            kernel_size=16, stride=8, bias=False)
+        self.upscore2.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 4))
+        self.upscore_pool4.weight.data.copy_(get_upsampling_weight(
+            num_classes, num_classes, 4))
+        self.upscore8.weight.data.copy_(get_upsampling_weight(num_classes,
+            num_classes, 16))
+
+    def forward(self, x):
+        x_size = x.size()
+        pool3 = self.features3(x)
+        pool4 = self.features4(pool3)
+        pool5 = self.features5(pool4)
+        score_fr = self.score_fr(pool5)
+        upscore2 = self.upscore2(score_fr)
+        score_pool4 = self.score_pool4(0.01 * pool4)
+        upscore_pool4 = self.upscore_pool4(score_pool4[:, :, 5:5 + upscore2
+            .size()[2], 5:5 + upscore2.size()[3]] + upscore2)
+        score_pool3 = self.score_pool3(0.0001 * pool3)
+        upscore8 = self.upscore8(score_pool3[:, :, 9:9 + upscore_pool4.size
+            ()[2], 9:9 + upscore_pool4.size()[3]] + upscore_pool4)
+        return upscore8[:, :, 31:31 + x_size[2], 31:31 + x_size[3]].contiguous(
+            )
 
 
 class _GlobalConvModule(nn.Module):
@@ -294,6 +467,55 @@ class _PyramidPoolingModule(nn.Module):
         return out
 
 
+class PSPNet(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, use_aux=True):
+        super(PSPNet, self).__init__()
+        self.use_aux = use_aux
+        resnet = models.resnet101()
+        if pretrained:
+            resnet.load_state_dict(torch.load(res101_path))
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+            resnet.maxpool)
+        self.layer1, self.layer2, self.layer3, self.layer4 = (resnet.layer1,
+            resnet.layer2, resnet.layer3, resnet.layer4)
+        for n, m in self.layer3.named_modules():
+            if 'conv2' in n:
+                m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        for n, m in self.layer4.named_modules():
+            if 'conv2' in n:
+                m.dilation, m.padding, m.stride = (4, 4), (4, 4), (1, 1)
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        self.ppm = _PyramidPoolingModule(2048, 512, (1, 2, 3, 6))
+        self.final = nn.Sequential(nn.Conv2d(4096, 512, kernel_size=3,
+            padding=1, bias=False), nn.BatchNorm2d(512, momentum=0.95), nn.
+            ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(512, num_classes,
+            kernel_size=1))
+        if use_aux:
+            self.aux_logits = nn.Conv2d(1024, num_classes, kernel_size=1)
+            initialize_weights(self.aux_logits)
+        initialize_weights(self.ppm, self.final)
+
+    def forward(self, x):
+        x_size = x.size()
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        if self.training and self.use_aux:
+            aux = self.aux_logits(x)
+        x = self.layer4(x)
+        x = self.ppm(x)
+        x = self.final(x)
+        if self.training and self.use_aux:
+            return F.upsample(x, x_size[2:], mode='bilinear'), F.upsample(aux,
+                x_size[2:], mode='bilinear')
+        return F.upsample(x, x_size[2:], mode='bilinear')
+
+
 class PSPNetDeform(nn.Module):
 
     def __init__(self, num_classes, input_size, pretrained=True, use_aux=True):
@@ -369,6 +591,43 @@ class _DecoderBlock(nn.Module):
 
     def forward(self, x):
         return self.decode(x)
+
+
+class SegNet(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True):
+        super(SegNet, self).__init__()
+        vgg = models.vgg19_bn()
+        if pretrained:
+            vgg.load_state_dict(torch.load(vgg19_bn_path))
+        features = list(vgg.features.children())
+        self.enc1 = nn.Sequential(*features[0:7])
+        self.enc2 = nn.Sequential(*features[7:14])
+        self.enc3 = nn.Sequential(*features[14:27])
+        self.enc4 = nn.Sequential(*features[27:40])
+        self.enc5 = nn.Sequential(*features[40:])
+        self.dec5 = nn.Sequential(*([nn.ConvTranspose2d(512, 512,
+            kernel_size=2, stride=2)] + [nn.Conv2d(512, 512, kernel_size=3,
+            padding=1), nn.BatchNorm2d(512), nn.ReLU(inplace=True)] * 4))
+        self.dec4 = _DecoderBlock(1024, 256, 4)
+        self.dec3 = _DecoderBlock(512, 128, 4)
+        self.dec2 = _DecoderBlock(256, 64, 2)
+        self.dec1 = _DecoderBlock(128, num_classes, 2)
+        initialize_weights(self.dec5, self.dec4, self.dec3, self.dec2, self
+            .dec1)
+
+    def forward(self, x):
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
+        enc5 = self.enc5(enc4)
+        dec5 = self.dec5(enc5)
+        dec4 = self.dec4(torch.cat([enc4, dec5], 1))
+        dec3 = self.dec3(torch.cat([enc3, dec4], 1))
+        dec2 = self.dec2(torch.cat([enc2, dec3], 1))
+        dec1 = self.dec1(torch.cat([enc1, dec2], 1))
+        return dec1
 
 
 class _EncoderBlock(nn.Module):
@@ -508,22 +767,26 @@ class Conv2dDeformable(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_zijundeng_pytorch_semantic_segmentation(_paritybench_base):
     pass
     def test_000(self):
-        self._check(_BoundaryRefineModule(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 256, 256])], {})
 
     def test_001(self):
-        self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(_BoundaryRefineModule(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_002(self):
-        self._check(_DenseUpsamplingConvModule(*[], **{'down_factor': 4, 'in_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
 
     def test_003(self):
-        self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(_DenseUpsamplingConvModule(*[], **{'down_factor': 4, 'in_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_004(self):
+        self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+
+    def test_005(self):
         self._check(_PyramidPoolingModule(*[], **{'in_dim': 4, 'reduction_dim': 4, 'setting': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 

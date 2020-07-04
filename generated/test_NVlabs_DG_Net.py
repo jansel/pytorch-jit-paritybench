@@ -18,10 +18,13 @@ show_smooth_structure = _module
 show_swap = _module
 test_folder = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -43,6 +46,9 @@ import torch
 import torch.nn.functional as F
 
 
+from torchvision import models
+
+
 import torch.nn as nn
 
 
@@ -56,6 +62,15 @@ from torch.optim import lr_scheduler
 
 
 import numpy as np
+
+
+import torchvision
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import time
@@ -80,6 +95,9 @@ from torch.utils.data import DataLoader
 
 
 import math
+
+
+import torchvision.utils as vutils
 
 
 import torch.nn.init as init
@@ -1919,6 +1937,7 @@ class DGNet_Trainer(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVlabs_DG_Net(_paritybench_base):
@@ -1930,32 +1949,51 @@ class Test_NVlabs_DG_Net(_paritybench_base):
     def test_001(self):
         self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4}), [torch.rand([4, 4])], {})
 
-    @_fails_compile()
     def test_002(self):
+        self._check(ContentEncoder_ImageNet(*[], **{'n_downsample': 4, 'n_res': 4, 'input_dim': 4, 'dim': 4, 'norm': 4, 'activ': 4, 'pad_type': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(Deconv(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4, 'n_blk': 4}), [torch.rand([4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(NonlocalBlock(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
 
     @_fails_compile()
-    def test_008(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 1, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
-
     def test_009(self):
+        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_010(self):
+        self._check(ResBlocks(*[], **{'num_blocks': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_011(self):
         self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_012(self):
+        self._check(ft_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_013(self):
+        self._check(ft_netAB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_014(self):
+        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_015(self):
+        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
 

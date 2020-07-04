@@ -308,10 +308,13 @@ log_utils = _module
 test_hdfsClientUtility = _module
 trial_keeper = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -330,6 +333,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 import math
 
 
@@ -337,6 +346,12 @@ import logging
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.transforms as transforms
 
 
 import torch.optim as optim
@@ -369,6 +384,9 @@ from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
 
 
+import torchvision
+
+
 from torch import nn as nn
 
 
@@ -397,6 +415,21 @@ from torch.autograd import Variable
 
 
 from torch.nn import functional as F
+
+
+from torchvision import models
+
+
+from torchvision.models import resnet34
+
+
+from torchvision.models import resnet101
+
+
+from torchvision.models import resnet50
+
+
+from torchvision.models import resnet152
 
 
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -454,6 +487,12 @@ from torch.nn import functional
 
 
 import uuid
+
+
+from torchvision.models.vgg import vgg16
+
+
+from torchvision.models.resnet import resnet18
 
 
 class VGG_Cifar10(nn.Module):
@@ -1628,6 +1667,51 @@ class FactorizedReduce(nn.Module):
         return out
 
 
+class GeneralNetwork(nn.Module):
+
+    def __init__(self, num_layers=12, out_filters=24, in_channels=3,
+        num_classes=10, dropout_rate=0.0):
+        super().__init__()
+        self.num_layers = num_layers
+        self.num_classes = num_classes
+        self.out_filters = out_filters
+        self.stem = nn.Sequential(nn.Conv2d(in_channels, out_filters, 3, 1,
+            1, bias=False), nn.BatchNorm2d(out_filters))
+        pool_distance = self.num_layers // 3
+        self.pool_layers_idx = [pool_distance - 1, 2 * pool_distance - 1]
+        self.dropout_rate = dropout_rate
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self.layers = nn.ModuleList()
+        self.pool_layers = nn.ModuleList()
+        labels = []
+        for layer_id in range(self.num_layers):
+            labels.append('layer_{}'.format(layer_id))
+            if layer_id in self.pool_layers_idx:
+                self.pool_layers.append(FactorizedReduce(self.out_filters,
+                    self.out_filters))
+            self.layers.append(ENASLayer(labels[-1], labels[:-1], self.
+                out_filters, self.out_filters))
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.dense = nn.Linear(self.out_filters, self.num_classes)
+
+    def forward(self, x):
+        bs = x.size(0)
+        cur = self.stem(x)
+        layers = [cur]
+        for layer_id in range(self.num_layers):
+            cur = self.layers[layer_id](layers)
+            layers.append(cur)
+            if layer_id in self.pool_layers_idx:
+                for i, layer in enumerate(layers):
+                    layers[i] = self.pool_layers[self.pool_layers_idx.index
+                        (layer_id)](layer)
+                cur = layers[-1]
+        cur = self.gap(cur).view(bs, -1)
+        cur = self.dropout(cur)
+        logits = self.dense(cur)
+        return logits
+
+
 class AuxiliaryHead(nn.Module):
 
     def __init__(self, in_channels, num_classes):
@@ -2516,6 +2600,54 @@ class CrossEntropyLabelSmooth(nn.Module):
             ) * targets + self.epsilon / self.num_classes
         loss = (-targets * log_probs).mean(0).sum()
         return loss
+
+
+class Model(nn.Module):
+
+    def __init__(self, embedding, hidden_units=256, num_layers=24,
+        num_classes=5, choose_from_k=5, lstm_keep_prob=0.5, cnn_keep_prob=
+        0.5, att_keep_prob=0.5, att_mask=True, embed_keep_prob=0.5,
+        final_output_keep_prob=1.0, global_pool='avg'):
+        super(Model, self).__init__()
+        self.embedding = nn.Embedding.from_pretrained(embedding, freeze=False)
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.num_classes = num_classes
+        self.init_conv = ConvBN(1, self.embedding.embedding_dim,
+            hidden_units, cnn_keep_prob, False, True)
+        self.layers = nn.ModuleList()
+        candidate_keys_pool = []
+        for layer_id in range(self.num_layers):
+            k = 'layer_{}'.format(layer_id)
+            self.layers.append(Layer(k, candidate_keys_pool, hidden_units,
+                choose_from_k, cnn_keep_prob, lstm_keep_prob, att_keep_prob,
+                att_mask))
+            candidate_keys_pool.append(k)
+        self.linear_combine = LinearCombine(self.num_layers)
+        self.linear_out = nn.Linear(self.hidden_units, self.num_classes)
+        self.embed_dropout = nn.Dropout(p=1 - embed_keep_prob)
+        self.output_dropout = nn.Dropout(p=1 - final_output_keep_prob)
+        assert global_pool in ['max', 'avg']
+        if global_pool == 'max':
+            self.global_pool = GlobalMaxPool()
+        elif global_pool == 'avg':
+            self.global_pool = GlobalAvgPool()
+
+    def forward(self, inputs):
+        sent_ids, mask = inputs
+        seq = self.embedding(sent_ids.long())
+        seq = self.embed_dropout(seq)
+        seq = torch.transpose(seq, 1, 2)
+        x = self.init_conv(seq, mask)
+        prev_layers = []
+        for layer in self.layers:
+            x = layer(x, prev_layers, mask)
+            prev_layers.append(x)
+        x = self.linear_combine(torch.stack(prev_layers))
+        x = self.global_pool(x, mask)
+        x = self.output_dropout(x)
+        x = self.linear_out(x)
+        return x
 
 
 class Mask(nn.Module):
@@ -4413,6 +4545,22 @@ def triudr(X, r):
     return Zr
 
 
+class ChunkDataLoader(DataLoader):
+    """
+    DataLoader class used to more quickly load a batch of indices at once.
+    """
+
+    def __iter__(self):
+        return _ChunkDataLoaderIter(self)
+
+
+def def_train_opt(p):
+    """
+    Return the default optimizer.
+    """
+    return torch.optim.Adam(p, 0.1, amsgrad=False)
+
+
 class MutableScope(Mutable):
     """
     Mutable scope marks a subgraph/submodule to help mutators make better decisions.
@@ -5551,6 +5699,7 @@ class Model(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_microsoft_nni(_paritybench_base):
@@ -5595,7 +5744,7 @@ class Test_microsoft_nni(_paritybench_base):
         self._check(ConvRelu(*[], **{'in_': 4, 'out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_012(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4, 'epsilon': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_013(self):
         self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
@@ -5693,12 +5842,28 @@ class Test_microsoft_nni(_paritybench_base):
     def test_042(self):
         self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_043(self):
+        self._check(UNet7(*[], **{'encoder_depth': 34}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_044(self):
+        self._check(UNet8(*[], **{'encoder_depth': 34}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_045(self):
+        self._check(UNetResNetV4(*[], **{'encoder_depth': 34}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_046(self):
+        self._check(UNetResNetV5(*[], **{'encoder_depth': 34}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_047(self):
         self._check(VGG_Cifar10(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    def test_044(self):
+    def test_048(self):
         self._check(ZeroLayer(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_045(self):
+    def test_049(self):
         self._check(fc1(*[], **{}), [torch.rand([784, 784])], {})
 

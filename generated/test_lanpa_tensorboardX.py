@@ -95,10 +95,13 @@ test_visdom = _module
 test_writer = _module
 tset_multiprocess_write = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -126,6 +129,9 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
 
+import torchvision
+
+
 from torch.autograd import Variable
 
 
@@ -133,6 +139,12 @@ import torch.optim as optim
 
 
 import torch.multiprocessing as mp
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import logging
@@ -356,6 +368,7 @@ class Net(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lanpa_tensorboardX(_paritybench_base):
@@ -367,11 +380,14 @@ class Test_lanpa_tensorboardX(_paritybench_base):
         self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_002(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(MultipleInput(*[], **{}), [torch.rand([3, 3]), torch.rand([3, 3])], {})
 
     def test_003(self):
-        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
 
     def test_004(self):
+        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
+
+    def test_005(self):
         self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

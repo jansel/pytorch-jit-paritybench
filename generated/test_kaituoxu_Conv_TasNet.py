@@ -12,10 +12,13 @@ train = _module
 utils = _module
 learn_conv1d = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -395,6 +398,7 @@ class GlobalLayerNorm(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kaituoxu_Conv_TasNet(_paritybench_base):
@@ -408,16 +412,20 @@ class Test_kaituoxu_Conv_TasNet(_paritybench_base):
 
     @_fails_compile()
     def test_002(self):
+        self._check(Decoder(*[], **{'N': 4, 'L': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(DepthwiseSeparableConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 64])], {})
 
-    def test_003(self):
+    def test_004(self):
         self._check(Encoder(*[], **{'L': 4, 'N': 4}), [torch.rand([4, 4])], {})
 
     @_fails_compile()
-    def test_004(self):
+    def test_005(self):
         self._check(GlobalLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
+    def test_006(self):
         self._check(TemporalConvNet(*[], **{'N': 4, 'B': 4, 'H': 4, 'P': 4, 'X': 4, 'R': 4, 'C': 4}), [torch.rand([4, 4, 2])], {})
 

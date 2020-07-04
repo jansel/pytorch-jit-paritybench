@@ -52,10 +52,13 @@ eval_rels = _module
 train_detector = _module
 train_rels = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -122,6 +125,12 @@ import itertools
 import torch.nn.parallel
 
 
+from torchvision.models.vgg import vgg16
+
+
+from torchvision.models.resnet import resnet101
+
+
 from torch.nn.parallel._functions import Gather
 
 
@@ -132,6 +141,15 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+from torchvision.models.resnet import model_urls
+
+
+from torchvision.models.resnet import conv3x3
+
+
+from torchvision.models.resnet import BasicBlock
 
 
 from torch import optim
@@ -386,6 +404,409 @@ def nms_overlaps(boxes):
     return inters / union
 
 
+URL = {'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
+    'glove.840B': 'http://nlp.stanford.edu/data/glove.840B.300d.zip',
+    'glove.twitter.27B':
+    'http://nlp.stanford.edu/data/glove.twitter.27B.zip', 'glove.6B':
+    'http://nlp.stanford.edu/data/glove.6B.zip'}
+
+
+def reporthook(t):
+    """https://github.com/tqdm/tqdm"""
+    last_b = [0]
+
+    def inner(b=1, bsize=1, tsize=None):
+        """
+        b: int, optionala
+        Number of blocks just transferred [default: 1].
+        bsize: int, optional
+        Size of each block (in tqdm units) [default: 1].
+        tsize: int, optional
+        Total size (in tqdm units). If [default: None] remains unchanged.
+        """
+        if tsize is not None:
+            t.total = tsize
+        t.update((b - last_b[0]) * bsize)
+        last_b[0] = b
+    return inner
+
+
+def load_word_vectors(root, wv_type, dim):
+    """Load word vectors from a path, trying .pt, .txt, and .zip extensions."""
+    if isinstance(dim, int):
+        dim = str(dim) + 'd'
+    fname = os.path.join(root, wv_type + '.' + dim)
+    if os.path.isfile(fname + '.pt'):
+        fname_pt = fname + '.pt'
+        print('loading word vectors from', fname_pt)
+        try:
+            return torch.load(fname_pt)
+        except Exception as e:
+            print(
+                """
+                Error loading the model from {}
+
+                This could be because this code was previously run with one
+                PyTorch version to generate cached data and is now being
+                run with another version.
+                You can try to delete the cached files on disk (this file
+                  and others) and re-running the code
+
+                Error message:
+                ---------
+                {}
+                """
+                .format(fname_pt, str(e)))
+            sys.exit(-1)
+    if os.path.isfile(fname + '.txt'):
+        fname_txt = fname + '.txt'
+        cm = open(fname_txt, 'rb')
+        cm = [line for line in cm]
+    elif os.path.basename(wv_type) in URL:
+        url = URL[wv_type]
+        print('downloading word vectors from {}'.format(url))
+        filename = os.path.basename(fname)
+        if not os.path.exists(root):
+            os.makedirs(root)
+        with tqdm(unit='B', unit_scale=True, miniters=1, desc=filename) as t:
+            fname, _ = urlretrieve(url, fname, reporthook=reporthook(t))
+            with zipfile.ZipFile(fname, 'r') as zf:
+                print('extracting word vectors into {}'.format(root))
+                zf.extractall(root)
+        if not os.path.isfile(fname + '.txt'):
+            raise RuntimeError('no word vectors of requested dimension found')
+        return load_word_vectors(root, wv_type, dim)
+    else:
+        raise RuntimeError('unable to load word vectors')
+    wv_tokens, wv_arr, wv_size = [], array.array('d'), None
+    if cm is not None:
+        for line in tqdm(range(len(cm)), desc=
+            'loading word vectors from {}'.format(fname_txt)):
+            entries = cm[line].strip().split(b' ')
+            word, entries = entries[0], entries[1:]
+            if wv_size is None:
+                wv_size = len(entries)
+            try:
+                if isinstance(word, six.binary_type):
+                    word = word.decode('utf-8')
+            except:
+                print('non-UTF8 token', repr(word), 'ignored')
+                continue
+            wv_arr.extend(float(x) for x in entries)
+            wv_tokens.append(word)
+    wv_dict = {word: i for i, word in enumerate(wv_tokens)}
+    wv_arr = torch.Tensor(wv_arr).view(-1, wv_size)
+    ret = wv_dict, wv_arr, wv_size
+    torch.save(ret, fname + '.pt')
+    return ret
+
+
+class DecoderRNN(torch.nn.Module):
+
+    def __init__(self, classes, embed_dim, inputs_dim, hidden_dim,
+        recurrent_dropout_probability=0.2, use_highway=True,
+        use_input_projection_bias=True):
+        """
+        Initializes the RNN
+        :param embed_dim: Dimension of the embeddings
+        :param encoder_hidden_dim: Hidden dim of the encoder, for attention purposes
+        :param hidden_dim: Hidden dim of the decoder
+        :param vocab_size: Number of words in the vocab
+        :param bos_token: To use during decoding (non teacher forcing mode))
+        :param bos: beginning of sentence token
+        :param unk: unknown token (not used)
+        """
+        super(DecoderRNN, self).__init__()
+        self.classes = classes
+        embed_vecs = obj_edge_vectors(['start'] + self.classes, wv_dim=100)
+        self.obj_embed = nn.Embedding(len(self.classes), embed_dim)
+        self.obj_embed.weight.data = embed_vecs
+        self.hidden_size = hidden_dim
+        self.inputs_dim = inputs_dim
+        self.nms_thresh = 0.3
+        self.recurrent_dropout_probability = recurrent_dropout_probability
+        self.use_highway = use_highway
+        if use_highway:
+            self.input_linearity = torch.nn.Linear(self.input_size, 6 *
+                self.hidden_size, bias=use_input_projection_bias)
+            self.state_linearity = torch.nn.Linear(self.hidden_size, 5 *
+                self.hidden_size, bias=True)
+        else:
+            self.input_linearity = torch.nn.Linear(self.input_size, 4 *
+                self.hidden_size, bias=use_input_projection_bias)
+            self.state_linearity = torch.nn.Linear(self.hidden_size, 4 *
+                self.hidden_size, bias=True)
+        self.out = nn.Linear(self.hidden_size, len(self.classes))
+        self.reset_parameters()
+
+    @property
+    def input_size(self):
+        return self.inputs_dim + self.obj_embed.weight.size(1)
+
+    def reset_parameters(self):
+        block_orthogonal(self.input_linearity.weight.data, [self.
+            hidden_size, self.input_size])
+        block_orthogonal(self.state_linearity.weight.data, [self.
+            hidden_size, self.hidden_size])
+        self.state_linearity.bias.data.fill_(0.0)
+        self.state_linearity.bias.data[self.hidden_size:2 * self.hidden_size
+            ].fill_(1.0)
+
+    def lstm_equations(self, timestep_input, previous_state,
+        previous_memory, dropout_mask=None):
+        """
+        Does the hairy LSTM math
+        :param timestep_input:
+        :param previous_state:
+        :param previous_memory:
+        :param dropout_mask:
+        :return:
+        """
+        projected_input = self.input_linearity(timestep_input)
+        projected_state = self.state_linearity(previous_state)
+        input_gate = torch.sigmoid(projected_input[:, 0 * self.hidden_size:
+            1 * self.hidden_size] + projected_state[:, 0 * self.hidden_size
+            :1 * self.hidden_size])
+        forget_gate = torch.sigmoid(projected_input[:, 1 * self.hidden_size
+            :2 * self.hidden_size] + projected_state[:, 1 * self.
+            hidden_size:2 * self.hidden_size])
+        memory_init = torch.tanh(projected_input[:, 2 * self.hidden_size:3 *
+            self.hidden_size] + projected_state[:, 2 * self.hidden_size:3 *
+            self.hidden_size])
+        output_gate = torch.sigmoid(projected_input[:, 3 * self.hidden_size
+            :4 * self.hidden_size] + projected_state[:, 3 * self.
+            hidden_size:4 * self.hidden_size])
+        memory = input_gate * memory_init + forget_gate * previous_memory
+        timestep_output = output_gate * torch.tanh(memory)
+        if self.use_highway:
+            highway_gate = torch.sigmoid(projected_input[:, 4 * self.
+                hidden_size:5 * self.hidden_size] + projected_state[:, 4 *
+                self.hidden_size:5 * self.hidden_size])
+            highway_input_projection = projected_input[:, 5 * self.
+                hidden_size:6 * self.hidden_size]
+            timestep_output = highway_gate * timestep_output + (1 -
+                highway_gate) * highway_input_projection
+        if dropout_mask is not None and self.training:
+            timestep_output = timestep_output * dropout_mask
+        return timestep_output, memory
+
+    def forward(self, inputs: PackedSequence, initial_state: Optional[Tuple
+        [torch.Tensor, torch.Tensor]]=None, labels=None, boxes_for_nms=None):
+        """
+        Parameters
+        ----------
+        inputs : PackedSequence, required.
+            A tensor of shape (batch_size, num_timesteps, input_size)
+            to apply the LSTM over.
+
+        initial_state : Tuple[torch.Tensor, torch.Tensor], optional, (default = None)
+            A tuple (state, memory) representing the initial hidden state and memory
+            of the LSTM. Each tensor has shape (1, batch_size, output_dimension).
+
+        Returns
+        -------
+        A PackedSequence containing a torch.FloatTensor of shape
+        (batch_size, num_timesteps, output_dimension) representing
+        the outputs of the LSTM per timestep and a tuple containing
+        the LSTM state, with shape (1, batch_size, hidden_size) to
+        match the Pytorch API.
+        """
+        if not isinstance(inputs, PackedSequence):
+            raise ValueError('inputs must be PackedSequence but got %s' %
+                type(inputs))
+        assert isinstance(inputs, PackedSequence)
+        sequence_tensor, batch_lengths = inputs
+        batch_size = batch_lengths[0]
+        if initial_state is None:
+            previous_memory = Variable(sequence_tensor.data.new().resize_(
+                batch_size, self.hidden_size).fill_(0))
+            previous_state = Variable(sequence_tensor.data.new().resize_(
+                batch_size, self.hidden_size).fill_(0))
+        else:
+            assert len(initial_state) == 2
+            previous_state = initial_state[0].squeeze(0)
+            previous_memory = initial_state[1].squeeze(0)
+        previous_embed = self.obj_embed.weight[0, None].expand(batch_size, 100)
+        if self.recurrent_dropout_probability > 0.0:
+            dropout_mask = get_dropout_mask(self.
+                recurrent_dropout_probability, previous_memory)
+        else:
+            dropout_mask = None
+        out_dists = []
+        out_commitments = []
+        end_ind = 0
+        for i, l_batch in enumerate(batch_lengths):
+            start_ind = end_ind
+            end_ind = end_ind + l_batch
+            if previous_memory.size(0) != l_batch:
+                previous_memory = previous_memory[:l_batch]
+                previous_state = previous_state[:l_batch]
+                previous_embed = previous_embed[:l_batch]
+                if dropout_mask is not None:
+                    dropout_mask = dropout_mask[:l_batch]
+            timestep_input = torch.cat((sequence_tensor[start_ind:end_ind],
+                previous_embed), 1)
+            previous_state, previous_memory = self.lstm_equations(
+                timestep_input, previous_state, previous_memory,
+                dropout_mask=dropout_mask)
+            pred_dist = self.out(previous_state)
+            out_dists.append(pred_dist)
+            if self.training:
+                labels_to_embed = labels[start_ind:end_ind].clone()
+                nonzero_pred = pred_dist[:, 1:].max(1)[1] + 1
+                is_bg = (labels_to_embed.data == 0).nonzero()
+                if is_bg.dim() > 0:
+                    labels_to_embed[is_bg.squeeze(1)] = nonzero_pred[is_bg.
+                        squeeze(1)]
+                out_commitments.append(labels_to_embed)
+                previous_embed = self.obj_embed(labels_to_embed + 1)
+            else:
+                assert l_batch == 1
+                out_dist_sample = F.softmax(pred_dist, dim=1)
+                best_ind = out_dist_sample[:, 1:].max(1)[1] + 1
+                out_commitments.append(best_ind)
+                previous_embed = self.obj_embed(best_ind + 1)
+        if boxes_for_nms is not None and not self.training:
+            is_overlap = nms_overlaps(boxes_for_nms.data).view(boxes_for_nms
+                .size(0), boxes_for_nms.size(0), boxes_for_nms.size(1)).cpu(
+                ).numpy() >= self.nms_thresh
+            out_dists_sampled = F.softmax(torch.cat(out_dists, 0), 1).data.cpu(
+                ).numpy()
+            out_dists_sampled[:, (0)] = 0
+            out_commitments = out_commitments[0].data.new(len(out_commitments)
+                ).fill_(0)
+            for i in range(out_commitments.size(0)):
+                box_ind, cls_ind = np.unravel_index(out_dists_sampled.
+                    argmax(), out_dists_sampled.shape)
+                out_commitments[int(box_ind)] = int(cls_ind)
+                out_dists_sampled[is_overlap[(box_ind), :, (cls_ind)], cls_ind
+                    ] = 0.0
+                out_dists_sampled[box_ind] = -1.0
+            out_commitments = Variable(out_commitments)
+        else:
+            out_commitments = torch.cat(out_commitments, 0)
+        return torch.cat(out_dists, 0), out_commitments
+
+
+class AlternatingHighwayLSTM(torch.nn.Module):
+    """
+    A stacked LSTM with LSTM layers which alternate between going forwards over
+    the sequence and going backwards, with highway connections between each of
+    the alternating layers. This implementation is based on the description in
+    `Deep Semantic Role Labelling - What works and what's next
+    <https://homes.cs.washington.edu/~luheng/files/acl2017_hllz.pdf>`_ .
+
+    Parameters
+    ----------
+    input_size : int, required
+        The dimension of the inputs to the LSTM.
+    hidden_size : int, required
+        The dimension of the outputs of the LSTM.
+    num_layers : int, required
+        The number of stacked LSTMs to use.
+    recurrent_dropout_probability: float, optional (default = 0.0)
+        The dropout probability to be used in a dropout scheme as stated in
+        `A Theoretically Grounded Application of Dropout in Recurrent Neural Networks
+        <https://arxiv.org/abs/1512.05287>`_ .
+
+    Returns
+    -------
+    output : PackedSequence
+        The outputs of the interleaved LSTMs per timestep. A tensor of shape
+        (batch_size, max_timesteps, hidden_size) where for a given batch
+        element, all outputs past the sequence length for that batch are
+        zero tensors.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int=1,
+        recurrent_dropout_probability: float=0) ->None:
+        super(AlternatingHighwayLSTM, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.recurrent_dropout_probability = recurrent_dropout_probability
+        self.training = True
+        input_projection_size = 6 * hidden_size
+        state_projection_size = 5 * hidden_size
+        bias_size = 5 * hidden_size
+        total_weight_size = 0
+        total_bias_size = 0
+        for layer in range(num_layers):
+            layer_input_size = input_size if layer == 0 else hidden_size
+            input_weights = input_projection_size * layer_input_size
+            state_weights = state_projection_size * hidden_size
+            total_weight_size += input_weights + state_weights
+            total_bias_size += bias_size
+        self.weight = Parameter(torch.FloatTensor(total_weight_size))
+        self.bias = Parameter(torch.FloatTensor(total_bias_size))
+        self.reset_parameters()
+
+    def reset_parameters(self) ->None:
+        self.bias.data.zero_()
+        weight_index = 0
+        bias_index = 0
+        for i in range(self.num_layers):
+            input_size = self.input_size if i == 0 else self.hidden_size
+            init_tensor = self.weight.data.new(input_size, self.hidden_size * 6
+                ).zero_()
+            block_orthogonal(init_tensor, [input_size, self.hidden_size])
+            self.weight.data[weight_index:weight_index + init_tensor.nelement()
+                ].view_as(init_tensor).copy_(init_tensor)
+            weight_index += init_tensor.nelement()
+            init_tensor = self.weight.data.new(self.hidden_size, self.
+                hidden_size * 5).zero_()
+            block_orthogonal(init_tensor, [self.hidden_size, self.hidden_size])
+            self.weight.data[weight_index:weight_index + init_tensor.nelement()
+                ].view_as(init_tensor).copy_(init_tensor)
+            weight_index += init_tensor.nelement()
+            self.bias.data[bias_index + self.hidden_size:bias_index + 2 *
+                self.hidden_size].fill_(1)
+            bias_index += 5 * self.hidden_size
+
+    def forward(self, inputs, initial_state=None) ->Tuple[PackedSequence,
+        torch.Tensor]:
+        """
+        Parameters
+        ----------
+        inputs : ``PackedSequence``, required.
+            A batch first ``PackedSequence`` to run the stacked LSTM over.
+        initial_state : Tuple[torch.Tensor, torch.Tensor], optional, (default = None)
+            Currently, this is ignored.
+
+        Returns
+        -------
+        output_sequence : ``PackedSequence``
+            The encoded sequence of shape (batch_size, sequence_length, hidden_size)
+        final_states: ``torch.Tensor``
+            The per-layer final (state, memory) states of the LSTM, each with shape
+            (num_layers, batch_size, hidden_size).
+        """
+        inputs, lengths = pad_packed_sequence(inputs, batch_first=False)
+        sequence_length, batch_size, _ = inputs.size()
+        accumulator_shape = [self.num_layers, sequence_length + 1,
+            batch_size, self.hidden_size]
+        state_accumulator = Variable(inputs.data.new(*accumulator_shape).
+            zero_(), requires_grad=False)
+        memory_accumulator = Variable(inputs.data.new(*accumulator_shape).
+            zero_(), requires_grad=False)
+        dropout_weights = inputs.data.new().resize_(self.num_layers,
+            batch_size, self.hidden_size).fill_(1.0)
+        if self.training:
+            dropout_weights.bernoulli_(1 - self.recurrent_dropout_probability
+                ).div_(1 - self.recurrent_dropout_probability)
+        dropout_weights = Variable(dropout_weights, requires_grad=False)
+        gates = Variable(inputs.data.new().resize_(self.num_layers,
+            sequence_length, batch_size, 6 * self.hidden_size))
+        lengths_variable = Variable(torch.IntTensor(lengths))
+        implementation = _AlternatingHighwayLSTMFunction(self.input_size,
+            self.hidden_size, num_layers=self.num_layers, train=self.training)
+        output, _ = implementation(inputs, self.weight, self.bias,
+            state_accumulator, memory_accumulator, dropout_weights,
+            lengths_variable, gates)
+        output = pack_padded_sequence(output, lengths, batch_first=False)
+        return output, None
+
+
 class Result(object):
     """ little container class for holding the detection result
         od: object detector, rm: rel model"""
@@ -620,18 +1041,6 @@ def gather_res(outputs, target_device, dim=0):
     args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for
         o in outputs]) for field, v in out.__dict__.items() if v is not None}
     return type(out)(**args)
-
-
-def resnet101(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
-    return model
 
 
 def load_resnet():
@@ -2104,7 +2513,216 @@ def stanford_path(fn):
     return os.path.join(DATA_PATH, 'stanford_filtered', fn)
 
 
+class SquarePad(object):
+
+    def __call__(self, img):
+        w, h = img.size
+        img_padded = ImageOps.expand(img, border=(0, 0, max(h - w, 0), max(
+            w - h, 0)), fill=(int(0.485 * 256), int(0.456 * 256), int(0.406 *
+            256)))
+        return img_padded
+
+
+def assertion_checks(entry):
+    im_size = tuple(entry['img'].size())
+    if len(im_size) != 3:
+        raise ValueError('Img must be dim-3')
+    c, h, w = entry['img'].size()
+    if c != 3:
+        raise ValueError('Must have 3 color channels')
+    num_gt = entry['gt_boxes'].shape[0]
+    if entry['gt_classes'].shape[0] != num_gt:
+        raise ValueError(
+            'GT classes and GT boxes must have same number of examples')
+    assert (entry['gt_boxes'][:, (2)] >= entry['gt_boxes'][:, (0)]).all()
+    assert (entry['gt_boxes'] >= -1).all()
+
+
+def load_graphs(graphs_file, mode='train', num_im=-1, num_val_im=0,
+    filter_empty_rels=True, filter_non_overlap=False):
+    """
+    Load the file containing the GT boxes and relations, as well as the dataset split
+    :param graphs_file: HDF5
+    :param mode: (train, val, or test)
+    :param num_im: Number of images we want
+    :param num_val_im: Number of validation images
+    :param filter_empty_rels: (will be filtered otherwise.)
+    :param filter_non_overlap: If training, filter images that dont overlap.
+    :return: image_index: numpy array corresponding to the index of images we're using
+             boxes: List where each element is a [num_gt, 4] array of ground 
+                    truth boxes (x1, y1, x2, y2)
+             gt_classes: List where each element is a [num_gt] array of classes
+             relationships: List where each element is a [num_r, 3] array of 
+                    (box_ind_1, box_ind_2, predicate) relationships
+    """
+    if mode not in ('train', 'val', 'test'):
+        raise ValueError('{} invalid'.format(mode))
+    roi_h5 = h5py.File(graphs_file, 'r')
+    data_split = roi_h5['split'][:]
+    split = 2 if mode == 'test' else 0
+    split_mask = data_split == split
+    split_mask &= roi_h5['img_to_first_box'][:] >= 0
+    if filter_empty_rels:
+        split_mask &= roi_h5['img_to_first_rel'][:] >= 0
+    image_index = np.where(split_mask)[0]
+    if num_im > -1:
+        image_index = image_index[:num_im]
+    if num_val_im > 0:
+        if mode == 'val':
+            image_index = image_index[:num_val_im]
+        elif mode == 'train':
+            image_index = image_index[num_val_im:]
+    split_mask = np.zeros_like(data_split).astype(bool)
+    split_mask[image_index] = True
+    all_labels = roi_h5['labels'][:, (0)]
+    all_boxes = roi_h5['boxes_{}'.format(BOX_SCALE)][:]
+    assert np.all(all_boxes[:, :2] >= 0)
+    assert np.all(all_boxes[:, 2:] > 0)
+    all_boxes[:, :2] = all_boxes[:, :2] - all_boxes[:, 2:] / 2
+    all_boxes[:, 2:] = all_boxes[:, :2] + all_boxes[:, 2:]
+    im_to_first_box = roi_h5['img_to_first_box'][split_mask]
+    im_to_last_box = roi_h5['img_to_last_box'][split_mask]
+    im_to_first_rel = roi_h5['img_to_first_rel'][split_mask]
+    im_to_last_rel = roi_h5['img_to_last_rel'][split_mask]
+    _relations = roi_h5['relationships'][:]
+    _relation_predicates = roi_h5['predicates'][:, (0)]
+    assert im_to_first_rel.shape[0] == im_to_last_rel.shape[0]
+    assert _relations.shape[0] == _relation_predicates.shape[0]
+    boxes = []
+    gt_classes = []
+    relationships = []
+    for i in range(len(image_index)):
+        boxes_i = all_boxes[im_to_first_box[i]:im_to_last_box[i] + 1, :]
+        gt_classes_i = all_labels[im_to_first_box[i]:im_to_last_box[i] + 1]
+        if im_to_first_rel[i] >= 0:
+            predicates = _relation_predicates[im_to_first_rel[i]:
+                im_to_last_rel[i] + 1]
+            obj_idx = _relations[im_to_first_rel[i]:im_to_last_rel[i] + 1
+                ] - im_to_first_box[i]
+            assert np.all(obj_idx >= 0)
+            assert np.all(obj_idx < boxes_i.shape[0])
+            rels = np.column_stack((obj_idx, predicates))
+        else:
+            assert not filter_empty_rels
+            rels = np.zeros((0, 3), dtype=np.int32)
+        if filter_non_overlap:
+            assert mode == 'train'
+            inters = bbox_overlaps(boxes_i, boxes_i)
+            rel_overs = inters[rels[:, (0)], rels[:, (1)]]
+            inc = np.where(rel_overs > 0.0)[0]
+            if inc.size > 0:
+                rels = rels[inc]
+            else:
+                split_mask[image_index[i]] = 0
+                continue
+        boxes.append(boxes_i)
+        gt_classes.append(gt_classes_i)
+        relationships.append(rels)
+    return split_mask, boxes, gt_classes, relationships
+
+
+VG_IMAGES = '/home/rowan/datasets2/VG_100K_2/VG_100K'
+
+
+def load_image_filenames(image_file, image_dir=VG_IMAGES):
+    """
+    Loads the image filenames from visual genome from the JSON file that contains them.
+    This matches the preprocessing in scene-graph-TF-release/data_tools/vg_to_imdb.py.
+    :param image_file: JSON file. Elements contain the param "image_id".
+    :param image_dir: directory where the VisualGenome images are located
+    :return: List of filenames corresponding to the good images
+    """
+    with open(image_file, 'r') as f:
+        im_data = json.load(f)
+    corrupted_ims = ['1592.jpg', '1722.jpg', '4616.jpg', '4617.jpg']
+    fns = []
+    for i, img in enumerate(im_data):
+        basename = '{}.jpg'.format(img['image_id'])
+        if basename in corrupted_ims:
+            continue
+        filename = os.path.join(image_dir, basename)
+        if os.path.exists(filename):
+            fns.append(filename)
+    assert len(fns) == 108073
+    return fns
+
+
+def load_info(info_file):
+    """
+    Loads the file containing the visual genome label meanings
+    :param info_file: JSON
+    :return: ind_to_classes: sorted list of classes
+             ind_to_predicates: sorted list of predicates
+    """
+    info = json.load(open(info_file, 'r'))
+    info['label_to_idx']['__background__'] = 0
+    info['predicate_to_idx']['__background__'] = 0
+    class_to_ind = info['label_to_idx']
+    predicate_to_ind = info['predicate_to_idx']
+    ind_to_classes = sorted(class_to_ind, key=lambda k: class_to_ind[k])
+    ind_to_predicates = sorted(predicate_to_ind, key=lambda k:
+        predicate_to_ind[k])
+    return ind_to_classes, ind_to_predicates
+
+
+def box_filter(boxes, must_overlap=False):
+    """ Only include boxes that overlap as possible relations. 
+    If no overlapping boxes, use all of them."""
+    n_cands = boxes.shape[0]
+    overlaps = bbox_overlaps(boxes.astype(np.float), boxes.astype(np.float)
+        ) > 0
+    np.fill_diagonal(overlaps, 0)
+    all_possib = np.ones_like(overlaps, dtype=np.bool)
+    np.fill_diagonal(all_possib, 0)
+    if must_overlap:
+        possible_boxes = np.column_stack(np.where(overlaps))
+        if possible_boxes.size == 0:
+            possible_boxes = np.column_stack(np.where(all_possib))
+    else:
+        possible_boxes = np.column_stack(np.where(all_possib))
+    return possible_boxes
+
+
+class FrequencyBias(nn.Module):
+    """
+    The goal of this is to provide a simplified way of computing
+    P(predicate | obj1, obj2, img).
+    """
+
+    def __init__(self, eps=0.001):
+        super(FrequencyBias, self).__init__()
+        fg_matrix, bg_matrix = get_counts(must_overlap=True)
+        bg_matrix += 1
+        fg_matrix[:, :, (0)] = bg_matrix
+        pred_dist = np.log(fg_matrix / fg_matrix.sum(2)[:, :, (None)] + eps)
+        self.num_objs = pred_dist.shape[0]
+        pred_dist = torch.FloatTensor(pred_dist).view(-1, pred_dist.shape[2])
+        self.obj_baseline = nn.Embedding(pred_dist.size(0), pred_dist.size(1))
+        self.obj_baseline.weight.data = pred_dist
+
+    def index_with_labels(self, labels):
+        """
+        :param labels: [batch_size, 2] 
+        :return: 
+        """
+        return self.obj_baseline(labels[:, (0)] * self.num_objs + labels[:,
+            (1)])
+
+    def forward(self, obj_cands0, obj_cands1):
+        """
+        :param obj_cands0: [batch_size, 151] prob distibution over cands.
+        :param obj_cands1: [batch_size, 151] prob distibution over cands.
+        :return: [batch_size, #predicates] array, which contains potentials for
+        each possibility
+        """
+        joint_cands = obj_cands0[:, :, (None)] * obj_cands1[:, (None)]
+        baseline = joint_cands.view(joint_cands.size(0), -1
+            ) @ self.obj_baseline.weight
+        return baseline
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_rowanz_neural_motifs(_paritybench_base):

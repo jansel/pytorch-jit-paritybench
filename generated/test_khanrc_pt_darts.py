@@ -17,10 +17,13 @@ search = _module
 utils = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -49,6 +52,9 @@ from torch.nn.parallel._functions import Broadcast
 
 
 import logging
+
+
+import torchvision.transforms as transforms
 
 
 import copy
@@ -478,7 +484,7 @@ class SearchCNNController(nn.Module):
         self.n_nodes = n_nodes
         self.criterion = criterion
         if device_ids is None:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(torch.device_count()))
         self.device_ids = device_ids
         n_ops = len(gt.PRIMITIVES)
         self.alpha_normal = nn.ParameterList()
@@ -553,6 +559,7 @@ class SearchCNNController(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_khanrc_pt_darts(_paritybench_base):

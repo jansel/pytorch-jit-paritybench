@@ -42,10 +42,13 @@ timer = _module
 server = _module
 yolact = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -115,6 +118,9 @@ import torch.optim as optim
 import torch.nn.init as init
 
 
+from torchvision import transforms
+
+
 import types
 
 
@@ -122,6 +128,12 @@ from numpy import random
 
 
 from collections import deque
+
+
+import torchvision
+
+
+from torchvision.models.resnet import Bottleneck
 
 
 from itertools import product
@@ -161,6 +173,135 @@ class _DCNv2(Function):
 
 
 dcn_v2_conv = _DCNv2.apply
+
+
+class Bottleneck(nn.Module):
+    """ Adapted from torchvision.models.resnet """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None,
+        norm_layer=nn.BatchNorm2d, dilation=1, use_dcn=False):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False,
+            dilation=dilation)
+        self.bn1 = norm_layer(planes)
+        if use_dcn:
+            self.conv2 = DCN(planes, planes, kernel_size=3, stride=stride,
+                padding=dilation, dilation=dilation, deformable_groups=1)
+            self.conv2.bias.data.zero_()
+            self.conv2.conv_offset_mask.weight.data.zero_()
+            self.conv2.conv_offset_mask.bias.data.zero_()
+        else:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
+                stride, padding=dilation, bias=False, dilation=dilation)
+        self.bn2 = norm_layer(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=
+            False, dilation=dilation)
+        self.bn3 = norm_layer(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class ResNetBackbone(nn.Module):
+    """ Adapted from torchvision.models.resnet """
+
+    def __init__(self, layers, dcn_layers=[0, 0, 0, 0], dcn_interval=1,
+        atrous_layers=[], block=Bottleneck, norm_layer=nn.BatchNorm2d):
+        super().__init__()
+        self.num_base_layers = len(layers)
+        self.layers = nn.ModuleList()
+        self.channels = []
+        self.norm_layer = norm_layer
+        self.dilation = 1
+        self.atrous_layers = atrous_layers
+        self.inplanes = 64
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+            bias=False)
+        self.bn1 = norm_layer(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self._make_layer(block, 64, layers[0], dcn_layers=dcn_layers[0],
+            dcn_interval=dcn_interval)
+        self._make_layer(block, 128, layers[1], stride=2, dcn_layers=
+            dcn_layers[1], dcn_interval=dcn_interval)
+        self._make_layer(block, 256, layers[2], stride=2, dcn_layers=
+            dcn_layers[2], dcn_interval=dcn_interval)
+        self._make_layer(block, 512, layers[3], stride=2, dcn_layers=
+            dcn_layers[3], dcn_interval=dcn_interval)
+        self.backbone_modules = [m for m in self.modules() if isinstance(m,
+            nn.Conv2d)]
+
+    def _make_layer(self, block, planes, blocks, stride=1, dcn_layers=0,
+        dcn_interval=1):
+        """ Here one layer means a string of n Bottleneck blocks. """
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            if len(self.layers) in self.atrous_layers:
+                self.dilation += 1
+                stride = 1
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
+                block.expansion, kernel_size=1, stride=stride, bias=False,
+                dilation=self.dilation), self.norm_layer(planes * block.
+                expansion))
+        layers = []
+        use_dcn = dcn_layers >= blocks
+        layers.append(block(self.inplanes, planes, stride, downsample, self
+            .norm_layer, self.dilation, use_dcn=use_dcn))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            use_dcn = i + dcn_layers >= blocks and i % dcn_interval == 0
+            layers.append(block(self.inplanes, planes, norm_layer=self.
+                norm_layer, use_dcn=use_dcn))
+        layer = nn.Sequential(*layers)
+        self.channels.append(planes * block.expansion)
+        self.layers.append(layer)
+        return layer
+
+    def forward(self, x):
+        """ Returns a list of convouts for each layer. """
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        outs = []
+        for layer in self.layers:
+            x = layer(x)
+            outs.append(x)
+        return tuple(outs)
+
+    def init_backbone(self, path):
+        """ Initializes the backbone weights for training. """
+        state_dict = torch.load(path)
+        keys = list(state_dict)
+        for key in keys:
+            if key.startswith('layer'):
+                idx = int(key[5])
+                new_key = 'layers.' + str(idx - 1) + key[6:]
+                state_dict[new_key] = state_dict.pop(key)
+        self.load_state_dict(state_dict, strict=False)
+
+    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=
+        Bottleneck):
+        """ Add a downsample layer to the backbone as per what SSD does. """
+        self._make_layer(block, conv_channels // block.expansion, blocks=
+            depth, stride=downsample)
 
 
 def darknetconvlayer(in_channels, out_channels, *args, **kwdargs):
@@ -719,16 +860,16 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     return out if use_batch else out.squeeze(0)
 
 
+_global_config['use_prediction_matching'] = 4
+
+
 _global_config['crowd_iou_threshold'] = 4
-
-
-_global_config['use_yolo_regressors'] = 4
 
 
 _global_config['use_change_matching'] = 4
 
 
-_global_config['use_prediction_matching'] = 4
+_global_config['use_yolo_regressors'] = 4
 
 
 def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
@@ -778,19 +919,34 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     idx_t[idx] = best_truth_idx
 
 
-_global_config['mask_type'] = 4
+_global_config['class_existence_alpha'] = 4
 
 
-_global_config['train_boxes'] = False
+_global_config['use_mask_scoring'] = 4
 
 
-_global_config['mask_proto_normalize_emulate_roi_pooling'] = 4
+_global_config['conf_alpha'] = 4
 
 
-_global_config['mask_proto_mask_activation'] = 4
+_global_config['ohem_use_most_confident'] = 4
 
 
-_global_config['train_masks'] = False
+_global_config['use_maskiou'] = 4
+
+
+_global_config['maskious_to_train'] = False
+
+
+_global_config['mask_alpha'] = 4
+
+
+_global_config['mask_proto_crop'] = 4
+
+
+_global_config['use_instance_coeff'] = 4
+
+
+_global_config['mask_proto_crop_with_pred_box'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -1368,7 +1524,7 @@ _global_config['batch_size'] = 4
 _global_config['preserve_aspect_ratio'] = 4
 
 
-_global_config['cuda'] = 4
+_global_config['cuda'] = False
 
 
 def prepare_data(datum, devices: list=None, allocation: list=None):
@@ -1430,10 +1586,10 @@ class CustomDataParallel(nn.DataParallel):
 MEANS = 103.94, 116.78, 123.68
 
 
-_global_config['max_size'] = 4
-
-
 _global_config['discard_box_width'] = 4
+
+
+_global_config['max_size'] = 4
 
 
 _global_config['discard_box_height'] = 4
@@ -1569,57 +1725,6 @@ def make_net(in_channels, conf, include_last_relu=True):
     if not include_last_relu:
         net = net[:-1]
     return nn.Sequential(*net), in_channels
-
-
-_global_config['mask_proto_split_prototypes_by_head'] = 4
-
-
-_global_config['mask_proto_prototypes_as_features'] = 4
-
-
-_global_config['head_layer_params'] = 1
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['mask_proto_coeff_gate'] = 4
-
-
-_global_config['eval_mask_branch'] = 4
-
-
-_global_config['mask_dim'] = 4
-
-
-_global_config['num_heads'] = 4
-
-
-_global_config['num_instance_coeffs'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
-
-
-_global_config['extra_head_net'] = 4
-
-
-_global_config['use_instance_coeff'] = 4
-
-
-_global_config['use_prediction_module'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['_tmp_img_h'] = 4
-
-
-_global_config['mask_proto_coeff_activation'] = 4
-
-
-_global_config['extra_layers'] = 1
 
 
 class PredictionModule(nn.Module):
@@ -2072,6 +2177,9 @@ class FPN(ScriptModuleWrapper):
 _global_config['maskiou_net'] = 4
 
 
+_global_config['num_classes'] = 4
+
+
 class FastMaskIoUNet(ScriptModuleWrapper):
 
     def __init__(self):
@@ -2095,6 +2203,21 @@ def construct_backbone(cfg):
     while len(backbone.layers) < num_layers:
         backbone.add_layer()
     return backbone
+
+
+_global_config['nms_top_k'] = 4
+
+
+_global_config['mask_proto_use_grid'] = 4
+
+
+_global_config['mask_proto_prototype_activation'] = 4
+
+
+_global_config['_tmp_img_w'] = 4
+
+
+_global_config['num_heads'] = 4
 
 
 class Yolact(nn.Module):
@@ -2327,11 +2450,24 @@ class Yolact(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_dbolya_yolact(_paritybench_base):
     pass
     @_fails_compile()
     def test_000(self):
+        self._check(CustomDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+
+    @_fails_compile()
+    def test_001(self):
+        self._check(DarkNetBackbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(ResNetBackbone(*[], **{'layers': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_003(self):
         self._check(VGGBackbone(*[], **{'cfg': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
 

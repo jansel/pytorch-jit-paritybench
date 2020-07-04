@@ -23,10 +23,13 @@ Tester = _module
 utils = _module
 visualize = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -34,6 +37,9 @@ _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torchvision.transforms as transforms
 
 
 import numpy as np
@@ -54,6 +60,9 @@ import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_scheduler
 
 
+import torchvision as tv
+
+
 import functools
 
 
@@ -70,6 +79,39 @@ import torch.nn.init as init
 
 
 from torch.nn.parallel.data_parallel import DataParallel
+
+
+class _AsppBlock(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size,
+        dilation_rate, BatchNorm):
+        super(_AsppBlock, self).__init__()
+        if dilation_rate == 1:
+            self.atrous_conv = nn.Conv2d(in_channels=in_channels,
+                out_channels=out_channels, kernel_size=kernel_size, bias=False)
+        else:
+            self.atrous_conv = nn.Conv2d(in_channels, out_channels,
+                kernel_size=kernel_size, dilation=dilation_rate, padding=
+                dilation_rate, bias=False)
+        self.bn = BatchNorm(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self._init_weight()
+
+    def forward(self, _input):
+        x = self.atrous_conv(_input)
+        x = self.bn(x)
+        return self.relu(x)
+
+    def _init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
 
 class ASPP(nn.Module):
@@ -736,6 +778,7 @@ class DataParallelWithCallback(DataParallel):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
@@ -748,4 +791,8 @@ class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
 
     def test_002(self):
         self._check(BilinearUpSample(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_003(self):
+        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
 

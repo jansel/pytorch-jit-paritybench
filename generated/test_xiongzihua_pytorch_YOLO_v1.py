@@ -11,10 +11,13 @@ visualize = _module
 xml_2_txt = _module
 yoloLoss = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -42,10 +45,16 @@ import torch
 from torch.autograd import Variable
 
 
+import torchvision.transforms as transforms
+
+
 import numpy as np
 
 
 from torch.utils.data import DataLoader
+
+
+from torchvision import models
 
 
 class VGG(nn.Module):
@@ -293,16 +302,16 @@ class yoloLoss(nn.Module):
         class_target = coo_target[:, 10:]
         noo_pred = pred_tensor[noo_mask].view(-1, 30)
         noo_target = target_tensor[noo_mask].view(-1, 30)
-        noo_pred_mask = torch.cuda.ByteTensor(noo_pred.size())
+        noo_pred_mask = torch.ByteTensor(noo_pred.size())
         noo_pred_mask.zero_()
         noo_pred_mask[:, (4)] = 1
         noo_pred_mask[:, (9)] = 1
         noo_pred_c = noo_pred[noo_pred_mask]
         noo_target_c = noo_target[noo_pred_mask]
         nooobj_loss = F.mse_loss(noo_pred_c, noo_target_c, size_average=False)
-        coo_response_mask = torch.cuda.ByteTensor(box_target.size())
+        coo_response_mask = torch.ByteTensor(box_target.size())
         coo_response_mask.zero_()
-        coo_not_response_mask = torch.cuda.ByteTensor(box_target.size())
+        coo_not_response_mask = torch.ByteTensor(box_target.size())
         coo_not_response_mask.zero_()
         box_target_iou = torch.zeros(box_target.size())
         for i in range(0, box_target.size()[0], 2):
@@ -341,6 +350,7 @@ class yoloLoss(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xiongzihua_pytorch_YOLO_v1(_paritybench_base):
@@ -349,5 +359,8 @@ class Test_xiongzihua_pytorch_YOLO_v1(_paritybench_base):
         self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
+        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+
+    def test_002(self):
         self._check(detnet_bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

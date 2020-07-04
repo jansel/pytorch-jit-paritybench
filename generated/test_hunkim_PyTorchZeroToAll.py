@@ -5,10 +5,13 @@ name_dataset = _module
 seq2seq_models = _module
 text_loader = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -55,6 +58,12 @@ from torch import cuda
 
 
 from torch.utils import data
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import time
@@ -407,7 +416,7 @@ class RNN(nn.Module):
         return output, hidden
 
     def init_hidden(self):
-        if torch.cuda.is_available():
+        if torch.is_available():
             hidden = torch.zeros(self.n_layers, 1, self.hidden_size)
         else:
             hidden = torch.zeros(self.n_layers, 1, self.hidden_size)
@@ -492,6 +501,7 @@ class AttnDecoderRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hunkim_PyTorchZeroToAll(_paritybench_base):
@@ -501,4 +511,8 @@ class Test_hunkim_PyTorchZeroToAll(_paritybench_base):
 
     def test_001(self):
         self._check(InceptionA(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_002(self):
+        self._check(RNNClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
 

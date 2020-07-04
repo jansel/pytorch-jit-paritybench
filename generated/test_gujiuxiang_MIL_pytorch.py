@@ -19,10 +19,13 @@ test = _module
 test_v2 = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -68,6 +71,12 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
 import itertools
 
 
@@ -75,6 +84,9 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import torchvision.models as models
 
 
 import functools
@@ -214,6 +226,38 @@ class ResNet(nn.Module):
         return x
 
 
+class resnet_mil(nn.Module):
+
+    def __init__(self, opt):
+        super(resnet_mil, self).__init__()
+        resnet = resnet.resnet101()
+        resnet.load_state_dict(torch.load(
+            '/media/jxgu/d2tb/model/resnet/resnet101.pth'))
+        self.conv = torch.nn.Sequential()
+        self.conv.add_module('conv1', resnet.conv1)
+        self.conv.add_module('bn1', resnet.bn1)
+        self.conv.add_module('relu', resnet.relu)
+        self.conv.add_module('maxpool', resnet.maxpool)
+        self.conv.add_module('layer1', resnet.layer1)
+        self.conv.add_module('layer2', resnet.layer2)
+        self.conv.add_module('layer3', resnet.layer3)
+        self.conv.add_module('layer4', resnet.layer4)
+        self.l1 = nn.Sequential(nn.Linear(2048, 1000), nn.ReLU(True), nn.
+            Dropout(0.5))
+        self.att_size = 7
+        self.pool_mil = nn.MaxPool2d(kernel_size=self.att_size, stride=0)
+
+    def forward(self, img, att_size=14):
+        x0 = self.conv(img)
+        x = self.pool_mil(x0)
+        x = x.squeeze(2).squeeze(2)
+        x = self.l1(x)
+        x1 = torch.add(torch.mul(x.view(x.size(0), 1000, -1), -1), 1)
+        cumprod = torch.cumprod(x1, 2)
+        out = torch.max(x, torch.add(torch.mul(cumprod[:, :, (-1)], -1), 1))
+        return out
+
+
 class myResnet(nn.Module):
 
     def __init__(self, resnet):
@@ -325,6 +369,7 @@ class MIL_Precision_Score_Mapping(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_gujiuxiang_MIL_pytorch(_paritybench_base):
@@ -334,4 +379,7 @@ class Test_gujiuxiang_MIL_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(Criterion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(MIL_Precision_Score_Mapping(*[], **{}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 

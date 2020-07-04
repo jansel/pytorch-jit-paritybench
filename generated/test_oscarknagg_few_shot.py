@@ -28,10 +28,13 @@ test_matching = _module
 test_proto = _module
 test_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -327,6 +330,7 @@ class DummyModel(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_oscarknagg_few_shot(_paritybench_base):
@@ -347,5 +351,5 @@ class Test_oscarknagg_few_shot(_paritybench_base):
         self._check(GlobalMaxPool1d(*[], **{}), [torch.rand([4, 4, 4])], {})
 
     def test_005(self):
-        self._check(MatchingNetwork(*[], **{'n': 4, 'k': 4, 'q': 4, 'fce': 4, 'num_input_channels': 4, 'lstm_layers': 1, 'lstm_input_size': 4, 'unrolling_steps': 4, 'device': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(MatchingNetwork(*[], **{'n': 4, 'k': 4, 'q': 4, 'fce': 4, 'num_input_channels': 4, 'lstm_layers': 1, 'lstm_input_size': 4, 'unrolling_steps': 4, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
 

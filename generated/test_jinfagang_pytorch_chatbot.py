@@ -7,10 +7,13 @@ models = _module
 train = _module
 model_utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -27,6 +30,33 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
+
+
+use_cuda = torch.cuda.is_available()
+
+
+class EncoderRNN(nn.Module):
+
+    def __init__(self, input_size, hidden_size, n_layers=1):
+        super(EncoderRNN, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(input_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size)
+
+    def forward(self, inputs, hidden):
+        embedded = self.embedding(inputs).view(1, 1, -1)
+        output = embedded
+        for i in range(self.n_layers):
+            output, hidden = self.gru(output, hidden)
+        return output, hidden
+
+    def init_hidden(self):
+        result = Variable(torch.zeros(1, 1, self.hidden_size))
+        if use_cuda:
+            return result
+        else:
+            return result
 
 
 class DecoderRNN(nn.Module):
@@ -100,6 +130,7 @@ class AttnDecoderRNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_jinfagang_pytorch_chatbot(_paritybench_base):

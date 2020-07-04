@@ -27,10 +27,13 @@ tf_util = _module
 util_funcs = _module
 util_layers = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -85,6 +88,39 @@ from typing import Optional
 from typing import Union
 
 
+AbbPointCNN = lambda a, b, c, d, e: RandPointCNN(a, b, 3, c, d, e,
+    knn_indices_func_gpu)
+
+
+NUM_CLASS = 40
+
+
+class Classifier(nn.Module):
+
+    def __init__(self):
+        super(Classifier, self).__init__()
+        self.pcnn1 = AbbPointCNN(3, 32, 8, 1, -1)
+        self.pcnn2 = nn.Sequential(AbbPointCNN(32, 64, 8, 2, -1),
+            AbbPointCNN(64, 96, 8, 4, -1), AbbPointCNN(96, 128, 12, 4, 120),
+            AbbPointCNN(128, 160, 12, 6, 120))
+        self.fcn = nn.Sequential(Dense(160, 128), Dense(128, 64, drop_rate=
+            0.5), Dense(64, NUM_CLASS, with_bn=False, activation=None))
+
+    def forward(self, x):
+        x = self.pcnn1(x)
+        if False:
+            None
+            k = make_dot(x[1])
+            None
+            k.view()
+            None
+            assert False
+        x = self.pcnn2(x)[1]
+        logits = self.fcn(x)
+        logits_mean = torch.mean(logits, dim=1)
+        return logits_mean
+
+
 def EndChannels(f, make_contiguous=False):
     """ Class decorator to apply 2D convolution along end channels. """
 
@@ -126,6 +162,7 @@ class LayerNorm(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_hxdengBerkeley_PointCNN_Pytorch(_paritybench_base):

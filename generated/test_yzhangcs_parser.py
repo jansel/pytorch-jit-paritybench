@@ -29,10 +29,13 @@ metric = _module
 vocab = _module
 run = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -159,7 +162,7 @@ class Model(nn.Module):
 
     @classmethod
     def load(cls, path):
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = 'cuda' if torch.is_available() else 'cpu'
         state = torch.load(path, map_location=device)
         model = cls(state['args'])
         model.load_pretrained(state['pretrained'])
@@ -456,6 +459,7 @@ class ScalarMix(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_yzhangcs_parser(_paritybench_base):
@@ -463,23 +467,26 @@ class Test_yzhangcs_parser(_paritybench_base):
     def test_000(self):
         self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(IndependentDropout(*[], **{}), [], {})
+        self._check(CHAR_LSTM(*[], **{'n_chars': 4, 'n_embed': 4, 'n_out': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(IndependentDropout(*[], **{}), [], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(Model(*[], **{'args': _mock_config(n_words=4, n_embed=4, feat=4, n_feats=4, embed_dropout=0.5, n_lstm_hidden=4, n_lstm_layers=1, lstm_dropout=0.5, n_mlp_arc=4, mlp_dropout=0.5, n_mlp_rel=4, n_rels=4, pad_index=4, unk_index=4)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
-        self._check(ScalarMix(*[], **{'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(Model(*[], **{'args': _mock_config(n_words=4, n_embed=4, feat=4, n_feats=4, embed_dropout=0.5, n_lstm_hidden=4, n_lstm_layers=1, lstm_dropout=0.5, n_mlp_arc=4, mlp_dropout=0.5, n_mlp_rel=4, n_rels=4, pad_index=4, unk_index=4)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {})
 
     @_fails_compile()
     def test_005(self):
+        self._check(ScalarMix(*[], **{'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

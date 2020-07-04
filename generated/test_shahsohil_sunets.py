@@ -17,10 +17,13 @@ train_imagenet = _module
 train_seg = _module
 viz_net_pytorch = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -36,6 +39,9 @@ import torch
 import numpy as np
 
 
+from torchvision.transforms import Scale
+
+
 import torch.nn as nn
 
 
@@ -49,6 +55,9 @@ from torch.nn import init
 
 
 from torch import nn
+
+
+from torchvision import models
 
 
 from itertools import chain
@@ -82,6 +91,15 @@ import torch.utils.data
 
 
 import torch.utils.data.distributed
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as modelss
 
 
 import math
@@ -143,6 +161,149 @@ def prediction_stat(outputs, labels, n_classes):
 
 
 checkpoint = 'pretrained/SUNets'
+
+
+class d_resnet18(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, use_aux=True,
+        ignore_index=-1, output_stride='16'):
+        super(d_resnet18, self).__init__()
+        self.use_aux = use_aux
+        self.num_classes = num_classes
+        resnet = models.resnet18()
+        if pretrained:
+            resnet.load_state_dict(torch.load(res18_path))
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+            resnet.maxpool)
+        self.layer1, self.layer2, self.layer3, self.layer4 = (resnet.layer1,
+            resnet.layer2, resnet.layer3, resnet.layer4)
+        d = dilation[output_stride]
+        if d > 1:
+            for n, m in self.layer3.named_modules():
+                if '0.conv1' in n:
+                    m.dilation, m.padding, m.stride = (1, 1), (1, 1), (1, 1)
+                elif 'conv1' in n:
+                    m.dilation, m.padding, m.stride = (d, d), (d, d), (1, 1)
+                elif 'conv2' in n:
+                    m.dilation, m.padding, m.stride = (d, d), (d, d), (1, 1)
+                elif 'downsample.0' in n:
+                    m.stride = 1, 1
+        for n, m in self.layer4.named_modules():
+            if '0.conv1' in n:
+                m.dilation, m.padding, m.stride = (d, d), (d, d), (1, 1)
+            elif 'conv1' in n:
+                m.dilation, m.padding, m.stride = (2 * d, 2 * d), (2 * d, 2 * d
+                    ), (1, 1)
+            elif 'conv2' in n:
+                m.dilation, m.padding, m.stride = (2 * d, 2 * d), (2 * d, 2 * d
+                    ), (1, 1)
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        for n, m in chain(self.layer0.named_modules(), self.layer1.
+            named_modules(), self.layer2.named_modules(), self.layer3.
+            named_modules(), self.layer4.named_modules()):
+            if 'downsample.1' in n:
+                m.momentum = mom_bn
+            elif 'bn' in n:
+                m.momentum = mom_bn
+        self.final = nn.Sequential(nn.Conv2d(512, 512, kernel_size=3,
+            padding=1, bias=False), nn.BatchNorm2d(512, momentum=mom_bn),
+            nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(512,
+            num_classes, kernel_size=1))
+        self.mceloss = cross_entropy2d(ignore=ignore_index, size_average=False)
+
+    def forward(self, x, labels, th=1.0):
+        x_size = x.size()
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.final(x)
+        x = F.upsample(x, x_size[2:], mode='bilinear')
+        if labels is not None:
+            losses, total_valid_pixel = self.mceloss(x, labels, th=th)
+            (classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+                ) = prediction_stat([x], labels, self.num_classes)
+            classwise_pixel_acc = Variable(torch.FloatTensor([
+                classwise_pixel_acc]))
+            classwise_gtpixels = Variable(torch.FloatTensor([
+                classwise_gtpixels]))
+            classwise_predpixels = Variable(torch.FloatTensor([
+                classwise_predpixels]))
+            return (x, losses, classwise_pixel_acc, classwise_gtpixels,
+                classwise_predpixels, total_valid_pixel)
+        else:
+            return x
+
+
+class d_resnet101(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, use_aux=True,
+        ignore_index=-1, output_stride='16'):
+        super(d_resnet101, self).__init__()
+        self.use_aux = use_aux
+        self.num_classes = num_classes
+        resnet = models.resnet101()
+        if pretrained:
+            resnet.load_state_dict(torch.load(res101_path))
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
+            resnet.maxpool)
+        self.layer1, self.layer2, self.layer3, self.layer4 = (resnet.layer1,
+            resnet.layer2, resnet.layer3, resnet.layer4)
+        d = dilation[output_stride]
+        if d > 1:
+            for n, m in self.layer3.named_modules():
+                if '0.conv2' in n:
+                    m.dilation, m.padding, m.stride = (1, 1), (1, 1), (1, 1)
+                elif 'conv2' in n:
+                    m.dilation, m.padding, m.stride = (d, d), (d, d), (1, 1)
+                elif 'downsample.0' in n:
+                    m.stride = 1, 1
+        for n, m in self.layer4.named_modules():
+            if '0.conv2' in n:
+                m.dilation, m.padding, m.stride = (d, d), (d, d), (1, 1)
+            elif 'conv2' in n:
+                m.dilation, m.padding, m.stride = (2 * d, 2 * d), (2 * d, 2 * d
+                    ), (1, 1)
+            elif 'downsample.0' in n:
+                m.stride = 1, 1
+        for n, m in chain(self.layer0.named_modules(), self.layer1.
+            named_modules(), self.layer2.named_modules(), self.layer3.
+            named_modules(), self.layer4.named_modules()):
+            if 'downsample.1' in n:
+                m.momentum = mom_bn
+            elif 'bn' in n:
+                m.momentum = mom_bn
+        self.final = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
+            padding=1, bias=False), nn.BatchNorm2d(512, momentum=mom_bn),
+            nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(512,
+            num_classes, kernel_size=1))
+        self.mceloss = cross_entropy2d(ignore=ignore_index)
+
+    def forward(self, x, labels, th=1.0):
+        x_size = x.size()
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.final(x)
+        x = F.upsample(x, x_size[2:], mode='bilinear')
+        if labels is not None:
+            losses, total_valid_pixel = self.mceloss(x, labels, th=th)
+            (classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+                ) = prediction_stat([x], labels, self.num_classes)
+            classwise_pixel_acc = Variable(torch.FloatTensor([
+                classwise_pixel_acc]))
+            classwise_gtpixels = Variable(torch.FloatTensor([
+                classwise_gtpixels]))
+            classwise_predpixels = Variable(torch.FloatTensor([
+                classwise_predpixels]))
+            return (x, losses, classwise_pixel_acc, classwise_gtpixels,
+                classwise_predpixels, total_valid_pixel)
+        else:
+            return x
 
 
 class UNetConv(nn.Sequential):
@@ -372,14 +533,152 @@ def stackedunet64(output_stride='32'):
         64, num_classes=1000, depth=4, ost=output_stride)
 
 
+class d_sunet64(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, ignore_index=-1,
+        weight=None, output_stride='16'):
+        super(d_sunet64, self).__init__()
+        self.num_classes = num_classes
+        sunet = stackedunet64(output_stride=output_stride)
+        sunet = torch.nn.DataParallel(sunet, device_ids=range(torch.cuda.
+            device_count()))
+        if pretrained:
+            checkpoint = torch.load(sunet64_path)
+            sunet.load_state_dict(checkpoint['state_dict'])
+        self.features = sunet.module.features
+        for n, m in self.features.named_modules():
+            if 'bn' in n:
+                m.momentum = mom_bn
+        for n, m in self.features.residual1.conv.named_modules():
+            if '2' in n:
+                m.momentum = mom_bn
+        self.final = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(1024,
+            num_classes, kernel_size=1))]))
+        self.mceloss = cross_entropy2d(ignore=ignore_index, size_average=
+            False, weight=weight)
+
+    def forward(self, x, labels=None, th=1.0):
+        x_size = x.size()
+        x = self.features(x)
+        x = F.relu(x, inplace=False)
+        x = self.final(x)
+        x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=False)
+        if labels is not None:
+            losses, total_valid_pixel = self.mceloss(x, labels, th=th)
+            (classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+                ) = prediction_stat([x], labels, self.num_classes)
+            classwise_pixel_acc = Variable(torch.FloatTensor([
+                classwise_pixel_acc]))
+            classwise_gtpixels = Variable(torch.FloatTensor([
+                classwise_gtpixels]))
+            classwise_predpixels = Variable(torch.FloatTensor([
+                classwise_predpixels]))
+            return (x, losses, classwise_pixel_acc, classwise_gtpixels,
+                classwise_predpixels, total_valid_pixel)
+        else:
+            return x
+
+
 def stackedunet128(output_stride='32'):
     return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
         128, num_classes=1000, depth=4, ost=output_stride)
 
 
+class d_sunet128(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, ignore_index=-1,
+        weight=None, output_stride='16'):
+        super(d_sunet128, self).__init__()
+        self.num_classes = num_classes
+        sunet = stackedunet128(output_stride=output_stride)
+        sunet = torch.nn.DataParallel(sunet, device_ids=range(torch.cuda.
+            device_count()))
+        if pretrained:
+            checkpoint = torch.load(sunet128_path)
+            sunet.load_state_dict(checkpoint['state_dict'])
+        self.features = sunet.module.features
+        for n, m in self.features.named_modules():
+            if 'bn' in n:
+                m.momentum = mom_bn
+        for n, m in self.features.residual1.conv.named_modules():
+            if '2' in n:
+                m.momentum = mom_bn
+        self.final = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(2048,
+            num_classes, kernel_size=1))]))
+        self.mceloss = cross_entropy2d(ignore=ignore_index, size_average=
+            False, weight=weight)
+
+    def forward(self, x, labels=None, th=1.0):
+        x_size = x.size()
+        x = self.features(x)
+        x = F.relu(x, inplace=False)
+        x = self.final(x)
+        x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=False)
+        if labels is not None:
+            losses, total_valid_pixel = self.mceloss(x, labels, th=th)
+            (classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+                ) = prediction_stat([x], labels, self.num_classes)
+            classwise_pixel_acc = Variable(torch.FloatTensor([
+                classwise_pixel_acc]))
+            classwise_gtpixels = Variable(torch.FloatTensor([
+                classwise_gtpixels]))
+            classwise_predpixels = Variable(torch.FloatTensor([
+                classwise_predpixels]))
+            return (x, losses, classwise_pixel_acc, classwise_gtpixels,
+                classwise_predpixels, total_valid_pixel)
+        else:
+            return x
+
+
 def stackedunet7128(output_stride='32'):
     return Stackedunet_imagenet(in_dim=512, start_planes=64, filters_base=
         128, num_classes=1000, depth=7, ost=output_stride)
+
+
+class d_sunet7128(nn.Module):
+
+    def __init__(self, num_classes, pretrained=True, ignore_index=-1,
+        weight=None, output_stride='16'):
+        super(d_sunet7128, self).__init__()
+        self.num_classes = num_classes
+        sunet = stackedunet7128(output_stride=output_stride)
+        sunet = torch.nn.DataParallel(sunet, device_ids=range(torch.cuda.
+            device_count()))
+        if pretrained:
+            checkpoint = torch.load(sunet7128_path)
+            sunet.load_state_dict(checkpoint['state_dict'])
+        self.features = sunet.module.features
+        for n, m in self.features.named_modules():
+            if 'bn' in n:
+                m.momentum = mom_bn
+        for n, m in self.features.residual1.conv.named_modules():
+            if '2' in n:
+                m.momentum = mom_bn
+        self.final = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(2304,
+            num_classes, kernel_size=1))]))
+        self.mceloss = cross_entropy2d(ignore=ignore_index, size_average=
+            False, weight=weight)
+
+    def forward(self, x, labels=None, th=1.0):
+        x_size = x.size()
+        x = self.features(x)
+        x = F.relu(x, inplace=False)
+        x = self.final(x)
+        x = F.interpolate(x, x_size[2:], mode='bilinear', align_corners=False)
+        if labels is not None:
+            losses, total_valid_pixel = self.mceloss(x, labels, th=th)
+            (classwise_pixel_acc, classwise_gtpixels, classwise_predpixels
+                ) = prediction_stat([x], labels, self.num_classes)
+            classwise_pixel_acc = Variable(torch.FloatTensor([
+                classwise_pixel_acc]))
+            classwise_gtpixels = Variable(torch.FloatTensor([
+                classwise_gtpixels]))
+            classwise_predpixels = Variable(torch.FloatTensor([
+                classwise_predpixels]))
+            return (x, losses, classwise_pixel_acc, classwise_gtpixels,
+                classwise_predpixels, total_valid_pixel)
+        else:
+            return x
 
 
 class degrid_sunet7128(nn.Module):
@@ -434,6 +733,7 @@ class degrid_sunet7128(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_shahsohil_sunets(_paritybench_base):
@@ -446,8 +746,4 @@ class Test_shahsohil_sunets(_paritybench_base):
 
     def test_002(self):
         self._check(UNetDeConv(*[], **{'in_planes': 4, 'out_planes': 4, 'dprob': 0.5, 'mod_in_planes': 4, 'max_planes': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    @_fails_compile()
-    def test_003(self):
-        self._check(UNetModule(*[], **{'in_planes': 4, 'nblock': 1, 'filter_size': 4, 'dprob': 0.5, 'in_dim': 4, 'index': 4, 'max_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 

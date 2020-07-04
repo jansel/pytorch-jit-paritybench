@@ -30,10 +30,13 @@ pruning_cifar10 = _module
 pruning_imagenet = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -56,6 +59,12 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 from torch.autograd import Variable
@@ -85,6 +94,12 @@ import torch.optim
 import torch.utils.data
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
 from torch.nn import init
 
 
@@ -92,6 +107,12 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import torchvision.models
+
+
+import torchvision.datasets as dset
 
 
 class CifarCaffeNet(nn.Module):
@@ -1440,6 +1461,7 @@ class vgg(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_he_y_filter_pruning_geometric_median(_paritybench_base):
@@ -1448,11 +1470,17 @@ class Test_he_y_filter_pruning_geometric_median(_paritybench_base):
         self._check(DownsampleA(*[], **{'nIn': 4, 'nOut': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
-        self._check(ResNetBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DownsampleC(*[], **{'nIn': 1, 'nOut': 4, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
 
     def test_002(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(DownsampleD(*[], **{'nIn': 4, 'nOut': 4, 'stride': 2}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
+        self._check(ResNetBasicblock(*[], **{'inplanes': 4, 'planes': 4, 'index': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_004(self):
+        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
         self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -7,10 +7,13 @@ networks = _module
 test = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -32,6 +35,9 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+from torchvision import transforms
+
+
 import torch.nn.functional as F
 
 
@@ -42,6 +48,9 @@ import random
 
 
 import numpy as np
+
+
+from torchvision import datasets
 
 
 from torch.autograd import Variable
@@ -168,7 +177,12 @@ class VGG19(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_znxlwm_pytorch_CartoonGAN(_paritybench_base):
     pass
+    @_fails_compile()
+    def test_000(self):
+        self._check(VGG19(*[], **{}), [torch.rand([25088, 25088])], {})
+

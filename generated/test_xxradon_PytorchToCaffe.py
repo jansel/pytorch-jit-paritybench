@@ -35,10 +35,13 @@ resnet = _module
 pytorch_analyser = _module
 pytorch_to_caffe = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -72,6 +75,12 @@ from collections import OrderedDict
 import math
 
 
+from torchvision.models import resnet
+
+
+import torchvision.transforms as transforms
+
+
 from torch.nn.parameter import Parameter
 
 
@@ -79,6 +88,12 @@ import copy
 
 
 import torch.nn.functional as F
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.resnet import resnet50
 
 
 import torch.utils.model_zoo as model_zoo
@@ -231,27 +246,6 @@ class Model(nn.Module):
             self.get_model().load_state_dict(torch.load(
                 '/home/wdd/Work/Pytorch/MGN-pytorch-master/experiment/test815/model/model_100.pt'
                 , **kwargs), strict=False)
-
-
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
-
-
-def resnet50(pretrained=False, **kwargs):
-    """Constructs a ResNet-50 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
-    return model
 
 
 class MGN(nn.Module):
@@ -468,6 +462,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xxradon_PytorchToCaffe(_paritybench_base):
@@ -477,4 +472,7 @@ class Test_xxradon_PytorchToCaffe(_paritybench_base):
 
     def test_001(self):
         self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

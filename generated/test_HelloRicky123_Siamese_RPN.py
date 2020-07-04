@@ -19,10 +19,13 @@ run_SiamRPN = _module
 tracker = _module
 train = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -59,6 +62,12 @@ from torch.multiprocessing import Pool
 from torch.multiprocessing import Manager
 
 
+import torchvision.transforms as transforms
+
+
+from torchvision.models import alexnet
+
+
 from torch.autograd import Variable
 
 
@@ -66,6 +75,9 @@ from torch import nn
 
 
 import torch.optim as optim
+
+
+import torchvision
 
 
 import torch.nn as nn
@@ -80,6 +92,9 @@ from torch.utils.data import DataLoader
 from collections import OrderedDict
 
 
+_global_config['exemplar_size'] = 4
+
+
 _global_config['anchor_num'] = 4
 
 
@@ -87,9 +102,6 @@ _global_config['instance_size'] = 4
 
 
 _global_config['total_stride'] = 1
-
-
-_global_config['exemplar_size'] = 4
 
 
 class SiameseAlexNet(nn.Module):
@@ -169,6 +181,7 @@ class SiameseAlexNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_HelloRicky123_Siamese_RPN(_paritybench_base):

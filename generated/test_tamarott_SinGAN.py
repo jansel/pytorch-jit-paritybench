@@ -17,10 +17,13 @@ main_train = _module
 paint2image = _module
 random_samples = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -36,6 +39,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torchvision import models
+
+
 import numpy as np
 
 
@@ -46,6 +52,9 @@ from scipy import linalg
 
 
 from torch.nn.functional import adaptive_avg_pool2d
+
+
+import torchvision
 
 
 import numpy
@@ -67,6 +76,15 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
 
 
 class InceptionV3(nn.Module):
@@ -173,7 +191,7 @@ class WDiscriminator(nn.Module):
 
     def __init__(self, opt):
         super(WDiscriminator, self).__init__()
-        self.is_cuda = torch.cuda.is_available()
+        self.is_cuda = torch.is_available()
         N = int(opt.nfc)
         self.head = ConvBlock(opt.nc_im, N, opt.ker_size, opt.padd_size, 1)
         self.body = nn.Sequential()
@@ -196,7 +214,7 @@ class GeneratorConcatSkip2CleanAdd(nn.Module):
 
     def __init__(self, opt):
         super(GeneratorConcatSkip2CleanAdd, self).__init__()
-        self.is_cuda = torch.cuda.is_available()
+        self.is_cuda = torch.is_available()
         N = opt.nfc
         self.head = ConvBlock(opt.nc_im, N, opt.ker_size, opt.padd_size, 1)
         self.body = nn.Sequential()
@@ -219,6 +237,7 @@ class GeneratorConcatSkip2CleanAdd(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_tamarott_SinGAN(_paritybench_base):

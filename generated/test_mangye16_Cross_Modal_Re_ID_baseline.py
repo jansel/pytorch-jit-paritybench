@@ -12,10 +12,13 @@ test = _module
 train = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,7 +64,13 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data as data
 
 
+import torchvision.transforms as transforms
+
+
 import torch.optim as optim
+
+
+import torchvision
 
 
 class OriTripletLoss(nn.Module):
@@ -101,6 +110,58 @@ class OriTripletLoss(nn.Module):
         y = torch.ones_like(dist_an)
         loss = self.ranking_loss(dist_an, dist_ap, y)
         correct = torch.ge(dist_an, dist_ap).sum().item()
+        return loss, correct
+
+
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 
+    0.224, 0.225])
+
+
+def pdist_torch(emb1, emb2):
+    """
+    compute the eucilidean distance matrix between embeddings1 and embeddings2
+    using gpu
+    """
+    m, n = emb1.shape[0], emb2.shape[0]
+    emb1_pow = torch.pow(emb1, 2).sum(dim=1, keepdim=True).expand(m, n)
+    emb2_pow = torch.pow(emb2, 2).sum(dim=1, keepdim=True).expand(n, m).t()
+    dist_mtx = emb1_pow + emb2_pow
+    dist_mtx = dist_mtx.addmm_(1, -2, emb1, emb2.t())
+    dist_mtx = dist_mtx.clamp(min=1e-12).sqrt()
+    return dist_mtx
+
+
+def softmax_weights(dist, mask):
+    max_v = torch.max(dist * mask, dim=1, keepdim=True)[0]
+    diff = dist - max_v
+    Z = torch.sum(torch.exp(diff) * mask, dim=1, keepdim=True) + 1e-06
+    W = torch.exp(diff) * mask / Z
+    return W
+
+
+class TripletLoss_WRT(nn.Module):
+    """Weighted Regularized Triplet'."""
+
+    def __init__(self):
+        super(TripletLoss_WRT, self).__init__()
+        self.ranking_loss = nn.SoftMarginLoss()
+
+    def forward(self, inputs, targets, normalize_feature=False):
+        if normalize_feature:
+            inputs = normalize(inputs, axis=-1)
+        dist_mat = pdist_torch(inputs, inputs)
+        N = dist_mat.size(0)
+        is_pos = targets.expand(N, N).eq(targets.expand(N, N).t()).float()
+        is_neg = targets.expand(N, N).ne(targets.expand(N, N).t()).float()
+        dist_ap = dist_mat * is_pos
+        dist_an = dist_mat * is_neg
+        weights_ap = softmax_weights(dist_ap, is_pos)
+        weights_an = softmax_weights(-dist_an, is_neg)
+        furthest_positive = torch.sum(dist_ap * weights_ap, dim=1)
+        closest_negative = torch.sum(dist_an * weights_an, dim=1)
+        y = furthest_positive.new().resize_as_(furthest_positive).fill_(1)
+        loss = self.ranking_loss(closest_negative - furthest_positive, y)
+        correct = torch.ge(closest_negative, furthest_positive).sum().item()
         return loss, correct
 
 
@@ -475,6 +536,7 @@ class ResNet(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
@@ -493,9 +555,20 @@ class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
     def test_003(self):
         self._check(OriTripletLoss(*[], **{'batch_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
+    @_fails_compile()
     def test_004(self):
-        self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(TripletLoss_WRT(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
 
     def test_005(self):
+        self._check(base_resnet(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_006(self):
+        self._check(embed_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+
+    def test_007(self):
+        self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+
+    def test_008(self):
         self._check(visible_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 

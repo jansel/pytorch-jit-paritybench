@@ -190,10 +190,13 @@ test_utils = _module
 test_visdom = _module
 test_writer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -248,6 +251,9 @@ from torch._utils import _flatten_dense_tensors
 from torch._utils import _unflatten_dense_tensors
 
 
+import numbers
+
+
 from torch.nn import init
 
 
@@ -290,6 +296,15 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.models as models
+
+
 import functools as ft
 
 
@@ -321,6 +336,9 @@ from torch.utils.data import TensorDataset
 
 
 from torch.utils.data import DataLoader
+
+
+import torchvision
 
 
 import logging
@@ -956,6 +974,501 @@ def split_half_float_double(tensors):
     return buckets
 
 
+class DistributedDataParallel(Module):
+    """
+    :class:`apex.parallel.DistributedDataParallel` is a module wrapper that enables
+    easy multiprocess distributed data parallel training, similar to ``torch.nn.parallel.DistributedDataParallel``.  Parameters are broadcast across participating processes on initialization, and gradients are
+    allreduced and averaged over processes during ``backward()``.
+
+    :class:`DistributedDataParallel` is optimized for use with NCCL.  It achieves high performance by 
+    overlapping communication with computation during ``backward()`` and bucketing smaller gradient
+    transfers to reduce the total number of transfers required.
+
+    :class:`DistributedDataParallel` is designed to work with the upstream launch utility script 
+    ``torch.distributed.launch`` with ``--nproc_per_node <= number of gpus per node``.
+    When used with this launcher, :class:`DistributedDataParallel` assumes 1:1 mapping of processes to GPUs.
+    It also assumes that your script calls ``torch.cuda.set_device(args.rank)`` before creating the model.
+
+    https://github.com/NVIDIA/apex/tree/master/examples/simple/distributed shows detailed usage.
+    https://github.com/NVIDIA/apex/tree/master/examples/imagenet shows another example
+    that combines :class:`DistributedDataParallel` with mixed precision training.
+
+    Args:
+        module: Network definition to be run in multi-gpu/distributed mode.
+        message_size (int, default=1e7): Minimum number of elements in a communication bucket.
+        delay_allreduce (bool, default=False):  Delay all communication to the end of the backward pass.  This disables overlapping communication with computation.
+        allreduce_trigger_params (list, optional, default=None):  If supplied, should contain a list of parameters drawn from the model.  Allreduces will be kicked off whenever one of these parameters receives its gradient (as opposed to when a bucket of size message_size is full).  At the end of backward(), a cleanup allreduce to catch any remaining gradients will also be performed automatically.  If allreduce_trigger_params is supplied, the message_size argument will be ignored.
+        allreduce_always_fp32 (bool, default=False):  Convert any FP16 gradients to FP32 before allreducing.  This can improve stability for widely scaled-out runs.
+        gradient_average (bool, default=True):  Option to toggle whether or not DDP averages the allreduced gradients over processes.  For proper scaling, the default value of True is recommended.
+        gradient_predivide_factor (float, default=1.0):  Allows perfoming the average of gradients over processes partially before and partially after the allreduce.  Before allreduce:  ``grads.mul_(1.0/gradient_predivide_factor)``.  After allreduce:  ``grads.mul_(gradient_predivide_factor/world size)``.  This can reduce the stress on the dynamic range of FP16 allreduces for widely scaled-out runs.
+
+    .. warning::
+        If ``gradient_average=False``, the pre-allreduce division (``grads.mul_(1.0/gradient_predivide_factor)``) will still be applied, but the post-allreduce gradient averaging (``grads.mul_(gradient_predivide_factor/world size)``) will be omitted.
+
+    """
+
+    def __init__(self, module, message_size=10000000, delay_allreduce=False,
+        shared_param=None, allreduce_trigger_params=None,
+        retain_allreduce_buffers=False, allreduce_always_fp32=False,
+        gradient_average=True, gradient_predivide_factor=1.0):
+        super(DistributedDataParallel, self).__init__()
+        if hasattr(dist, 'get_backend'):
+            self._backend = dist.get_backend()
+            if hasattr(dist, 'DistBackend'):
+                self.backend_enum_holder = dist.DistBackend
+            else:
+                self.backend_enum_holder = dist.Backend
+        else:
+            self._backend = dist._backend
+            self.backend_enum_holder = dist.dist_backend
+        self.warn_on_half = (True if self._backend == self.
+            backend_enum_holder.GLOO else False)
+        if shared_param is not None:
+            raise ValueError(
+                'shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.'
+                )
+        self.world_size = float(dist.get_world_size())
+        self.retain_allreduce_buffers = retain_allreduce_buffers
+        self.allreduce_always_fp32 = allreduce_always_fp32
+        self.gradient_average = gradient_average
+        self.gradient_predivide_factor = gradient_predivide_factor
+        self.custom_allreduce_triggers = False
+        if allreduce_trigger_params is not None:
+            if delay_allreduce:
+                raise ValueError(
+                    'Setting allreduce_trigger_params is only valid if delay_allreduce=False.'
+                    )
+            self.custom_allreduce_triggers = True
+            self.allreduce_trigger_params = set([id(param) for param in
+                allreduce_trigger_params])
+        self.delay_allreduce = delay_allreduce
+        self.message_size = message_size
+        self.reduction_stream = torch.Stream()
+        self.reduction_event = torch.Event(enable_timing=False, blocking=False)
+        self.module = module
+        self._disable_allreduce = False
+        if self._backend == self.backend_enum_holder.NCCL:
+            for param in self.module.parameters():
+                assert param.is_cuda, 'NCCL backend only supports model parameters to be on GPU.'
+        self.active_params = []
+        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0,
+            'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
+        if multi_tensor_applier.available:
+            self.multi_tensor_scale = amp_C.multi_tensor_scale
+            self._overflow_buf = torch.IntTensor([0])
+        self.create_hooks()
+        flat_dist_call([param.data for param in self.module.parameters()],
+            dist.broadcast, (0,))
+
+    def __setstate__(self, state):
+        super(DistributedDataParallel, self).__setstate__(state)
+        self.reduction_stream = torch.Stream()
+        self.reduction_event = torch.Event(enable_timing=False, blocking=False)
+
+    def __getstate__(self):
+        attrs = copy.copy(self.__dict__)
+        if self._backend != self.backend_enum_holder.NCCL:
+            del attrs['self.reduction_stream']
+            del attrs['self.reduction_event']
+            return attrs
+
+    def enable_allreduce(self):
+        self._disable_allreduce = False
+
+    def disable_allreduce(self):
+        self._disable_allreduce = True
+
+    def sync_bucket_structure(self):
+        for tmp_bucket in self.tmp_buckets:
+            if len(tmp_bucket) > 0:
+                self.active_i_buckets.append(tmp_bucket)
+        self.num_buckets = len(self.active_i_buckets)
+        self.bucket_sizes = [len(bucket) for bucket in self.active_i_buckets]
+        info_tensor = torch.IntTensor([self.num_buckets] + self.
+            bucket_sizes + list(chain(*self.active_i_buckets)))
+        dist.broadcast(info_tensor, 0)
+        info = [int(entry) for entry in info_tensor]
+        self.num_buckets = info[0]
+        self.bucket_sizes = info[1:self.num_buckets + 1]
+        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in
+            range(self.num_buckets)]
+        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])
+            ] for i in range(self.num_buckets)]
+        flattened_buckets = info[self.num_buckets + 1:]
+        flat_i = 0
+        for bucket_idx in range(self.num_buckets):
+            for bucket_loc in range(self.bucket_sizes[bucket_idx]):
+                param_i = flattened_buckets[flat_i]
+                self.active_i_buckets[bucket_idx][bucket_loc] = param_i
+                self.param_id_to_bucket[id(self.active_params[param_i])
+                    ] = bucket_idx, bucket_loc
+                flat_i += 1
+
+    def create_hooks(self):
+
+        def allreduce_params():
+            if not self.delay_allreduce:
+                if self.needs_refresh:
+                    self.sync_bucket_structure()
+                    self.needs_refresh = False
+            self.allreduce_fallback()
+
+        def overlapping_backward_epilogue():
+            self.reduction_stream.record_event(self.reduction_event)
+            torch.current_stream().wait_event(self.reduction_event)
+            if self.next_bucket != self.num_buckets:
+                raise RuntimeError(
+                    'In epilogue, next_bucket ({}) != num_buckets ({}).  '.
+                    format(self.next_bucket, self.num_buckets),
+                    'This probably indicates some buckets were not allreduced.'
+                    )
+            for actual, expected in zip(self.buckets_ready_size, self.
+                bucket_sizes):
+                if actual != expected:
+                    raise RuntimeError(
+                        'Some param buckets were not allreduced.')
+        self.grad_accs = []
+        for param in self.module.parameters():
+            if param.requires_grad:
+
+                def wrapper(param):
+                    param_tmp = param.expand_as(param)
+                    grad_acc = param_tmp.grad_fn.next_functions[0][0]
+
+                    def allreduce_hook(*unused):
+                        if not self._disable_allreduce:
+                            if self.delay_allreduce or self.needs_refresh:
+                                if (not self.delay_allreduce and self.
+                                    needs_refresh):
+                                    active_i = self.param_id_to_active_i[id
+                                        (param)]
+                                    current_type = self.param_type_to_tmp_i[
+                                        param.type()]
+                                    self.tmp_buckets[current_type].append(
+                                        active_i)
+                                    ship_tmp_bucket = False
+                                    if self.custom_allreduce_triggers:
+                                        if id(param
+                                            ) in self.allreduce_trigger_params:
+                                            ship_tmp_bucket = True
+                                    else:
+                                        self.tmp_numels[current_type
+                                            ] += param.numel()
+                                        if self.tmp_numels[current_type
+                                            ] >= self.message_size:
+                                            ship_tmp_bucket = True
+                                    if ship_tmp_bucket:
+                                        self.active_i_buckets.append(self.
+                                            tmp_buckets[current_type])
+                                        self.tmp_buckets[current_type] = []
+                                        self.tmp_numels[current_type] = 0
+                                if not self.callback_queued:
+                                    Variable._execution_engine.queue_callback(
+                                        allreduce_params)
+                                    self.callback_queued = True
+                            else:
+                                if not self.callback_queued:
+                                    Variable._execution_engine.queue_callback(
+                                        overlapping_backward_epilogue)
+                                    self.callback_queued = True
+                                self.comm_ready_buckets(param)
+                    grad_acc.register_hook(allreduce_hook)
+                    self.grad_accs.append(grad_acc)
+                wrapper(param)
+
+    def allreduce_bucket(self, bucket):
+        tensor = flatten(bucket)
+        tensor_to_allreduce = tensor
+        if self.allreduce_always_fp32:
+            tensor_to_allreduce = tensor.float()
+        if self.gradient_predivide_factor != 1.0:
+            tensor_to_allreduce.mul_(1.0 / self.gradient_predivide_factor)
+        dist.all_reduce(tensor_to_allreduce)
+        if self.gradient_average:
+            if self.gradient_predivide_factor != self.world_size:
+                tensor_to_allreduce.mul_(self.gradient_predivide_factor /
+                    self.world_size)
+        if self.allreduce_always_fp32 and tensor is not tensor_to_allreduce:
+            tensor.copy_(tensor_to_allreduce)
+        return tensor
+
+    def allreduce_maybe_retain(self, bucket, bucket_idx=-1):
+        allreduced = self.allreduce_bucket(bucket)
+        if self.retain_allreduce_buffers:
+            if self.allreduce_buffers[bucket_idx] is not None:
+                raise RuntimeError(
+                    'The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.'
+                    )
+            self.allreduce_buffers[bucket_idx] = allreduced
+        elif multi_tensor_applier.available:
+            multi_tensor_applier(self.multi_tensor_scale, self.
+                _overflow_buf, [unflatten(allreduced, bucket), bucket], 1.0)
+        else:
+            for buf, synced in zip(bucket, unflatten(allreduced, bucket)):
+                buf.copy_(synced)
+
+    def allreduce_fallback(self):
+        grads = [param.grad.data for param in self.module.parameters() if 
+            param.grad is not None]
+        split_buckets = split_half_float_double(grads)
+        if self.retain_allreduce_buffers:
+            self.allreduce_buffers = [None for _ in range(len(split_buckets))]
+        for i, bucket in enumerate(split_buckets):
+            allreduced = self.allreduce_maybe_retain(bucket, i)
+
+    def comm_ready_buckets(self, param):
+        bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
+        if self.buckets[bucket_idx][bucket_loc] is not None:
+            raise RuntimeError(
+                'The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.'
+                )
+        self.buckets[bucket_idx][bucket_loc] = param.grad.data
+        self.buckets_ready_size[bucket_idx] += 1
+        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx
+            ]:
+            if bucket_idx == self.next_bucket:
+                torch.current_stream().record_event(self.reduction_event)
+                self.reduction_stream.wait_event(self.reduction_event)
+                with torch.stream(self.reduction_stream):
+                    self.allreduce_maybe_retain(self.buckets[bucket_idx],
+                        bucket_idx)
+                    self.next_bucket += 1
+                    if len(self.ready_buckets_not_reduced) > 0:
+                        sorted_todo = sorted(self.ready_buckets_not_reduced)
+                        for i in sorted_todo:
+                            if i > self.next_bucket:
+                                break
+                            elif i == self.next_bucket:
+                                self.allreduce_maybe_retain(self.buckets[i], i)
+                                self.ready_buckets_not_reduced.remove(i)
+                                self.next_bucket += 1
+                            else:
+                                raise ValueError(
+                                    'i should always be >= next_bucket')
+            else:
+                self.ready_buckets_not_reduced.add(bucket_idx)
+
+    def forward(self, *inputs, **kwargs):
+        result = self.module(*inputs, **kwargs)
+        if not self._disable_allreduce:
+            if not self.delay_allreduce:
+                param_list = [param for param in self.module.parameters() if
+                    param.requires_grad]
+                if not self.active_params or len(param_list) != len(self.
+                    active_params) or any([(param1 is not param2) for 
+                    param1, param2 in zip(param_list, self.active_params)]):
+                    self.needs_refresh = True
+                if self.needs_refresh:
+                    self.active_i_buckets = []
+                    self.buckets = []
+                    self.tmp_buckets = [[], [], []]
+                    self.tmp_numels = [0, 0, 0]
+                    self.bucket_sizes = []
+                    self.param_id_to_active_i = {id(param): i for i, param in
+                        enumerate(param_list)}
+                    self.param_id_to_bucket = {}
+                else:
+                    self.buckets = [[None for _ in range(self.bucket_sizes[
+                        i])] for i in range(self.num_buckets)]
+                    self.buckets_ready_size = [(0) for i in range(self.
+                        num_buckets)]
+                    if self.retain_allreduce_buffers:
+                        self.allreduce_buffers = [None for _ in range(self.
+                            num_buckets)]
+                    self.next_bucket = 0
+                    self.ready_buckets_not_reduced = set()
+                self.active_params = param_list
+            self.callback_queued = False
+        return result
+
+
+class SyncBatchnormFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, weight, bias, running_mean, running_variance,
+        eps, track_running_stats=True, momentum=1.0, process_group=None,
+        channel_last=False):
+        torch.cuda.nvtx.range_push('sync_BN_fw')
+        input = input.contiguous()
+        world_size = 0
+        mean = None
+        var_biased = None
+        inv_std = None
+        var = None
+        out = None
+        count = None
+        if track_running_stats:
+            if channel_last:
+                count = int(input.numel() / input.size(-1))
+                mean, var_biased = syncbn.welford_mean_var_c_last(input)
+            else:
+                count = int(input.numel() / input.size(1))
+                mean, var_biased = syncbn.welford_mean_var(input)
+            if torch.distributed.is_initialized():
+                if not process_group:
+                    process_group = torch.distributed.group.WORLD
+                world_size = torch.distributed.get_world_size(process_group)
+                mean_all = torch.empty(world_size, mean.size(0), dtype=mean
+                    .dtype, device=mean.device)
+                var_all = torch.empty(world_size, var_biased.size(0), dtype
+                    =var_biased.dtype, device=var_biased.device)
+                mean_l = [mean_all.narrow(0, i, 1) for i in range(world_size)]
+                var_l = [var_all.narrow(0, i, 1) for i in range(world_size)]
+                torch.distributed.all_gather(mean_l, mean, process_group)
+                torch.distributed.all_gather(var_l, var_biased, process_group)
+                mean, var, inv_std = syncbn.welford_parallel(mean_all,
+                    var_all, count, eps)
+            else:
+                inv_std = 1.0 / torch.sqrt(var_biased + eps)
+                var = var_biased * count / (count - 1)
+            if count == 1 and world_size < 2:
+                raise ValueError(
+                    'Expected more than 1 value per channel when training, got input size{}'
+                    .format(input.size()))
+            r_m_inc = (mean if running_mean.dtype != torch.float16 else
+                mean.half())
+            r_v_inc = (var if running_variance.dtype != torch.float16 else
+                var.half())
+            running_mean.data = running_mean.data * (1 - momentum
+                ) + momentum * r_m_inc
+            running_variance.data = running_variance.data * (1 - momentum
+                ) + momentum * r_v_inc
+        else:
+            mean = running_mean.data
+            inv_std = 1.0 / torch.sqrt(running_variance.data + eps)
+        ctx.save_for_backward(input, weight, mean, inv_std)
+        ctx.process_group = process_group
+        ctx.channel_last = channel_last
+        ctx.world_size = world_size
+        if channel_last:
+            out = syncbn.batchnorm_forward_c_last(input, mean, inv_std,
+                weight, bias)
+        else:
+            out = syncbn.batchnorm_forward(input, mean, inv_std, weight, bias)
+        torch.cuda.nvtx.range_pop()
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.contiguous()
+        torch.cuda.nvtx.range_push('sync_BN_bw')
+        saved_input, weight, mean, inv_std = ctx.saved_tensors
+        process_group = ctx.process_group
+        channel_last = ctx.channel_last
+        world_size = ctx.world_size
+        grad_input = grad_weight = grad_bias = None
+        if channel_last:
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = (syncbn.
+                reduce_bn_c_last(grad_output, saved_input, mean, inv_std,
+                weight))
+        else:
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(
+                grad_output, saved_input, mean, inv_std, weight)
+        if ctx.needs_input_grad[0]:
+            if torch.distributed.is_initialized():
+                torch.distributed.all_reduce(mean_dy, ReduceOp.SUM,
+                    process_group)
+                mean_dy = mean_dy / world_size
+                torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM,
+                    process_group)
+                mean_dy_xmu = mean_dy_xmu / world_size
+            if channel_last:
+                grad_input = syncbn.batchnorm_backward_c_last(grad_output,
+                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+            else:
+                grad_input = syncbn.batchnorm_backward(grad_output,
+                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+        if weight is None or not ctx.needs_input_grad[1]:
+            grad_weight = None
+        if weight is None or not ctx.needs_input_grad[2]:
+            grad_bias = None
+        torch.cuda.nvtx.range_pop()
+        return (grad_input, grad_weight, grad_bias, None, None, None, None,
+            None, None, None)
+
+
+class SyncBatchNorm(_BatchNorm):
+    """
+    synchronized batch normalization module extented from `torch.nn.BatchNormNd`
+    with the added stats reduction across multiple processes.
+    :class:`apex.parallel.SyncBatchNorm` is designed to work with
+    `DistributedDataParallel`.
+
+    When running in training mode, the layer reduces stats across all processes
+    to increase the effective batchsize for normalization layer. This is useful
+    in applications where batch size is small on a given process that would
+    diminish converged accuracy of the model. The model uses collective
+    communication package from `torch.distributed`.
+
+    When running in evaluation mode, the layer falls back to
+    `torch.nn.functional.batch_norm`
+
+    Args:
+        num_features: :math:`C` from an expected input of size
+            :math:`(N, C, L)` or :math:`L` from input of size :math:`(N, L)`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Can be set to ``None`` for cumulative moving average
+            (i.e. simple average). Default: 0.1
+        affine: a boolean value that when set to ``True``, this module has
+            learnable affine parameters. Default: ``True``
+        track_running_stats: a boolean value that when set to ``True``, this
+            module tracks the running mean and variance, and when set to ``False``,
+            this module does not track such statistics and always uses batch
+            statistics in both training and eval modes. Default: ``True``
+        process_group: pass in a process group within which the stats of the
+            mini-batch is being synchronized. ``None`` for using default process
+            group
+        channel_last: a boolean value that when set to ``True``, this module
+            take the last dimension of the input tensor to be the channel
+            dimension. Default: False
+
+    Examples::
+        >>> # channel first tensor
+        >>> sbn = apex.parallel.SyncBatchNorm(100).cuda()
+        >>> inp = torch.randn(10, 100, 14, 14).cuda()
+        >>> out = sbn(inp)
+        >>> inp = torch.randn(3, 100, 20).cuda()
+        >>> out = sbn(inp)
+        >>> # channel last tensor
+        >>> sbn = apex.parallel.SyncBatchNorm(100, channel_last=True).cuda()
+        >>> inp = torch.randn(10, 14, 14, 100).cuda()
+    """
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
+        track_running_stats=True, process_group=None, channel_last=False):
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
+            =momentum, affine=affine, track_running_stats=track_running_stats)
+        self.process_group = process_group
+        self.channel_last = channel_last
+
+    def _specify_process_group(self, process_group):
+        self.process_group = process_group
+
+    def _specify_channel_last(self, channel_last):
+        self.channel_last = channel_last
+
+    def forward(self, input):
+        channel_last = self.channel_last if input.dim() != 2 else True
+        if not self.training and self.track_running_stats and not channel_last:
+            return F.batch_norm(input, self.running_mean, self.running_var,
+                self.weight, self.bias, False, 0.0, self.eps)
+        else:
+            exponential_average_factor = 0.0
+            if self.training and self.track_running_stats:
+                self.num_batches_tracked += 1
+                if self.momentum is None:
+                    exponential_average_factor = 1.0 / float(self.
+                        num_batches_tracked)
+                else:
+                    exponential_average_factor = self.momentum
+            return SyncBatchnormFunction.apply(input, self.weight, self.
+                bias, self.running_mean, self.running_var, self.eps, self.
+                training or not self.track_running_stats,
+                exponential_average_factor, self.process_group, channel_last)
+
+
 class SyncBatchNorm(_BatchNorm):
     """
     synchronized batch normalization module extented from ``torch.nn.BatchNormNd``
@@ -1014,7 +1527,7 @@ class SyncBatchNorm(_BatchNorm):
         self.process_group = process_group
 
     def forward(self, input):
-        torch.cuda.nvtx.range_push('sync_bn_fw_with_mean_var')
+        torch.nvtx.range_push('sync_bn_fw_with_mean_var')
         mean = None
         var = None
         cast = None
@@ -1028,7 +1541,7 @@ class SyncBatchNorm(_BatchNorm):
                 input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
-            torch.cuda.nvtx.range_pop()
+            torch.nvtx.range_pop()
             out = F.batch_norm(input, self.running_mean, self.running_var,
                 self.weight, self.bias, False, 0.0, self.eps)
         else:
@@ -1067,7 +1580,7 @@ class SyncBatchNorm(_BatchNorm):
                 if self.running_var is not None:
                     self.running_var = m / (m - 1) * self.momentum * var + (
                         1 - self.momentum) * self.running_var
-            torch.cuda.nvtx.range_pop()
+            torch.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
                 mean, var, self.eps, process_group, world_size)
         out = out
@@ -1196,8 +1709,8 @@ class Model(Module):
 
     def __init__(self):
         super(Model, self).__init__()
-        self.a = Parameter(torch.cuda.FloatTensor(4096 * 4096).fill_(1.0))
-        self.b = Parameter(torch.cuda.FloatTensor(4096 * 4096).fill_(2.0))
+        self.a = Parameter(torch.FloatTensor(4096 * 4096).fill_(1.0))
+        self.b = Parameter(torch.FloatTensor(4096 * 4096).fill_(2.0))
 
     def forward(self, input):
         return input * self.a * self.b
@@ -1812,6 +2325,550 @@ def create_reverse_lookup(atoi):
 accepted = frozenset([chr(i) for i in range(ord('a'), ord('z') + 1)] + [chr
     (i) for i in range(ord('A'), ord('Z') + 1)] + [chr(i) for i in range(
     ord('0'), ord('9') + 1)])
+
+
+rex = re.compile('_+')
+
+
+def norm(s):
+    s = ''.join([(c if c in accepted else '_') for c in s.lower()])
+    s = rex.sub('_', s).strip('_')
+    return s
+
+
+class ArtistGenreProcessor:
+
+    def __init__(self, v3=False):
+        self.v3 = v3
+        dirname = os.path.dirname(__file__)
+        if self.v3:
+            self.artist_id_file = f'{dirname}/ids/v3_artist_ids.txt'
+            self.genre_id_file = f'{dirname}/ids/v3_genre_ids.txt'
+        else:
+            self.artist_id_file = f'{dirname}/ids/v2_artist_ids.txt'
+            self.genre_id_file = f'{dirname}/ids/v2_genre_ids.txt'
+        self.load_artists()
+        self.load_genres()
+
+    def get_artist_id(self, artist):
+        input_artist = artist
+        if self.v3:
+            artist = artist.lower()
+        else:
+            artist = norm(artist)
+        if artist not in self.artist_ids:
+            print(
+                f'Input artist {input_artist} maps to {artist}, which is not present in {self.artist_id_file}. Defaulting to (artist_id, artist) = (0, unknown), if that seems wrong please format artist correctly'
+                )
+        return self.artist_ids.get(artist, 0)
+
+    def get_genre_ids(self, genre):
+        if self.v3:
+            genres = [genre.lower()]
+        else:
+            genres = norm(genre).split('_')
+        for word in genres:
+            if word not in self.genre_ids:
+                print(
+                    f'Input genre {genre} maps to the list {genres}. {word} is not present in {self.genre_id_file}. Defaulting to (word_id, word) = (0, unknown), if that seems wrong please format genre correctly'
+                    )
+        return [self.genre_ids.get(word, 0) for word in genres]
+
+    def get_artist(self, artist_id):
+        return self.artists[artist_id]
+
+    def get_genre(self, genre_ids):
+        if self.v3:
+            assert len(genre_ids) == 1
+            genre = self.genres[genre_ids[0]]
+        else:
+            genre = '_'.join([self.genres[genre_id] for genre_id in
+                genre_ids if genre_id >= 0])
+        return genre
+
+    def load_artists(self):
+        print(f'Loading artist IDs from {self.artist_id_file}')
+        self.artist_ids = {}
+        with open(self.artist_id_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                artist, artist_id = line.strip().split(';')
+                self.artist_ids[artist.lower()] = int(artist_id)
+        self.artists = create_reverse_lookup(self.artist_ids)
+
+    def load_genres(self):
+        print(f'Loading artist IDs from {self.genre_id_file}')
+        self.genre_ids = {}
+        with open(self.genre_id_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                genre, genre_id = line.strip().split(';')
+                self.genre_ids[genre.lower()] = int(genre_id)
+        self.genres = create_reverse_lookup(self.genre_ids)
+
+
+class TextProcessor:
+
+    def __init__(self, v3=False):
+        if v3:
+            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-'"()[] 	
+"""
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
+        else:
+            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+'"()[] 	
+"""
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
+        self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
+        self.vocab['<unk>'] = 0
+        self.n_vocab = len(vocab) + 1
+        self.tokens = {v: k for k, v in self.vocab.items()}
+        self.tokens[0] = ''
+        self.not_vocab = not_vocab
+
+    def clean(self, text):
+        text = unidecode(text)
+        text = text.replace('\\', '\n')
+        text = self.not_vocab.sub('', text)
+        return text
+
+    def tokenise(self, text):
+        return [self.vocab[char] for char in text]
+
+    def textise(self, tokens):
+        return ''.join([self.tokens[token] for token in tokens])
+
+    def characterise(self, tokens):
+        return [self.tokens[token] for token in tokens]
+
+
+def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset,
+    duration):
+    if len(full_tokens) < n_tokens:
+        tokens = [0] * (n_tokens - len(full_tokens)) + full_tokens
+        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(
+            full_tokens)))
+    else:
+        assert 0 <= offset < total_length
+        midpoint = int(len(full_tokens) * (offset + duration / 2.0) /
+            total_length)
+        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - 
+            n_tokens // 2)
+        tokens = full_tokens[midpoint - n_tokens // 2:midpoint + n_tokens // 2]
+        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens //
+            2))
+    assert len(tokens
+        ) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
+    assert len(indices
+        ) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
+    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in
+        indices]
+    return tokens, indices
+
+
+class Labeller:
+
+    def __init__(self, max_genre_words, n_tokens, sample_length, v3=False):
+        self.ag_processor = ArtistGenreProcessor(v3)
+        self.text_processor = TextProcessor(v3)
+        self.n_tokens = n_tokens
+        self.max_genre_words = max_genre_words
+        self.sample_length = sample_length
+        self.label_shape = 4 + self.max_genre_words + self.n_tokens,
+
+    def get_label(self, artist, genre, lyrics, total_length, offset):
+        artist_id = self.ag_processor.get_artist_id(artist)
+        genre_ids = self.ag_processor.get_genre_ids(genre)
+        lyrics = self.text_processor.clean(lyrics)
+        full_tokens = self.text_processor.tokenise(lyrics)
+        tokens, _ = get_relevant_lyric_tokens(full_tokens, self.n_tokens,
+            total_length, offset, self.sample_length)
+        assert len(genre_ids) <= self.max_genre_words
+        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
+        y = np.array([total_length, offset, self.sample_length, artist_id,
+            *genre_ids, *tokens], dtype=np.int64)
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        info = dict(artist=artist, genre=genre, lyrics=lyrics, full_tokens=
+            full_tokens)
+        return dict(y=y, info=info)
+
+    def get_y_from_ids(self, artist_id, genre_ids, lyric_tokens,
+        total_length, offset):
+        assert len(genre_ids) <= self.max_genre_words
+        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
+        if self.n_tokens > 0:
+            assert len(lyric_tokens) == self.n_tokens
+        else:
+            lyric_tokens = []
+        y = np.array([total_length, offset, self.sample_length, artist_id,
+            *genre_ids, *lyric_tokens], dtype=np.int64)
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        return y
+
+    def get_batch_labels(self, metas, device='cpu'):
+        ys, infos = [], []
+        for meta in metas:
+            label = self.get_label(**meta)
+            y, info = label['y'], label['info']
+            ys.append(y)
+            infos.append(info)
+        ys = t.stack([t.from_numpy(y) for y in ys], dim=0).to(device).long()
+        assert ys.shape[0] == len(metas)
+        assert len(infos) == len(metas)
+        return dict(y=ys, info=infos)
+
+    def set_y_lyric_tokens(self, ys, labels):
+        info = labels['info']
+        assert ys.shape[0] == len(info)
+        if self.n_tokens > 0:
+            tokens_list = []
+            indices_list = []
+            for i in range(ys.shape[0]):
+                full_tokens = info[i]['full_tokens']
+                total_length, offset, duration = ys[i, 0], ys[i, 1], ys[i, 2]
+                tokens, indices = get_relevant_lyric_tokens(full_tokens,
+                    self.n_tokens, total_length, offset, duration)
+                tokens_list.append(tokens)
+                indices_list.append(indices)
+            ys[:, -self.n_tokens:] = t.tensor(tokens_list, dtype=t.long,
+                device='cuda')
+            return indices_list
+        else:
+            return None
+
+    def describe_label(self, y):
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        y = np.array(y).tolist()
+        total_length, offset, length, artist_id, *genre_ids = y[:4 + self.
+            max_genre_words]
+        tokens = y[4 + self.max_genre_words:]
+        artist = self.ag_processor.get_artist(artist_id)
+        genre = self.ag_processor.get_genre(genre_ids)
+        lyrics = self.text_processor.textise(tokens)
+        return dict(artist=artist, genre=genre, lyrics=lyrics)
+
+
+def calculate_strides(strides, downs):
+    return [(stride ** down) for stride, down in zip(strides, downs)]
+
+
+def print_once(msg):
+    if not dist.is_available() or dist.get_rank() == 0:
+        print(msg)
+
+
+class SimplePrior(nn.Module):
+
+    def __init__(self, z_shapes, l_bins, encoder, decoder, level, downs_t,
+        strides_t, labels, prior_kwargs, x_cond_kwargs, y_cond_kwargs,
+        prime_kwargs, copy_input, labels_v3=False, merged_decoder=False,
+        single_enc_dec=False):
+        super().__init__()
+        self.use_tokens = prime_kwargs.pop('use_tokens')
+        self.n_tokens = prime_kwargs.pop('n_tokens')
+        self.prime_loss_fraction = prime_kwargs.pop('prime_loss_fraction')
+        self.copy_input = copy_input
+        if self.copy_input:
+            prime_kwargs['bins'] = l_bins
+        self.z_shapes = z_shapes
+        self.levels = len(self.z_shapes)
+        self.z_shape = self.z_shapes[level]
+        self.level = level
+        assert level < self.levels, f'Total levels {self.levels}, got level {level}'
+        self.l_bins = l_bins
+        self.encoder = encoder
+        self.decoder = decoder
+        self.x_cond = level != self.levels - 1
+        self.cond_level = level + 1
+        self.y_cond = labels
+        self.single_enc_dec = single_enc_dec
+        if self.x_cond:
+            self.conditioner_blocks = nn.ModuleList()
+            conditioner_block = lambda _level: Conditioner(input_shape=
+                z_shapes[_level], bins=l_bins, down_t=downs_t[_level],
+                stride_t=strides_t[_level], **x_cond_kwargs)
+            if dist.get_rank() == 0:
+                None
+            self.conditioner_blocks.append(conditioner_block(self.cond_level))
+        if self.y_cond:
+            self.n_time = self.z_shape[0]
+            self.y_emb = LabelConditioner(n_time=self.n_time,
+                include_time_signal=not self.x_cond, **y_cond_kwargs)
+        if single_enc_dec:
+            self.prior_shapes = [(self.n_tokens,), prior_kwargs.pop(
+                'input_shape')]
+            self.prior_bins = [prime_kwargs['bins'], prior_kwargs.pop('bins')]
+            self.prior_dims = [np.prod(shape) for shape in self.prior_shapes]
+            self.prior_bins_shift = np.cumsum([0, *self.prior_bins])[:-1]
+            self.prior_width = prior_kwargs['width']
+            print_once(
+                f'Creating cond. autoregress with prior bins {self.prior_bins}, '
+                )
+            print_once(f'dims {self.prior_dims}, ')
+            print_once(f'shift {self.prior_bins_shift}')
+            print_once(f'input shape {sum(self.prior_dims)}')
+            print_once(f'input bins {sum(self.prior_bins)}')
+            print_once(f'Self copy is {self.copy_input}')
+            self.prime_loss_dims, self.gen_loss_dims = self.prior_dims[0
+                ], self.prior_dims[1]
+            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
+            self.prior = ConditionalAutoregressive2D(input_shape=(sum(self.
+                prior_dims),), bins=sum(self.prior_bins), x_cond=self.
+                x_cond or self.y_cond, y_cond=True, prime_len=self.
+                prime_loss_dims, **prior_kwargs)
+        else:
+            if self.n_tokens != 0 and self.use_tokens:
+                prime_input_shape = self.n_tokens,
+                self.prime_loss_dims = np.prod(prime_input_shape)
+                self.prime_acts_width, self.prime_state_width = prime_kwargs[
+                    'width'], prior_kwargs['width']
+                self.prime_prior = ConditionalAutoregressive2D(input_shape=
+                    prime_input_shape, x_cond=False, y_cond=False,
+                    only_encode=True, **prime_kwargs)
+                self.prime_state_proj = Conv1D(self.prime_acts_width, self.
+                    prime_state_width, init_scale=prime_kwargs['init_scale'])
+                self.prime_state_ln = LayerNorm(self.prime_state_width)
+                self.prime_bins = prime_kwargs['bins']
+                self.prime_x_out = nn.Linear(self.prime_state_width, self.
+                    prime_bins, bias=False)
+                nn.init.normal_(self.prime_x_out.weight, std=0.02 *
+                    prior_kwargs['init_scale'])
+            else:
+                self.prime_loss_dims = 0
+            self.gen_loss_dims = np.prod(self.z_shape)
+            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
+            self.prior = ConditionalAutoregressive2D(x_cond=self.x_cond or
+                self.y_cond, y_cond=self.y_cond, encoder_dims=self.
+                prime_loss_dims, merged_decoder=merged_decoder, **prior_kwargs)
+        self.n_ctx = self.gen_loss_dims
+        self.downsamples = calculate_strides(strides_t, downs_t)
+        self.cond_downsample = self.downsamples[level + 1
+            ] if level != self.levels - 1 else None
+        self.raw_to_tokens = np.prod(self.downsamples[:level + 1])
+        self.sample_length = self.n_ctx * self.raw_to_tokens
+        if labels:
+            self.labels_v3 = labels_v3
+            self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.
+                n_tokens, self.sample_length, v3=self.labels_v3)
+        None
+
+    def get_y(self, labels, start, get_indices=False):
+        y = labels['y'].clone()
+        y[:, (2)] = int(self.sample_length)
+        y[:, 1:2] = y[:, 1:2] + int(start * self.raw_to_tokens)
+        indices = self.labeller.set_y_lyric_tokens(y, labels)
+        if get_indices:
+            return y, indices
+        else:
+            return y
+
+    def get_z_conds(self, zs, start, end):
+        if self.level != self.levels - 1:
+            assert start % self.cond_downsample == end % self.cond_downsample == 0
+            z_cond = zs[self.level + 1][:, start // self.cond_downsample:
+                end // self.cond_downsample]
+            assert z_cond.shape[1] == self.n_ctx // self.cond_downsample
+            z_conds = [z_cond]
+        else:
+            z_conds = None
+        return z_conds
+
+    def prior_preprocess(self, xs, conds):
+        N = xs[0].shape[0]
+        for i in range(len(xs)):
+            x, shape, dims = xs[i], self.prior_shapes[i], self.prior_dims[i]
+            bins, bins_shift = int(self.prior_bins[i]), int(self.
+                prior_bins_shift[i])
+            assert isinstance(x, t.cuda.LongTensor), x
+            assert (0 <= x).all() and (x < bins).all()
+            xs[i] = (xs[i] + bins_shift).view(N, -1)
+        for i in range(len(conds)):
+            cond, shape, dims = conds[i], self.prior_shapes[i
+                ], self.prior_dims[i]
+            if cond is not None:
+                assert_shape(cond, (N, dims, self.prior_width))
+            else:
+                conds[i] = t.zeros((N, dims, self.prior_width), dtype=t.
+                    float, device='cuda')
+        return t.cat(xs, dim=1), t.cat(conds, dim=1)
+
+    def prior_postprocess(self, z):
+        N = z.shape[0]
+        dims = self.prior_dims[0], z.shape[1] - self.prior_dims[0]
+        xs = list(t.split(z, dims, dim=1))
+        for i in range(len(xs)):
+            shape = self.prior_shapes[i]
+            bins, bins_shift = int(self.prior_bins[i]), int(self.
+                prior_bins_shift[i])
+            xs[i] = (xs[i] - bins_shift).view(N, -1, *shape[1:])
+            xs[i] = t.clamp(xs[i], min=0)
+            assert (xs[i] < bins).all(
+                ), f'rank: {dist.get_rank()}, bins: {bins}, dims {dims}, shape {shape}, prior_shape {self.prior_shapes}, bins_shift {bins_shift}, xs[i]: {xs[i]}'
+        return xs[-1]
+
+    def x_emb(self, z_conds):
+        z_conds = z_conds[:self.cond_level - self.level]
+        assert len(z_conds) == len(self.conditioner_blocks
+            ) == self.cond_level - self.level, f'Expected {len(z_conds)} == {len(self.conditioner_blocks)} == {self.cond_level} - {self.level}'
+        x_cond = None
+        for z_cond, conditioner_block in reversed(list(zip(z_conds, self.
+            conditioner_blocks))):
+            x_cond = conditioner_block(z_cond, x_cond)
+        return x_cond
+
+    def encode(self, x, start_level=None, end_level=None, bs_chunks=1):
+        if start_level == None:
+            start_level = self.level
+        if end_level == None:
+            end_level = self.levels
+        with t.no_grad():
+            zs = self.encoder(x, start_level=start_level, end_level=
+                end_level, bs_chunks=bs_chunks)
+        return zs
+
+    def decode(self, zs, start_level=None, end_level=None, bs_chunks=1):
+        if start_level == None:
+            start_level = self.level
+        if end_level == None:
+            end_level = self.levels
+        assert len(zs) == end_level - start_level
+        with t.no_grad():
+            x_out = self.decoder(zs, start_level=start_level, end_level=
+                end_level, bs_chunks=bs_chunks)
+        return x_out
+
+    def get_cond(self, z_conds, y):
+        if y is not None:
+            assert y.shape[1
+                ] == 4 + self.y_emb.max_bow_genre_size + self.n_tokens, f'Expected {4} + {self.y_emb.max_bow_genre_size} + {self.n_tokens}, got {y.shape[1]}'
+            n_labels = y.shape[1] - self.n_tokens
+            y, prime = y[:, :n_labels], y[:, n_labels:]
+        else:
+            y, prime = None, None
+        y_cond, y_pos = self.y_emb(y) if self.y_cond else (None, None)
+        x_cond = self.x_emb(z_conds) if self.x_cond else y_pos
+        return x_cond, y_cond, prime
+
+    def sample(self, n_samples, z=None, z_conds=None, y=None, fp16=False,
+        temp=1.0, top_k=0, top_p=0.0, chunk_size=None, sample_tokens=None):
+        N = n_samples
+        if z is not None:
+            assert z.shape[0
+                ] == N, f'Expected shape ({N},**), got shape {z.shape}'
+        if y is not None:
+            assert y.shape[0
+                ] == N, f'Expected shape ({N},**), got shape {y.shape}'
+        if z_conds is not None:
+            for z_cond in z_conds:
+                assert z_cond.shape[0
+                    ] == N, f'Expected shape ({N},**), got shape {z_cond.shape}'
+        no_past_context = z is None or z.shape[1] == 0
+        if dist.get_rank() == 0:
+            name = {(True): 'Ancestral', (False): 'Primed'}[no_past_context]
+            None
+        with t.no_grad():
+            x_cond, y_cond, prime = self.get_cond(z_conds, y)
+            if self.single_enc_dec:
+                if no_past_context:
+                    z, x_cond = self.prior_preprocess([prime], [None, x_cond])
+                else:
+                    z, x_cond = self.prior_preprocess([prime, z], [None,
+                        x_cond])
+                if sample_tokens is not None:
+                    sample_tokens += self.n_tokens
+                z = self.prior.primed_sample(n_samples, z, x_cond, y_cond,
+                    fp16=fp16, temp=temp, top_k=top_k, top_p=top_p,
+                    chunk_size=chunk_size, sample_tokens=sample_tokens)
+                z = self.prior_postprocess(z)
+            else:
+                encoder_kv = self.get_encoder_kv(prime, fp16=fp16, sample=True)
+                if no_past_context:
+                    z = self.prior.sample(n_samples, x_cond, y_cond,
+                        encoder_kv, fp16=fp16, temp=temp, top_k=top_k,
+                        top_p=top_p, sample_tokens=sample_tokens)
+                else:
+                    z = self.prior.primed_sample(n_samples, z, x_cond,
+                        y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=
+                        top_k, top_p=top_p, chunk_size=chunk_size,
+                        sample_tokens=sample_tokens)
+            if sample_tokens is None:
+                assert_shape(z, (N, *self.z_shape))
+        return z
+
+    def get_encoder_kv(self, prime, fp16=False, sample=False):
+        if self.n_tokens != 0 and self.use_tokens:
+            if sample:
+                self.prime_prior
+            N = prime.shape[0]
+            prime_acts = self.prime_prior(prime, None, None, None, fp16=fp16)
+            assert_shape(prime_acts, (N, self.prime_loss_dims, self.
+                prime_acts_width))
+            assert prime_acts.dtype == t.float, f'Expected t.float, got {prime_acts.dtype}'
+            encoder_kv = self.prime_state_ln(self.prime_state_proj(prime_acts))
+            assert encoder_kv.dtype == t.float, f'Expected t.float, got {encoder_kv.dtype}'
+            if sample:
+                self.prime_prior.cpu()
+                if fp16:
+                    encoder_kv = encoder_kv.half()
+        else:
+            encoder_kv = None
+        return encoder_kv
+
+    def get_prime_loss(self, encoder_kv, prime_t):
+        if self.use_tokens:
+            encoder_kv = encoder_kv.float()
+            encoder_kv = self.prime_x_out(encoder_kv)
+            prime_loss = nn.functional.cross_entropy(encoder_kv.view(-1,
+                self.prime_bins), prime_t.view(-1)) / np.log(2.0)
+        else:
+            prime_loss = t.tensor(0.0, device='cuda')
+        return prime_loss
+
+    def z_forward(self, z, z_conds=[], y=None, fp16=False, get_preds=False,
+        get_attn_weights=False):
+        """
+        Arguments:
+            get_attn_weights (bool or set): Makes forward prop dump
+                self-attention softmaxes to self.prior.transformer.ws. Either a
+                set of layer indices indicating which layers to store, or a
+                boolean value indicating whether to dump all.
+        """
+        assert isinstance(get_attn_weights, (bool, set))
+        if get_attn_weights:
+            self.prior.transformer.set_record_attn(get_attn_weights)
+        x_cond, y_cond, prime = self.get_cond(z_conds, y)
+        if self.copy_input:
+            prime = z[:, :self.n_tokens]
+        if self.single_enc_dec:
+            z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
+            (prime_loss, gen_loss), preds = self.prior(z, x_cond, y_cond,
+                fp16=fp16, get_sep_loss=True, get_preds=get_preds)
+        else:
+            encoder_kv = self.get_encoder_kv(prime, fp16=fp16)
+            prime_loss = self.get_prime_loss(encoder_kv, prime)
+            gen_loss, preds = self.prior(z, x_cond, y_cond, encoder_kv,
+                fp16=fp16, get_preds=get_preds)
+        loss = (self.prime_loss_fraction * prime_loss * self.
+            prime_loss_dims / self.total_loss_dims + gen_loss * self.
+            gen_loss_dims / self.total_loss_dims)
+        metrics = dict(bpd=gen_loss.clone().detach(), prime_loss=prime_loss
+            .clone().detach(), gen_loss=gen_loss.clone().detach())
+        if get_preds:
+            metrics['preds'] = preds.clone().detach()
+        if get_attn_weights:
+            ws = self.prior.transformer.ws
+            self.prior.transformer.set_record_attn(False)
+            return ws
+        else:
+            return loss, metrics
+
+    def forward(self, x, y=None, fp16=False, decode=False, get_preds=False):
+        bs = x.shape[0]
+        z, *z_conds = self.encode(x, bs_chunks=bs)
+        loss, metrics = self.z_forward(z=z, z_conds=z_conds, y=y, fp16=fp16,
+            get_preds=get_preds)
+        if decode:
+            x_out = self.decode([z, *z_conds])
+        else:
+            x_out = None
+        return x_out, loss, metrics
 
 
 class CheckpointFunction(t.autograd.Function):
@@ -3049,10 +4106,6 @@ def average_metrics(_metrics):
     return {key: (sum(vals) / len(vals)) for key, vals in metrics.items()}
 
 
-def calculate_strides(strides, downs):
-    return [(stride ** down) for stride, down in zip(strides, downs)]
-
-
 class STFTValues:
 
     def __init__(self, hps, n_fft, hop_length, window_size):
@@ -3481,6 +4534,7 @@ class RNN(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_openai_jukebox(_paritybench_base):
@@ -3522,39 +4576,41 @@ class Test_openai_jukebox(_paritybench_base):
         self._check(Mask(*[], **{'n_ctx': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_010(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(Model(*[], **{}), [torch.rand([4, 16777216])], {})
 
     def test_011(self):
+        self._check(MultipleInput(*[], **{}), [torch.rand([3, 3]), torch.rand([3, 3])], {})
+
+    def test_012(self):
+        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+
+    def test_013(self):
         self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
 
     @_fails_compile()
-    def test_012(self):
+    def test_014(self):
         self._check(NoBottleneck(*[], **{'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_013(self):
+    def test_015(self):
         self._check(PositionEmbedding(*[], **{'input_shape': 4, 'width': 4}), [], {})
 
-    def test_014(self):
+    def test_016(self):
         self._check(ResConv1DBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 64])], {})
 
-    def test_015(self):
+    def test_017(self):
         self._check(ResConvBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_016(self):
+    def test_018(self):
         self._check(Resnet(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_017(self):
+    def test_019(self):
         self._check(Resnet1D(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 64])], {})
 
-    def test_018(self):
+    def test_020(self):
         self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
-    def test_019(self):
-        self._check(SyncBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_020(self):
+    def test_021(self):
         self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 

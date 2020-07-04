@@ -313,10 +313,13 @@ predictor_test = _module
 seq2seq_model_tests = _module
 task_load_save_test = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -366,6 +369,9 @@ import numpy as np
 
 
 from collections import Counter
+
+
+from torchtext.vocab import Vocab
 
 
 from torch import nn
@@ -492,6 +498,9 @@ import torch.jit.quantized
 
 
 import torch.multiprocessing as mp
+
+
+from torchtext.data import Iterator
 
 
 from inspect import getmembers
@@ -3612,56 +3621,63 @@ class Lazy(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_facebookresearch_pytext(_paritybench_base):
     pass
     def test_000(self):
+        self._check(BiLSTM(*[], **{'num_layers': 1, 'bidirectional': 4, 'embed_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+
+    def test_001(self):
         self._check(FCModelWithNanAndInfWts(*[], **{}), [torch.rand([10, 10])], {})
 
     @_fails_compile()
-    def test_001(self):
+    def test_002(self):
         self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_002(self):
+    def test_003(self):
         self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(MaxPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(MeanPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_005(self):
-        self._check(MultiLabelClassificationScores(*[], **{'scores': [ReLU()]}), [torch.rand([4, 4, 4, 4])], {})
+    def test_006(self):
+        self._check(MultiLabelClassificationScores(*[], **{'scores': [_mock_layer()]}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_006(self):
+    def test_007(self):
         self._check(NoPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_007(self):
+    def test_008(self):
         self._check(PlaceholderAttentionIdentity(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    def test_008(self):
+    def test_009(self):
         self._check(PlaceholderIdentity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_009(self):
+    def test_010(self):
         self._check(SelfAttention(*[], **{'config': _mock_config(dropout=0.5, attn_dimension=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_010(self):
+    def test_011(self):
         self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
 
     @_fails_compile()
-    def test_011(self):
+    def test_012(self):
         self._check(SlotAttention(*[], **{'config': _mock_config(attention_type=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
 
-    def test_012(self):
+    def test_013(self):
+        self._check(Transformer(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+
+    def test_014(self):
         self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_013(self):
+    def test_015(self):
         self._check(VectorNormalizer(*[], **{'dim': 4}), [], {})
 

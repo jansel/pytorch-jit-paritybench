@@ -36,10 +36,13 @@ optim = _module
 pc_viz = _module
 tf_logger = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -896,6 +899,75 @@ class SemiGCNConv(nn.Module):
         return out
 
 
+class GraphConv(nn.Module):
+    """
+    Static graph convolution layer
+    """
+
+    def __init__(self, in_channels, out_channels, conv='edge', act='relu',
+        norm=None, bias=True, heads=8):
+        super(GraphConv, self).__init__()
+        if conv.lower() == 'edge':
+            self.gconv = EdgConv(in_channels, out_channels, act, norm, bias)
+        elif conv.lower() == 'mr':
+            self.gconv = MRConv(in_channels, out_channels, act, norm, bias)
+        elif conv.lower() == 'gat':
+            self.gconv = GATConv(in_channels, out_channels // heads, act,
+                norm, bias, heads)
+        elif conv.lower() == 'gcn':
+            self.gconv = SemiGCNConv(in_channels, out_channels, act, norm, bias
+                )
+        elif conv.lower() == 'gin':
+            self.gconv = GinConv(in_channels, out_channels, act, norm, bias)
+        elif conv.lower() == 'sage':
+            self.gconv = RSAGEConv(in_channels, out_channels, act, norm,
+                bias, False)
+        elif conv.lower() == 'rsage':
+            self.gconv = RSAGEConv(in_channels, out_channels, act, norm,
+                bias, True)
+        else:
+            raise NotImplementedError('conv {} is not implemented'.format(conv)
+                )
+
+    def forward(self, x, edge_index):
+        return self.gconv(x, edge_index)
+
+
+class DynConv(GraphConv):
+    """
+    Dynamic graph convolution layer
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=9, dilation=1,
+        conv='edge', act='relu', norm=None, bias=True, heads=8, **kwargs):
+        super(DynConv, self).__init__(in_channels, out_channels, conv, act,
+            norm, bias, heads)
+        self.k = kernel_size
+        self.d = dilation
+        self.dilated_knn_graph = DilatedKnnGraph(kernel_size, dilation, **
+            kwargs)
+
+    def forward(self, x, batch=None):
+        edge_index = self.dilated_knn_graph(x, batch)
+        return super(DynConv, self).forward(x, edge_index)
+
+
+class ResDynBlock(nn.Module):
+    """
+    Residual Dynamic graph convolution block
+    """
+
+    def __init__(self, channels, kernel_size=9, dilation=1, conv='edge',
+        act='relu', norm=None, bias=True, res_scale=1, **kwargs):
+        super(ResDynBlock, self).__init__()
+        self.body = DynConv(channels, channels, kernel_size, dilation, conv,
+            act, norm, bias, **kwargs)
+        self.res_scale = res_scale
+
+    def forward(self, x, batch=None):
+        return self.body(x, batch) + x * self.res_scale, batch
+
+
 class DenseDynBlock(nn.Module):
     """
     Dense Dynamic graph convolution block
@@ -965,6 +1037,7 @@ class SmoothCrossEntropy(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_lightaime_deep_gcns_torch(_paritybench_base):

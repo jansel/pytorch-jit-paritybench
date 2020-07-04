@@ -51,10 +51,13 @@ util_sph = _module
 util_voxel = _module
 visualizer = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -100,10 +103,221 @@ from torch import tensor
 from torch import cat
 
 
+from torchvision.models import resnet18
+
+
 from torch.autograd import Variable
 
 
 from torch.nn import Module
+
+
+def depth_to_mesh_df(depth_im, th, jitter, upsample=0.6, cam_dist=2.0):
+    from util.util_camera import tsdf_renderer
+    depth = depth_im[:, :, (0)]
+    mask = np.where(depth == 0, -1.0, 1.0)
+    depth = 1 - depth
+    t = tsdf_renderer()
+    thl = th[0]
+    thh = th[1]
+    if jitter:
+        th = th + (np.random.rand(2) - 0.5) * 0.1
+        thl = np.min(th)
+        thh = np.max(th)
+    scale = thh - thl
+    depth = depth * scale
+    t.depth = (depth + thl) * mask
+    t.camera.focal_length = 0.05
+    t.camera.sensor_width = 0.03059411708155671
+    t.camera.position = np.array([-cam_dist, 0, 0])
+    t.camera.res = [480, 480]
+    t.camera.rx = np.array([0, 0, 1])
+    t.camera.ry = np.array([0, 1, 0])
+    t.camera.rz = -np.array([1, 0, 0])
+    t.back_project_ptcloud(upsample=upsample)
+    tdf = np.ones([128, 128, 128]) / 128
+    cnt = np.zeros([128, 128, 128])
+    for pts in t.ptcld:
+        pt = pts
+        ids = np.floor((pt + 0.5) * 128).astype(int)
+        if np.any(np.abs(pt) >= 0.5):
+            continue
+        center = (ids + 0.5) * 1 / 128 - 0.5
+        dist = ((center[0] - pt[0]) ** 2 + (center[1] - pt[1]) ** 2 + (
+            center[2] - pt[2]) ** 2) ** 0.5
+        n = cnt[ids[0], ids[1], ids[2]]
+        tdf[ids[0], ids[1], ids[2]] = (tdf[ids[0], ids[1], ids[2]] * n + dist
+            ) / (n + 1)
+        cnt[ids[0], ids[1], ids[2]] += 1
+    return tdf
+
+
+def make_sgrid(b, alpha, beta, gamma):
+    res = b * 2
+    pi = np.pi
+    phi = np.linspace(0, 180, res * 2 + 1)[1::2]
+    theta = np.linspace(0, 360, res + 1)[:-1]
+    grid = np.zeros([res, res, 3])
+    for idp, p in enumerate(phi):
+        for idt, t in enumerate(theta):
+            grid[idp, idt, 2] = np.cos(p * pi / 180)
+            proj = np.sin(p * pi / 180)
+            grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
+            grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
+    grid = np.reshape(grid, (res * res, 3))
+    return grid
+
+
+def render_model(mesh, sgrid):
+    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid,
+        ray_directions=-sgrid, multiple_hits=False, return_locations=True)
+    loc = loc.reshape((-1, 3))
+    grid_hits = sgrid[index_ray]
+    dist = np.linalg.norm(grid_hits - loc, axis=-1)
+    dist_im = np.ones(sgrid.shape[0])
+    dist_im[index_ray] = dist
+    im = dist_im
+    return im
+
+
+def resize(im, target_size, which_dim, interpolation='bicubic', clamp=None):
+    """
+    Resize one dimension of the image to a certain size while maintaining the aspect ratio
+
+    Args:
+        im: Image to resize
+            Any type that cv2.resize() accepts
+        target_size: Target horizontal or vertical dimension
+            Integer
+        which_dim: Which dimension to match target_size
+            'horizontal' or 'vertical'
+        interpolation: Interpolation method
+            'bicubic'
+            Optional; defaults to 'bicubic'
+        clamp: Clamp the resized image with minimum and maximum values
+            Array_likes of one smaller float and another larger float
+            Optional; defaults to None (no clamping)
+
+    Returns:
+        im_resized: Resized image
+            Numpy array with new horizontal and vertical dimensions
+    """
+    h, w = im.shape[:2]
+    if interpolation == 'bicubic':
+        interpolation = cv2.INTER_CUBIC
+    else:
+        raise NotImplementedError(interpolation)
+    if which_dim == 'horizontal':
+        scale_factor = target_size / w
+    elif which_dim == 'vertical':
+        scale_factor = target_size / h
+    else:
+        raise ValueError(which_dim)
+    im_resized = cv2.resize(im, None, fx=scale_factor, fy=scale_factor,
+        interpolation=interpolation)
+    if clamp is not None:
+        min_val, max_val = clamp
+        im_resized[im_resized < min_val] = min_val
+        im_resized[im_resized > max_val] = max_val
+    return im_resized
+
+
+def render_spherical(data, mask, obj_path=None, debug=False):
+    depth_im = data['depth'][(0), (0), :, :]
+    th = data['depth_minmax']
+    depth_im = resize(depth_im, 480, 'vertical')
+    im = resize(mask, 480, 'vertical')
+    gt_sil = np.where(im > 0.95, 1, 0)
+    depth_im = depth_im * gt_sil
+    depth_im = depth_im[:, :, (np.newaxis)]
+    b = 64
+    tdf = depth_to_mesh_df(depth_im, th, False, 1.0, 2.2)
+    try:
+        verts, faces, normals, values = measure.marching_cubes_lewiner(tdf,
+            0.999 / 128, spacing=(1 / 128, 1 / 128, 1 / 128))
+        mesh = trimesh.Trimesh(vertices=verts - 0.5, faces=faces)
+        sgrid = make_sgrid(b, 0, 0, 0)
+        im_depth = render_model(mesh, sgrid)
+        im_depth = im_depth.reshape(2 * b, 2 * b)
+        im_depth = np.where(im_depth > 1, 1, im_depth)
+    except:
+        im_depth = np.ones([128, 128])
+        return im_depth
+    return im_depth
+
+
+def sph_pad(sph_tensor, padding_margin=16):
+    F = torch.nn.functional
+    pad2d = padding_margin, padding_margin, padding_margin, padding_margin
+    rep_padded_sph = F.pad(sph_tensor, pad2d, mode='replicate')
+    _, _, h, w = rep_padded_sph.shape
+    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w -
+        2 * padding_margin:w - padding_margin]
+    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :,
+        padding_margin:2 * padding_margin]
+    return rep_padded_sph
+
+
+def gen_sph_grid(res=128):
+    pi = np.pi
+    phi = np.linspace(0, 180, res * 2 + 1)[1::2]
+    theta = np.linspace(0, 360, res + 1)[:-1]
+    grid = np.zeros([res, res, 3])
+    for idp, p in enumerate(phi):
+        for idt, t in enumerate(theta):
+            grid[idp, idt, 2] = np.cos(p * pi / 180)
+            proj = np.sin(p * pi / 180)
+            grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
+            grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
+    grid = np.reshape(grid, (1, 1, res, res, 3))
+    return torch.from_numpy(grid).float()
+
+
+class Net(nn.Module):
+
+    def __init__(self, opt, base_class):
+        super().__init__()
+        self.base_class = base_class
+        self.depth_and_inpaint = Depth_inpaint_net(opt, base_class)
+        self.refine_net = Unet_3D()
+        self.proj_depth = Camera_back_projection_layer()
+        self.joint_train = opt.joint_train
+        self.register_buffer('grid', gen_sph_grid())
+        self.grid = self.grid.expand(1, -1, -1, -1, -1)
+        self.proj_spherical = SphericalBackProjection().apply
+        self.margin = opt.padding_margin
+        if opt.inpaint_path is not None:
+            state_dicts = torch.load(opt.inpaint_path)
+            self.depth_and_inpaint.load_state_dict(state_dicts['nets'][0])
+
+    def forward(self, input_struct):
+        if not self.joint_train:
+            with torch.no_grad():
+                out_1 = self.depth_and_inpaint(input_struct)
+        else:
+            out_1 = self.depth_and_inpaint(input_struct)
+        proj_depth = out_1['proj_depth']
+        pred_sph = out_1['pred_sph_full']
+        pred_proj_sph = self.backproject_spherical(pred_sph)
+        proj_depth = torch.clamp(proj_depth / 50, 1e-05, 1 - 1e-05)
+        refine_input = torch.cat((pred_proj_sph, proj_depth), dim=1)
+        pred_voxel = self.refine_net(refine_input)
+        out_1['pred_proj_depth'] = proj_depth
+        out_1['pred_voxel'] = pred_voxel
+        out_1['pred_proj_sph_full'] = pred_proj_sph
+        return out_1
+
+    def backproject_spherical(self, sph):
+        batch_size, _, h, w = sph.shape
+        grid = self.grid[(0), :, :, :, :]
+        grid = grid.expand(batch_size, -1, -1, -1, -1)
+        crop_sph = sph[:, :, self.margin:h - self.margin, self.margin:w -
+            self.margin]
+        proj_df, cnt = self.proj_spherical(1 - crop_sph, grid, 128)
+        mask = torch.clamp(cnt.detach(), 0, 1)
+        proj_df = (-proj_df + 1 / 128) * 128
+        proj_df = proj_df * mask
+        return proj_df
 
 
 class Net(nn.Module):
@@ -169,6 +383,66 @@ class Net(nn.Module):
         latent_vec = self.encoder(x)
         vox = self.decoder(latent_vec)
         return vox
+
+
+class Camera_back_projection_layer(nn.Module):
+
+    def __init__(self, res):
+        super(Camera_back_projection_layer, self).__init__()
+        self.res = res
+
+    def forward(self, depth_t, fl=784.4645406, cam_dist=2.2):
+        n = depth_t.size(0)
+        if isinstance(fl, float):
+            fl_v = fl
+            fl = torch.FloatTensor(n, 1)
+            fl.fill_(fl_v)
+        if isinstance(cam_dist, float):
+            cmd_v = cam_dist
+            cam_dist = torch.FloatTensor(n, 1)
+            cam_dist.fill_(cmd_v)
+        return CameraBackProjection.apply(depth_t, fl, cam_dist, self.res)
+
+    @staticmethod
+    def shift_tdf(input_tdf, res=128):
+        out_tdf = 1 - res * input_tdf
+        return out_tdf
+
+
+class Net(nn.Module):
+    """
+       3D Estimator   D of GAN
+    2.5D --------> 3D --------> real/fake
+         finetuned     fixed
+    """
+
+    def __init__(self, marrnet2_path=None, gan_path=None):
+        super().__init__()
+        self.marrnet2 = Marrnet2(4)
+        self.marrnet2_noft = Marrnet2(4)
+        if marrnet2_path:
+            state_dicts = torch.load(marrnet2_path)
+            state_dict = state_dicts['nets'][0]
+            self.marrnet2.load_state_dict(state_dict)
+            self.marrnet2_noft.load_state_dict(state_dict)
+        self.d = D()
+        if gan_path:
+            state_dicts = torch.load(gan_path)
+            self.d.load_state_dict(state_dicts['nets'][1])
+        for p in self.d.parameters():
+            p.requires_grad = False
+        for p in self.marrnet2_noft.parameters():
+            p.requires_grad = False
+        for p in self.marrnet2.parameters():
+            p.requires_grad = True
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input_struct):
+        pred = {}
+        pred['voxel_noft'] = self.marrnet2_noft(input_struct)
+        pred['voxel'] = self.marrnet2(input_struct)
+        pred['is_real'] = self.d(self.sigmoid(pred['voxel']))
+        return pred
 
 
 class ImageEncoder(nn.Module):
@@ -656,7 +930,70 @@ class camera_backprojection(nn.Module):
         return self.backprojection_layer(depth, fl, camdist, self.voxel_res)
 
 
+def nndistance(xyz1, xyz2):
+    if xyz1.size(2) != 3:
+        xyz1 = xyz1.transpose(1, 2)
+    if xyz2.size(2) != 3:
+        xyz2 = xyz2.transpose(1, 2)
+    xyz1 = xyz1.contiguous()
+    xyz2 = xyz2.contiguous()
+    dist1, dist2, _, _ = NNDFunction.apply(xyz1, xyz2)
+    return dist1, dist2
+
+
+class NNDModule(Module):
+
+    def forward(self, input1, input2):
+        return nndistance(input1, input2)
+
+
+class render_spherical(torch.nn.Module):
+
+    def __init__(self, sph_res=128, z_res=256):
+        super().__init__()
+        self.sph_res = sph_res
+        self.z_res = z_res
+        self.gen_grid()
+        self.calc_stop_prob = CalcStopProb().apply
+
+    def gen_grid(self):
+        res = self.sph_res
+        z_res = self.z_res
+        pi = np.pi
+        phi = np.linspace(0, 180, res * 2 + 1)[1::2]
+        theta = np.linspace(0, 360, res + 1)[:-1]
+        grid = np.zeros([res, res, 3])
+        for idp, p in enumerate(phi):
+            for idt, t in enumerate(theta):
+                grid[idp, idt, 2] = np.cos(p * pi / 180)
+                proj = np.sin(p * pi / 180)
+                grid[idp, idt, 0] = proj * np.cos(t * pi / 180)
+                grid[idp, idt, 1] = proj * np.sin(t * pi / 180)
+        grid = np.reshape(grid * 2, (res, res, 3))
+        alpha = np.zeros([1, 1, z_res, 1])
+        alpha[(0), (0), :, (0)] = np.linspace(0, 1, z_res)
+        grid = grid[:, :, (np.newaxis), :]
+        grid = grid * (1 - alpha)
+        grid = torch.from_numpy(grid).float()
+        depth_weight = torch.linspace(0, 1, self.z_res)
+        self.register_buffer('depth_weight', depth_weight)
+        self.register_buffer('grid', grid)
+
+    def forward(self, vox):
+        grid = self.grid.expand(vox.shape[0], -1, -1, -1, -1)
+        vox = vox.permute(0, 1, 4, 3, 2)
+        prob_sph = torch.nn.functional.grid_sample(vox, grid)
+        prob_sph = torch.clamp(prob_sph, 1e-05, 1 - 1e-05)
+        sph_stop_prob = self.calc_stop_prob(prob_sph)
+        exp_depth = torch.matmul(sph_stop_prob, self.depth_weight)
+        back_groud_prob = torch.prod(1.0 - prob_sph, dim=4)
+        back_groud_prob = back_groud_prob * 1.0
+        exp_depth = exp_depth + back_groud_prob
+        return exp_depth
+
+
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
@@ -668,12 +1005,15 @@ class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
         self._check(Deconv3d_skip(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {})
 
     def test_002(self):
+        self._check(ImageEncoder(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(RevBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
-    def test_003(self):
+    def test_004(self):
         self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    def test_004(self):
+    def test_005(self):
         self._check(VoxelDecoder(*[], **{}), [torch.rand([4, 200])], {})
 

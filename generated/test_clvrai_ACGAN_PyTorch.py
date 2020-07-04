@@ -6,10 +6,13 @@ main = _module
 network = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -43,6 +46,15 @@ import torch.optim as optim
 import torch.utils.data
 
 
+import torchvision.datasets as dset
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision.utils as vutils
+
+
 from torch.autograd import Variable
 
 
@@ -65,7 +77,7 @@ class _netG(nn.Module):
             =False), nn.Tanh())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             input = input.view(-1, self.nz)
             fc1 = nn.parallel.data_parallel(self.fc1, input, range(self.ngpu))
             fc1 = fc1.view(-1, 768, 1, 1)
@@ -121,7 +133,7 @@ class _netD(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             conv1 = nn.parallel.data_parallel(self.conv1, input, range(self
                 .ngpu))
             conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self
@@ -171,7 +183,7 @@ class _netG_CIFAR10(nn.Module):
             =False), nn.Tanh())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             input = input.view(-1, self.nz)
             fc1 = nn.parallel.data_parallel(self.fc1, input, range(self.ngpu))
             fc1 = fc1.view(-1, 384, 1, 1)
@@ -224,7 +236,7 @@ class _netD_CIFAR10(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             conv1 = nn.parallel.data_parallel(self.conv1, input, range(self
                 .ngpu))
             conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self
@@ -258,6 +270,7 @@ class _netD_CIFAR10(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_clvrai_ACGAN_PyTorch(_paritybench_base):

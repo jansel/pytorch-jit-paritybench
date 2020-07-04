@@ -64,10 +64,13 @@ segmentation = _module
 torch2trt = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -84,6 +87,9 @@ import torch.nn as nn
 
 
 import torch
+
+
+import torchvision
 
 
 from copy import copy
@@ -608,7 +614,7 @@ class TRTModule(torch.nn.Module):
         for i, input_name in enumerate(self.input_names):
             idx = self.engine.get_binding_index(input_name)
             bindings[idx] = inputs[i].data_ptr()
-        self.context.execute_async(batch_size, bindings, torch.cuda.
+        self.context.execute_async(batch_size, bindings, torch.
             current_stream().cuda_stream)
         outputs = tuple(outputs)
         if len(outputs) == 1:
@@ -621,6 +627,7 @@ class TRTModule(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
@@ -644,7 +651,7 @@ class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
         self._check(ISub(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
     def test_006(self):
-        self._check(LambdaModule(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaModule(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_007(self):
         self._check(MaxElementwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
@@ -750,5 +757,5 @@ class Test_NVIDIA_AI_IOT_torch2trt(_paritybench_base):
         self._check(Transpose(*[], **{'dim0': 4, 'dim1': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
 
     def test_041(self):
-        self._check(UnaryModule(*[], **{'fn': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(UnaryModule(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -63,10 +63,13 @@ wav2letter = _module
 sox_effects = _module
 transforms = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -85,6 +88,9 @@ import math
 import torch
 
 
+import torchaudio
+
+
 from torch import Tensor
 
 
@@ -101,6 +107,12 @@ from typing import Callable
 
 
 from warnings import warn
+
+
+from torchaudio import functional as F
+
+
+from torchaudio.compliance import kaldi
 
 
 class Wav2Letter(nn.Module):
@@ -1038,14 +1050,46 @@ class Vad(torch.nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_pytorch_audio(_paritybench_base):
     pass
     def test_000(self):
+        self._check(AmplitudeToDB(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_001(self):
+        self._check(ComplexNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_002(self):
+        self._check(ComputeDeltas(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_003(self):
         self._check(Fade(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
+    def test_004(self):
+        self._check(MFCC(*[], **{}), [torch.rand([4, 4, 256, 256])], {})
+
+    def test_005(self):
+        self._check(MelScale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_006(self):
+        self._check(MelSpectrogram(*[], **{}), [torch.rand([4, 4, 256, 256])], {})
+
+    def test_007(self):
+        self._check(MuLawDecoding(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_008(self):
+        self._check(MuLawEncoding(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
     @_fails_compile()
-    def test_001(self):
+    def test_009(self):
+        self._check(Resample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_010(self):
+        self._check(Spectrogram(*[], **{}), [torch.rand([4, 4, 256, 256])], {})
+
+    @_fails_compile()
+    def test_011(self):
         self._check(Vol(*[], **{'gain': 4}), [torch.rand([4, 4, 4, 4])], {})
 

@@ -16,10 +16,13 @@ log_likelihood = _module
 plotting = _module
 visual_evaluation = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -68,7 +71,7 @@ class VAE(nn.Module):
         self.p_x_nn, self.p_x_mean = self.create_decoder()
         self.q_z_nn_output_dim = 256
         if args.cuda:
-            self.FloatTensor = torch.cuda.FloatTensor
+            self.FloatTensor = torch.FloatTensor
         else:
             self.FloatTensor = torch.FloatTensor
         self.log_det_j = Variable(self.FloatTensor(1).zero_())
@@ -378,7 +381,7 @@ class IAF(nn.Module):
             linear_std = ar_layer(h_size, z_size, diagonal_zeros=True)
             self.param_list += list(linear_mean.parameters())
             self.param_list += list(linear_std.parameters())
-            if torch.cuda.is_available():
+            if torch.is_available():
                 z_feats = z_feats
                 zh_feats = zh_feats
                 linear_mean = linear_mean
@@ -473,7 +476,7 @@ class MaskedLinear(nn.Module):
         else:
             self.register_parameter('bias', None)
         mask = torch.from_numpy(self.build_mask())
-        if torch.cuda.is_available():
+        if torch.is_available():
             mask = mask
         self.mask = torch.autograd.Variable(mask, requires_grad=False)
         self.reset_parameters()
@@ -541,7 +544,7 @@ class MaskedConv2d(nn.Module):
         else:
             self.register_parameter('bias', None)
         mask = torch.from_numpy(self.build_mask())
-        if torch.cuda.is_available():
+        if torch.is_available():
             mask = mask
         self.mask = torch.autograd.Variable(mask, requires_grad=False)
         self.reset_parameters()
@@ -592,6 +595,7 @@ class MaskedConv2d(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_riannevdberg_sylvester_flows(_paritybench_base):
@@ -606,11 +610,5 @@ class Test_riannevdberg_sylvester_flows(_paritybench_base):
         self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_003(self):
-        self._check(MaskedConv2d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(MaskedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
-
-    def test_005(self):
         self._check(Planar(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
 

@@ -53,10 +53,13 @@ image_summaries = _module
 safe_summary_writer = _module
 summarizable_module = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -76,6 +79,9 @@ import torch
 
 
 import torch.nn.functional as F
+
+
+import torchvision
 
 
 from torch.nn import functional as F
@@ -202,6 +208,26 @@ class RGBHead(nn.Module):
         return self.head(x)
 
 
+class Head(nn.Module):
+    """
+    Go from Cin channels to Cf channels.
+    For L3C, Cin=Cf, and this is the convolution yielding E^{s+1}_in in Fig. 2.
+
+    """
+
+    def __init__(self, config_ms, Cin):
+        super(Head, self).__init__()
+        assert 'Subsampling' not in config_ms.enc.cls, 'For Subsampling encoders, head should be ID'
+        self.head = conv(Cin, config_ms.Cf, config_ms.kernel_size)
+        self._repr = f'Conv({config_ms.Cf})'
+
+    def __repr__(self):
+        return f'Head({self._repr})'
+
+    def forward(self, x):
+        return self.head(x)
+
+
 EncOut = namedtuple('EncOut', ['bn', 'bn_q', 'S', 'L', 'F'])
 
 
@@ -249,6 +275,19 @@ def resize_bicubic_batch(t, fac):
     N = t.shape[0]
     return torch.stack([resize_bicubic(t[n, ...], fac) for n in range(N)],
         dim=0)
+
+
+class Net(nn.Module):
+
+    def __init__(self, config_ms, scale):
+        super(Net, self).__init__()
+        self.config_ms = config_ms
+        self.enc = {'EDSRLikeEnc': EDSRLikeEnc, 'BicubicSubsampling':
+            BicubicDownsamplingEnc}[config_ms.enc.cls](config_ms, scale)
+        self.dec = {'EDSRDec': EDSRDec}[config_ms.dec.cls](config_ms, scale)
+
+    def forward(self, x):
+        raise NotImplementedError()
 
 
 DecOut = namedtuple('DecOut', ['F'])
@@ -453,6 +492,16 @@ class OneHot(nn.Module):
         return one_hot(x, self.L, self.Ldim)
 
 
+def _convert_if_callable(v):
+    if hasattr(v, '__call__'):
+        return v()
+    return v
+
+
+def normalize_to_0_1(t):
+    return t.add(-t.min()).div(t.max() - t.min() + 1e-05)
+
+
 def iter_modules_of_class(root_module: nn.Module, cls):
     """
     Helpful for extending nn.Module. How to use:
@@ -466,12 +515,13 @@ def iter_modules_of_class(root_module: nn.Module, cls):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_fab_jul_L3C_PyTorch(_paritybench_base):
     pass
     def test_000(self):
-        self._check(LambdaModule(*[], **{'forward_lambda': ReLU()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(LambdaModule(*[], **{'forward_lambda': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
     def test_001(self):
         self._check(LogitsToChannelTranspose(*[], **{}), [torch.rand([4, 4, 4, 4, 4])], {})

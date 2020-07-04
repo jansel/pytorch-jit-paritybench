@@ -38,10 +38,13 @@ bilstm_tagger = _module
 tagger = _module
 transformer_tagger = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -61,6 +64,15 @@ from time import sleep
 
 
 import numpy as np
+
+
+import torchtext
+
+
+from torchtext import data
+
+
+from torchtext import datasets
 
 
 import logging
@@ -170,7 +182,7 @@ class Model(nn.Module):
         model_dir = gen_model_dir(task_name, cls)
         model = cls(hparams, **kwargs)
         model.apply(xavier_uniform_init)
-        if torch.cuda.is_available():
+        if torch.is_available():
             model = model
         prepare_model_dir(model_dir, overwrite)
         torch.save(hparams, os.path.join(model_dir, HYPERPARAMS_FILE))
@@ -192,7 +204,7 @@ class Model(nn.Module):
         hparams = torch.load(hparams_path)
         logger.info('Hyperparameters: {}'.format(str(hparams)))
         model = cls(hparams, **kwargs)
-        if torch.cuda.is_available():
+        if torch.is_available():
             model = model
         if checkpoint == -1:
             files = glob.glob(os.path.join(model_dir, CHECKPOINT_GLOB))
@@ -770,6 +782,7 @@ class PositionwiseFeedForward(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_kolloldas_torchnlp(_paritybench_base):

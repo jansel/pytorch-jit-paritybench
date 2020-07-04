@@ -58,10 +58,13 @@ fuse_model = _module
 gen_img_list = _module
 rename_n_freeze_layers = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -95,13 +98,25 @@ import torch.backends.cudnn as cudnn
 import logging
 
 
+import torchvision
+
+
 import torch.utils.data
 
 
 import torch.functional as F
 
 
+from torchvision.models import resnet
+
+
+from torchvision.models.resnet import conv3x3
+
+
 import random
+
+
+from torchvision.datasets.folder import *
 
 
 from torch.optim import SGD
@@ -163,7 +178,7 @@ class NetG(nn.Module):
             4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             output = nn.parallel.data_parallel(self.main, input, range(self
                 .ngpu))
         else:
@@ -186,12 +201,36 @@ class NetD(nn.Module):
             4, 1, 0, bias=False), nn.Sigmoid())
 
     def forward(self, input):
-        if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             output = nn.parallel.data_parallel(self.main, input, range(self
                 .ngpu))
         else:
             output = self.main(input)
         return output.view(-1, 1).squeeze(1)
+
+
+class UNetConvBlock(nn.Module):
+
+    def __init__(self, input_nch, output_nch, kernel_size=3, activation=F.
+        leaky_relu, use_bn=True, same_conv=True):
+        super(UNetConvBlock, self).__init__()
+        padding = kernel_size // 2 if same_conv else 0
+        self.conv0 = nn.Conv2d(input_nch, output_nch, kernel_size, padding=
+            padding)
+        self.conv1 = nn.Conv2d(output_nch, output_nch, kernel_size, padding
+            =padding)
+        self.act = activation
+        self.batch_norm = nn.BatchNorm2d(output_nch) if use_bn else None
+
+    def forward(self, x):
+        x = self.conv0(x)
+        if self.batch_norm:
+            x = self.batch_norm(x)
+        x = self.act(x)
+        x = self.conv1(x)
+        if self.batch_norm:
+            x = self.batch_norm(x)
+        return self.act(x)
 
 
 class UNet(nn.Module):
@@ -368,6 +407,7 @@ class MSCrossEntropyLoss2D(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_frombeijingwithlove_dlcv_for_beginners(_paritybench_base):
@@ -375,19 +415,33 @@ class Test_frombeijingwithlove_dlcv_for_beginners(_paritybench_base):
     def test_000(self):
         self._check(BasicResBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
     def test_001(self):
-        self._check(NetD(*[], **{'ndf': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(DeepMLP(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_002(self):
-        self._check(NetG(*[], **{'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NetD(*[], **{'ndf': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 64, 64])], {})
 
     @_fails_compile()
     def test_003(self):
-        self._check(PSPTriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(NetG(*[], **{'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
 
     @_fails_compile()
     def test_004(self):
+        self._check(PSPTriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+
+    def test_005(self):
+        self._check(SimpleMLP(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_006(self):
         self._check(TriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+
+    @_fails_compile()
+    def test_007(self):
+        self._check(UNet(*[], **{'conv_channels': [4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+
+    @_fails_compile()
+    def test_008(self):
+        self._check(UNetConvBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
 

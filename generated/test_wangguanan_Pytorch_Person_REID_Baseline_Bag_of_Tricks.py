@@ -34,10 +34,13 @@ metric = _module
 transforms2 = _module
 utils = _module
 
-from _paritybench_helpers import _mock_config
+from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
+import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import numpy as np
+patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
@@ -63,6 +66,9 @@ import torch.nn.functional as F
 
 
 import numpy as np
+
+
+import torchvision
 
 
 import warnings
@@ -784,6 +790,7 @@ class CrossEntropyLabelSmooth(nn.Module):
 
 
 import torch
+from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
 class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_base):
@@ -811,7 +818,7 @@ class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_ba
 
     @_fails_compile()
     def test_007(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
 
     def test_008(self):
         self._check(IBN(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
@@ -822,9 +829,17 @@ class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_ba
     def test_010(self):
         self._check(LightConvStream(*[], **{'in_channels': 4, 'out_channels': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
 
+    @_fails_compile()
     def test_011(self):
-        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(Model(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
 
     def test_012(self):
+        self._check(OSBlock(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    def test_013(self):
         self._check(OSBlockINin(*[], **{'in_channels': 64, 'out_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+
+    @_fails_compile()
+    def test_014(self):
+        self._check(Res50BNNeck(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
 

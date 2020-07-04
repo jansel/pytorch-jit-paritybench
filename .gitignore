@@ -8,8 +8,11 @@ errors.csv
 __pycache__
 paritybench_download
 paritybench_download.tar.bz2
-output.log
+output.*
 *.last
 *.pyc
 *.rej
 *.swo
+data
+runs
+facelet_bank
